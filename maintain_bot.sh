@@ -20,6 +20,23 @@ if [ -z "$TMUX" ]; then
     exit 1
 fi
 
+# --- NEW: Add a 'logs' command to view the latest log file ---
+if [ "$1" == "logs" ]; then
+    LOG_DIR="logs"
+    if [ ! -d "$LOG_DIR" ]; then
+        echo "Log directory '$LOG_DIR' not found."
+        exit 1
+    fi
+    LATEST_LOG=$(ls -t "$LOG_DIR"/startup_log_*.log 2>/dev/null | head -n 1)
+    if [ -z "$LATEST_LOG" ]; then
+        echo "No log files found in '$LOG_DIR'."
+        exit 1
+    fi
+    echo "Showing latest log file: $LATEST_LOG"
+    less -R "$LATEST_LOG"
+    exit 0
+fi
+
 # --- NEW: Create the bot pane once and get its ID ---
 # --- FIX: Ensure start_bot.sh is executable before running ---
 chmod +x ./start_bot.sh

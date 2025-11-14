@@ -24,10 +24,6 @@ trap cleanup EXIT
 
 echo "Logging this session to: $LOG_FILE"
 
-# The 'exec > >(tee -a "$LOG_FILE") 2>&1' part redirects all subsequent
-# standard output and standard error to both the console and the log file.
-exec > >(tee -a "$LOG_FILE") 2>&1
-
 echo "Setting environment variables for the bot..."
 export DISCORD_BOT_TOKEN="MTQzODU5NTUzNjE1MTM4MDAxOA.GwuLkF.NYHg6QXtQfhGIPK6SRA8TxDo4-wOtJrTzn00EU"
 export GEMINI_API_KEY="AIzaSyD7h08ULN7KXhYCFFiIa6MPEbN_TnL5COU"
@@ -79,4 +75,7 @@ find "$BACKUP_DIR" -type f -name "*.sql" -mtime +7 -print -delete
 echo "Cleanup complete."
 
 echo "Starting the bot... (Press CTRL+C to stop)"
-python3 ./bot.py
+# --- FIX: Pipe the bot's output to tee for reliable logging in tmux ---
+# This sends all output (stdout and stderr) from the Python script to the tee command,
+# which then writes it to both the console (the tmux pane) and the log file.
+python3 ./bot.py 2>&1 | tee -a "$LOG_FILE"
