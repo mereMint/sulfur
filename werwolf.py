@@ -59,16 +59,16 @@ class WerwolfGame:
         if not text:
             return 2.0 # Default duration
         
-        words = text.split()
-        word_count = len(words)
+        char_count = len(text)
         
-        # Average speaking rate for German is ~140-150 WPM.
-        # We use a slightly slower rate for clarity and dramatic effect.
-        wpm = 40 # Further reduced for even more reading time
-        duration_seconds = (word_count / wpm) * 60
+        # Average reading speed is about 15 characters per second.
+        # We'll use a slower rate for TTS to be safe.
+        chars_per_second = 12
+        duration_seconds = char_count / chars_per_second
         
         # Add a minimum duration and a small buffer.
-        return max(3.5, duration_seconds) + 2.0 # Increased base and buffer
+        # Increased minimum to 4s and buffer to 3s to give more time.
+        return max(4.0, duration_seconds) + 3.0
 
     async def log_event(self, event_text: str, send_tts: bool = False):
         """Adds an event to the log and optionally sends a TTS message."""
@@ -95,23 +95,17 @@ class WerwolfGame:
             return
 
         title = "Werwolf"
-        color = discord.Color.default()
+        color = discord.Color(int(self.config.get('bot', {}).get('embed_color', '#7289DA').lstrip('#'), 16))
 
         if self.phase == "night":
             title = f"Werwolf - Nacht {self.day_number}"
-            color = discord.Color.dark_blue()
         elif self.phase == "day":
             title = f"Werwolf - Tag {self.day_number}"
-            color = discord.Color.light_grey()
         elif self.phase == "finished":
             title = f"Werwolf - Spiel beendet"
-            color = discord.Color.gold()
-
-        # Use the latest event as the main description if no specific status is given
-        description = status_text or self.event_log[-1] if self.event_log else "Das Spiel beginnt..."
+        description = status_text or (self.event_log[-1] if self.event_log else "Das Spiel beginnt...")
 
         embed = discord.Embed(title=title, description=description, color=color)
-
         alive_players = self.get_alive_players()
         if alive_players:
             embed.add_field(name=f"Lebende Spieler ({len(alive_players)})", value="\n".join([p.user.display_name for p in alive_players]), inline=False)
@@ -126,7 +120,7 @@ class WerwolfGame:
             embed.add_field(name="Aktuelle Stimmen", value=leaderboard, inline=False)
 
         # If a view is not explicitly passed, use the one from the game object or an empty one
-        if view is None:
+        if view is None and self.phase != "finished":
             view = self.voting_view or View.from_message(self.game_state_message) if self.game_state_message else discord.ui.View()
 
         if self.game_state_message:
@@ -302,7 +296,7 @@ class WerwolfGame:
         await self.log_event(f"Nacht {self.day_number} beginnt. Alle schlafen ein.", send_tts=True)
 
         # --- MODIFIED: Ensure player list is shown at night start ---
-        await self.update_game_state_embed(status_text="Die Nacht bricht herein. Besondere Rollen, nutzt jetzt eure Fähigkeiten.\n- Seherin: `/ww see <name>`\n- Hexe: `/ww heal`, `/ww poison <name>`\n- Dönerstopfer: `/ww mute <name>`")
+        await self.update_game_state_embed(status_text="Die Nacht bricht herein. Besondere Rollen, schickt mir jetzt eure Aktionen als DM (private Nachricht).\n- **Werwolf**: `kill <name>`\n- **Seherin**: `see <name>`\n- **Hexe**: `heal` oder `poison <name>`\n- **Dönerstopfer**: `mute <name>`")
 
         # --- Bot Night Actions ---
         print("  [WW] Processing bot night actions...")
@@ -345,7 +339,7 @@ class WerwolfGame:
 
         # The night now ends only when all special roles have acted.
 
-    async def handle_night_action(self, author_player, command, target_player):
+    async def handle_night_action(self, author_player, command, target_player, config, gemini_key, openai_key):
         """Handles a night action from a player (kill or see)."""
         if self.phase != "night":
             return "Es ist nicht Nacht."
@@ -549,13 +543,27 @@ class WerwolfGame:
         # Bots now vote immediately and sequentially
         for player in self.get_alive_players():
             if self.is_bot_player(player):
-                # Bot votes for a random living player that isn't themself
-                targets = [p for p in self.get_alive_players() if p.user.id != player.user.id]
-                if targets:
-                    target = random.choice(targets)
-                    self.handle_day_vote(player, target)
-                    await self.voting_view.update_message()
-                    await asyncio.sleep(0.5) # Small delay between bot votes
+                # --- NEW: Smarter bot voting logic ---
+                # Bots will tend to vote for players who already have votes (bandwagon effect).
+                # This makes them seem more decisive and less random.
+                
+                # Get current vote counts, excluding the bot's own potential vote
+                vote_counts = self.voting_view.get_vote_counts()
+                
+                # Create a weighted list of potential targets
+                potential_targets = []
+                for p in self.get_alive_players():
+                    if p.user.id == player.user.id: continue # Can't vote for self
+                    # Each player gets one entry by default.
+                    # For each vote they already have, they get 3 extra entries, making them a more likely target.
+                    weight = 1 + (vote_counts.get(p.user.id, 0) * 3)
+                    potential_targets.extend([p] * weight)
+
+                if potential_targets:
+                    target = random.choice(potential_targets)
+                    self.handle_day_vote(player, target) # Register the vote
+                    await self.voting_view.update_message() # Update the view to show the new vote
+                    await asyncio.sleep(random.uniform(0.5, 1.5)) # Stagger bot votes
         # After all bots have voted, check if the voting can end early
         await self.voting_view.check_if_all_voted()
 
@@ -666,7 +674,7 @@ class WerwolfGame:
         if winner:
             await self.end_game(self.config, winner_team=winner)
         else:
-            await self.start_night(self.config)
+            await self.start_night()
 
     async def skip_lynch(self):
         """Handles the logic when a day is skipped."""
@@ -758,7 +766,8 @@ class WerwolfGame:
 
         # --- NEW: Post summary to original channel ---
         if self.original_channel:
-            summary_embed = discord.Embed(title="Werwolf - Spielzusammenfassung", description=winner_message, color=discord.Color.gold())
+            embed_color = discord.Color(int(self.config.get('bot', {}).get('embed_color', '#7289DA').lstrip('#'), 16))
+            summary_embed = discord.Embed(title="Werwolf - Spielzusammenfassung", description=winner_message, color=embed_color)
             player_roles = []
             for p in self.players.values():
                 player_roles.append(f"**{p.user.display_name}**: {p.role}")
@@ -769,13 +778,11 @@ class WerwolfGame:
                 print(f"Could not send summary to original channel {self.original_channel.id}")
 
         # Final update to the in-game embed
-        try:
-            if self.game_state_message:
-                final_embed = discord.Embed(title="Werwolf - Spiel beendet", description=winner_message, color=discord.Color.gold())
-                await self.game_state_message.edit(embed=final_embed, view=None) # Pass None to remove buttons
-        except discord.NotFound:
-            pass # Message might already be gone
-
+        if self.game_state_message:
+            try:
+                await self.update_game_state_embed(status_text=winner_message, view=None)
+            except discord.NotFound:
+                pass # Message might already be gone
         self.phase = "finished"
 
         # Delete the entire category, which cleans up all channels within it.
@@ -857,6 +864,14 @@ class VotingView(View):
                 vote_counts[p.voted_for] = vote_counts.get(p.voted_for, 0) + 1
         
         return "\n".join([f"**{self.game.players[uid].user.display_name if uid != 'skip' else 'Überspringen'}**: {count} Stimme(n)" for uid, count in vote_counts.items()]) or "Noch keine Stimmen."
+
+    def get_vote_counts(self):
+        """Helper to get a dictionary of vote counts."""
+        vote_counts = {}
+        for p in self.game.get_alive_players():
+            if p.voted_for:
+                vote_counts[p.voted_for] = vote_counts.get(p.voted_for, 0) + 1
+        return vote_counts
 
 
     async def update_timer(self):

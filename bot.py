@@ -187,6 +187,11 @@ async def replace_emoji_tags(text, client):
             text = text.replace(f":{tag}:", emoji_map[tag])
     return text
 
+def get_embed_color(config_obj):
+    """Helper function to parse the hex color from config into a discord.Color object."""
+    hex_color = config_obj.get('bot', {}).get('embed_color', '#7289DA') # Default to blurple
+    return discord.Color(int(hex_color.lstrip('#'), 16))
+
 @client.event
 async def on_ready():
     """Fires when the bot logs in."""
@@ -494,10 +499,10 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
         return
 
     print(f"  - [Wrapped] Generating for {user.name} ({user.id})...")
-
+    
     pages = []
-    color = user.color or discord.Color.purple()
-
+    color = get_embed_color(config)
+    
     # Find favorite channel
     fav_channel_id = None
     if user_stats.get('channel_usage'):
@@ -1075,9 +1080,9 @@ async def summary(interaction: discord.Interaction, user: discord.Member = None)
         return
 
     embed = discord.Embed(
-        title=f"Meine Meinung zu {target_user.display_name}",
+        title=f"Meine Meinung zu {target_user.display_name}", 
         description=f"_{summary_text}_",
-        color=target_user.color
+        color=get_embed_color(config)
     )
     await interaction.followup.send(embed=embed)
 
@@ -1107,11 +1112,11 @@ async def rank(interaction: discord.Interaction, user: discord.Member = None):
     progress = int((xp / xp_for_next_level) * 20) # 20 characters for the bar
     progress_bar = '█' * progress + '░' * (20 - progress)
 
-    embed = discord.Embed(color=target_user.color)
-    embed.set_author(name=f"Rang von {target_user.display_name}", icon_url=target_user.display_avatar.url)
-    embed.add_field(name="Level", value=f"```{level}```", inline=True)
-    embed.add_field(name="Server Rang", value=f"```#{rank}```", inline=True)
-    embed.add_field(name="Fortschritt", value=f"`{xp} / {xp_for_next_level} XP`\n`{progress_bar}`", inline=False)
+    embed = discord.Embed(color=get_embed_color(config)) 
+    embed.set_author(name=f"Rang von {target_user.display_name}", icon_url=target_user.display_avatar.url) 
+    embed.add_field(name="Level", value=f"```{level}```", inline=True) 
+    embed.add_field(name="Global Rang", value=f"```#{rank}```", inline=True) 
+    embed.add_field(name="Fortschritt", value=f"`{xp} / {xp_for_next_level} XP`\n`{progress_bar}`", inline=False) 
 
     await interaction.followup.send(embed=embed)
 
@@ -1130,7 +1135,7 @@ async def leaderboard(interaction: discord.Interaction):
         await interaction.followup.send("Noch niemand hat XP gesammelt. Schreibt ein paar Nachrichten!", ephemeral=True)
         return
 
-    embed = discord.Embed(title="🏆 Globales Leaderboard 🏆", description="Die aktivsten Mitglieder des Servers.", color=discord.Color.purple())
+    embed = discord.Embed(title="🏆 Globales Leaderboard 🏆", description="Die aktivsten Mitglieder", color=get_embed_color(config))
     
     leaderboard_text = ""
     for i, player in enumerate(leaderboard_data):
@@ -1154,7 +1159,7 @@ async def stats(interaction: discord.Interaction):
         await interaction.followup.send("Es gibt noch keine Statistiken. Spielt erst mal eine Runde!", ephemeral=True)
         return
 
-    embed = discord.Embed(title="🐺 Werwolf Leaderboard 🐺", description="Die Top-Spieler mit den meisten Siegen.", color=discord.Color.gold())
+    embed = discord.Embed(title="🐺 Werwolf Leaderboard 🐺", description="Die Top-Spieler mit den meisten Siegen.", color=get_embed_color(config))
 
     leaderboard_text = ""
     for i, player in enumerate(leaderboard):
@@ -1214,7 +1219,7 @@ async def ww_start(interaction: discord.Interaction, ziel_spieler: int = None):
     embed = discord.Embed(
         title="🐺 Ein neues Werwolf-Spiel wurde gestartet! 🐺",
         description=f"Tretet dem Voice-Channel **`{lobby_vc.name}`** bei, um mitzuspielen!",
-        color=discord.Color.blue()
+        color=get_embed_color(config)
     )
     embed.add_field(name="Automatischer Start", value="Das Spiel startet in **15 Sekunden**.")
     embed.add_field(name="Spieler (0)", value="Noch keine Spieler.", inline=False)
@@ -1261,132 +1266,6 @@ async def ww_start(interaction: discord.Interaction, ziel_spieler: int = None):
         del active_werwolf_games[game_text_channel.id]
         await game.lobby_vc.delete(reason="Fehler beim Spielstart")
 
-@ww_group.command(name="kill", description="Werwolf-Aktion: Wähle ein Opfer für die Nacht.")
-@app_commands.describe(spieler="Der Spieler, der getötet werden soll.") 
-async def ww_kill(interaction: discord.Interaction, spieler: str):
-    """Handles the werewolf kill action."""
-    game = active_werwolf_games.get(interaction.channel_id)
-    if not game:
-        await interaction.response.send_message("In diesem Channel läuft kein Werwolf-Spiel.", ephemeral=True)
-        return
-
-    author = interaction.user
-    author_player = game.players.get(author.id)
-    if not author_player:
-        await interaction.response.send_message("Du bist nicht in diesem Spiel.", ephemeral=True)
-        return
-
-    target_player = game.get_player_by_name(spieler)
-    
-    await interaction.response.defer(ephemeral=True)
-    if not target_player:
-        await interaction.followup.send("Wen? Ich kann diesen Spieler nicht finden oder du hast keinen Namen angegeben.")
-        return
-
-    error_message = await game.handle_night_action(author_player, "kill", target_player, config, GEMINI_API_KEY, OPENAI_API_KEY)
-    if error_message:
-        await interaction.followup.send(error_message)
-    else:
-        await interaction.followup.send("Deine Aktion wurde registriert.")
-    
-    if game.phase == "finished":
-        del active_werwolf_games[interaction.channel_id]
-
-@ww_group.command(name="see", description="Seher-Aktion: Sieh die Rolle eines Spielers.")
-@app_commands.describe(spieler="Der Spieler, dessen Rolle du sehen möchtest.")
-async def ww_see(interaction: discord.Interaction, spieler: str):
-    """Handles the seer see action."""
-    game = active_werwolf_games.get(interaction.channel_id)
-    if not game:
-        await interaction.response.send_message("In diesem Channel läuft kein Werwolf-Spiel.", ephemeral=True)
-        return
-
-    author = interaction.user
-    author_player = game.players.get(author.id)
-    if not author_player:
-        await interaction.response.send_message("Du bist nicht in diesem Spiel.", ephemeral=True)
-        return
-
-    target_player = game.get_player_by_name(spieler)
-    
-    await interaction.response.defer(ephemeral=True)
-    if not target_player:
-        await interaction.followup.send("Wen? Ich kann diesen Spieler nicht finden oder du hast keinen Namen angegeben.")
-        return
-
-    error_message = await game.handle_night_action(author_player, "see", target_player, config, GEMINI_API_KEY, OPENAI_API_KEY)
-    if error_message:
-        await interaction.followup.send(error_message)
-    else:
-        # The confirmation is sent via DM in handle_night_action
-        await interaction.followup.send("Deine Aktion wurde registriert.")
-
-    if game.phase == "finished":
-        del active_werwolf_games[interaction.channel_id]
-
-@ww_group.command(name="heal", description="Hexe-Aktion: Heile das Opfer der Werwölfe.")
-async def ww_heal(interaction: discord.Interaction):
-    """Handles the witch heal action."""
-    game = active_werwolf_games.get(interaction.channel_id)
-    if not game:
-        await interaction.response.send_message("In diesem Channel läuft kein Werwolf-Spiel.", ephemeral=True)
-        return
-
-    author = interaction.user
-    author_player = game.players.get(author.id)
-    if not author_player:
-        await interaction.response.send_message("Du bist nicht in diesem Spiel.", ephemeral=True)
-        return
-
-    await interaction.response.defer(ephemeral=True)
-    error_message = await game.handle_night_action(author_player, "heal", None, config, GEMINI_API_KEY, OPENAI_API_KEY)
-    if error_message:
-        await interaction.followup.send(error_message)
-    else:
-        await interaction.followup.send("Deine Aktion wurde registriert.")
-
-@ww_group.command(name="poison", description="Hexe-Aktion: Töte einen Spieler mit deinem Gifttrank.")
-@app_commands.describe(spieler="Der Spieler, der vergiftet werden soll.")
-async def ww_poison(interaction: discord.Interaction, spieler: str):
-    """Handles the witch poison action."""
-    game = active_werwolf_games.get(interaction.channel_id)
-    if not game:
-        await interaction.response.send_message("In diesem Channel läuft kein Werwolf-Spiel.", ephemeral=True)
-        return
-
-    author = interaction.user
-    author_player = game.players.get(author.id)
-    if not author_player:
-        await interaction.response.send_message("Du bist nicht in diesem Spiel.", ephemeral=True)
-        return
-
-    target_player = game.get_player_by_name(spieler)
-    await interaction.response.defer(ephemeral=True)
-    error_message = await game.handle_night_action(author_player, "poison", target_player, config, GEMINI_API_KEY, OPENAI_API_KEY)
-    if error_message:
-        await interaction.followup.send(error_message)
-    else:
-        await interaction.followup.send("Deine Aktion wurde registriert.")
-
-@ww_group.command(name="mute", description="Dönerstopfer-Aktion: Schalte einen Spieler für den nächsten Tag stumm.")
-@app_commands.describe(spieler="Der Spieler, der stummgeschaltet werden soll.")
-async def ww_mute(interaction: discord.Interaction, spieler: str):
-    """Handles the Dönerstopfer mute action."""
-    game = active_werwolf_games.get(interaction.channel_id)
-    if not game:
-        await interaction.response.send_message("In diesem Channel läuft kein Werwolf-Spiel.", ephemeral=True)
-        return
-
-    author = interaction.user
-    author_player = game.players.get(author.id)
-    target_player = game.get_player_by_name(spieler)
-    await interaction.response.defer(ephemeral=True)
-    error_message = await game.handle_night_action(author_player, "mute", target_player, config, GEMINI_API_KEY, OPENAI_API_KEY)
-    if error_message:
-        await interaction.followup.send(error_message)
-    else:
-        await interaction.followup.send("Deine Aktion wurde registriert.")
-
 # --- NEW: Add the voice command group to the tree ---
 tree.add_command(voice_group)
 
@@ -1400,6 +1279,44 @@ async def on_message(message):
     # 1. Don't reply to yourself, bot!
     if message.author == client.user:
         return
+
+    # --- NEW: Werwolf DM Action Handler ---
+    if isinstance(message.channel, discord.DMChannel):
+        # Find which game the user is in
+        player_game = None
+        author_player = None
+        for game in active_werwolf_games.values():
+            if message.author.id in game.players:
+                player_game = game
+                author_player = game.players[message.author.id]
+                break
+
+        if player_game and player_game.phase == "night" and author_player.is_alive:
+            # Parse the command from the DM
+            parts = message.content.lower().split()
+            command = parts[0]
+            
+            # Commands without arguments
+            if command == "heal":
+                error_message = await player_game.handle_night_action(author_player, "heal", None, config, GEMINI_API_KEY, OPENAI_API_KEY)
+                await message.author.send(error_message or "Deine Aktion (Heilen) wurde registriert.")
+                return # Stop further processing
+
+            # Commands with arguments
+            if len(parts) > 1:
+                target_name = " ".join(parts[1:])
+                target_player = player_game.get_player_by_name(target_name)
+
+                if not target_player:
+                    await message.author.send(f"Ich konnte den Spieler '{target_name}' nicht finden. Achte auf die genaue Schreibweise.")
+                    return
+
+                if command in ["kill", "see", "poison", "mute"]:
+                    error_message = await player_game.handle_night_action(author_player, command, target_player, config, GEMINI_API_KEY, OPENAI_API_KEY)
+                    # Specific confirmations are sent from handle_night_action, so we only send errors here.
+                    if error_message:
+                        await message.author.send(error_message)
+                    return
 
     # --- NEW: Ignore messages in Werwolf channels to not trigger chatbot ---
     if message.channel.id in active_werwolf_games:

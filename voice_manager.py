@@ -57,6 +57,7 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
             new_channel = await guild.create_voice_channel(
                 name=new_channel_name,
                 category=category,
+                user_limit=user_limit,
                 reason=f"Created for {member.display_name}"
             )
 
@@ -103,8 +104,8 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
         if channel_config:
             # --- NEW: Save channel state before deleting if it's empty ---
             if not before.channel.members: # Simpler check for empty
-                # Save the current name and limit for the owner
-                await update_managed_channel_config(channel_config['owner_id'], name=before.channel.name, limit=before.channel.user_limit)
+                # Save the current name and limit for the owner by passing their ID
+                await update_managed_channel_config(channel_config['owner_id'], by_owner=True, name=before.channel.name, limit=before.channel.user_limit)
                 
                 # Check if the channel is empty and old enough to delete
                 creation_grace_period = config['modules']['voice_manager']['empty_channel_delete_grace_period_seconds']

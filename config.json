@@ -5,6 +5,7 @@
       "sulfur"
     ],
     "authorised_role": "authorised",
+    "embed_color": "#7289DA",
     "system_prompt_file": "system_prompt.txt",
     "description": "Your friendly neighborhood ragebait bot. I'm here to keep you on your toes. Mention me to chat.",
     "presence": {

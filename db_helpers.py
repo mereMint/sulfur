@@ -208,7 +208,7 @@ async def get_managed_channel_config(id, by_owner=False):
         cursor.close()
         cnx.close()
 
-async def update_managed_channel_config(channel_id, is_private=None, allowed_users=None, name=None, limit=None):
+async def update_managed_channel_config(id, by_owner=False, is_private=None, allowed_users=None, name=None, limit=None):
     """Updates the configuration of a managed channel."""
     cnx = db_pool.get_connection()
     if not cnx: return
@@ -231,8 +231,12 @@ async def update_managed_channel_config(channel_id, is_private=None, allowed_use
         
         if not updates: return
 
-        query = f"UPDATE managed_voice_channels SET {', '.join(updates)} WHERE channel_id = %s"
-        params.append(channel_id)
+        if by_owner:
+            query = f"UPDATE managed_voice_channels SET {', '.join(updates)} WHERE owner_id = %s"
+        else:
+            query = f"UPDATE managed_voice_channels SET {', '.join(updates)} WHERE channel_id = %s"
+            
+        params.append(id)
         cursor.execute(query, tuple(params))
         cnx.commit()
     finally:
