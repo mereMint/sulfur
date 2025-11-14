@@ -824,19 +824,23 @@ class WerwolfGame:
 
         # Delete the entire category, which cleans up all channels within it.
         if self.category:
+            print(f"  [WW] Cleaning up game category '{self.category.name}' ({self.category.id})...")
             try:
-                # --- FIX: Fetch the category again to get the most up-to-date channel list ---
+                # --- FIX: Fetch the category again to get an up-to-date channel list.
+                # This prevents race conditions where the channel list is stale.
                 fresh_category = await self.game_channel.guild.fetch_channel(self.category.id)
                 if fresh_category:
                     # Create a list of deletion tasks to run concurrently
                     deletion_tasks = []
                     for channel in fresh_category.channels:
+                        print(f"    - Queuing deletion for channel: {channel.name}")
                         deletion_tasks.append(channel.delete(reason="Spielende"))
                     # Wait for all channel deletions to complete
                     await asyncio.gather(*deletion_tasks, return_exceptions=True)
                 
                 # Now, delete the category itself
-                await self.category.delete(reason="Spielende")
+                await fresh_category.delete(reason="Spielende")
+                print(f"  [WW] Successfully cleaned up category.")
             except Exception as e:
                 print(f"Fehler beim Aufräumen der Spiel-Kategorie: {e}")
 

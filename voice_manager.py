@@ -102,8 +102,17 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
         # Check if the channel that was left is a managed one
         channel_config = await get_managed_channel_config(before.channel.id)
         if channel_config:
-            # --- NEW: Save channel state before deleting if it's empty ---
-            if not before.channel.members: # Simpler check for empty
+            # --- FIX: Fetch the channel again to get an accurate member count. ---
+            # The 'before.channel.members' list is from BEFORE the user left, so it's not empty.
+            # We need to get the current state of the channel.
+            try:
+                current_channel_state = await member.guild.fetch_channel(before.channel.id)
+            except discord.NotFound:
+                # The channel was already deleted, nothing to do.
+                await remove_managed_channel(before.channel.id, keep_owner_record=True)
+                return
+
+            if not current_channel_state.members: # Check if the channel is NOW empty
                 # Save the current name and limit for the owner by passing their ID
                 await update_managed_channel_config(channel_config['owner_id'], by_owner=True, name=before.channel.name, limit=before.channel.user_limit)
                 
