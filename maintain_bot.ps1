@@ -32,7 +32,10 @@ while ($true) {
 
         if ($status -like "*Your branch is behind*") {
             Write-Host "New version found in the repository! Restarting the bot to apply updates..."
+            # Create the flag file to signal the bot to go idle
+            New-Item -Path "update_pending.flag" -ItemType File -Force | Out-Null
             Stop-Job -Job $botJob # Stop the bot
+            Remove-Item -Path "update_pending.flag" -ErrorAction SilentlyContinue # Clean up the flag
             break # Exit the inner loop to allow the outer loop to restart it
         }
     }

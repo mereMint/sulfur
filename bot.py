@@ -283,6 +283,14 @@ async def update_presence_task():
     if not client.guilds:
         return
 
+    # --- NEW: Check if an update is pending ---
+    if os.path.exists("update_pending.flag"):
+        await client.change_presence(
+            status=discord.Status.idle,
+            activity=discord.Activity(type=discord.ActivityType.watching, name="auf ein Update...")
+        )
+        return # Skip the normal presence update
+
     # --- REFACTORED: Find an online user and set a cool presence ---
     all_members = []
     # Get all non-bot members from all guilds
@@ -311,7 +319,10 @@ async def update_presence_task():
     # Fallback if no human members were found at all.
     print("  -> Presence update: No human members found. Using fallback.")
     fallback_activity = config.get('bot', {}).get('presence', {}).get('fallback_activity', "euch beim AFK sein zu")
-    await client.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=fallback_activity))
+    await client.change_presence(
+        status=discord.Status.online,
+        activity=discord.Activity(type=discord.ActivityType.watching, name=fallback_activity)
+    )
 
 @update_presence_task.before_loop
 async def before_update_presence_task():

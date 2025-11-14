@@ -43,6 +43,8 @@ while true; do
         # The 'respawn-pane' command kills the old process and starts a new one in the same pane.
         # The -k flag ensures the old command is killed before respawning.
         tmux respawn-pane -k -t "$BOT_PANE_ID" "./start_bot.sh"
+        # Remove the flag file so the new instance starts with a clean status
+        rm -f update_pending.flag
         echo "Cleanup complete."
     }
 
@@ -56,6 +58,8 @@ while true; do
 
         if echo "$STATUS" | grep -q "Your branch is behind"; then
             echo "New version found in the repository! Restarting the bot to apply updates..."
+            # Create the flag file to signal the bot to go idle
+            touch update_pending.flag
             cleanup # This now respawns the bot in the same pane
             break # Exit the inner loop to allow the outer loop to restart it
         fi
