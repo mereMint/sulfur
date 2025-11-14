@@ -22,6 +22,10 @@ $env:DISCORD_BOT_TOKEN="MTQzODU5NTUzNjE1MTM4MDAxOA.GwuLkF.NYHg6QXtQfhGIPK6SRA8Tx
 $env:GEMINI_API_KEY="AIzaSyD7h08ULN7KXhYCFFiIa6MPEbN_TnL5COU"
 $env:OPENAI_API_KEY="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" # <-- ADD YOUR OPENAI KEY HERE
 
+Write-Host "Checking for updates from the repository..."
+git pull
+Write-Host "Update check complete."
+
 Write-Host "Starting XAMPP MySQL server..."
 # The default path for XAMPP is C:\xampp. If yours is different, please update the path below.
 # Use Start-Process to run MySQL in the background without blocking the script.
