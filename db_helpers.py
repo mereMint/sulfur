@@ -1,0 +1,760 @@
+import mysql.connector
+import json
+from mysql.connector import errorcode, pooling
+import time
+from level_system import get_xp_for_level # Import the level calculation function
+
+# This file handles all database interactions for the bot.
+
+db_pool = None
+
+def init_db_pool(host, user, password, database):
+    """Initializes the database connection pool."""
+    global db_pool
+    try:
+        db_config = {
+            'host': host, 'user': user, 'password': password, 'database': database
+        }
+        db_pool = pooling.MySQLConnectionPool(pool_name="sulfur_pool", pool_size=5, **db_config)
+        print("Database connection pool initialized successfully.")
+    except mysql.connector.Error as err:
+        print(f"FATAL: Could not initialize database pool: {err}")
+        db_pool = None
+
+def get_db_connection():
+    """Establishes a connection to the database, with retries."""
+    # This function is now only used for the initial table creation.
+    # All other functions get a connection directly from the pool.
+    if db_pool:
+        return db_pool.get_connection()
+
+def initialize_database():
+    """Creates the necessary tables if they don't exist."""
+    cnx = get_db_connection()
+    if not cnx:
+        print("Could not connect to DB for initialization.")
+        return
+
+    cursor = cnx.cursor()
+    try:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS players (
+                discord_id BIGINT PRIMARY KEY,
+                display_name VARCHAR(255) NOT NULL,
+                wins INT DEFAULT 0 NOT NULL,
+                losses INT DEFAULT 0 NOT NULL,
+                level INT DEFAULT 1 NOT NULL,
+                xp INT DEFAULT 0 NOT NULL
+            )
+        """)
+        # --- NEW: Add relationship summary column and chat history table ---
+        cursor.execute("""
+            ALTER TABLE players
+            ADD COLUMN IF NOT EXISTS relationship_summary TEXT;
+        """)
+        # --- NEW: Add columns for presence tracking ---
+        cursor.execute("""
+            ALTER TABLE players
+            ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP NULL DEFAULT NULL,
+            ADD COLUMN IF NOT EXISTS last_activity_name VARCHAR(255) NULL DEFAULT NULL;
+        """)
+        # --- NEW: Add columns for economy and spotify tracking ---
+        cursor.execute("""
+            ALTER TABLE players
+            ADD COLUMN IF NOT EXISTS balance BIGINT DEFAULT 1000 NOT NULL;
+        """)
+        cursor.execute("""
+            ALTER TABLE players
+            ADD COLUMN IF NOT EXISTS spotify_history JSON NULL;
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS chat_history (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                channel_id BIGINT NOT NULL,
+                role VARCHAR(10) NOT NULL,
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        # --- NEW: Table for managing voice channels ---
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS managed_voice_channels (
+                owner_id BIGINT PRIMARY KEY,
+                channel_id BIGINT NULL,
+                is_private BOOLEAN DEFAULT FALSE NOT NULL,
+                allowed_users JSON,
+                channel_name VARCHAR(100) NULL,
+                user_limit INT DEFAULT 0,
+                UNIQUE (channel_id)
+            )
+        """)
+        # --- FIX: Ensure columns for custom channel settings exist ---
+        cursor.execute("""
+            ALTER TABLE managed_voice_channels
+            ADD COLUMN IF NOT EXISTS channel_name VARCHAR(100) NULL,
+            ADD COLUMN IF NOT EXISTS user_limit INT DEFAULT 0;
+        """)
+        # --- NEW: Table for "Wrapped" monthly stats ---
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_monthly_stats (
+                user_id BIGINT NOT NULL,
+                stat_period VARCHAR(7) NOT NULL, -- e.g., '2024-11'
+                message_count INT DEFAULT 0 NOT NULL,
+                minutes_in_vc INT DEFAULT 0 NOT NULL,
+                money_earned BIGINT DEFAULT 0 NOT NULL,
+                channel_usage JSON, -- {'channel_id': count}
+                emoji_usage JSON, -- {'emoji_name': count}
+                activity_usage JSON, -- {'activity_name': count}
+                PRIMARY KEY (user_id, stat_period)
+            )
+        """)
+        # --- FIX: Add missing sulf_interactions column ---
+        cursor.execute("""
+            ALTER TABLE user_monthly_stats
+            ADD COLUMN IF NOT EXISTS sulf_interactions INT DEFAULT 0 NOT NULL;
+        """)
+        # --- FIX: Add missing activity_usage column for Wrapped stats ---
+        cursor.execute("""
+            ALTER TABLE user_monthly_stats
+            ADD COLUMN IF NOT EXISTS activity_usage JSON;
+        """)
+        # --- NEW: Table for Werwolf bot names ---
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS werwolf_bot_names (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(255) NOT NULL UNIQUE
+            )
+        """)
+
+        print("Database tables checked/created successfully.")
+    except mysql.connector.Error as err:
+        print(f"Failed creating table: {err}")
+    finally:
+        cursor.close()
+        cnx.close()
+
+# --- NEW: Voice Channel Management DB Functions ---
+
+async def get_owned_channel(owner_id):
+    """Fetches the channel ID owned by a user, if any."""
+    cnx = db_pool.get_connection()
+    if not cnx: return None
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        cursor.execute("SELECT channel_id FROM managed_voice_channels WHERE owner_id = %s", (owner_id,))
+        result = cursor.fetchone()
+        return result['channel_id'] if result else None
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def add_managed_channel(channel_id, owner_id):
+    """Adds a new managed channel to the database."""
+    cnx = db_pool.get_connection()
+    if not cnx: return
+    cursor = cnx.cursor()
+    try:
+        # The owner is always in the allowed_users list
+        # --- REFACTORED: Use INSERT...ON DUPLICATE KEY UPDATE to handle both new and returning users ---
+        cursor.execute(
+            "INSERT INTO managed_voice_channels (owner_id, channel_id) VALUES (%s, %s) ON DUPLICATE KEY UPDATE channel_id = VALUES(channel_id)",
+            (owner_id, channel_id)
+        )
+        cnx.commit()
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def remove_managed_channel(channel_id, keep_owner_record=False):
+    """
+    Removes a managed channel from the database.
+    If keep_owner_record is True, it sets channel_id to NULL instead of deleting the row,
+    preserving the owner's settings.
+    """
+    cnx = db_pool.get_connection()
+    if not cnx: return
+    cursor = cnx.cursor()
+    try:
+        if keep_owner_record:
+            # Set channel_id to NULL to show it's inactive but keep settings
+            cursor.execute("UPDATE managed_voice_channels SET channel_id = NULL WHERE channel_id = %s", (channel_id, ))
+        else:
+            # Permanently delete the record
+            cursor.execute("DELETE FROM managed_voice_channels WHERE owner_id = (SELECT owner_id FROM (SELECT owner_id FROM managed_voice_channels WHERE channel_id = %s) as x)", (channel_id,))
+        cnx.commit()
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def get_managed_channel_config(id, by_owner=False):
+    """
+    Retrieves the configuration for a managed channel.
+    Can fetch by channel_id or owner_id.
+    """
+    cnx = db_pool.get_connection()
+    if not cnx: return None
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        if by_owner:
+            cursor.execute("SELECT * FROM managed_voice_channels WHERE owner_id = %s", (id,))
+        else:
+            cursor.execute("SELECT * FROM managed_voice_channels WHERE channel_id = %s", (id,))
+        result = cursor.fetchone()
+        if result and result.get('allowed_users'):
+            # Convert JSON string back to a Python list
+            result['allowed_users'] = json.loads(result['allowed_users'])
+        return result
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def update_managed_channel_config(channel_id, is_private=None, allowed_users=None, name=None, limit=None):
+    """Updates the configuration of a managed channel."""
+    cnx = db_pool.get_connection()
+    if not cnx: return
+    cursor = cnx.cursor()
+    try:
+        updates, params = [], []
+        if is_private is not None:
+            updates.append("is_private = %s")
+            params.append(is_private)
+        if allowed_users is not None:
+            updates.append("allowed_users = %s")
+            params.append(json.dumps(list(allowed_users)))
+        # --- FIX: Only update name/limit if they are provided and not empty/zero ---
+        if name:
+            updates.append("channel_name = %s")
+            params.append(name)
+        if limit is not None and limit >= 0:
+            updates.append("user_limit = %s")
+            params.append(limit)
+        
+        if not updates: return
+
+        query = f"UPDATE managed_voice_channels SET {', '.join(updates)} WHERE channel_id = %s"
+        params.append(channel_id)
+        cursor.execute(query, tuple(params))
+        cnx.commit()
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def get_all_managed_channels():
+    """Fetches all managed channel IDs from the database for cleanup."""
+    cnx = db_pool.get_connection()
+    if not cnx: return []
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        cursor.execute("SELECT channel_id FROM managed_voice_channels WHERE channel_id IS NOT NULL")
+        results = cursor.fetchall()
+        return [row['channel_id'] for row in results]
+    finally:
+        cursor.close()
+        cnx.close()
+
+# --- NEW: Chat History and Relationship Functions ---
+
+async def save_message_to_history(channel_id, role, content):
+    """Saves a single message to the chat history table."""
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return
+
+    cursor = cnx.cursor()
+    try:
+        query = "INSERT INTO chat_history (channel_id, role, content) VALUES (%s, %s, %s)"
+        cursor.execute(query, (channel_id, role, content))
+        cnx.commit()
+    except mysql.connector.Error as err:
+        print(f"Error saving chat history: {err}")
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def save_bulk_history(channel_id, messages):
+    """Saves a batch of messages to the chat history table."""
+    if not messages:
+        return
+
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return
+
+    cursor = cnx.cursor()
+    try:
+        # Prepare data for executemany: list of tuples
+        data_to_insert = [(channel_id, msg['role'], msg['content']) for msg in messages]
+        query = "INSERT INTO chat_history (channel_id, role, content) VALUES (%s, %s, %s)"
+        cursor.executemany(query, data_to_insert)
+        cnx.commit()
+        print(f"Successfully saved {cursor.rowcount} messages to history for channel {channel_id}.")
+    except mysql.connector.Error as err:
+        print(f"Error in save_bulk_history: {err}")
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def clear_channel_history(channel_id):
+    """Deletes all chat history for a specific channel."""
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return 0, "Database connection failed."
+
+    cursor = cnx.cursor()
+    try:
+        query = "DELETE FROM chat_history WHERE channel_id = %s"
+        cursor.execute(query, (channel_id,))
+        deleted_rows = cursor.rowcount
+        cnx.commit()
+        return deleted_rows, None
+    except mysql.connector.Error as err:
+        print(f"Error clearing channel history: {err}")
+        return 0, f"An SQL error occurred: {err}"
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def get_chat_history(channel_id, limit):
+    """Retrieves the last N messages for a channel from the database."""
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return []
+
+    cursor = cnx.cursor(dictionary=True)
+    history = []
+    try:
+        query = """
+            SELECT role, content AS text FROM (
+                SELECT role, content, created_at
+                FROM chat_history
+                WHERE channel_id = %s
+                ORDER BY created_at DESC
+                LIMIT %s
+            ) sub
+            ORDER BY created_at ASC;
+        """
+        cursor.execute(query, (channel_id, limit))
+        results = cursor.fetchall()
+        # Format for Gemini API: {"role": "user", "parts": [{"text": "Hello"}]}
+        for row in results:
+            history.append({"role": row['role'], "parts": [{"text": row['text']}]})
+        return history
+    except mysql.connector.Error as err:
+        print(f"Error getting chat history: {err}")
+        return []
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def get_relationship_summary(user_id):
+    """Gets the current relationship summary for a user."""
+    cnx = db_pool.get_connection()
+    if not cnx: return None
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        cursor.execute("SELECT relationship_summary FROM players WHERE discord_id = %s", (user_id,))
+        result = cursor.fetchone()
+        return result['relationship_summary'] if result else None
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def update_relationship_summary(user_id, summary):
+    """Updates the relationship summary for a user."""
+    cnx = db_pool.get_connection()
+    if not cnx: return
+    cursor = cnx.cursor()
+    try:
+        cursor.execute("UPDATE players SET relationship_summary = %s WHERE discord_id = %s", (summary, user_id))
+        cnx.commit()
+    finally:
+        cursor.close()
+        cnx.close()
+
+# --- NEW: Werwolf Bot Name Functions ---
+
+async def get_bot_name_pool_count():
+    """Counts how many unused bot names are in the database."""
+    cnx = db_pool.get_connection()
+    if not cnx: return 0
+    cursor = cnx.cursor()
+    try:
+        cursor.execute("SELECT COUNT(*) FROM werwolf_bot_names")
+        result = cursor.fetchone()
+        return result[0] if result else 0
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def add_bot_names_to_pool(names):
+    """Adds a list of new bot names to the pool, ignoring duplicates."""
+    if not names: return
+    cnx = db_pool.get_connection()
+    if not cnx: return
+    cursor = cnx.cursor()
+    try:
+        # Use INSERT IGNORE to prevent errors on duplicate names
+        query = "INSERT IGNORE INTO werwolf_bot_names (name) VALUES (%s)"
+        data_to_insert = [(name,) for name in names]
+        cursor.executemany(query, data_to_insert)
+        cnx.commit()
+        print(f"Added {cursor.rowcount} new names to the Werwolf bot name pool.")
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def get_and_remove_bot_names(count):
+    """Atomically fetches and removes a number of random names from the pool."""
+    cnx = db_pool.get_connection()
+    if not cnx: return []
+    cursor = cnx.cursor(dictionary=True)
+    names = []
+    try:
+        # This is a common pattern for an atomic "pop" from a DB table.
+        cursor.execute("SELECT id, name FROM werwolf_bot_names ORDER BY RAND() LIMIT %s FOR UPDATE", (count,))
+        rows = cursor.fetchall()
+        if rows:
+            names = [row['name'] for row in rows]
+            ids_to_delete = [row['id'] for row in rows]
+            cursor.execute("DELETE FROM werwolf_bot_names WHERE id IN ({})".format(','.join(['%s'] * len(ids_to_delete))), ids_to_delete)
+        cnx.commit()
+        return names
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def update_player_stats(player_id, display_name, won_game):
+    """Updates a player's win/loss record in the database."""
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return
+
+    cursor = cnx.cursor()
+    try:
+        # Use INSERT ... ON DUPLICATE KEY UPDATE to either create or update the player
+        if won_game:
+            query = """
+                INSERT INTO players (discord_id, display_name, wins, level, xp)
+                VALUES (%s, %s, 1)
+                ON DUPLICATE KEY UPDATE display_name = VALUES(display_name), wins = wins + 1, level = IFNULL(level, 1), xp = IFNULL(xp, 0);
+            """
+        else:
+            query = """
+                INSERT INTO players (discord_id, display_name, losses, level, xp)
+                VALUES (%s, %s, 1)
+                ON DUPLICATE KEY UPDATE display_name = VALUES(display_name), losses = losses + 1, level = IFNULL(level, 1), xp = IFNULL(xp, 0);
+            """
+        cursor.execute(query, (player_id, display_name))
+        cnx.commit()
+    except mysql.connector.Error as err:
+        print(f"Error updating player stats: {err}")
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def update_user_presence(user_id, display_name, status, activity_name):
+    """Updates a user's presence information in the database."""
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return
+
+    cursor = cnx.cursor()
+    try:
+        # Use INSERT ... ON DUPLICATE KEY UPDATE to create or update the player
+        # Only update last_seen if the status is not offline.
+        query = """
+            INSERT INTO players (discord_id, display_name, last_seen, last_activity_name)
+            VALUES (%s, %s, CASE WHEN %s != 'offline' THEN CURRENT_TIMESTAMP ELSE NULL END, %s)
+            ON DUPLICATE KEY UPDATE
+                display_name = VALUES(display_name),
+                last_seen = CASE WHEN %s != 'offline' THEN CURRENT_TIMESTAMP ELSE players.last_seen END,
+                last_activity_name = VALUES(last_activity_name);
+        """
+        cursor.execute(query, (user_id, display_name, status, activity_name, status))
+        cnx.commit()
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def add_balance(user_id, display_name, amount_to_add, stat_period=None):
+    """Adds an amount to a user's balance, creating the user if they don't exist."""
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return
+
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        query = """
+            INSERT INTO players (discord_id, display_name, balance)
+            VALUES (%s, %s, %s + %s)
+            ON DUPLICATE KEY UPDATE
+                display_name = VALUES(display_name),
+                balance = balance + VALUES(balance) - %s;
+        """
+        # The subtraction at the end is a trick to handle the ON DUPLICATE KEY UPDATE case correctly.
+        # On INSERT, balance is STARTING_BALANCE + amount.
+        # On UPDATE, balance is balance + (STARTING_BALANCE + amount) - STARTING_BALANCE = balance + amount.
+        from economy import STARTING_BALANCE
+        cursor.execute(query, (user_id, display_name, STARTING_BALANCE, amount_to_add, STARTING_BALANCE))
+        cnx.commit()
+
+        # --- NEW: Log money earned for Wrapped ---
+        if stat_period:
+            stat_query = """
+                INSERT INTO user_monthly_stats (user_id, stat_period, money_earned)
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE money_earned = money_earned + VALUES(money_earned);
+            """
+            cursor.execute(stat_query, (user_id, stat_period, amount_to_add))
+            cnx.commit()
+    except mysql.connector.Error as err:
+        print(f"Error adding balance: {err}")
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def update_spotify_history(client, user_id, display_name, song_title, song_artist):
+    """Adds a song to a user's Spotify history, keeping only the last 10."""
+    cnx = db_pool.get_connection()
+    if not cnx: return
+
+    print(f"  -> Logging Spotify song for {display_name}: '{song_title}' by {song_artist}")
+    cursor = cnx.cursor()
+    try:
+        # This complex query fetches the existing history, adds the new song, and truncates the list to 10 items.
+        # It's all done in a single atomic operation.
+        query = """
+            INSERT INTO players (discord_id, display_name, spotify_history)
+            VALUES (%s, %s, JSON_ARRAY(JSON_OBJECT('title', %s, 'artist', %s)))
+            ON DUPLICATE KEY UPDATE
+                spotify_history = JSON_ARRAY_APPEND(COALESCE(spotify_history, '[]'), '$', JSON_OBJECT('title', %s, 'artist', %s)),
+                spotify_history = JSON_EXTRACT(spotify_history, '$[#-10 to #]');
+        """
+        cursor.execute(query, (user_id, display_name, song_title, song_artist, song_title, song_artist))
+        cnx.commit()
+    finally:
+        cursor.close()
+        cnx.close()
+
+# --- NEW: "Wrapped" Feature DB Functions ---
+
+async def log_message_stat(user_id, channel_id, emoji_list, stat_period):
+    """Logs message count, channel usage, and emoji usage for the Wrapped feature."""
+    # This function is now optimized to perform all logging in a single query.
+    cnx = db_pool.get_connection()
+    if not cnx: return
+
+    cursor = cnx.cursor()
+    try:
+        # Build the dynamic part of the query for emoji usage
+        emoji_updates = []
+        params = []
+        for emoji_name in emoji_list:
+            # MariaDB requires quoting numeric-like keys in JSON paths.
+            # We use CONCAT to build the path safely with parameter binding.
+            emoji_updates.append("""
+                emoji_usage = JSON_SET(
+                    COALESCE(emoji_usage, '{}'),
+                    CONCAT('$.', %s),
+                    COALESCE(JSON_UNQUOTE(JSON_EXTRACT(emoji_usage, CONCAT('$.', %s))), 0) + 1
+                )
+            """)
+            params.extend([emoji_name, emoji_name])
+
+        emoji_sql_part = ", " + ", ".join(emoji_updates) if emoji_updates else ""
+
+        query = f"""
+            INSERT INTO user_monthly_stats (user_id, stat_period, message_count, channel_usage, emoji_usage)
+            VALUES (%s, %s, 1, JSON_OBJECT(%s, 1), %s)
+            ON DUPLICATE KEY UPDATE
+                message_count = message_count + 1,
+                channel_usage = JSON_SET(COALESCE(channel_usage, '{{}}'), CONCAT('$.', %s), COALESCE(JSON_UNQUOTE(JSON_EXTRACT(channel_usage, CONCAT('$.', %s))), 0) + 1)
+                {emoji_sql_part};
+        """
+        initial_emoji_json = json.dumps({emoji: 1 for emoji in emoji_list})
+        final_params = (user_id, stat_period, str(channel_id), initial_emoji_json, str(channel_id), str(channel_id)) + tuple(params)
+        cursor.execute(query, final_params)
+        cnx.commit()
+    except mysql.connector.Error as err:
+        print(f"Error in log_message_stat: {err}")
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def log_vc_minutes(user_id, minutes_to_add, stat_period):
+    """Logs minutes spent in a voice channel."""
+    cnx = db_pool.get_connection()
+    if not cnx: return
+    cursor = cnx.cursor()
+    try:
+        query = """
+            INSERT INTO user_monthly_stats (user_id, stat_period, minutes_in_vc) VALUES (%s, %s, %s)
+            ON DUPLICATE KEY UPDATE minutes_in_vc = minutes_in_vc + VALUES(minutes_in_vc);
+        """
+        cursor.execute(query, (user_id, stat_period, minutes_to_add))
+        cnx.commit()
+    except mysql.connector.Error as err:
+        print(f"Error in log_vc_minutes: {err}")
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def log_stat_increment(user_id, stat_period, column_name, key=None):
+    """A generic function to increment a stat or a key within a JSON column."""
+    cnx = db_pool.get_connection()
+    if not cnx: return
+    cursor = cnx.cursor()
+    try:
+        if key: # It's a JSON column
+            # Safely construct the JSON path using CONCAT
+            query = f"""
+                INSERT INTO user_monthly_stats (user_id, stat_period, {column_name}) VALUES (%s, %s, JSON_OBJECT(%s, 1))
+                ON DUPLICATE KEY UPDATE {column_name} = JSON_SET(COALESCE({column_name}, '{{}}'), CONCAT('$.', %s), COALESCE(JSON_UNQUOTE(JSON_EXTRACT({column_name}, CONCAT('$.', %s))), 0) + 1);
+            """
+            params = (user_id, stat_period, key, key, key)
+        else: # It's a simple INT column
+            query = f"INSERT INTO user_monthly_stats (user_id, stat_period, {column_name}) VALUES (%s, %s, 1) ON DUPLICATE KEY UPDATE {column_name} = {column_name} + 1;"
+            params = (user_id, stat_period)
+        cursor.execute(query, params)
+        cnx.commit()
+    except mysql.connector.Error as err:
+        print(f"Error in log_stat_increment for column {column_name}: {err}")
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def get_wrapped_stats_for_period(stat_period):
+    """Fetches all user stats for a given Wrapped period."""
+    cnx = db_pool.get_connection()
+    if not cnx: return []
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        query = "SELECT * FROM user_monthly_stats WHERE stat_period = %s"
+        cursor.execute(query, (stat_period,))
+        return cursor.fetchall()
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def add_xp(user_id, display_name, xp_to_add):
+    """Adds XP to a user and handles level ups."""
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return None
+
+    cursor = cnx.cursor(dictionary=True)
+    new_level = None
+    try:
+        # Add XP and create player if they don't exist
+        query = """
+            INSERT INTO players (discord_id, display_name, xp)
+            VALUES (%s, %s, %s)
+            ON DUPLICATE KEY UPDATE display_name = VALUES(display_name), xp = xp + VALUES(xp);
+        """
+        cursor.execute(query, (user_id, display_name, xp_to_add))
+
+        # Get current level and XP
+        cursor.execute("SELECT level, xp FROM players WHERE discord_id = %s", (user_id,))
+        player = cursor.fetchone()
+
+        if player:
+            current_level = player['level']
+            current_xp = player['xp']
+            xp_needed = get_xp_for_level(current_level)
+
+            # Check for level up
+            if current_xp >= xp_needed:
+                new_level = current_level + 1
+                remaining_xp = current_xp - xp_needed
+                cursor.execute(
+                    "UPDATE players SET level = %s, xp = %s WHERE discord_id = %s",
+                    (new_level, remaining_xp, user_id)
+                )
+
+        cnx.commit()
+        return new_level
+    except mysql.connector.Error as err:
+        print(f"Error adding XP: {err}")
+        return None
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def get_player_rank(user_id):
+    """Fetches a player's level, xp, and global rank."""
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return None, "Konnte keine Verbindung zur Datenbank herstellen."
+
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        # Find the rank of the user
+        query = """
+            SELECT p.discord_id, p.display_name, p.level, p.xp,
+                   (SELECT COUNT(*) + 1 FROM players AS r WHERE r.level > p.level OR (r.level = p.level AND r.xp > p.xp)) AS `rank`
+            FROM players AS p
+            WHERE p.discord_id = %s;
+        """
+        cursor.execute(query, (user_id,))
+        result = cursor.fetchone()
+        return result, None
+    except mysql.connector.Error as err:
+        print(f"Error fetching player rank: {err}")
+        return None, "Fehler beim Abrufen des Rangs."
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def get_level_leaderboard():
+    """Fetches the top 10 players by level and XP."""
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return None, "Konnte keine Verbindung zur Datenbank herstellen."
+
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        query = "SELECT display_name, level, xp FROM players ORDER BY level DESC, xp DESC LIMIT 10"
+        cursor.execute(query)
+        results = cursor.fetchall()
+        return results, None
+    except mysql.connector.Error as err:
+        print(f"Error fetching level leaderboard: {err}")
+        return None, "Fehler beim Abrufen des Leaderboards."
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def get_leaderboard():
+    """Fetches the top 10 players by wins."""
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return None, "Konnte keine Verbindung zur Datenbank herstellen."
+
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        query = "SELECT display_name, wins, losses FROM players ORDER BY wins DESC LIMIT 10"
+        cursor.execute(query)
+        results = cursor.fetchall()
+        return results, None
+    except mysql.connector.Error as err:
+        print(f"Error fetching leaderboard: {err}")
+        return None, "Fehler beim Abrufen des Leaderboards."
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def get_user_wrapped_stats(user_id, stat_period):
+    """Fetches the Wrapped stats for a single user for a given period."""
+    cnx = db_pool.get_connection()
+    if not cnx: return None
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        query = "SELECT * FROM user_monthly_stats WHERE user_id = %s AND stat_period = %s"
+        cursor.execute(query, (user_id, stat_period))
+        return cursor.fetchone()
+    except mysql.connector.Error as err:
+        print(f"Error in get_user_wrapped_stats: {err}")
+        return None
+    finally:
+        cursor.close()
+        cnx.close()

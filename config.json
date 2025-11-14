@@ -1,0 +1,90 @@
+{
+  "bot": {
+    "names": [
+      "sulf",
+      "sulfur"
+    ],
+    "authorised_role": "authorised",
+    "system_prompt_file": "system_prompt.txt",
+    "description": "Your friendly neighborhood ragebait bot. I'm here to keep you on your toes. Mention me to chat.",
+    "presence": {
+      "update_interval_minutes": 5,
+      "activity_templates": [
+        "stalkt {user}",
+        "beobachtet {user} kritisch",
+        "judged {user}'s life choices",
+        "lacht über {user}",
+        "hört {user} beim Weinen zu"
+      ],
+      "fallback_activity": "euch beim AFK sein zu"
+    },
+    "chat": {
+      "max_history_messages": 10,
+      "empty_ping_response": "Wassup? You pinged me but didn't say anything.",
+      "relationship_update_interval": 5
+    }
+  },
+  "api": {
+    "provider": "openai",
+    "timeout": 30,
+    "gemini": {
+      "model": "gemini-1.5-flash-latest",
+      "generation_config": {
+        "temperature": 0.7,
+        "top_k": 40,
+        "max_output_tokens": 2048
+      },
+      "utility_generation_config": {
+        "temperature": 0.8,
+        "max_output_tokens": 800
+      }
+    },
+    "openai": {
+      "chat_model": "gpt-4.1-nano",
+      "utility_model": "gpt-4.1-nano",
+      "chat_temperature": 0.7,
+      "chat_max_tokens": 2048,
+      "utility_temperature": 0.8,
+      "utility_max_tokens": 800
+    }
+  },
+  "modules": {
+    "leveling": {
+      "xp_per_message": 15,
+      "xp_per_minute_in_vc": 5,
+      "xp_cooldown_seconds": 60,
+      "vc_level_up_notification_interval": 5
+    },
+    "economy": {
+      "starting_balance": 1000,
+      "level_up_bonus_multiplier": 100
+    },
+    "voice_manager": {
+      "join_to_create_channel_name": "➕ Join to Create",
+      "dynamic_channel_category_name": "🔊 Voice Channels 🔊",
+      "creation_move_delay_ms": 250,
+      "empty_channel_delete_grace_period_seconds": 5
+    },
+    "werwolf": {
+      "game_category_name": "🐺 WERWOLF SPIEL 🐺",
+      "min_name_pool_size": 20,
+      "day_vote_timeout_seconds": 60,
+      "join_phase_duration_seconds": 15,
+      "discussion_channel_name": "🐺 Werwolf-Diskussion",
+      "wolf_thread_name": "🐺 Werwolf-Beratung 🐺",
+      "default_target_players": 6
+    },
+    "wrapped": {
+      "release_day_min": 8,
+      "release_day_max": 14,
+      "intro_gif_url": "https://media.tenor.com/yv-d2m8b2tcAAAAC/judging-you-judge.gif", 
+      "percentile_ranks": {
+        "1": "Top 1% (No-Lifer)",
+        "10": "Top 10% (Stammgast)",
+        "25": "Top 25% (Aktiv)",
+        "50": "Top 50% (Dabei)",
+        "default": "Bottom 50%"
+      }
+    }
+  }
+}

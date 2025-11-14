@@ -1,0 +1,54 @@
+﻿**********************
+nStart der Windows PowerShell-Aufzeichnung
+Startzeit: 20251114173106
+Benutzername: GALAXYBOOK-NILS\nw05
+RunAs-Benutzer: GALAXYBOOK-NILS\nw05
+Konfigurationsname: 
+Computer: GALAXYBOOK-NILS (Microsoft Windows NT 10.0.26200.0)
+Hostanwendung: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -file  C:\sulfur\start_bot.ps1 
+Prozess-ID: 18344
+PSVersion: 5.1.26100.7019
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.7019
+BuildVersion: 10.0.26100.7019
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+Die Aufzeichnung wurde gestartet. Die Ausgabedatei ist "C:\sulfur\logs\startup_log_2025-11-14_17-31-06.txt".
+Setting environment variables for the bot...
+Starting XAMPP MySQL server...
+Backing up the database...
+Backup created successfully at C:\sulfur\backups\sulfur_bot_backup_2025-11-14_17-31-11.sql
+Cleaning up old backups (older than 7 days)...
+Cleanup complete.
+Starting the bot... (Press CTRL+C to stop)
+--- DM to Frieda (Bot) ---
+Du bist Werwolf.
+Deine Werwolf-Kollegen sind: Mathilde.
+--------------------
+--- DM to Viktor (Bot) ---
+Du bist Seherin.
+--------------------
+--- DM to Mathilde (Bot) ---
+Du bist Werwolf.
+Deine Werwolf-Kollegen sind: Frieda.
+--------------------
+--- DM to Rosemarie (Bot) ---
+Du bist Dorfbewohner.
+--------------------
+  [WW] Creating private thread for werewolves...
+  [WW] Starting first night...
+  [WW] Muting/deafening 1 members in VC...
+  -> Calling OpenAI for Werwolf TTS message...
+  [WW] Processing bot night actions...
+    - Bot 'Frieda' (Werwolf) is choosing a target...
+PS>TerminatingError(): "Die Pipeline wurde beendet."
+>> TerminatingError(): "Die Pipeline wurde beendet."
+>> $global:?
+True
+**********************
+Ende der Windows PowerShell-Aufzeichnung
+Endzeit: 20251114173506
+**********************
