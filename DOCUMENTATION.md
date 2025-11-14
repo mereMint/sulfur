@@ -85,12 +85,36 @@ Sulfur ist ein multifunktionaler Discord-Bot, der entwickelt wurde, um die Inter
     # Notwendige Build-Tools installieren (wichtig für Python-Pakete)
     pkg install build-essential python-cryptography libjpeg-turbo pkg-config
 
-    # Notwendige Software installieren (Python, Git, MariaDB, Nano-Editor)
-    pkg install python git mariadb nano tmux
+    # Notwendige Software installieren (Python, Git, MariaDB, Nano-Editor, OpenSSH)
+    pkg install python git mariadb nano tmux openssh
 
     # Python-Bibliotheken installieren
     pip install discord.py mysql-connector-python aiohttp
     ```
+
+2.  **Schritt 2: GitHub-Authentifizierung einrichten (SSH-Schlüssel)**
+    Damit du dein Repository ohne Passworteingabe klonen und aktualisieren kannst, richtest du einen SSH-Schlüssel ein.
+    ```bash
+    # Erstelle das SSH-Verzeichnis und setze die richtigen Berechtigungen
+    mkdir -p ~/.ssh
+    chmod 700 ~/.ssh
+
+    # Erstelle einen neuen SSH-Schlüssel (ersetze die E-Mail mit deiner GitHub-E-Mail)
+    ssh-keygen -t ed25519 -C "deine-email@beispiel.com"
+    ```
+    -   **WICHTIG:** Du wirst nun zweimal gefragt, etwas einzugeben:
+        1.  `Enter file in which to save the key...`: Drücke hier einfach `Enter`.
+        2.  `Enter passphrase (empty for no passphrase):`: Drücke auch hier einfach `Enter` und dann noch einmal `Enter` zur Bestätigung.
+    ```bash
+
+    # Zeige den öffentlichen Schlüssel an
+    cat ~/.ssh/id_ed25519.pub
+    ```
+    -   **Kopiere die gesamte Ausgabe** des `cat`-Befehls (sie beginnt mit `ssh-ed25519...`).
+    -   Gehe auf deinem PC oder Handy zu GitHub in deinen SSH-Einstellungen.
+    -   Klicke auf **"New SSH key"**.
+    -   Gib einen beliebigen Titel ein (z.B. "Termux").
+    -   Füge den kopierten Schlüssel in das große "Key"-Feld ein und klicke auf **"Add SSH key"**.
 
 2.  **Schritt 2: Datenbank einrichten**
     MariaDB (die MySQL-Variante für Termux) muss initialisiert und konfiguriert werden.
@@ -103,8 +127,10 @@ Sulfur ist ein multifunktionaler Discord-Bot, der entwickelt wurde, um die Inter
     ```
     Verbinde dich nun mit dem Datenbankserver, um die Datenbank und den Benutzer für den Bot zu erstellen.
     ```bash
-    mysql -u root # Öffnet die MariaDB-Konsole
+    mysql -u root
     ```
+    > **Hinweis:** Wenn du nach einem Passwort gefragt wirst, drücke einfach `Enter`. Standardmäßig hat der `root`-Benutzer in Termux kein Passwort.
+
     Führe in der MariaDB-Konsole die folgenden SQL-Befehle einzeln aus:
     ```sql
     CREATE DATABASE sulfur_bot; -- Erstellt die Datenbank
@@ -116,9 +142,9 @@ Sulfur ist ein multifunktionaler Discord-Bot, der entwickelt wurde, um die Inter
 
 3.  **Schritt 3: Bot-Code herunterladen**
     Lade den Code aus dem GitHub-Repository herunter.
+    > **Wichtig:** Benutze die SSH-URL (beginnt mit `git@github.com...`), nicht die HTTPS-URL.
     ```bash
-    # Lade das Repository von GitHub herunter
-    git clone https://github.com/mereMint/sulfur.git sulfur
+    git clone git@github.com:mereMint/sulfur.git sulfur
 
     # Wechsle in den Projektordner
     cd sulfur
