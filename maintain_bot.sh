@@ -48,7 +48,7 @@ while true; do
 
     # This loop runs as long as the bot process exists
     while kill -0 $BOT_PID 2>/dev/null; do
-        sleep 60
+        sleep 30
 
         # Fetch the latest changes from the remote repository
         git remote update > /dev/null 2>&1

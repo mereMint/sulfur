@@ -266,6 +266,10 @@ async def on_ready():
     # --- NEW: Start the background task for Wrapped event management ---
     if not manage_wrapped_event.is_running():
         manage_wrapped_event.start()
+    # --- NEW: Start the background task for empty channel cleanup ---
+    if not cleanup_empty_channels.is_running():
+        cleanup_empty_channels.start()
+
     print(f"Synced {len(synced)} global commands.")
 
     print(f'Ayo, the bot is logged in and ready, fam! ({client.user})')
@@ -312,6 +316,31 @@ async def update_presence_task():
 @update_presence_task.before_loop
 async def before_update_presence_task():
     await client.wait_until_ready()
+
+# --- NEW: Periodic Channel Cleanup Task ---
+@tasks.loop(hours=1)
+async def cleanup_empty_channels():
+    """Periodically finds and deletes empty, managed voice channels."""
+    print("Running periodic cleanup of empty voice channels...")
+    managed_channel_ids = await db_helpers.get_all_managed_channels()
+    deleted_count = 0
+    if not managed_channel_ids:
+        print("  -> No managed channels found in the database.")
+        return
+
+    for channel_id in managed_channel_ids:
+        channel = client.get_channel(channel_id)
+        if channel and isinstance(channel, discord.VoiceChannel) and not channel.members:
+            try:
+                await channel.delete(reason="Periodic cleanup of empty channel")
+                await db_helpers.remove_managed_channel(channel_id, keep_owner_record=True)
+                print(f"  -> Cleaned up empty channel: {channel.name} ({channel_id})")
+                deleted_count += 1
+            except (discord.Forbidden, discord.NotFound):
+                # If we can't delete, at least remove it from our active list
+                await db_helpers.remove_managed_channel(channel_id, keep_owner_record=True)
+    if deleted_count > 0:
+        print(f"Periodic cleanup finished. Deleted {deleted_count} empty channel(s).")
 
 @client.event
 async def on_presence_update(before, after):

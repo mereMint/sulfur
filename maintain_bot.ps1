@@ -24,7 +24,7 @@ while ($true) {
     Write-Host "Bot is running in the background (Job ID: $($botJob.Id)). Checking for updates every 60 seconds."
 
     while ($botJob.State -eq 'Running') {
-        Start-Sleep -Seconds 60
+        Start-Sleep -Seconds 30
 
         # Fetch the latest changes from the remote repository
         git remote update
