@@ -195,6 +195,24 @@ def get_embed_color(config_obj):
 @client.event
 async def on_ready():
     """Fires when the bot logs in."""
+    # --- NEW: Unmute all users on startup ---
+    # This handles cases where the bot crashed and left users muted/deafened.
+    print("Checking for users left muted from a previous session...")
+    unmuted_count = 0
+    for guild in client.guilds:
+        for vc in guild.voice_channels:
+            for member in vc.members:
+                # Check if the member is server-muted or server-deafened
+                if member.voice and (member.voice.mute or member.voice.deaf):
+                    try:
+                        await member.edit(mute=False, deafen=False, reason="Bot restart cleanup")
+                        print(f"  -> Unmuted {member.display_name} in '{guild.name}'.")
+                        unmuted_count += 1
+                    except (discord.Forbidden, discord.HTTPException) as e:
+                        print(f"  -> Failed to unmute {member.display_name}: {e}")
+    if unmuted_count > 0:
+        print(f"Cleanup complete. Unmuted {unmuted_count} user(s).")
+
     # --- NEW: Clean up leftover game channels on restart ---
     print("Checking for leftover game channels...")
     for guild in client.guilds:
@@ -1298,9 +1316,10 @@ async def ww_start(interaction: discord.Interaction, ziel_spieler: int = None):
     if game_text_channel.id not in active_werwolf_games:
         return # Game was cancelled
 
-    # --- NEW: Check if anyone joined ---
-    if len(game.players) < 1:
-        await game.game_channel.send("Niemand ist beigetreten. Das Spiel wird abgebrochen.")
+    # --- FIX: Check if anyone OTHER than the starter joined ---
+    # If only the starter is in the game, cancel it and clean up.
+    if len(game.players) <= 1:
+        await game.game_channel.send("Niemand ist beigetreten. Das Spiel wird abgebrochen und die Channels werden aufgeräumt.")
         await game.end_game(None) # End game without a winner
         del active_werwolf_games[game_text_channel.id]
         return

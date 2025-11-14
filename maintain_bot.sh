@@ -20,27 +20,29 @@ if [ -z "$TMUX" ]; then
     exit 1
 fi
 
+# --- NEW: Create the bot pane once and get its ID ---
+echo "Creating a dedicated pane for the bot's output..."
+# The -P flag prints the new pane's info, and -F gets just the ID.
+# The pane will initially run the start script.
+BOT_PANE_ID=$(tmux split-window -h -P -F "#{pane_id}" "./start_bot.sh")
+
 while true; do
-    echo "Starting the bot process..."
-    # Create a new horizontal pane and run the bot start script in it.
-    # The bot will run in the foreground of that new pane.
-    tmux split-window -h "./start_bot.sh"
-    
     # Give it a moment to start and get the PID of the python process.
     sleep 2
     BOT_PID=$(pgrep -f "python3 ./bot.py")
 
-    echo "Bot is running in the background (PID: $BOT_PID). Checking for updates every 60 seconds."
+    if [ -z "$BOT_PID" ]; then
+        echo "Warning: Could not find bot PID. It might have crashed on startup. Will try restarting..."
+    else
+        echo "Bot is running in pane $BOT_PANE_ID (PID: $BOT_PID). Checking for updates every 60 seconds."
+    fi
+
     # This function will be called to clean up the bot and any child processes.
     cleanup() {
-        echo "Stopping bot process (PID: $BOT_PID) and its children..."
-        # Kill the entire process group to stop start_bot.sh and any child processes (like mysqld_safe).
-        # The '-' before the PID is crucial for killing the group.
-        if kill -0 $BOT_PID 2>/dev/null; then
-            kill -- -$BOT_PID
-            # Also close the tmux pane where the bot was running.
-            tmux kill-pane -t bottom-right
-        fi
+        echo "Restarting bot process in pane $BOT_PANE_ID..."
+        # The 'respawn-pane' command kills the old process and starts a new one in the same pane.
+        # The -k flag ensures the old command is killed before respawning.
+        tmux respawn-pane -k -t "$BOT_PANE_ID" "./start_bot.sh"
         echo "Cleanup complete."
     }
 
@@ -54,13 +56,13 @@ while true; do
 
         if echo "$STATUS" | grep -q "Your branch is behind"; then
             echo "New version found in the repository! Restarting the bot to apply updates..."
-            cleanup # Stop the bot and its children
+            cleanup # This now respawns the bot in the same pane
             break # Exit the inner loop to allow the outer loop to restart it
         fi
     done
 
     # If the loop exits because the bot crashed, ensure cleanup is still performed.
     cleanup
-    echo "Bot process stopped. It will be restarted in 5 seconds... (Press CTRL+C to stop the watcher)"
+    echo "Bot process stopped or crashed. Restarting it in 5 seconds... (Press CTRL+C to stop the watcher)"
     sleep 5 # Brief pause before restarting
 done
