@@ -38,7 +38,7 @@ while true; do
     if [ -z "$BOT_PID" ]; then
         echo "Warning: Could not find bot PID. It might have crashed on startup. Will try restarting..."
     else
-        echo "Bot is running in pane $BOT_PANE_ID (PID: $BOT_PID). Checking for updates every 60 seconds."
+        echo "Bot is running in pane $BOT_PANE_ID (PID: $BOT_PID). Checking for updates every 30 seconds."
     fi
 
     # This function will be called to clean up the bot and any child processes.

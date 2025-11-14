@@ -42,6 +42,11 @@ echo "  -> Re-applying stashed local changes..."
 git stash pop
 echo "Update check complete."
 
+# --- NEW: Ensure maintenance scripts are always executable after a pull ---
+echo "Ensuring core scripts are executable..."
+chmod +x ./maintain_bot.sh
+chmod +x ./maintain_bot.ps1
+
 # --- NEW: Check if MySQL is already running ---
 if ! pgrep -x "mysqld" > /dev/null
 then
