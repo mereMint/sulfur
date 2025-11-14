@@ -21,10 +21,14 @@ if [ -z "$TMUX" ]; then
 fi
 
 # --- NEW: Create the bot pane once and get its ID ---
+# --- FIX: Ensure start_bot.sh is executable before running ---
+chmod +x ./start_bot.sh
+
 echo "Creating a dedicated pane for the bot's output..."
 # The -P flag prints the new pane's info, and -F gets just the ID.
 # The pane will initially run the start script.
 BOT_PANE_ID=$(tmux split-window -h -P -F "#{pane_id}" "./start_bot.sh")
+
 
 while true; do
     # Give it a moment to start and get the PID of the python process.
@@ -41,6 +45,8 @@ while true; do
     cleanup() {
         echo "Restarting bot process in pane $BOT_PANE_ID..."
         # The 'respawn-pane' command kills the old process and starts a new one in the same pane.
+        # --- FIX: Ensure start_bot.sh is executable before respawning ---
+        chmod +x ./start_bot.sh
         # The -k flag ensures the old command is killed before respawning.
         tmux respawn-pane -k -t "$BOT_PANE_ID" "./start_bot.sh"
         # Remove the flag file so the new instance starts with a clean status
