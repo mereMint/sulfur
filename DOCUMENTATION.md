@@ -113,8 +113,8 @@ Sulfur ist ein multifunktionaler Discord-Bot, der entwickelt wurde, um die Inter
 3.  **Schritt 3: Bot-Code herunterladen**
     Der beste Weg, den Code zu verwalten, ist über `git`. Lade den Code aus deinem GitHub-Repository:
     ```bash
-    # Ersetze die URL mit der deines Repositories
-    git clone https://github.com/dein-username/dein-repo-name.git sulfur
+    # Lade das Repository von GitHub herunter
+    git clone https://github.com/mereMint/sulfur.git sulfur
 
     # Wechsle in den neu erstellten Ordner
     cd sulfur
