@@ -46,7 +46,7 @@ echo "Update check complete."
 if ! pgrep -x "mysqld" > /dev/null
 then
     echo "MySQL not running. Starting server..."
-    mysqld_safe -u root &
+    mysqld_safe --user=root --datadir=/data/data/com.termux/files/usr/var/lib/mysql &
     sleep 5 # Give it a moment to start
 fi
 

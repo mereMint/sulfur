@@ -72,86 +72,97 @@ Sulfur ist ein multifunktionaler Discord-Bot, der entwickelt wurde, um die Inter
 
 **Voraussetzungen:**
 -   Die **Termux**-App. **WICHTIG:** Installiere sie über **F-Droid**, da die Version im Google Play Store veraltet ist und nicht mehr funktioniert.
--   Ein GitHub-Account, um das Projekt zu verwalten (empfohlen).
+-   Ein GitHub-Account, um das Projekt zu verwalten.
 
 **Schritte:**
 
 1.  **Schritt 1: Termux-Umgebung einrichten**
-    Öffne Termux und führe die folgenden Befehle aus, um die Basis-Software zu installieren:
+    Öffne Termux und führe die folgenden Befehle einzeln aus. Dies installiert alle notwendigen System-Pakete und Build-Tools.
     ```bash
     # Pakete aktualisieren
     pkg update && pkg upgrade
 
-    # Notwendige Software installieren (python, git, mariadb für die DB, nano als Texteditor)
-    pkg install python git mariadb nano
+    # Notwendige Build-Tools installieren (wichtig für Python-Pakete)
+    pkg install build-essential python-cryptography libjpeg-turbo pkg-config
+
+    # Notwendige Software installieren (Python, Git, MariaDB, Nano-Editor)
+    pkg install python git mariadb nano tmux
 
     # Python-Bibliotheken installieren
     pip install discord.py mysql-connector-python aiohttp
     ```
 
 2.  **Schritt 2: Datenbank einrichten**
-    MariaDB (eine MySQL-Variante) muss initialisiert und konfiguriert werden:
+    MariaDB (die MySQL-Variante für Termux) muss initialisiert und konfiguriert werden.
     ```bash
-    # Datenbankverzeichnis initialisieren
+    # Datenbankverzeichnis initialisieren (nur beim allerersten Mal nötig)
     mysql_install_db
 
     # Datenbankserver im Hintergrund starten
-    mysqld_safe -u root &
+    mysqld_safe --user=root --datadir=/data/data/com.termux/files/usr/var/lib/mysql &
     ```
-    Verbinde dich nun mit dem Datenbankserver, um die Datenbank und den Benutzer für den Bot zu erstellen:
+    Verbinde dich nun mit dem Datenbankserver, um die Datenbank und den Benutzer für den Bot zu erstellen.
     ```bash
     mysql -u root # Öffnet die MariaDB-Konsole
     ```
     Führe in der MariaDB-Konsole die folgenden SQL-Befehle einzeln aus:
     ```sql
-    CREATE DATABASE sulfur_bot;
-    CREATE USER 'sulfur_bot_user'@'localhost' IDENTIFIED BY '';
-    GRANT ALL PRIVILEGES ON sulfur_bot.* TO 'sulfur_bot_user'@'localhost';
-    FLUSH PRIVILEGES;
+    CREATE DATABASE sulfur_bot; -- Erstellt die Datenbank
+    CREATE USER 'sulfur_bot_user'@'localhost' IDENTIFIED BY ''; -- Erstellt den Benutzer
+    GRANT ALL PRIVILEGES ON sulfur_bot.* TO 'sulfur_bot_user'@'localhost'; -- Gibt dem Benutzer Rechte
+    FLUSH PRIVILEGES; -- Lädt die Rechte neu
     EXIT; -- Verlässt die MariaDB-Konsole
     ```
 
 3.  **Schritt 3: Bot-Code herunterladen**
-    Der beste Weg, den Code zu verwalten, ist über `git`. Lade den Code aus deinem GitHub-Repository:
+    Lade den Code aus dem GitHub-Repository herunter.
     ```bash
     # Lade das Repository von GitHub herunter
     git clone https://github.com/mereMint/sulfur.git sulfur
 
-    # Wechsle in den neu erstellten Ordner
+    # Wechsle in den Projektordner
     cd sulfur
     ```
 
 4.  **Schritt 4: Bot konfigurieren**
-    Die API-Schlüssel werden in der `start_bot.sh`-Datei gesetzt. Benutze den `nano`-Editor, um sie zu bearbeiten:
+    Die API-Schlüssel werden in der `start_bot.sh`-Datei gesetzt. Benutze den `nano`-Editor, um sie zu bearbeiten.
     ```bash
     nano start_bot.sh
     ```
-    -   Navigiere mit den Pfeiltasten zu den Zeilen `export GEMINI_API_KEY="..."` und `export OPENAI_API_KEY="..."`.
+    -   Navigiere mit den Pfeiltasten zu den Zeilen, die mit `export` beginnen.
     -   Trage deine Schlüssel zwischen den Anführungszeichen ein.
     -   Speichere die Änderungen mit `STRG + O` (und drücke Enter), dann schließe `nano` mit `STRG + X`.
 
 5.  **Schritt 5: Bot starten**
+    Für einen einfachen Testlauf kannst du das Start-Skript direkt ausführen.
     ```bash
-    # Mache das Start-Skript ausführbar (nur beim ersten Mal nötig)
-    chmod +x start_bot.sh
+    # Mache die Skripte ausführbar (nur beim ersten Mal nötig)
+    chmod +x start_bot.sh maintain_bot.sh
 
-    # Führe das Skript aus, um den Bot zu starten
+    # Führe das Skript aus, um den Bot zu starten (stoppt, wenn du Termux schließt)
     ./start_bot.sh
     ```
-    Um den Bot dauerhaft im Hintergrund laufen zu lassen (auch wenn die App geschlossen ist), halte die Termux-Benachrichtigung in der Android-Statusleiste gedrückt und wähle "Acquire wakelock".
+    Für den 24/7-Betrieb, siehe die Anleitung zur automatischen Wartung unten.
 
 ---
 
-### Code auf Termux aktualisieren
+### Automatische Wartung (24/7-Betrieb)
 
-Das `start_bot.sh`-Skript sucht beim Start automatisch nach Updates. Für eine vollautomatische Wartung, die den Bot bei neuen Updates selbstständig neustartet, solltest du das `maintain_bot.sh`-Skript verwenden.
+Das `maintain_bot.sh`-Skript startet den Bot, sucht automatisch nach Updates und startet ihn bei Bedarf neu. Um es dauerhaft im Hintergrund laufen zu lassen, wird `tmux` verwendet.
 
-**Anleitung für automatische Wartung mit `tmux`:**
-1.  `pkg install tmux`
-2.  `tmux new -s sulfur`
-3.  Mache das Wartungsskript ausführbar: `chmod +x maintain_bot.sh`
-4.  Starte das Wartungsskript: `./maintain_bot.sh`
-4.  Verlasse die `tmux`-Sitzung mit `STRG + B`, dann `D`. Der Bot läuft nun im Hintergrund weiter.
+1.  **Starte eine `tmux`-Sitzung:**
+    ```bash
+    tmux new -s sulfur
+    ```
+2.  **Starte das Wartungsskript:**
+    Navigiere in den `sulfur`-Ordner (`cd ~/sulfur`) und starte das Skript:
+    ```bash
+    ./maintain_bot.sh
+    ```
+3.  **Verlasse die Sitzung:**
+    Drücke `STRG + B`, dann `D`. Der Bot läuft nun im Hintergrund weiter. Um die Konsole wieder zu sehen, gib `tmux attach -t sulfur` ein.
+4.  **Wakelock aktivieren:**
+    Halte die Termux-Benachrichtigung in der Android-Statusleiste gedrückt und wähle "Acquire wakelock", um zu verhindern, dass Android den Prozess beendet.
 
 ---
 
