@@ -165,12 +165,7 @@ Wenn du Änderungen am Code auf deinem PC vorgenommen und auf GitHub hochgeladen
 
 #### Werwolf-Befehle (`/ww`)
 -   `/ww start [ziel_spieler]`: Startet ein neues Spiel.
--   `/ww kill <spieler>`: (Werwolf) Wählt ein Opfer.
--   `/ww see <spieler>`: (Seherin) Deckt die Rolle eines Spielers auf.
--   `/ww heal`: (Hexe) Heilt das Opfer der Werwölfe.
--   `/ww poison <spieler>`: (Hexe) Vergiftet einen Spieler.
--   `/ww mute <spieler>`: (Dönerstopfer) Schaltet einen Spieler für den nächsten Tag stumm.
-
+> **Hinweis:** Aktionen während der Nacht (kill, see, heal, etc.) werden per Direktnachricht (DM) an den Bot gesendet.
 #### Sprachkanal-Befehle (`/voice`)
 -   `/voice setup`: (Admin) Erstellt den "Join to Create"-Kanal.
 -   `/voice clearall`: (Admin) **GEFAHR!** Löscht alle Sprachkanäle auf dem Server.

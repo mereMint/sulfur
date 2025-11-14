@@ -373,6 +373,26 @@ async def before_grant_voice_xp():
 
 # --- NEW: Wrapped Event Management ---
 
+def _calculate_wrapped_dates(config):
+    """Helper function to calculate the dates for the next Wrapped event."""
+    now = datetime.now(timezone.utc)
+    
+    # Calculate the first day of the *next* month for scheduling.
+    first_day_of_current_month = now.replace(day=1)
+    first_day_of_next_month = (first_day_of_current_month + timedelta(days=32)).replace(day=1)
+
+    # Decide on a release date: a random day in the second week of the month.
+    release_day = random.randint(config['modules']['wrapped']['release_day_min'], config['modules']['wrapped']['release_day_max'])
+    release_date = first_day_of_next_month.replace(day=release_day, hour=18, minute=0, second=0) # 6 PM UTC
+
+    # The day to create the event is one week before the release.
+    event_creation_date = release_date - timedelta(days=7)
+    event_name = f"Sulfur Wrapped {now.strftime('%B %Y')}"
+    
+    return {
+        "event_name": event_name, "event_creation_date": event_creation_date, "release_date": release_date, "stat_period": now.strftime('%Y-%m')
+    }
+
 @tasks.loop(hours=24)
 async def manage_wrapped_event():
     """
@@ -380,55 +400,50 @@ async def manage_wrapped_event():
     Runs once a day.
     """
     now = datetime.now(timezone.utc)
-    # We are planning the event for the *current* month's data, to be released *next* month.
-    # e.g., when running in November, we plan for November's data to be released in December.
-    stat_period = now.strftime('%Y-%m') # e.g., '2025-11'
-
     # For simplicity, we'll use the first guild the bot is in.
     if not client.guilds:
         return
-    guild = client.guilds[0]
-
-    # Calculate the first day of the *next* month for scheduling.
-    first_day_of_current_month = now.replace(day=1)
-    first_day_of_next_month = (first_day_of_current_month + timedelta(days=32)).replace(day=1)
-
-    # --- 1. Event Scheduling ---
-    # Decide on a release date: a random day in the second week of the month.
-    release_day = random.randint(config['modules']['wrapped']['release_day_min'], config['modules']['wrapped']['release_day_max'])
-    release_date = first_day_of_next_month.replace(day=release_day, hour=18, minute=0, second=0) # 6 PM UTC
-
-    # The day to create the event is one week before the release.
-    event_creation_day = release_date - timedelta(days=7)
-    event_name = f"Sulfur Wrapped {now.strftime('%B %Y')}"
-
+    
+    # --- REFACTORED: Use helper to get dates ---
+    dates = _calculate_wrapped_dates(config)
+    event_name = dates["event_name"]
+    event_creation_date = dates["event_creation_date"]
+    release_date = dates["release_date"]
+    
     # Check if an event for this period already exists
-    existing_events = guild.scheduled_events
-    event_exists = any(event.name == event_name for event in existing_events)
+    # We check across all guilds the bot is in to avoid creating duplicates
+    all_events = [e for guild in client.guilds for e in guild.scheduled_events]
+    event_exists = any(event.name == event_name for event in all_events)
 
     # If it's the right day to create the event and it doesn't exist yet
-    if now.day == event_creation_day.day and not event_exists:
+    if now.day == event_creation_date.day and not event_exists:
         print(f"Creating Scheduled Event for '{event_name}'...")
-        try:
-            await guild.create_scheduled_event(
-                name=event_name,
-                description=f"Dein persönlicher Server-Jahresrückblick für {now.strftime('%B')}! Die Ergebnisse werden am Event-Tag per DM verschickt.",
-                start_time=release_date,
-                end_time=release_date + timedelta(hours=1),
-                entity_type=discord.EntityType.external,
-                location="In deinen DMs!"
-            )
-            print("Event created successfully.")
-        except Exception as e:
-            print(f"Failed to create scheduled event: {e}")
+        # --- FIX: Loop through all guilds to create the event ---
+        for guild in client.guilds:
+            try:
+                await guild.create_scheduled_event(
+                    name=event_name,
+                    description=f"Dein persönlicher Server-Rückblick für **{now.strftime('%B')}**! Die Ergebnisse werden am Event-Tag per DM verschickt.",
+                    start_time=release_date,
+                    end_time=release_date + timedelta(hours=1),
+                    entity_type=discord.EntityType.external,
+                    location="In deinen DMs!",
+                    privacy_level=discord.PrivacyLevel.guild_only,
+                    reason="Automated monthly Wrapped event creation."
+                )
+                print(f"Event created successfully in '{guild.name}'.")
+            except Exception as e:
+                print(f"Failed to create scheduled event in '{guild.name}': {e}")
 
     # --- 2. Wrapped Distribution ---
     # Check if today is the release day for the PREVIOUS month's data.
+    first_day_of_current_month = now.replace(day=1)
     last_month_first_day = (first_day_of_current_month - timedelta(days=1)).replace(day=1)
     # The release day is based on the *current* month's second week, but for *last* month's data.
-    # This needs to be consistent with the event scheduling logic.
-    # Let's re-calculate the release date for last month's data.
-    last_month_release_date = first_day_of_current_month.replace(day=release_day, hour=18, minute=0, second=0) # 6 PM UTC on the random day of the current month
+    # --- FIX: To ensure consistency, we must recalculate the release date for the *previous* month's cycle. ---
+    # We use the first day of the *current* month to determine the release window for *last* month's data.
+    last_month_release_day = random.randint(config['modules']['wrapped']['release_day_min'], config['modules']['wrapped']['release_day_max'])
+    last_month_release_date = first_day_of_current_month.replace(day=last_month_release_day, hour=18, minute=0, second=0)
     last_month_stat_period = last_month_first_day.strftime('%Y-%m')
 
     # --- FIX: Check the full date, not just the day number ---
@@ -551,8 +566,10 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
 
     # --- FIX: Calculate ranks inside the function to ensure they are for the correct period ---
     print("    - [Wrapped] Calculating message and VC ranks...")
-    message_ranks = sorted(all_stats_for_period, key=lambda x: x.get('message_count', 0))
-    vc_ranks = sorted(all_stats_for_period, key=lambda x: x.get('minutes_in_vc', 0))
+    # --- REFACTORED: Create a rank mapping for efficiency ---
+    message_ranks = {user['user_id']: rank for rank, user in enumerate(sorted(all_stats_for_period, key=lambda x: x.get('message_count', 0), reverse=True))}
+    vc_ranks = {user['user_id']: rank for rank, user in enumerate(sorted(all_stats_for_period, key=lambda x: x.get('minutes_in_vc', 0), reverse=True))}
+
 
     # --- Page 3: Message Stats ---
     message_rank_text = _get_percentile_rank(user.id, message_ranks, total_users)
@@ -634,12 +651,13 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
     except Exception as e:
         print(f"  - [Wrapped] An unexpected error occurred for {user.name}: {e}")
 
-def _get_percentile_rank(user_id, ranked_list, total_users):
+def _get_percentile_rank(user_id, rank_map, total_users):
     """Helper function to calculate a user's percentile rank from a sorted list."""
     if total_users < 2: return "Top 100%" # Avoid division by zero
     try:
-        user_index = next(i for i, item in enumerate(ranked_list) if item['user_id'] == user_id)
-        percentile = (user_index / (total_users - 1)) * 100
+        # The rank map gives us the 0-indexed rank directly
+        user_rank = rank_map.get(user_id, total_users - 1)
+        percentile = (user_rank / (total_users - 1)) * 100
         top_percentile = 100 - percentile
 
         # --- NEW: Use ranks from config file ---
@@ -991,6 +1009,43 @@ class AdminGroup(app_commands.Group):
         except Exception as e:
             await interaction.followup.send(f"❌ Fehler beim Aktualisieren der Biografie: `{e}`", ephemeral=True)
 
+    @app_commands.command(name="view_dates", description="Zeigt die berechneten Daten für das nächste 'Wrapped'-Event an.")
+    async def view_dates(self, interaction: discord.Interaction):
+        """Displays the calculated dates for the next Wrapped event."""
+        await interaction.response.defer(ephemeral=True)
+        
+        dates = _calculate_wrapped_dates(config)
+        
+        embed = discord.Embed(
+            title="📅 Nächster Wrapped-Zeitplan",
+            description="Dies sind die berechneten Daten für die nächste 'Wrapped'-Runde.",
+            color=get_embed_color(config)
+        )
+        embed.add_field(name="Statistik-Zeitraum", value=f"`{dates['stat_period']}`", inline=False)
+        embed.add_field(name="Event-Erstellung am", value=f"<t:{int(dates['event_creation_date'].timestamp())}:F>", inline=False)
+        embed.add_field(name="Veröffentlichung der DMs am", value=f"<t:{int(dates['release_date'].timestamp())}:F>", inline=False)
+        
+        await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name="view_event", description="Erstellt ein Test-Event, um das Aussehen des 'Wrapped'-Events zu prüfen.")
+    async def view_event(self, interaction: discord.Interaction):
+        """Creates a mock scheduled event in the current server to preview its appearance."""
+        await interaction.response.defer(ephemeral=True)
+        dates = _calculate_wrapped_dates(config)
+        try:
+            await interaction.guild.create_scheduled_event(
+                name=f"[TEST] {dates['event_name']}",
+                description=f"Dein persönlicher Server-Rückblick für **{datetime.now(timezone.utc).strftime('%B')}**! Die Ergebnisse werden am Event-Tag per DM verschickt.",
+                start_time=dates['release_date'],
+                end_time=dates['release_date'] + timedelta(hours=1),
+                entity_type=discord.EntityType.external,
+                location="In deinen DMs!",
+                privacy_level=discord.PrivacyLevel.guild_only
+            )
+            await interaction.followup.send("✅ Test-Event wurde erfolgreich in diesem Server erstellt.")
+        except Exception as e:
+            await interaction.followup.send(f"❌ Fehler beim Erstellen des Test-Events: `{e}`")
+
 # --- NEW: Pagination View for Embeds ---
 class PaginationView(discord.ui.View):
     def __init__(self, embeds, timeout=120):
@@ -1222,45 +1277,37 @@ async def ww_start(interaction: discord.Interaction, ziel_spieler: int = None):
         color=get_embed_color(config)
     )
     embed.add_field(name="Automatischer Start", value="Das Spiel startet in **15 Sekunden**.")
-    embed.add_field(name="Spieler (0)", value="Noch keine Spieler.", inline=False)
+    embed.add_field(name="Spieler (1)", value=author.display_name, inline=False)
     embed.set_footer(text="Wer nicht beitritt, ist ein Werwolf!")
-    join_message = await game_text_channel.send(embed=embed)
+    
+    # Create the view and send the initial message
+    join_duration = config['modules']['werwolf']['join_phase_duration_seconds']
+    view = WerwolfJoinView(game, join_duration)
+    join_message = await game_text_channel.send(embed=embed, view=view)
+    game.join_message = join_message
 
-    game.join_message = join_message # Store the message in the game object
-    # --- NEW: Automatic Start Logic ---
-    await asyncio.sleep(config['modules']['werwolf']['join_phase_duration_seconds'])
+    # Start the countdown and wait for either the timer to finish or the button to be pressed
+    countdown_task = asyncio.create_task(view.run_countdown())
+    try:
+        await asyncio.wait_for(view.start_now_event.wait(), timeout=join_duration)
+    except asyncio.TimeoutError:
+        pass # Timer finished normally
+    finally:
+        countdown_task.cancel()
 
     if game_text_channel.id not in active_werwolf_games:
         return # Game was cancelled
 
     # --- NEW: Check if anyone joined ---
-    if not game.players:
+    if len(game.players) < 1:
         await game.game_channel.send("Niemand ist beigetreten. Das Spiel wird abgebrochen.")
         await game.end_game(None) # End game without a winner
         del active_werwolf_games[game_text_channel.id]
         return
 
-    # --- REFACTORED: Use default target players from config if not specified ---
-    target_players = ziel_spieler or config['modules']['werwolf'].get('default_target_players')
-
-    if target_players and len(game.players) < target_players:
-        bots_to_add = target_players - len(game.players)
-        if bots_to_add <= 0:
-            return # Should not happen, but as a safeguard
-
-        await game.game_channel.send(f"Das Spiel wird mit Bots auf {target_players} Spieler aufgefüllt. Füge {bots_to_add} Bot-Gegner hinzu...")
-        bot_names = await get_random_names(bots_to_add, db_helpers, config, GEMINI_API_KEY, OPENAI_API_KEY)
-        await asyncio.sleep(2)
-        for name in bot_names:
-            bot_name = name
-            # Check for name collisions, though unlikely
-            while game.get_player_by_name(bot_name):
-                bot_name += "+"
-            fake_user = FakeUser(name=bot_name)
-            game.add_player(fake_user)
-
     # Automatically start the game
-    error_message = await game.start_game(config, GEMINI_API_KEY, OPENAI_API_KEY)
+    # Bot filling logic is now handled inside start_game
+    error_message = await game.start_game(config, GEMINI_API_KEY, OPENAI_API_KEY, db_helpers, ziel_spieler)
     if error_message:
         await game.game_channel.send(error_message)
         del active_werwolf_games[game_text_channel.id]
@@ -1271,6 +1318,42 @@ tree.add_command(voice_group)
 
 # --- NEW: Add the admin command group to the tree ---
 tree.add_command(AdminGroup(name="admin"))
+
+class WerwolfJoinView(discord.ui.View):
+    """A view for the Werwolf join phase, including a start button and countdown."""
+    def __init__(self, game, duration):
+        super().__init__(timeout=duration + 5) # Timeout slightly longer than the join phase
+        self.game = game
+        self.duration = duration
+        self.start_now_event = asyncio.Event()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        # Only the game starter can press the "Start Now" button
+        if interaction.data['custom_id'] == 'ww_start_now':
+            if interaction.user.id != self.game.starter.id:
+                await interaction.response.send_message("Nur der Ersteller des Spiels kann das Spiel sofort starten.", ephemeral=True)
+                return False
+        return True
+
+    @discord.ui.button(label="Sofort starten", style=discord.ButtonStyle.success, custom_id="ww_start_now")
+    async def start_now(self, interaction: discord.Interaction, button: discord.ui.Button):
+        button.disabled = True
+        button.label = "Spiel startet..."
+        await interaction.response.edit_message(view=self)
+        self.start_now_event.set() # Signal the main task to stop waiting
+
+    async def run_countdown(self):
+        """Updates the join embed with a countdown timer."""
+        while self.duration > 0:
+            embed = self.game.join_message.embeds[0]
+            embed.set_field_at(0, name="Automatischer Start", value=f"Das Spiel startet in **{self.duration} Sekunden**.")
+            try:
+                await self.game.join_message.edit(embed=embed)
+            except discord.NotFound:
+                return # Message was deleted, stop countdown
+            
+            await asyncio.sleep(min(5, self.duration)) # Update every 5 seconds or less
+            self.duration -= 5
 
 @client.event
 async def on_message(message):

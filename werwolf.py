@@ -2,7 +2,7 @@ import asyncio
 import discord
 from collections import deque
 from discord.ui import View, Button
-from api_helpers import get_werwolf_tts_message
+from api_helpers import get_werwolf_tts_message, get_random_names
 import re
 from fake_user import FakeUser
 import random
@@ -46,6 +46,7 @@ class WerwolfGame:
         self.hexe_heal_target_id = None
         self.hexe_poison_target_id = None
         self.döner_mute_target_id = None
+        self.seer_findings = {} # NEW: To store what the seer has seen
         self.join_message = None # The initial "join game" message
         self.game_state_message = None # The main message to be updated
         self.night_end_task = None # To manage the night timeout
@@ -59,35 +60,49 @@ class WerwolfGame:
         if not text:
             return 2.0 # Default duration
         
+        # Use configurable values for TTS timing
+        tts_config = self.config['modules']['werwolf']['tts']
+        chars_per_second = tts_config.get('chars_per_second', 12)
+        min_duration = tts_config.get('min_duration', 4.0)
+        buffer_seconds = tts_config.get('buffer_seconds', 3.0)
+
         char_count = len(text)
         
-        # Average reading speed is about 15 characters per second.
-        # We'll use a slower rate for TTS to be safe.
-        chars_per_second = 12
         duration_seconds = char_count / chars_per_second
         
-        # Add a minimum duration and a small buffer.
-        # Increased minimum to 4s and buffer to 3s to give more time.
-        return max(4.0, duration_seconds) + 3.0
+        return max(min_duration, duration_seconds) + buffer_seconds
 
     async def log_event(self, event_text: str, send_tts: bool = False):
         """Adds an event to the log and optionally sends a TTS message."""
         self.event_log.append(event_text)
+        
+        tts_task = None
         if send_tts:
             # Send and delete TTS to keep chat clean
-            async def send_and_delete_tts():
-                try:
-                    tts_content_from_api = await get_werwolf_tts_message(event_text, self.config, self.gemini_api_key, self.openai_api_key)
-                    # --- FIX: Robustly clean markdown from the final TTS string ---
-                    clean_tts_content = re.sub(r'[\*_`~]', '', tts_content_from_api)
+            tts_content_from_api = await get_werwolf_tts_message(event_text, self.config, self.gemini_api_key, self.openai_api_key)
+            clean_tts_content = re.sub(r'[\*_`~]', '', tts_content_from_api)
+            
+            try:
+                msg = await self.game_channel.send(clean_tts_content, tts=True)
+                # Create a task to delete the message after the TTS duration
+                delete_delay = self._calculate_tts_duration(clean_tts_content)
+                tts_task = asyncio.create_task(asyncio.sleep(delete_delay)) # This task will be awaited
+                asyncio.create_task(msg.delete(delay=delete_delay)) # This runs in the background
+            except (discord.NotFound, discord.Forbidden):
+                pass  # Ignore if we can't send the message
+        
+        # If a TTS message was sent, wait for its duration before the game continues.
+        if tts_task:
+            await tts_task
 
-                    msg = await self.game_channel.send(clean_tts_content, tts=True)
-                    # Wait for the estimated duration of the TTS + a buffer, then delete.
-                    await asyncio.sleep(self._calculate_tts_duration(clean_tts_content))
-                    await msg.delete()
-                except (discord.NotFound, discord.Forbidden):
-                    pass  # Ignore if message is already gone or permissions fail
-            asyncio.create_task(send_and_delete_tts())
+    async def send_temp_message(self, content: str, delay: int = 10):
+        """Sends a message to the game channel and deletes it after a delay."""
+        try:
+            msg = await self.game_channel.send(content)
+            await asyncio.sleep(delay)
+            await msg.delete()
+        except (discord.NotFound, discord.Forbidden):
+            pass # Ignore if message is already gone or permissions fail
 
     async def update_game_state_embed(self, status_text: str = None, view: discord.ui.View = None):
         """Creates or updates the main game state embed."""
@@ -166,8 +181,7 @@ class WerwolfGame:
             if player.user.display_name.lower() == name_lower:
                 return player
         return None
-
-    async def start_game(self, config, gemini_key, openai_key):
+    async def start_game(self, config, gemini_key, openai_key, db_helpers, ziel_spieler=None):
         """Assigns roles and starts the first night."""
         if self.phase != "joining":
             return "Das Spiel läuft bereits."
@@ -181,6 +195,24 @@ class WerwolfGame:
             return "Es sind keine Spieler im Spiel."
 
         print("  [WW] Starting game setup...")
+        # --- NEW: Handle bot filling inside the game logic ---
+        target_players = ziel_spieler or self.config['modules']['werwolf'].get('default_target_players')
+        if target_players and len(self.players) < target_players:
+            bots_to_add = target_players - len(self.players)
+            if bots_to_add > 0:
+                await self.send_temp_message(f"Das Spiel wird mit Bots auf {target_players} Spieler aufgefüllt. Füge {bots_to_add} Bot-Gegner hinzu...", delay=10)
+                bot_names = await get_random_names(bots_to_add, db_helpers, self.config, self.gemini_api_key, self.openai_api_key)
+                await asyncio.sleep(2)
+                for name in bot_names:
+                    bot_name = name
+                    # Check for name collisions, though unlikely
+                    while self.get_player_by_name(bot_name):
+                        bot_name += "+"
+                    fake_user = FakeUser(name=bot_name)
+                    self.add_player(fake_user)
+        
+        player_count = len(self.players) # Recalculate after adding bots
+
         # --- Role Assignment ---
         # Logic adjusted for small player counts
         if player_count == 1:
@@ -242,7 +274,7 @@ class WerwolfGame:
                 # --- FIX: Only add real users to the thread ---
                 for wolf_player in [p for p in werwolfe_team if not self.is_bot_player(p)]:
                     await self.werwolf_thread.add_user(wolf_player.user)
-                await self.werwolf_thread.send("Willkommen, Werwölfe! Beratet euch hier und wählt euer Opfer mit `/ww kill <name>`.")
+                await self.werwolf_thread.send("Willkommen, Werwölfe! Beratet euch hier und schickt mir eure Entscheidung als DM mit `kill <name>`.")
             except discord.HTTPException as e:
                 await self.game_channel.send(f"Fehler beim Erstellen des Werwolf-Threads: {e}. Das Spiel wird fortgesetzt, aber die Werwölfe müssen den Bot per DM für Aktionen nutzen.")
 
@@ -275,6 +307,7 @@ class WerwolfGame:
         self.hexe_heal_target_id = None
         self.hexe_poison_target_id = None
         self.döner_mute_target_id = None
+        self.seer_findings = {} # Reset seer findings each night
         # Cancel any previous night end task
         if self.night_end_task:
             self.night_end_task.cancel()
@@ -305,6 +338,10 @@ class WerwolfGame:
         # Check if there's a human wolf
         human_wolf_exists = any(p for p in self.get_alive_players() if p.role == WERWOLF and not self.is_bot_player(p))
 
+        # --- NEW: Bot actions are now processed in a logical order ---
+        # 1. Seer acts first to gather information.
+        # 2. Wolves act next.
+        # 3. Witch acts last, using information from the night's events.
         for player in self.get_alive_players():
             if not self.is_bot_player(player):
                 continue
@@ -324,18 +361,37 @@ class WerwolfGame:
                 targets = [p for p in self.get_alive_players() if p.user.id != player.user.id]
                 if targets:
                     target = random.choice(targets)
+                    # --- NEW: Seer bot now records its findings ---
+                    self.seer_findings[target.user.id] = target.role
                     await self.handle_night_action(player, "see", target, self.config, self.gemini_api_key, self.openai_api_key)
-            elif player.role == HEXE:
-                # Bot Hexe logic is complex, for now they do nothing.
-                # A real implementation would need to know the victim first.
-                pass
-            elif player.role == DÖNERSTOPFER:
+        
+        # --- NEW: Process Dönerstopfer action after Seer/Wolf ---
+        for player in self.get_alive_players():
+            if self.is_bot_player(player) and player.role == DÖNERSTOPFER:
                 print(f"    - Bot '{player.user.display_name}' (Dönerstopfer) is choosing a target...")
                 targets = [p for p in self.get_alive_players() if p.user.id != player.user.id]
                 if targets:
                     target = random.choice(targets)
                     await self.handle_night_action(player, "mute", target, self.config, self.gemini_api_key, self.openai_api_key)
 
+        # --- NEW: Process Hexe action last ---
+        for player in self.get_alive_players():
+            if self.is_bot_player(player) and player.role == HEXE:
+                # Hexe decides whether to heal
+                wolf_victim_id = next(iter(self.night_votes.values()), None)
+                if wolf_victim_id and player.has_healing_potion:
+                    wolf_victim = self.players.get(wolf_victim_id)
+                    # Heal if the victim is not a known wolf
+                    if wolf_victim and self.seer_findings.get(wolf_victim.user.id) != WERWOLF:
+                        await self.handle_night_action(player, "heal", None, self.config, self.gemini_api_key, self.openai_api_key)
+                # Hexe decides whether to poison
+                elif player.has_kill_potion:
+                    # Poison a known wolf
+                    known_wolves = [p_id for p_id, role in self.seer_findings.items() if role == WERWOLF]
+                    if known_wolves:
+                        target_to_poison = self.players.get(random.choice(known_wolves))
+                        if target_to_poison and target_to_poison.is_alive:
+                            await self.handle_night_action(player, "poison", target_to_poison, self.config, self.gemini_api_key, self.openai_api_key)
 
         # The night now ends only when all special roles have acted.
 
@@ -463,7 +519,7 @@ class WerwolfGame:
             print(f"  [WW] Night victim chosen: {wolf_victim.user.display_name if wolf_victim else 'None'}.")
 
         await self.log_event("Der Morgen dämmert und die Dorfbewohner versammeln sich.", send_tts=True)
-        await asyncio.sleep(4) # Pause for TTS to finish
+        await asyncio.sleep(self.config['modules']['werwolf']['pacing']['after_morning_announcement'])
 
         # Resolve night events
         healed = False
@@ -476,13 +532,13 @@ class WerwolfGame:
             event = f"Ein schrecklicher Fund wurde gemacht. **{wolf_victim.user.display_name}** wurde getötet. Er/Sie war ein(e) **{wolf_victim.role}**."
             await self.log_event(event, send_tts=True)
             await self.kill_player(wolf_victim, "von den Werwölfen getötet")
-            await asyncio.sleep(5) # Longer pause for the dramatic reveal
+            await asyncio.sleep(self.config['modules']['werwolf']['pacing']['after_victim_reveal'])
         else:
             event = "Wie durch ein Wunder ist in dieser Nacht niemand durch die Werwölfe gestorben."
             if healed:
                 event += " Die Hexe hat ihr Werk vollbracht."
             await self.log_event(event, send_tts=True)
-            await asyncio.sleep(4) # Pause for TTS
+            await asyncio.sleep(self.config['modules']['werwolf']['pacing']['after_no_victim_announcement'])
 
         # Announce Hexe's poison victim
         if self.hexe_poison_target_id:
@@ -492,8 +548,7 @@ class WerwolfGame:
                 event = f"Ein weiteres Opfer wurde gefunden! **{poison_victim.user.display_name}** wurde von der Hexe vergiftet! Er/Sie war ein(e) **{poison_victim.role}**."
                 await self.log_event(event, send_tts=True)
                 await self.kill_player(poison_victim, "von der Hexe vergiftet")
-                await asyncio.sleep(5)
-        await asyncio.sleep(2) # Pause for dramatic effect
+                await asyncio.sleep(self.config['modules']['werwolf']['pacing']['after_victim_reveal'])
 
         # Check for win condition
         winner = self.check_win_condition()
@@ -506,7 +561,7 @@ class WerwolfGame:
             try:
                 self.discussion_vc = self.lobby_vc
                 await self.discussion_vc.edit(name=self.config['modules']['werwolf']['discussion_channel_name'], reason="Spielphase: Tag")
-                await self.game_channel.send(f"Die Diskussion findet jetzt in {self.discussion_vc.mention} statt!")
+                await self.send_temp_message(f"Die Diskussion findet jetzt in {self.discussion_vc.mention} statt!", delay=15)
             except Exception as e:
                 await self.game_channel.send(f"Konnte den Voice-Channel nicht umbenennen: {e}")
         
@@ -530,7 +585,6 @@ class WerwolfGame:
                 if member_to_mute and member_to_mute.voice:
                     await member_to_mute.edit(mute=True, reason="Vom Dönerstopfer gestopft")
                     await self.log_event(f"**{mute_target_player.user.display_name}** wurde vom Dönerstopfer für diesen Tag das Maul gestopft!", send_tts=True)
-                    await asyncio.sleep(4)
 
 
         # --- NEW: Start interactive voting process ---
@@ -624,7 +678,7 @@ class WerwolfGame:
         event = f"Der Mob hat entschieden! **{lynched_player.user.display_name}** wird gelyncht! Er/Sie war ein(e) **{lynched_player.role}**."
         await self.log_event(event, send_tts=True)
         await self.kill_player(lynched_player, "vom Mob gelyncht")
-        await asyncio.sleep(5) # Longer pause for the dramatic reveal
+        await asyncio.sleep(self.config['modules']['werwolf']['pacing']['after_lynch_reveal'])
         await self.update_game_state_embed()
 
         for p in self.get_alive_players():
@@ -655,8 +709,7 @@ class WerwolfGame:
         if len(most_voted_ids) > 1:
             voted_names = [self.players[uid].user.display_name for uid in most_voted_ids]
             event = f"Es gab einen Stimmengleichstand zwischen **{', '.join(voted_names)}**. Niemand wird gelyncht."
-            await self.log_event(event, send_tts=True) # This will now be a TTS message
-            await asyncio.sleep(3)
+            await self.log_event(event, send_tts=True)
             return False # Return False to indicate no lynch happened, but message was sent
         elif len(most_voted_ids) == 0:
              # This happens if only skip votes were cast
@@ -679,8 +732,7 @@ class WerwolfGame:
     async def skip_lynch(self):
         """Handles the logic when a day is skipped."""
         event = "Die Dorfbewohner konnten sich nicht einigen und beschließen, niemanden zu lynchen."
-        await self.log_event(event, send_tts=True) # This will now be a TTS message
-        await asyncio.sleep(3) # Brief pause before night starts
+        await self.log_event(event, send_tts=True)
 
         await self.update_game_state_embed()
         for p in self.get_alive_players():
@@ -715,15 +767,6 @@ class WerwolfGame:
                 await player_to_kill.user.send(role_list_message)
             except discord.Forbidden:
                 pass # Can't send DMs to this user
-
-        # --- NEW: Check if all real players are dead ---
-        human_players_alive = False
-        for p in self.get_alive_players():
-            if not self.is_bot_player(p):
-                human_players_alive = True
-                break
-        if not human_players_alive:
-            await self.end_game(self.config, winner_team="Werwölfe") # If only bots are left, the wolves win by default
 
     def check_win_condition(self):
         """Checks if a team has won."""
@@ -777,21 +820,22 @@ class WerwolfGame:
             except discord.Forbidden:
                 print(f"Could not send summary to original channel {self.original_channel.id}")
 
-        # Final update to the in-game embed
-        if self.game_state_message:
-            try:
-                await self.update_game_state_embed(status_text=winner_message, view=None)
-            except discord.NotFound:
-                pass # Message might already be gone
-        self.phase = "finished"
+        self.phase = "finished" # Mark as finished before cleanup
 
         # Delete the entire category, which cleans up all channels within it.
         if self.category:
             try:
-                # Use asyncio.gather to delete channels concurrently
-                for channel in self.category.channels:
-                    asyncio.create_task(channel.delete(reason="Spielende"))
-                await asyncio.sleep(1) # Give deletion tasks a moment to start
+                # --- FIX: Fetch the category again to get the most up-to-date channel list ---
+                fresh_category = await self.game_channel.guild.fetch_channel(self.category.id)
+                if fresh_category:
+                    # Create a list of deletion tasks to run concurrently
+                    deletion_tasks = []
+                    for channel in fresh_category.channels:
+                        deletion_tasks.append(channel.delete(reason="Spielende"))
+                    # Wait for all channel deletions to complete
+                    await asyncio.gather(*deletion_tasks, return_exceptions=True)
+                
+                # Now, delete the category itself
                 await self.category.delete(reason="Spielende")
             except Exception as e:
                 print(f"Fehler beim Aufräumen der Spiel-Kategorie: {e}")

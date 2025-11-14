@@ -438,15 +438,15 @@ async def update_player_stats(player_id, display_name, won_game):
         # Use INSERT ... ON DUPLICATE KEY UPDATE to either create or update the player
         if won_game:
             query = """
-                INSERT INTO players (discord_id, display_name, wins, level, xp)
+                INSERT INTO players (discord_id, display_name, wins)
                 VALUES (%s, %s, 1)
-                ON DUPLICATE KEY UPDATE display_name = VALUES(display_name), wins = wins + 1, level = IFNULL(level, 1), xp = IFNULL(xp, 0);
+                ON DUPLICATE KEY UPDATE display_name = VALUES(display_name), wins = wins + 1;
             """
         else:
             query = """
-                INSERT INTO players (discord_id, display_name, losses, level, xp)
+                INSERT INTO players (discord_id, display_name, losses)
                 VALUES (%s, %s, 1)
-                ON DUPLICATE KEY UPDATE display_name = VALUES(display_name), losses = losses + 1, level = IFNULL(level, 1), xp = IFNULL(xp, 0);
+                ON DUPLICATE KEY UPDATE display_name = VALUES(display_name), losses = losses + 1;
             """
         cursor.execute(query, (player_id, display_name))
         cnx.commit()

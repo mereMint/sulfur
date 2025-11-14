@@ -151,8 +151,9 @@ class GeminiProvider(AIProvider):
     async def get_werwolf_tts_message(self, prompt):
         if not self.api_key:
             return prompt # Return the original prompt if no API URL is set
-
-        full_prompt = f"Du bist der Spielleiter für ein Werwolf-Spiel. Gib eine kurze, atmosphärische, unheimliche Ansage für die folgende Situation. Die Antwort sollte nur der Satz sein, der per Text-to-Speech vorgelesen wird, ohne Anführungszeichen oder zusätzliche Erklärungen. Situation: {prompt}"
+        
+        char_limit = self.config['modules']['werwolf']['tts'].get('tts_char_limit', 150)
+        full_prompt = f"Du bist der Spielleiter für ein Werwolf-Spiel. Gib eine kurze, atmosphärische, unheimliche Ansage für die folgende Situation. Die Antwort sollte nur der Satz sein, der per Text-to-Speech vorgelesen wird, ohne Anführungszeichen oder zusätzliche Erklärungen, und darf maximal {char_limit} Zeichen lang sein. Situation: {prompt}"
         payload = {
             "contents": [{"role": "user", "parts": [{"text": full_prompt}]}],
             "generationConfig": self.config['api']['gemini']['utility_generation_config'],
@@ -417,7 +418,8 @@ class OpenAIProvider(AIProvider):
     async def get_werwolf_tts_message(self, prompt):
         # OpenAI TTS is a separate endpoint and model. We'll just use the chat model for this.
         print("  -> Calling OpenAI for Werwolf TTS message...")
-        full_prompt = f"Du bist der Spielleiter für ein Werwolf-Spiel. Gib eine kurze, atmosphärische, unheimliche Ansage für die folgende Situation. Die Antwort sollte nur der Satz sein, der per Text-to-Speech vorgelesen wird, ohne Anführungszeichen oder zusätzliche Erklärungen. Situation: {prompt}"
+        char_limit = self.config['modules']['werwolf']['tts'].get('tts_char_limit', 150)
+        full_prompt = f"Du bist der Spielleiter für ein Werwolf-Spiel. Gib eine kurze, atmosphärische, unheimliche Ansage für die folgende Situation. Die Antwort sollte nur der Satz sein, der per Text-to-Speech vorgelesen wird, ohne Anführungszeichen oder zusätzliche Erklärungen, und darf maximal {char_limit} Zeichen lang sein. Situation: {prompt}"
         payload = {
             "model": self.config['api']['openai']['utility_model'],
             "messages": [{"role": "user", "content": full_prompt}],

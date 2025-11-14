@@ -73,7 +73,19 @@
       "join_phase_duration_seconds": 15,
       "discussion_channel_name": "🐺 Werwolf-Diskussion",
       "wolf_thread_name": "🐺 Werwolf-Beratung 🐺",
-      "default_target_players": 6
+      "default_target_players": 6,
+      "tts": {
+        "chars_per_second": 12,
+        "min_duration": 3.0,
+        "buffer_seconds": 2.0,
+        "tts_char_limit": 150
+      },
+      "pacing": {
+        "after_morning_announcement": 1.0,
+        "after_victim_reveal": 2.5,
+        "after_no_victim_announcement": 1.0,
+        "after_lynch_reveal": 2.5
+      }
     },
     "wrapped": {
       "release_day_min": 8,
