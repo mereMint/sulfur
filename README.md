@@ -19,7 +19,7 @@ Sulfur is a multifunctional Discord bot designed to enhance server interaction t
 
 To get the bot running on your own server, you'll need Python, a MySQL database (like MariaDB via XAMPP or Termux), and API keys for Discord and your chosen AI provider.
 
-For detailed, step-by-step instructions for both Windows and Android (Termux), please see the full **[DOCUMENTATION.md](DOCUMENTATION.md)**.
+The project includes an automatic update and maintenance script. For detailed, step-by-step installation instructions for both Windows and Android (Termux), please see the full **[DOCUMENTATION.md](DOCUMENTATION.md)**.
 
 ## 🤖 Commands
 

@@ -31,10 +31,14 @@ Write-Host "  -> Re-applying stashed local changes..."
 git stash pop
 Write-Host "Update check complete."
 
-Write-Host "Starting XAMPP MySQL server..."
-# The default path for XAMPP is C:\xampp. If yours is different, please update the path below.
-# Use Start-Process to run MySQL in the background without blocking the script.
-Start-Process -FilePath "C:\xampp\mysql_start.bat"
+# --- REFACTORED: Check if MySQL is already running ---
+$mysqlProcess = Get-Process -Name "mysqld" -ErrorAction SilentlyContinue
+if (-not $mysqlProcess) {
+    Write-Host "MySQL not running. Starting XAMPP MySQL server..."
+    Start-Process -FilePath "C:\xampp\mysql_start.bat"
+} else {
+    Write-Host "MySQL server is already running."
+}
 Start-Sleep -Seconds 5 # Give the database a moment to initialize before the bot connects.
 
 Write-Host "Backing up the database..."

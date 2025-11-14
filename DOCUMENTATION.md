@@ -61,8 +61,9 @@ Sulfur ist ein multifunktionaler Discord-Bot, der entwickelt wurde, um die Inter
     -   Trage deine API-Schlüssel für `DISCORD_BOT_TOKEN` und `GEMINI_API_KEY` ein.
 4.  **Bot starten:**
     -   Öffne PowerShell, navigiere zum Projektordner (`cd c:\sulfur`) und führe das Skript aus:
+    > **Wichtig:** Benutze das `maintain_bot.ps1`-Skript. Es startet den Bot und sucht automatisch jede Minute nach Updates.
     ```powershell
-    .\start_bot.ps1
+    .\maintain_bot.ps1
     ```
 
 ### Android (via Termux)
@@ -143,15 +144,14 @@ Sulfur ist ein multifunktionaler Discord-Bot, der entwickelt wurde, um die Inter
 
 ### Code auf Termux aktualisieren
 
-Wenn du Änderungen am Code auf deinem PC vorgenommen und auf GitHub hochgeladen hast, kannst du den Bot auf Termux ganz einfach aktualisieren:
+Das `start_bot.sh`-Skript sucht beim Start automatisch nach Updates. Für eine vollautomatische Wartung, die den Bot bei neuen Updates selbstständig neustartet, solltest du das `maintain_bot.sh`-Skript verwenden.
 
-1.  Stoppe den laufenden Bot in Termux mit `STRG + C`.
-2.  Navigiere in den `sulfur`-Ordner, falls du nicht schon dort bist (`cd ~/sulfur`).
-3.  Lade die neuesten Änderungen mit `git` herunter:
-    ```bash
-    git pull
-    ```
-4.  Starte den Bot neu: `./start_bot.sh`
+**Anleitung für automatische Wartung mit `tmux`:**
+1.  `pkg install tmux`
+2.  `tmux new -s sulfur`
+3.  Mache das Wartungsskript ausführbar: `chmod +x maintain_bot.sh`
+4.  Starte das Wartungsskript: `./maintain_bot.sh`
+4.  Verlasse die `tmux`-Sitzung mit `STRG + B`, dann `D`. Der Bot läuft nun im Hintergrund weiter.
 
 ---
 

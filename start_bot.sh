@@ -42,6 +42,14 @@ echo "  -> Re-applying stashed local changes..."
 git stash pop
 echo "Update check complete."
 
+# --- NEW: Check if MySQL is already running ---
+if ! pgrep -x "mysqld" > /dev/null
+then
+    echo "MySQL not running. Starting server..."
+    mysqld_safe -u root &
+    sleep 5 # Give it a moment to start
+fi
+
 echo "Backing up the database..."
 BACKUP_DIR="backups"
 DB_NAME="sulfur_bot"
