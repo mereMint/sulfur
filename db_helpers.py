@@ -79,16 +79,25 @@ def initialize_database():
         # --- NEW: Table for managing voice channels ---
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS managed_voice_channels (
-                owner_id BIGINT PRIMARY KEY,
+                owner_id BIGINT NOT NULL,
+                guild_id BIGINT NOT NULL,
                 channel_id BIGINT NULL,
                 is_private BOOLEAN DEFAULT FALSE NOT NULL,
                 allowed_users JSON,
                 channel_name VARCHAR(100) NULL,
                 user_limit INT DEFAULT 0,
+                PRIMARY KEY (owner_id, guild_id),
                 UNIQUE (channel_id)
             )
         """)
-        # --- FIX: Ensure columns for custom channel settings exist ---
+        # --- FIX: Migration for multi-guild support ---
+        cursor.execute("SHOW COLUMNS FROM managed_voice_channels LIKE 'guild_id'")
+        if not cursor.fetchone():
+            print("Applying migration for multi-guild voice channels...")
+            cursor.execute("ALTER TABLE managed_voice_channels DROP PRIMARY KEY, ADD COLUMN guild_id BIGINT NOT NULL FIRST, ADD PRIMARY KEY (owner_id, guild_id)")
+            print("Migration complete.")
+
+        # Ensure other columns for custom channel settings exist
         cursor.execute("""
             ALTER TABLE managed_voice_channels
             ADD COLUMN IF NOT EXISTS channel_name VARCHAR(100) NULL,
@@ -135,31 +144,28 @@ def initialize_database():
 
 # --- NEW: Voice Channel Management DB Functions ---
 
-async def get_owned_channel(owner_id):
+async def get_owned_channel(owner_id, guild_id):
     """Fetches the channel ID owned by a user, if any."""
     cnx = db_pool.get_connection()
     if not cnx: return None
     cursor = cnx.cursor(dictionary=True)
     try:
-        cursor.execute("SELECT channel_id FROM managed_voice_channels WHERE owner_id = %s", (owner_id,))
+        cursor.execute("SELECT channel_id FROM managed_voice_channels WHERE owner_id = %s AND guild_id = %s", (owner_id, guild_id))
         result = cursor.fetchone()
         return result['channel_id'] if result else None
     finally:
         cursor.close()
         cnx.close()
 
-async def add_managed_channel(channel_id, owner_id):
+async def add_managed_channel(channel_id, owner_id, guild_id):
     """Adds a new managed channel to the database."""
     cnx = db_pool.get_connection()
     if not cnx: return
     cursor = cnx.cursor()
     try:
-        # The owner is always in the allowed_users list
         # --- REFACTORED: Use INSERT...ON DUPLICATE KEY UPDATE to handle both new and returning users ---
-        cursor.execute(
-            "INSERT INTO managed_voice_channels (owner_id, channel_id) VALUES (%s, %s) ON DUPLICATE KEY UPDATE channel_id = VALUES(channel_id)",
-            (owner_id, channel_id)
-        )
+        query = "INSERT INTO managed_voice_channels (owner_id, guild_id, channel_id) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE channel_id = VALUES(channel_id)"
+        cursor.execute(query, (owner_id, guild_id, channel_id))
         cnx.commit()
     finally:
         cursor.close()
@@ -177,10 +183,10 @@ async def remove_managed_channel(channel_id, keep_owner_record=False):
     try:
         if keep_owner_record:
             # Set channel_id to NULL to show it's inactive but keep settings
-            cursor.execute("UPDATE managed_voice_channels SET channel_id = NULL WHERE channel_id = %s", (channel_id, ))
+            cursor.execute("UPDATE managed_voice_channels SET channel_id = NULL WHERE channel_id = %s", (channel_id,))
         else:
             # Permanently delete the record
-            cursor.execute("DELETE FROM managed_voice_channels WHERE owner_id = (SELECT owner_id FROM (SELECT owner_id FROM managed_voice_channels WHERE channel_id = %s) as x)", (channel_id,))
+            cursor.execute("DELETE FROM managed_voice_channels WHERE channel_id = %s", (channel_id,))
         cnx.commit()
     finally:
         cursor.close()
@@ -195,7 +201,7 @@ async def get_managed_channel_config(id, by_owner=False):
     if not cnx: return None
     cursor = cnx.cursor(dictionary=True)
     try:
-        if by_owner:
+        if by_owner: # by_owner now expects a tuple (owner_id, guild_id)
             cursor.execute("SELECT * FROM managed_voice_channels WHERE owner_id = %s", (id,))
         else:
             cursor.execute("SELECT * FROM managed_voice_channels WHERE channel_id = %s", (id,))
@@ -231,7 +237,7 @@ async def update_managed_channel_config(id, by_owner=False, is_private=None, all
         
         if not updates: return
 
-        if by_owner:
+        if by_owner: # by_owner now expects a tuple (owner_id, guild_id)
             query = f"UPDATE managed_voice_channels SET {', '.join(updates)} WHERE owner_id = %s"
         else:
             query = f"UPDATE managed_voice_channels SET {', '.join(updates)} WHERE channel_id = %s"

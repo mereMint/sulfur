@@ -78,4 +78,4 @@ echo "Starting the bot... (Press CTRL+C to stop)"
 # --- FIX: Pipe the bot's output to tee for reliable logging in tmux ---
 # This sends all output (stdout and stderr) from the Python script to the tee command,
 # which then writes it to both the console (the tmux pane) and the log file.
-python3 ./bot.py 2>&1 | tee -a "$LOG_FILE"
+python3 -u ./bot.py 2>&1 | tee -a "$LOG_FILE"

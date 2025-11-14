@@ -19,7 +19,7 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
         if member.id in creating_channel_for:
             return # Creation is already in progress for this user, ignore this event.
 
-        owned_channel_id = await get_owned_channel(member.id)
+        owned_channel_id = await get_owned_channel(member.id, member.guild.id)
         if owned_channel_id:
             try:
                 owned_channel = member.guild.get_channel(owned_channel_id)
@@ -45,7 +45,7 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
 
         try:
             # --- NEW: Fetch last used config for the user ---
-            last_config = await get_managed_channel_config(member.id, by_owner=True)
+            last_config = await get_managed_channel_config((member.id, member.guild.id), by_owner=True)
             if last_config and last_config.get('channel_name'):
                 new_channel_name = last_config['channel_name']
                 user_limit = last_config.get('user_limit', 0)
@@ -62,7 +62,7 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
             )
 
             # --- REORDERED: Add to DB *before* moving the user to prevent race condition ---
-            await add_managed_channel(new_channel.id, member.id)
+            await add_managed_channel(new_channel.id, member.id, guild.id)
             print(f"Created managed voice channel: {new_channel.name} ({new_channel.id})")
 
             # --- FIX: Wait a moment before moving the user to avoid race conditions ---
@@ -114,7 +114,7 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
 
             if not current_channel_state.members: # Check if the channel is NOW empty
                 # Save the current name and limit for the owner by passing their ID
-                await update_managed_channel_config(channel_config['owner_id'], by_owner=True, name=before.channel.name, limit=before.channel.user_limit)
+                await update_managed_channel_config((channel_config['owner_id'], member.guild.id), by_owner=True, name=before.channel.name, limit=before.channel.user_limit)
                 
                 # Check if the channel is empty and old enough to delete
                 creation_grace_period = config['modules']['voice_manager']['empty_channel_delete_grace_period_seconds']
