@@ -90,12 +90,15 @@ intents.voice_states = True      # To track who joins/leaves VCs
 intents.members = True           # To get the full member list for presence updates
 intents.presences = True         # To get member status (online, idle, etc.)
 
+client = discord.Client(intents=intents)
+tree = app_commands.CommandTree(client)
+
 # --- NEW: Werwolf Game State ---
 # This will store active games, mapping a channel ID to a WerwolfGame object.
 active_werwolf_games = {}
 
 # --- NEW: Import and initialize DB helpers ---
-from db_helpers import init_db_pool, initialize_database, get_leaderboard, add_xp, get_player_rank, get_level_leaderboard, save_message_to_history, get_chat_history, get_relationship_summary, update_relationship_summary, save_bulk_history, clear_channel_history, update_user_presence, add_balance, update_spotify_history, get_all_managed_channels, remove_managed_channel, get_managed_channel_config, update_managed_channel_config, log_message_stat, log_vc_minutes, get_wrapped_stats_for_period, get_user_wrapped_stats, log_stat_increment, get_spotify_history, get_player_profile, cleanup_custom_status_entries, log_mention_reply, log_vc_session, get_wrapped_extra_stats
+from db_helpers import init_db_pool, initialize_database, get_leaderboard, add_xp, get_player_rank, get_level_leaderboard, save_message_to_history, get_chat_history, get_relationship_summary, update_relationship_summary, save_bulk_history, clear_channel_history, update_user_presence, add_balance, update_spotify_history, get_all_managed_channels, remove_managed_channel, get_managed_channel_config, update_managed_channel_config, log_message_stat, log_vc_minutes, get_wrapped_stats_for_period, get_user_wrapped_stats, log_stat_increment, get_spotify_history, get_player_profile, cleanup_custom_status_entries, log_mention_reply, log_vc_session, get_wrapped_extra_stats, get_gemini_usage, increment_gemini_usage
 import db_helpers
 db_helpers.init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
 from level_system import grant_xp, get_xp_for_level
@@ -104,13 +107,26 @@ import voice_manager
 # --- NEW: Import Economy ---
 from economy import calculate_level_up_bonus
 
+# --- MODIFIED: Pass client to DB initialization ---
 db_helpers.initialize_database()
+
+# --- NEW: Gemini API Usage Tracking (DB Version) ---
+GEMINI_DAILY_LIMIT = 250 # Daily call limit for Gemini
+
+async def get_current_provider(config_obj):
+    """
+    Checks Gemini API usage and returns the appropriate provider ('gemini' or 'openai').
+    If the Gemini daily limit is reached, it will switch to 'openai' for the rest of the day.
+    """
+    provider = config_obj['api']['provider']
+    if provider != 'gemini':
+        return provider # If it's not configured to use Gemini, do nothing.
+
+    usage = await db_helpers.get_gemini_usage()
+    return 'openai' if usage >= GEMINI_DAILY_LIMIT else 'gemini'
 
 # --- NEW: Import API helpers that were moved ---
 from api_helpers import get_wrapped_summary_from_api
-
-client = discord.Client(intents=intents)
-tree = app_commands.CommandTree(client)
 
 # --- NEW: In-memory cache to prevent duplicate Spotify logging ---
 last_spotify_log = {}
@@ -328,7 +344,7 @@ async def update_presence_task():
     # --- NEW: Check if an update is pending ---
     if os.path.exists("update_pending.flag"):
         await client.change_presence(
-            status=discord.Status.idle,
+            status=discord.Status.idle, # Set status to Idle
             activity=discord.Activity(type=discord.ActivityType.watching, name="auf ein Update...")
         )
         return # Skip the normal presence update
@@ -550,7 +566,7 @@ async def grant_voice_xp():
         await db_helpers.log_vc_minutes(member.id, 1, stat_period) # Log 1 minute for Wrapped
         if new_level:
             bonus = calculate_level_up_bonus(new_level, config)
-            await db_helpers.add_balance(member.id, member.display_name, bonus, stat_period)
+            await db_helpers.add_balance(member.id, member.display_name, bonus, config, stat_period)
             # --- FIX: Send level-up notifications via DM and only for special levels ---
             if new_level % config['modules']['leveling']['vc_level_up_notification_interval'] == 0:
                 try:
@@ -1466,6 +1482,40 @@ class AdminGroup(app_commands.Group):
         else:
             await interaction.followup.send(f"Successfully deleted {deleted_count} messages from this channel's history.")
 
+    @app_commands.command(name="ai_dashboard", description="Zeigt den aktuellen Status und die Nutzung der KI-API an.")
+    async def ai_dashboard(self, interaction: discord.Interaction):
+        """Displays the current AI provider status and Gemini usage."""
+        await interaction.response.defer(ephemeral=True)
+
+        # Determine the current provider
+        current_provider = await get_current_provider(config)
+        
+        # Get Gemini usage from the database
+        gemini_usage = await db_helpers.get_gemini_usage()
+
+        # Create the progress bar
+        progress = int((gemini_usage / GEMINI_DAILY_LIMIT) * 20) # 20 characters for the bar
+        progress_bar = '█' * progress + '░' * (20 - progress)
+
+        # Determine status and color
+        if current_provider == 'gemini':
+            status_text = "Aktiv"
+            embed_color = discord.Color.green()
+        else:
+            status_text = "Fallback (Limit erreicht)"
+            embed_color = discord.Color.red()
+
+        embed = discord.Embed(
+            title="🤖 AI API Dashboard",
+            description="Status des aktuell genutzten Sprachmodells.",
+            color=embed_color
+        )
+        embed.add_field(name="Aktiver Provider", value=f"**`{current_provider.capitalize()}`**", inline=True)
+        embed.add_field(name="Status", value=status_text, inline=True)
+        embed.add_field(name=f"Gemini-Nutzung (Heute)", value=f"`{gemini_usage} / {GEMINI_DAILY_LIMIT}` Aufrufe\n`{progress_bar}`", inline=False)
+        embed.set_footer(text="Der Zähler wird täglich um 00:00 UTC zurückgesetzt.")
+        await interaction.followup.send(embed=embed)
+
 @tree.command(name="summary", description="Zeigt Sulfurs Meinung über einen Benutzer an.")
 @app_commands.describe(user="Der Benutzer, dessen Zusammenfassung du sehen möchtest (optional).")
 async def summary(interaction: discord.Interaction, user: discord.Member = None):
@@ -1911,16 +1961,15 @@ async def on_message(message):
         if new_level:
             # --- NEW: Grant economy bonus on level up ---
             bonus = calculate_level_up_bonus(new_level, config)
-            await db_helpers.add_balance(message.author.id, message.author.display_name, bonus, stat_period)
+            await db_helpers.add_balance(message.author.id, message.author.display_name, bonus, config, stat_period)
             try:
                 # --- FIX: Send level-up message as a DM ---
                 await message.author.send(f"GG! Du bist durch das Schreiben von Nachrichten jetzt Level **{new_level}**! :YESS:\n"
                                           f"Du erhältst **{bonus}** Währung als Belohnung!")
             except discord.Forbidden:
                 print(f"Could not send level up DM to {message.author.name} (DMs likely closed).")
-
-    # --- Chatbot Logic ---
-                return
+            # --- FIX: Stop processing after sending a level-up DM to avoid triggering chatbot ---
+            return
 
     # 2. Check for trigger.
     # In DMs, the bot should always respond.
@@ -1963,7 +2012,14 @@ async def on_message(message):
             dynamic_system_prompt += f"\n\nZusätzlicher Kontext über deine Beziehung zu '{message.author.display_name}': {relationship_summary}"
 
         # The get_chat_response function modifies the history list in-place
-        response_text, error_message = await get_chat_response(history, user_prompt, message.author.display_name, dynamic_system_prompt, config, GEMINI_API_KEY, OPENAI_API_KEY)
+        # --- NEW: Determine provider and increment counter ---
+        provider_to_use = await get_current_provider(config)
+        if provider_to_use == 'gemini':
+            await db_helpers.increment_gemini_usage()
+        
+        temp_config = config.copy()
+        temp_config['api']['provider'] = provider_to_use
+        response_text, error_message = await get_chat_response(history, user_prompt, message.author.display_name, dynamic_system_prompt, temp_config, GEMINI_API_KEY, OPENAI_API_KEY)
 
         # 7. Send the response
         if error_message:
@@ -1979,7 +2035,13 @@ async def on_message(message):
             # The interval is based on exchanges (1 user msg + 1 bot msg = 2 history items)
             update_interval = config['bot']['chat']['relationship_update_interval'] * 2
             if len(history) > 0 and len(history) % update_interval == 0:
-                new_summary, _ = await get_relationship_summary_from_api(history, message.author.display_name, relationship_summary, config, GEMINI_API_KEY, OPENAI_API_KEY)
+                # --- NEW: Determine provider and increment counter ---
+                provider_to_use_summary = await get_current_provider(config)
+                if provider_to_use_summary == 'gemini':
+                    await db_helpers.increment_gemini_usage()
+                temp_config_summary = config.copy()
+                temp_config_summary['api']['provider'] = provider_to_use_summary
+                new_summary, _ = await get_relationship_summary_from_api(history, message.author.display_name, relationship_summary, temp_config_summary, GEMINI_API_KEY, OPENAI_API_KEY)
                 if new_summary:
                     print(f"Updating relationship summary for {message.author.name}.")
                     await db_helpers.update_relationship_summary(message.author.id, new_summary)

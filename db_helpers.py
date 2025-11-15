@@ -180,10 +180,58 @@ def initialize_database():
                 INDEX(user_id, guild_id)
             )
         """)
+        # --- NEW: Table for API usage tracking ---
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS api_usage (
+                usage_date DATE PRIMARY KEY,
+                gemini_calls INT DEFAULT 0 NOT NULL
+            )
+        """)
+        # --- NEW: Event to clear the API usage daily ---
+        cursor.execute("SET GLOBAL event_scheduler = ON;")
+        cursor.execute("DROP EVENT IF EXISTS reset_daily_api_usage;")
+        cursor.execute("CREATE EVENT reset_daily_api_usage ON SCHEDULE EVERY 1 DAY STARTS CURRENT_DATE + INTERVAL 1 DAY DO TRUNCATE TABLE api_usage;")
 
         print("Database tables checked/created successfully.")
     except mysql.connector.Error as err:
         print(f"Failed creating table: {err}")
+    finally:
+        cursor.close()
+        cnx.close()
+
+# --- NEW: API Usage Tracking Functions ---
+
+async def get_gemini_usage():
+    """Gets the current Gemini API call count for today."""
+    cnx = db_pool.get_connection()
+    if not cnx: return 0
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        query = "SELECT gemini_calls FROM api_usage WHERE usage_date = CURDATE()"
+        cursor.execute(query)
+        result = cursor.fetchone()
+        return result['gemini_calls'] if result else 0
+    except mysql.connector.Error as err:
+        print(f"Error in get_gemini_usage: {err}")
+        return 0
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def increment_gemini_usage():
+    """Increments the Gemini API call count for today."""
+    cnx = db_pool.get_connection()
+    if not cnx: return
+    cursor = cnx.cursor()
+    try:
+        query = """
+            INSERT INTO api_usage (usage_date, gemini_calls) VALUES (CURDATE(), 1)
+            ON DUPLICATE KEY UPDATE gemini_calls = gemini_calls + 1;
+        """
+        cursor.execute(query)
+        cnx.commit()
+    except mysql.connector.Error as err:
+        print(f"Error in increment_gemini_usage: {err}")
     finally:
         cursor.close()
         cnx.close()
@@ -622,26 +670,21 @@ async def update_user_presence(user_id, display_name, status, activity_name):
         cursor.close()
         cnx.close()
 
-async def add_balance(user_id, display_name, amount_to_add, stat_period=None):
+async def add_balance(user_id, display_name, amount_to_add, config, stat_period=None):
     """Adds an amount to a user's balance, creating the user if they don't exist."""
     cnx = db_pool.get_connection()
     if not cnx:
         return
 
-    cursor = cnx.cursor(dictionary=True)
+    cursor = cnx.cursor()
     try:
+        starting_balance = config['modules']['economy']['starting_balance']
         query = """
-            INSERT INTO players (discord_id, display_name, balance)
-            VALUES (%s, %s, %s + %s)
+            INSERT INTO players (discord_id, display_name, balance) VALUES (%s, %s, %s + %s)
             ON DUPLICATE KEY UPDATE
-                display_name = VALUES(display_name),
-                balance = balance + VALUES(balance) - %s;
+                balance = balance + %s, display_name = VALUES(display_name);
         """
-        # The subtraction at the end is a trick to handle the ON DUPLICATE KEY UPDATE case correctly.
-        # On INSERT, balance is STARTING_BALANCE + amount.
-        # On UPDATE, balance is balance + (STARTING_BALANCE + amount) - STARTING_BALANCE = balance + amount.
-        from economy import STARTING_BALANCE
-        cursor.execute(query, (user_id, display_name, STARTING_BALANCE, amount_to_add, STARTING_BALANCE))
+        cursor.execute(query, (user_id, display_name, starting_balance, amount_to_add, amount_to_add))
         cnx.commit()
 
         # --- NEW: Log money earned for Wrapped ---

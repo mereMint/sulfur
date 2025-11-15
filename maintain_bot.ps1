@@ -35,6 +35,8 @@ while ($true) {
             # Create the flag file to signal the bot to go idle
             New-Item -Path "update_pending.flag" -ItemType File -Force | Out-Null
             Stop-Job -Job $botJob # Stop the bot
+            Write-Host "Pulling latest changes from git..."
+            git pull
             Remove-Item -Path "update_pending.flag" -ErrorAction SilentlyContinue # Clean up the flag
             break # Exit the inner loop to allow the outer loop to restart it
         }

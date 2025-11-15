@@ -1,5 +1,6 @@
 import asyncio
 import discord
+from datetime import datetime, timezone
 from collections import deque
 from discord.ui import View, Button
 from api_helpers import get_werwolf_tts_message, get_random_names
@@ -7,6 +8,7 @@ import re
 from fake_user import FakeUser
 import random
 from db_helpers import update_player_stats
+
 
 # --- Roles ---
 DORFBEWOHNER = "Dorfbewohner"
@@ -55,6 +57,21 @@ class WerwolfGame:
         self.config = None # Will be set when the game starts
         self.gemini_api_key = None
         self.openai_api_key = None
+        self.db_helpers = None # Will be set when the game starts
+
+    async def _get_provider(self):
+        """Determines the current API provider based on usage."""
+        if self.config['api']['provider'] != 'gemini':
+            return self.config['api']['provider']
+        
+        usage = await self.db_helpers.get_gemini_usage()
+        return 'openai' if usage >= 250 else 'gemini'
+
+    async def _increment_usage_if_gemini(self, provider):
+        """Increments the Gemini usage counter if it was used."""
+        if provider == 'gemini':
+            await self.db_helpers.increment_gemini_usage()
+
     def _calculate_tts_duration(self, text: str) -> float:
         """Estimates the speaking duration of a text in seconds."""
         if not text:
@@ -79,7 +96,12 @@ class WerwolfGame:
         tts_task = None
         if send_tts:
             # Send and delete TTS to keep chat clean
-            tts_content_from_api = await get_werwolf_tts_message(event_text, self.config, self.gemini_api_key, self.openai_api_key)
+            provider_to_use = await self._get_provider()
+            temp_config = self.config.copy()
+            temp_config['api']['provider'] = provider_to_use
+
+            tts_content_from_api = await get_werwolf_tts_message(event_text, temp_config, self.gemini_api_key, self.openai_api_key)
+            await self._increment_usage_if_gemini(provider_to_use)
             clean_tts_content = re.sub(r'[\*_`~]', '', tts_content_from_api)
             
             try:
@@ -189,6 +211,7 @@ class WerwolfGame:
         self.config = config # Store config for later use
         self.gemini_api_key = gemini_key
         self.openai_api_key = openai_key
+        self.db_helpers = db_helpers
 
         player_count = len(self.players)
         if player_count < 1:
@@ -201,7 +224,12 @@ class WerwolfGame:
             bots_to_add = target_players - len(self.players)
             if bots_to_add > 0:
                 await self.send_temp_message(f"Das Spiel wird mit Bots auf {target_players} Spieler aufgefüllt. Füge {bots_to_add} Bot-Gegner hinzu...", delay=10)
-                bot_names = await get_random_names(bots_to_add, db_helpers, self.config, self.gemini_api_key, self.openai_api_key)
+                provider_to_use = await self._get_provider()
+                temp_config = self.config.copy()
+                temp_config['api']['provider'] = provider_to_use
+
+                bot_names = await get_random_names(bots_to_add, db_helpers, temp_config, self.gemini_api_key, self.openai_api_key)
+                await self._increment_usage_if_gemini(provider_to_use)
                 await asyncio.sleep(2)
                 for name in bot_names:
                     bot_name = name
