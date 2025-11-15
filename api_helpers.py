@@ -55,21 +55,22 @@ async def get_chat_response(history, user_prompt, user_display_name, system_prom
     # The Gemini API requires a strict user -> model -> user -> model sequence.
     clean_history = deque()
     last_role = None
-    for msg in history:
+    # --- FIX: Create a copy of the history to avoid modifying the original list ---
+    local_history = list(history)
+    for msg in local_history:
         # Skip if the role is the same as the last one
         if msg.get('role') == last_role:
             continue
         clean_history.append(msg)
         last_role = msg.get('role')
 
-    # Ensure the history starts with a 'user' role
     while clean_history and clean_history[0].get('role') != 'user':
         clean_history.popleft()
 
-    history = list(clean_history)
+    final_history_for_api = list(clean_history)
 
-    # Add the current user prompt to the history for the API call
-    history.append({"role": "user", "parts": [{"text": f"User '{user_display_name}' said: {user_prompt}"}]})
+    # Add the current user prompt to the history for this specific API call
+    final_history_for_api.append({"role": "user", "parts": [{"text": f"User '{user_display_name}' said: {user_prompt}"}]})
 
     if provider == 'gemini':
         # --- FIX: Dynamically build the URL with the model from config ---
@@ -78,7 +79,7 @@ async def get_chat_response(history, user_prompt, user_display_name, system_prom
         
         # --- FIX: Prepend system prompt to contents instead of using system_instruction ---
         # This is more compatible with newer models like gemini-1.5-flash.
-        final_contents = [{"role": "user", "parts": [{"text": system_prompt}]}, {"role": "model", "parts": [{"text": "Understood."}]}] + history
+        final_contents = [{"role": "user", "parts": [{"text": system_prompt}]}, {"role": "model", "parts": [{"text": "Understood."}]}] + final_history_for_api
         
         # --- FIX: Add safety settings to prevent blocking ---
         safety_settings = [
@@ -96,9 +97,10 @@ async def get_chat_response(history, user_prompt, user_display_name, system_prom
         
         response_text, error = await _call_gemini_api(payload, model, gemini_key, timeout)
         if response_text:
-            # Add the bot's response to the history for future context
-            history.append({"role": "model", "parts": [{"text": response_text}]})
-        return response_text, error
+            # --- FIX: Return the updated history instead of modifying it in-place ---
+            final_history_for_api.append({"role": "model", "parts": [{"text": response_text}]})
+        # The `history` object passed from bot.py is no longer modified.
+        return response_text, error, final_history_for_api
 
     elif provider == 'openai':
         model = config.get('api', {}).get('openai', {}).get('chat_model', 'gpt-4o-mini')
@@ -109,7 +111,7 @@ async def get_chat_response(history, user_prompt, user_display_name, system_prom
         
         # Convert Gemini history format to OpenAI format
         messages = [{"role": "system", "content": system_prompt}]
-        for item in history:
+        for item in final_history_for_api:
             role = "assistant" if item['role'] == 'model' else item['role']
             content = item['parts'][0]['text']
             messages.append({"role": role, "content": content})
@@ -127,18 +129,18 @@ async def get_chat_response(history, user_prompt, user_display_name, system_prom
                     if response.status == 200:
                         data = await response.json()
                         response_text = data['choices'][0]['message']['content']
-                        # Add the bot's response to the history for future context
-                        history.append({"role": "model", "parts": [{"text": response_text}]})
-                        return response_text, None
+                        # --- FIX: Return the updated history ---
+                        final_history_for_api.append({"role": "model", "parts": [{"text": response_text}]})
+                        return response_text, None, final_history_for_api
                     else:
                         error_text = await response.text()
                         print(f"OpenAI API Error (Status {response.status}): {error_text}")
-                        return None, f"Ich habe einen Fehler vom OpenAI-Server erhalten (Status: {response.status})."
+                        return None, f"Ich habe einen Fehler vom OpenAI-Server erhalten (Status: {response.status}).", final_history_for_api
         except Exception as e:
             print(f"An exception occurred while calling OpenAI API: {e}")
-            return None, "Ich konnte die OpenAI-AI nicht erreichen. Überprüfe die Internetverbindung oder die API-Keys."
+            return None, "Ich konnte die OpenAI-AI nicht erreichen. Überprüfe die Internetverbindung oder die API-Keys.", final_history_for_api
 
-    return None, "Ungültiger API-Provider in der Konfiguration."
+    return None, "Ungültiger API-Provider in der Konfiguration.", history
 
 
 async def get_relationship_summary_from_api(history, user_display_name, old_summary, config, gemini_key, openai_key):

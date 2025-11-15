@@ -2082,13 +2082,14 @@ async def on_message(message):
 
             temp_config = config.copy()
             temp_config['api']['provider'] = provider_to_use
-            response_text, error_message = await get_chat_response(history, user_prompt, message.author.display_name, dynamic_system_prompt, temp_config, GEMINI_API_KEY, OPENAI_API_KEY)
+            # --- FIX: Use the returned history from the API helper ---
+            response_text, error_message, updated_history = await get_chat_response(history, user_prompt, message.author.display_name, dynamic_system_prompt, temp_config, GEMINI_API_KEY, OPENAI_API_KEY)
 
             if error_message:
                 await message.channel.send(f"{message.author.mention} {error_message}")
                 return
 
-            if len(history) >= 2:
+            if len(updated_history) >= 2:
                 user_message_content = history[-2]['parts'][0]['text']
                 await db_helpers.save_message_to_history(message.channel.id, "user", user_message_content)
             await db_helpers.save_message_to_history(message.channel.id, "model", response_text)
@@ -2101,7 +2102,7 @@ async def on_message(message):
                     await db_helpers.increment_gemini_usage()
                 temp_config_summary = config.copy()
                 temp_config_summary['api']['provider'] = provider_to_use_summary
-                new_summary, _ = await get_relationship_summary_from_api(history, message.author.display_name, relationship_summary, temp_config_summary, GEMINI_API_KEY, OPENAI_API_KEY)
+                new_summary, _ = await get_relationship_summary_from_api(updated_history, message.author.display_name, relationship_summary, temp_config_summary, GEMINI_API_KEY, OPENAI_API_KEY)
                 if new_summary:
                     await db_helpers.update_relationship_summary(message.author.id, new_summary)
 
