@@ -1,6 +1,11 @@
-# Sulfur Bot
+<div align="center">
+  <h1>Sulfur Bot 🤖</h1>
+  <p>
+    A multi-purpose, slightly arrogant Discord bot with a personality. Sulfur offers a range of features from an advanced AI chatbot to server games and management utilities.
+  </p>
+</div>
 
-A multi-purpose, slightly arrogant Discord bot with a personality. Sulfur offers a range of features from an advanced AI chatbot to server games and management utilities.
+---
 
 ## Features
 
@@ -16,7 +21,7 @@ A multi-purpose, slightly arrogant Discord bot with a personality. Sulfur offers
 
 ---
 
-## Installation & Setup Guide
+## 🚀 Installation & Setup Guide
 
 This guide will walk you through setting up the Sulfur bot from scratch. For stable, 24/7 operation, the **Termux / Linux** setup is highly recommended.
 
@@ -25,14 +30,14 @@ This guide will walk you through setting up the Sulfur bot from scratch. For sta
 - **Git**: For cloning the repository.
 - **Python 3.11+**: The bot is built on Python.
 - **MySQL Server**: A database is required for storing all data.
-   - For **Windows**, it's recommended to use XAMPP.
-   - For **Termux/Linux**, you can install `mariadb`.
+   - **Windows**: We recommend using XAMPP.
+   - **Termux/Linux**: We recommend using `mariadb`.
 
 ---
 
 ### Step 1: Discord Bot Application Setup
 
-Before you can run the code, you need to create a bot application in Discord.
+Before you can run the code, you need to create a bot application on Discord's Developer Portal.
 
 1.  **Create the Application**:
     -   Go to the Discord Developer Portal and click **"New Application"**.
@@ -41,14 +46,14 @@ Before you can run the code, you need to create a bot application in Discord.
 2.  **Configure the Bot**:
     -   In the left-hand menu, go to the **"Bot"** tab.
     -   Under the "Privileged Gateway Intents" section, **enable all three intents**:
-        -   `PRESENCE INTENT`
-        -   `SERVER MEMBERS INTENT`
-        -   `MESSAGE CONTENT INTENT`
+        -   ✅ `PRESENCE INTENT`
+        -   ✅ `SERVER MEMBERS INTENT`
+        -   ✅ `MESSAGE CONTENT INTENT`
     -   Click **"Save Changes"**.
 
 3.  **Get Your Bot Token**:
     -   At the top of the "Bot" page, click **"Reset Token"**.
-    -   Copy this token. You will need it in Step 3. **Do not share this token with anyone.**
+    -   Copy this token. You will need it in a later step. **Do not share this token with anyone.**
 
 4.  **Invite the Bot to Your Server**:
     -   In the left-hand menu, go to **"OAuth2" -> "URL Generator"**.
@@ -58,9 +63,9 @@ Before you can run the code, you need to create a bot application in Discord.
 
 ---
 
-### Step 2: Get the Code
+### Step 2: Clone the Repository
 
-Open your terminal or command prompt and clone the project.
+Open your terminal or command prompt, clone the project, and navigate into the new directory.
 
 > **Note for Termux/Linux users:** It is highly recommended to set up an SSH key for GitHub first (see the Termux guide below) and use the SSH clone URL. For a quick setup on Windows, the HTTPS URL is fine.
 
