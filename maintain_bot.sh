@@ -27,9 +27,12 @@ while true; do
     echo "Ensuring startup script is executable..."
     chmod +x ./start_bot.sh
 
-    # Start the main bot script (which handles setup) in the background
-    ./start_bot.sh &
-    # Get the Process ID (PID) of the backgrounded bot process
+    # --- FIX: Use setsid to run the bot in a new process group ---
+    # This allows us to reliably kill the entire process tree (start_bot.sh and python)
+    # without affecting the maintainer script itself.
+    setsid ./start_bot.sh &
+    # Get the Process Group ID (PGID), which is the same as the PID of the setsid process leader.
+    # We will use this to kill the entire group later.
     BOT_PID=$!
 
     echo "Bot is running in the background (PID: $BOT_PID). Checking for updates every 60 seconds."
@@ -49,8 +52,10 @@ while true; do
             echo "New version found in the repository! Restarting the bot to apply updates..."
             # Create the flag file to signal the bot to go idle
             touch update_pending.flag
-            # Gracefully stop the bot
-            kill $BOT_PID
+            # --- FIX: Kill the entire process group to prevent orphaned python processes ---
+            # The negative sign before $BOT_PID is crucial. It tells `kill` to target the
+            # entire process group, not just the single parent process.
+            kill -- -$BOT_PID
             wait $BOT_PID 2>/dev/null # Wait for the process to terminate
             echo "Pulling latest changes from git..."
             git pull

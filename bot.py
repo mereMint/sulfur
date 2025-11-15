@@ -2053,49 +2053,39 @@ class WerwolfJoinView(discord.ui.View):
 @client.event
 async def on_message(message):
     """Fires on every message in any channel the bot can see."""
-    # --- Centralized Chatbot Logic ---
     async def run_chatbot(message):
         """Handles the core logic of fetching and sending an AI response."""
         channel_name = f"DM with {message.author.name}" if isinstance(message.channel, discord.DMChannel) else f"#{message.channel.name}"
         print(f"Chatbot triggered by {message.author.name} in channel {channel_name}.")
-        
         if not isinstance(message.channel, discord.DMChannel):
             stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
             await db_helpers.log_stat_increment(message.author.id, stat_period, 'sulf_interactions')
-
         user_prompt = message.content.replace(f"<@{client.user.id}>", "").strip()
         if not user_prompt:
             await message.channel.send(config['bot']['chat']['empty_ping_response'])
             return
-
         history = await db_helpers.get_chat_history(message.channel.id, config['bot']['chat']['max_history_messages'])
-
         async with message.channel.typing():
             relationship_summary = await db_helpers.get_relationship_summary(message.author.id)
             dynamic_system_prompt = config['bot']['system_prompt']
             if relationship_summary:
                 dynamic_system_prompt += f"\n\nZusätzlicher Kontext über deine Beziehung zu '{message.author.display_name}': {relationship_summary}"
-
             provider_to_use = await get_current_provider(config)
             if provider_to_use == 'gemini':
                 await db_helpers.increment_gemini_usage()
-
             temp_config = config.copy()
             temp_config['api']['provider'] = provider_to_use
-            # --- FIX: Use the returned history from the API helper ---
             response_text, error_message, updated_history = await get_chat_response(history, user_prompt, message.author.display_name, dynamic_system_prompt, temp_config, GEMINI_API_KEY, OPENAI_API_KEY)
-
             if error_message:
                 await message.channel.send(f"{message.author.mention} {error_message}")
                 return
-
             if len(updated_history) >= 2:
-                user_message_content = history[-2]['parts'][0]['text']
+                # --- FIX: Use updated_history to get the correct user message ---
+                user_message_content = updated_history[-2]['parts'][0]['text']
                 await db_helpers.save_message_to_history(message.channel.id, "user", user_message_content)
             await db_helpers.save_message_to_history(message.channel.id, "model", response_text)
-
             update_interval = config['bot']['chat']['relationship_update_interval'] * 2
-            if len(history) > 0 and len(history) % update_interval == 0:
+            if len(updated_history) > 0 and len(updated_history) % update_interval == 0:
                 print(f"Updating relationship summary for {message.author.name}.")
                 provider_to_use_summary = await get_current_provider(config)
                 if provider_to_use_summary == 'gemini':
@@ -2105,32 +2095,30 @@ async def on_message(message):
                 new_summary, _ = await get_relationship_summary_from_api(updated_history, message.author.display_name, relationship_summary, temp_config_summary, GEMINI_API_KEY, OPENAI_API_KEY)
                 if new_summary:
                     await db_helpers.update_relationship_summary(message.author.id, new_summary)
-
             final_response = await replace_emoji_tags(response_text, client)
             for chunk in await split_message(final_response):
                 if chunk: await message.channel.send(chunk)
 
-    # 1. Ignore messages from the bot itself. This is the most important guard.
+    # 1. Ignore messages from the bot itself. This is the most important guard to prevent loops.
     if message.author == client.user:
         return
 
-    # 2. Handle DMs.
+    # 2. Handle Direct Messages.
     if isinstance(message.channel, discord.DMChannel):
-        # Check if it's a Werwolf game command.
+        # Check if the DM is a command for an active Werwolf game.
         for game in active_werwolf_games.values():
             if message.author.id in game.players:
                 author_player = game.players.get(message.author.id)
                 if author_player and game.phase == "night" and author_player.is_alive:
-                    # This is a game action. The game logic will handle the response.
-                    # We must stop all further processing for this message.
+                    # This is a game action. The game logic will handle the response, so we stop here.
                     return
-        # If it's not a game command, treat it as a chatbot message and then stop.
+        # If it's not a game command, treat it as a chatbot message and then stop all further processing.
         await run_chatbot(message)
         return
 
     # 3. Handle messages in Guild Text Channels.
     if isinstance(message.channel, discord.TextChannel):
-        # Ignore messages in active Werwolf game channels.
+        # Ignore any messages in active Werwolf game channels to prevent interference.
         if message.channel.id in active_werwolf_games:
             return
 
@@ -2140,18 +2128,23 @@ async def on_message(message):
         is_name_used = any(name in message.content.lower().split() for name in config['bot']['names'])
         is_chatbot_trigger = is_pinged or is_name_used
 
-        # If the message was a chatbot trigger, run the chatbot logic and then stop.
-        # This prevents the leveling system from running and sending a DM that re-triggers the bot.
+        # --- CRITICAL FIX: Prioritize the chatbot trigger. ---
+        # If the message is a chatbot trigger, run the chatbot logic and IMMEDIATELY stop.
+        # This prevents the leveling system from also running and sending a DM that would re-trigger the bot.
         if is_chatbot_trigger:
             await run_chatbot(message)
             return
 
-        # If it's NOT a chatbot trigger, run the leveling system.
+        # If it was NOT a chatbot trigger, then we can safely run the leveling system and other stats logging.
         if not message.content.startswith('/'):
+            # --- FIX: Correct the typo from 'custom_emojies' to 'custom_emojis' ---
+            stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+            custom_emojis = re.findall(r'<a?:(\w+):\d+>', message.content)
+            await db_helpers.log_message_stat(message.author.id, message.channel.id, custom_emojis, stat_period)
+
             new_level = await grant_xp(message.author.id, message.author.display_name, db_helpers.add_xp, config)
             if new_level:
                 bonus = calculate_level_up_bonus(new_level, config)
-                stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
                 await db_helpers.add_balance(message.author.id, message.author.display_name, bonus, config, stat_period)
                 try:
                     await message.author.send(
@@ -2161,10 +2154,10 @@ async def on_message(message):
                 except discord.Forbidden:
                     print(f"Could not send level up DM to {message.author.name} (DMs likely closed).")
         
-        # After all processing for a guild message is done, we exit.
+        # After all possible actions for a guild message are done, we exit.
         return
 
-    # 4. Fallback for any other channel types (e.g., threads) to prevent processing.
+    # 4. Fallback for any other channel types (e.g., threads) to prevent any processing.
     return
 
 

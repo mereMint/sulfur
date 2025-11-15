@@ -11,8 +11,15 @@ Set-Location -Path $PSScriptRoot
 # --- NEW: Load environment variables from .env file ---
 if (Test-Path -Path ".env") {
     Get-Content .\.env | ForEach-Object {
+        # Match lines with KEY=VALUE format
         if ($_ -match "^\s*([\w.-]+)\s*=\s*(.*)") {
-            [System.Environment]::SetEnvironmentVariable($matches[1], $matches[2], "Process")
+            $key = $matches[1]
+            # --- FIX: Trim whitespace and remove surrounding quotes from the value ---
+            $value = $matches[2].Trim()
+            if (($value.StartsWith('"') -and $value.EndsWith('"')) -or ($value.StartsWith("'") -and $value.EndsWith("'"))) {
+                $value = $value.Substring(1, $value.Length - 2)
+            }
+            [System.Environment]::SetEnvironmentVariable($key, $value, "Process")
         }
     }
 }
@@ -107,13 +114,12 @@ python -u bot.py *>&1 | Tee-Object -FilePath $logFile -Append
 
 # --- NEW: Pause on error to allow copying logs ---
 # --- FIX: Use $pipelinestatus to get the correct exit code from the python process, not Tee-Object ---
-$pythonExitCode = 1 # Default to 1 (error) if the pipeline fails to populate the variable
-if ($pipelinestatus -and $pipelinestatus.Count -gt 0) {
-    $pythonExitCode = $pipelinestatus[0]
-}
+# $LASTEXITCODE is automatically populated with the exit code of the last native command (python.exe).
+# A non-zero exit code indicates an error.
+$pythonExitCode = $LASTEXITCODE
 
 # A non-zero exit code indicates an error.
-if ($LASTEXITCODE -ne 0 -or ($pythonExitCode -ne 0 -and $null -ne $pythonExitCode)) {
+if ($pythonExitCode -ne 0) {
     Write-Host "--------------------------------------------------------" -ForegroundColor Red
     Write-Host "The bot process exited with an error (Exit Code: $pythonExitCode)." -ForegroundColor Red
     Write-Host "The script is paused. Press Enter to close this window." -ForegroundColor Yellow
