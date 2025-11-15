@@ -3,6 +3,7 @@ import json
 import discord
 import random
 import os
+import subprocess
 from collections import deque
 import re
 from datetime import datetime, timedelta, timezone
@@ -140,6 +141,9 @@ game_start_times = {}
 active_vc_users = {}
 # --- NEW: In-memory cache for tracking voice session start times ---
 vc_session_starts = {}
+
+# --- NEW: Bot Start Time for Uptime Command ---
+BOT_START_TIME = datetime.now(timezone.utc)
 
 
 @tree.error
@@ -1515,6 +1519,62 @@ class AdminGroup(app_commands.Group):
         embed.add_field(name=f"Gemini-Nutzung (Heute)", value=f"`{gemini_usage} / {GEMINI_DAILY_LIMIT}` Aufrufe\n`{progress_bar}`", inline=False)
         embed.set_footer(text="Der Zähler wird täglich um 00:00 UTC zurückgesetzt.")
         await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name="status", description="Zeigt den Uptime- und Versionsstatus des Bots an.")
+    async def status(self, interaction: discord.Interaction):
+        """Displays bot uptime, version, and update status."""
+        await interaction.response.defer(ephemeral=True)
+
+        # 1. Uptime
+        uptime_delta = datetime.now(timezone.utc) - BOT_START_TIME
+        days, remainder = divmod(uptime_delta.total_seconds(), 86400)
+        hours, remainder = divmod(remainder, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        uptime_str = f"{int(days)}d {int(hours)}h {int(minutes)}m {int(seconds)}s"
+
+        # 2. Git Commit Hash
+        try:
+            commit_hash = subprocess.check_output(['git', 'rev-parse', '--short', 'HEAD']).decode('utf-8').strip()
+            version_str = f"`{commit_hash}`"
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            version_str = "N/A (Git nicht gefunden)"
+
+        # 3. Last Update Time
+        try:
+            with open("last_update.txt", "r") as f:
+                last_update_iso = f.read().strip()
+                last_update_dt = datetime.fromisoformat(last_update_iso)
+                last_update_str = f"<t:{int(last_update_dt.timestamp())}:R>"
+        except (FileNotFoundError, ValueError):
+            last_update_str = "Noch nie"
+
+        # 4. Last Update Check Time
+        try:
+            with open("last_check.txt", "r") as f:
+                last_check_iso = f.read().strip()
+                last_check_dt = datetime.fromisoformat(last_check_iso)
+                last_check_str = f"<t:{int(last_check_dt.timestamp())}:R>"
+        except (FileNotFoundError, ValueError):
+            last_check_str = "Noch nie"
+
+        embed = discord.Embed(
+            title="⚙️ Bot Status",
+            color=get_embed_color(config)
+        )
+        embed.add_field(name="Uptime", value=uptime_str, inline=True)
+        embed.add_field(name="Aktuelle Version", value=version_str, inline=True)
+        embed.add_field(
+            name="Update-Informationen",
+            value=(
+                f"**Letztes Update:** {last_update_str}\n"
+                f"**Letzter Check:** {last_check_str}"
+            ),
+            inline=False
+        )
+        embed.set_footer(text=f"Gestartet am: {BOT_START_TIME.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+
+        await interaction.followup.send(embed=embed)
+
 
 @tree.command(name="summary", description="Zeigt Sulfurs Meinung über einen Benutzer an.")
 @app_commands.describe(user="Der Benutzer, dessen Zusammenfassung du sehen möchtest (optional).")

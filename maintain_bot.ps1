@@ -28,6 +28,9 @@ while ($true) {
     while ($botJob.State -eq 'Running') {
         Start-Sleep -Seconds 15
 
+        # --- NEW: Log the time of the update check ---
+        (Get-Date).ToUniversalTime().ToString("o") | Out-File -FilePath "last_check.txt" -Encoding utf8
+
         # Fetch the latest changes from the remote repository
         git remote update
         $status = git status -uno
@@ -39,6 +42,8 @@ while ($true) {
             Stop-Job -Job $botJob # Stop the bot
             Write-Host "Pulling latest changes from git..."
             git pull
+            # --- NEW: Log the time of the successful update ---
+            (Get-Date).ToUniversalTime().ToString("o") | Out-File -FilePath "last_update.txt" -Encoding utf8
             Remove-Item -Path "update_pending.flag" -ErrorAction SilentlyContinue # Clean up the flag
             break # Exit the inner loop to allow the outer loop to restart it
         }
