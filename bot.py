@@ -95,7 +95,7 @@ intents.presences = True         # To get member status (online, idle, etc.)
 active_werwolf_games = {}
 
 # --- NEW: Import and initialize DB helpers ---
-from db_helpers import init_db_pool, initialize_database, get_leaderboard, add_xp, get_player_rank, get_level_leaderboard, save_message_to_history, get_chat_history, get_relationship_summary, update_relationship_summary, save_bulk_history, clear_channel_history, update_user_presence, add_balance, update_spotify_history, get_all_managed_channels, remove_managed_channel, get_managed_channel_config, update_managed_channel_config, log_message_stat, log_vc_minutes, get_wrapped_stats_for_period, get_user_wrapped_stats, log_stat_increment, get_spotify_history, get_player_profile, cleanup_custom_status_entries, log_mention_reply, log_vc_session
+from db_helpers import init_db_pool, initialize_database, get_leaderboard, add_xp, get_player_rank, get_level_leaderboard, save_message_to_history, get_chat_history, get_relationship_summary, update_relationship_summary, save_bulk_history, clear_channel_history, update_user_presence, add_balance, update_spotify_history, get_all_managed_channels, remove_managed_channel, get_managed_channel_config, update_managed_channel_config, log_message_stat, log_vc_minutes, get_wrapped_stats_for_period, get_user_wrapped_stats, log_stat_increment, get_spotify_history, get_player_profile, cleanup_custom_status_entries, log_mention_reply, log_vc_session, get_wrapped_extra_stats
 import db_helpers
 db_helpers.init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
 from level_system import grant_xp, get_xp_for_level
@@ -517,6 +517,22 @@ async def on_presence_update(before, after):
         activity_name=primary_activity.name if primary_activity and hasattr(primary_activity, 'name') else (primary_activity.state if primary_activity and hasattr(primary_activity, 'state') else None)
     )
 
+    # --- NEW: Log generic activity for Wrapped ---
+    # This logs any activity that isn't a game or Spotify.
+    generic_activity = next((act for act in after.activities if not isinstance(act, (discord.Game, discord.Spotify, discord.CustomActivity))), None)
+    if generic_activity and generic_activity.name:
+        # We only care if the activity has changed to avoid spamming the DB.
+        # Also, ensure the activity name is not something generic we want to ignore.
+        before_generic_activity = next((act for act in before.activities if not isinstance(act, (discord.Game, discord.Spotify, discord.CustomActivity))), None)
+        if not before_generic_activity or before_generic_activity.name != generic_activity.name:
+            stat_period = now.strftime('%Y-%m')
+            await db_helpers.log_stat_increment(
+                user_id=user_id,
+                stat_period=stat_period,
+                column_name='activity_usage',
+                key=generic_activity.name
+            )
+
 
 @tasks.loop(minutes=1)
 async def grant_voice_xp():
@@ -569,6 +585,20 @@ def _calculate_wrapped_dates(config):
     return {
         "event_name": event_name, "event_creation_date": event_creation_date, "release_date": release_date, "stat_period": now.strftime('%Y-%m')
     }
+
+# --- NEW: Helper for Prime Time titles ---
+def get_prime_time_title(hour):
+    """Assigns a title based on the user's most active hour."""
+    if hour is None:
+        return "👻 Server-Geist"
+    if 0 <= hour <= 5: return "🦉 Nachteule"
+    if 6 <= hour <= 10: return "☀️ Früher Vogel"
+    if 11 <= hour <= 13: return "🥪 Lunch-Lurker"
+    if 14 <= hour <= 17: return "💼 Feierabend-Genießer"
+    if 18 <= hour <= 21: return "🌙 Abend-Poster"
+    if 22 <= hour <= 23: return "🦉 Nachteule"
+    return "👻 Server-Geist"
+
 
 @tasks.loop(hours=24)
 async def manage_wrapped_event():
@@ -641,7 +671,8 @@ async def manage_wrapped_event():
                 user_stats=user_stats,
                 stat_period_date=last_month_first_day,
                 all_stats_for_period=stats,
-                total_users=total_users
+                total_users=total_users,
+                server_averages=await _calculate_server_averages(stats)
             )
 
 async def _calculate_server_averages(all_stats):
@@ -662,40 +693,72 @@ async def _calculate_server_averages(all_stats):
 async def before_manage_wrapped_event():
     await client.wait_until_ready()
 
-# --- NEW: View for sharing the Wrapped summary ---
+# --- REFACTORED: Multi-step view for sharing the Wrapped summary ---
 class ShareView(discord.ui.View):
-    def __init__(self, summary_embed: discord.Embed, user: discord.User):
+    def __init__(self, embed_to_share: discord.Embed, user: discord.User):
         super().__init__(timeout=180)
-        self.summary_embed = summary_embed
+        self.embed_to_share = embed_to_share
         self.user = user
-        # We pass the user and embed to the select menu's callback
-        self.children[0].callback = self.create_callback()
+        self.selected_guild = None
+        self.mutual_guilds = [g for g in user.mutual_guilds if g.get_member(client.user.id)]
+        self.setup_view()
 
-    def create_callback(self):
-        async def channel_select_callback(interaction: discord.Interaction):
-            channel = interaction.data['values'][0]
-            target_channel = interaction.guild.get_channel(int(channel))
+    def setup_view(self):
+        """Dynamically sets up the view based on the current state (guild or channel selection)."""
+        self.clear_items()
+        if self.selected_guild:
+            # Step 2: Show channel select for the chosen guild
+            # --- REFACTORED: Use a regular Select to show only writable channels ---
+            member = self.selected_guild.get_member(self.user.id)
+            bot_member = self.selected_guild.me
+            
+            # Filter channels where both the user and the bot can send messages
+            channel_options = []
+            for channel in self.selected_guild.text_channels:
+                if channel.permissions_for(member).send_messages and channel.permissions_for(bot_member).send_messages:
+                    channel_options.append(discord.SelectOption(label=f"#{channel.name}", value=str(channel.id)))
+            
+            if channel_options:
+                self.add_item(discord.ui.Select(
+                    placeholder=f"Wähle einen Kanal in '{self.selected_guild.name}'...",
+                    options=channel_options[:25], # Max 25 options per select menu
+                    custom_id="share_channel_select"
+                ))
 
-            if not target_channel:
-                await interaction.response.send_message("Kanal nicht gefunden. Möglicherweise wurde er gelöscht.", ephemeral=True)
-                return
+        elif len(self.mutual_guilds) > 1:
+            # Step 1: Show guild select
+            options = [discord.SelectOption(label=g.name, value=str(g.id)) for g in self.mutual_guilds]
+            self.add_item(discord.ui.Select(
+                placeholder="Wähle einen Server zum Teilen...",
+                options=options,
+                custom_id="share_guild_select"
+            ))
+        elif len(self.mutual_guilds) == 1:
+            # Skip Step 1 if only one mutual guild
+            self.selected_guild = self.mutual_guilds[0]
+            self.setup_view()
 
-            if not target_channel.permissions_for(interaction.guild.me).send_messages:
-                await interaction.response.send_message(f"Ich habe keine Berechtigung, in {target_channel.mention} zu posten.", ephemeral=True)
-                return
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.data['custom_id'] == 'share_guild_select':
+            guild_id = int(interaction.data['values'][0])
+            self.selected_guild = client.get_guild(guild_id)
+            self.setup_view()
+            await interaction.response.edit_message(content="Wähle nun den Kanal:", view=self)
+            return False # Stop further processing for this interaction
 
-            # Add user's name to the embed for context when sharing
-            self.summary_embed.title = f"{self.user.display_name}'s Wrapped Zusammenfassung"
-            await target_channel.send(embed=self.summary_embed)
-            await interaction.response.send_message(f"Dein Wrapped wurde in {target_channel.mention} geteilt!", ephemeral=True)
-            # Stop the view after sharing
+        if interaction.data['custom_id'] == 'share_channel_select':
+            channel_id = int(interaction.data['values'][0])
+            target_channel = self.selected_guild.get_channel(channel_id)
+            if not target_channel or not target_channel.permissions_for(self.selected_guild.me).send_messages:
+                await interaction.response.send_message("Ich kann in diesem Kanal nichts posten. Berechtigungen prüfen!", ephemeral=True)
+                return False
+
+            self.embed_to_share.title = f"{self.user.display_name}'s Wrapped"
+            await target_channel.send(embed=self.embed_to_share)
+            await interaction.response.edit_message(content=f"Seite wurde in {target_channel.mention} geteilt!", view=None)
             self.stop()
-        return channel_select_callback
-
-    @discord.ui.channel_select(placeholder="Wähle einen Kanal zum Teilen...", channel_types=[discord.ChannelType.text])
-    async def channel_select(self, interaction: discord.Interaction, select: discord.ui.ChannelSelect):
-        # This is a placeholder; the real callback is assigned in __init__
-        pass
+            return False
+        return True
 
 # --- NEW: View for paginating the Wrapped DM ---
 class WrappedView(discord.ui.View):
@@ -748,14 +811,14 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
     user = None
     try:
         # Use fetch_user to guarantee we can find the user, even if not cached.
-        user = await client.fetch_user(user_id)
+        user = await client.fetch_user(int(user_id))
     except discord.NotFound:
         print(f"  - Skipping user ID {user_id}: User could not be found (account may be deleted).")
         return
 
     print(f"  - [Wrapped] Generating for {user.name} ({user.id})...")
     
-    pages = []
+    pages = [] # This will hold all the embed pages for the story
     color = get_embed_color(config)
 
     # Find favorite channel
@@ -766,123 +829,99 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
         if channel_usage:
             fav_channel_id = max(channel_usage, key=channel_usage.get)
 
-    # Find favorite emoji
-    fav_emoji_display = "N/A"
-    if user_stats.get('emoji_usage'):
-        print("    - [Wrapped] Calculating favorite emoji...")
-        emoji_usage = json.loads(user_stats['emoji_usage'])
-        if emoji_usage:
-            fav_emoji_name = max(emoji_usage, key=emoji_usage.get)
-            emoji_obj = discord.utils.get(client.emojis, name=fav_emoji_name)
-            fav_emoji_display = str(emoji_obj) if emoji_obj else f"`:{fav_emoji_name}:`"
+    # --- NEW: Fetch all the new Wrapped stats in one go ---
+    extra_stats = await get_wrapped_extra_stats(user.id, stat_period_date.strftime('%Y-%m'))
 
-    # Calculate stats
-    print("    - [Wrapped] Calculating general stats...")
-    vc_hours = user_stats.get('minutes_in_vc', 0) / 60
-    fav_channel_obj = client.get_channel(int(fav_channel_id)) if fav_channel_id else None
-    fav_activity = "Nichts tun"
-    if user_stats.get('activity_usage'):
-        print("    - [Wrapped] Calculating favorite activity...")
-        activity_usage = json.loads(user_stats['activity_usage'])
-        if activity_usage:
-            fav_activity = max(activity_usage, key=activity_usage.get)
-
-    # Find top game and spotify stats for AI summary
-    top_game = "N/A"
-    if user_stats.get('game_usage'):
-        game_usage = json.loads(user_stats['game_usage'])
-        if game_usage:
-            top_game = max(game_usage, key=game_usage.get)
-
-    top_song = "N/A"
-    total_spotify_minutes = 0
-    if user_stats.get('spotify_minutes'):
-        spotify_minutes_data = json.loads(user_stats['spotify_minutes'])
-        if spotify_minutes_data:
-            total_spotify_minutes = sum(spotify_minutes_data.values())
-            top_song = max(spotify_minutes_data, key=spotify_minutes_data.get)
-
-    # --- Page 1: Intro ---
+    # --- Page 1: Intro & Prime Time ---
     intro_embed = discord.Embed(
         title=f"Dein {stat_period_date.strftime('%B')} Wrapped ist da, {user.display_name}!",
-        description="Bist du bereit, in deine Stats einzutauchen und zu sehen, ob du ein No-Lifer bist? Drück die Pfeile, um durchzublättern.",
+        description="Bist du bereit, in deine Stats einzutauchen und zu sehen, ob du ein No-Lifer bist? Los geht's!",
         color=color
     )
     intro_embed.set_thumbnail(url=user.display_avatar.url)
-    intro_embed.set_image(url=config['modules']['wrapped']['intro_gif_url'])
+    # Add Prime Time title to the intro page
+    prime_time_title = get_prime_time_title(extra_stats.get('prime_time_hour'))
+    intro_embed.add_field(name="Dein Titel diesen Monat", value=f"## {prime_time_title}", inline=False)
+    intro_embed.set_footer(text="Basiert auf deiner aktivsten Zeit im Chat.")
     pages.append(intro_embed)
 
-    # --- Calculate ranks ---
-    print("    - [Wrapped] Calculating message and VC ranks...")
-    message_ranks = {user['user_id']: rank for rank, user in enumerate(sorted(all_stats_for_period, key=lambda x: x.get('message_count', 0), reverse=True))}
-    vc_ranks = {user['user_id']: rank for rank, user in enumerate(sorted(all_stats_for_period, key=lambda x: x.get('minutes_in_vc', 0), reverse=True))}
+    # --- Page 2: Server Bestie ---
+    bestie_embed = discord.Embed(title="Deine engsten Kontakte", color=color)
+    bestie_id = extra_stats.get("server_bestie_id")
+    if bestie_id:
+        try:
+            bestie_user = await client.fetch_user(int(bestie_id))
+            bestie_embed.description = f"Diesen Monat warst du unzertrennlich mit...\n\n## {bestie_user.mention}"
+            bestie_embed.set_thumbnail(url=bestie_user.display_avatar.url)
+        except discord.NotFound:
+            bestie_embed.description = await replace_emoji_tags("Dein Server-Bestie scheint ein Geist zu sein... oder hat den Server verlassen. :dono:", client)
+    else:
+        bestie_embed.description = await replace_emoji_tags("Du bist diesen Monat eher ein Einzelgänger gewesen und hast niemanden oft erwähnt oder auf ihn geantwortet. :gege:", client)
+    bestie_embed.set_footer(text="Basiert darauf, wen du am häufigsten erwähnst oder wem du antwortest.")
+    pages.append(bestie_embed)
 
-    # --- Page 2: Message Stats ---
+    # --- Page 3: Message & Emoji Stats ---
+    message_ranks = {user['user_id']: rank for rank, user in enumerate(sorted(all_stats_for_period, key=lambda x: x.get('message_count', 0), reverse=True))}
     message_rank_text = _get_percentile_rank(user.id, message_ranks, total_users)
     msg_embed = discord.Embed(title="Du und der Chat", color=color)
     msg_embed.add_field(name="Deine Nachrichten", value=f"## `{user_stats.get('message_count', 0)}`", inline=True)
     msg_embed.add_field(name="Server-Durchschnitt", value=f"## `{int(server_averages['avg_messages'])}`", inline=True)
     msg_embed.add_field(name="Dein Rang", value=f"Du gehörst zu den **{message_rank_text}** der aktivsten Chatter!", inline=False)
+
+    # Add Top 3 Emojis to this page
+    if user_stats.get('emoji_usage'):
+        emoji_usage = json.loads(user_stats['emoji_usage'])
+        sorted_emojis = sorted(emoji_usage.items(), key=lambda item: item[1], reverse=True)
+        top_emojis_text = ""
+        for i, (emoji_name, count) in enumerate(sorted_emojis[:3]):
+            emoji_obj = discord.utils.get(client.emojis, name=emoji_name)
+            emoji_display = str(emoji_obj) if emoji_obj else f"`:{emoji_name}:`"
+            top_emojis_text += f"**{i+1}.** {emoji_display} (`{count}x`)\n"
+        if top_emojis_text:
+            msg_embed.add_field(name="Deine Lieblings-Emojis", value=top_emojis_text, inline=False)
     pages.append(msg_embed)
 
-    # --- Page 3: VC Stats ---
+    # --- Page 4: Voice Channel Stats ---
+    vc_ranks = {user['user_id']: rank for rank, user in enumerate(sorted(all_stats_for_period, key=lambda x: x.get('minutes_in_vc', 0), reverse=True))}
     vc_rank_text = _get_percentile_rank(user.id, vc_ranks, total_users)
+    vc_hours = user_stats.get('minutes_in_vc', 0) / 60
     vc_embed = discord.Embed(title="Deine Voice-Chat Story", color=color)
     vc_embed.add_field(name="Deine VC-Stunden", value=f"## `{vc_hours:.2f}`", inline=True)
     vc_embed.add_field(name="Server-Durchschnitt", value=f"## `{server_averages['avg_vc_minutes'] / 60:.2f}`", inline=True)
     vc_embed.add_field(name="Dein Rang", value=f"Du warst in den **{vc_rank_text}** der größten Quasselstrippen!", inline=False)
+
+    # Add new VC stats to this page
+    longest_session_seconds = extra_stats.get("longest_vc_session_seconds", 0)
+    longest_session_str = str(timedelta(seconds=longest_session_seconds)).split('.')[0] # Format as H:MM:SS
+    vc_embed.add_field(name="Längste Session", value=f"`{longest_session_str}`", inline=True)
+    vc_embed.add_field(name="Erstellte VCs", value=f"`{extra_stats.get('temp_vcs_created', 0)}`", inline=True)
     pages.append(vc_embed)
 
-    # --- Page 4: Top 5 Channels ---
+    # --- Page 5: Top Channel & Activity ---
+    activity_embed = discord.Embed(title="Deine digitalen Hangouts", color=color)
+    # Top Channel
     if user_stats.get('channel_usage'):
-        print("    - [Wrapped] Generating Top 5 Channels page...")
         channel_usage = json.loads(user_stats['channel_usage'])
-        sorted_channels = sorted(channel_usage.items(), key=lambda item: item[1], reverse=True)
-        top_channels_text = ""
-        for i, (channel_id, count) in enumerate(sorted_channels[:5]):
-            top_channels_text += f"**{i+1}.** <#{channel_id}> - `{count}` Nachrichten\n"
-        
-        if top_channels_text:
-            channel_embed = discord.Embed(title="Deine Top 5 Kanäle", description=top_channels_text, color=color)
-            pages.append(channel_embed)
+        if channel_usage:
+            fav_channel_id = max(channel_usage, key=channel_usage.get)
+            fav_channel_obj = client.get_channel(int(fav_channel_id))
+            activity_embed.add_field(name="Dein Lieblingskanal", value=f"Du hast die meiste Zeit in {fav_channel_obj.mention if fav_channel_obj else 'einem unbekannten Kanal'} verbracht.", inline=False)
 
-    # --- Page 5: Top 5 Emojis ---
-    if user_stats.get('emoji_usage'):
-        print("    - [Wrapped] Generating Top 5 Emojis page...")
-        emoji_usage = json.loads(user_stats['emoji_usage'])
-        sorted_emojis = sorted(emoji_usage.items(), key=lambda item: item[1], reverse=True)
-        top_emojis_text = ""
-        for i, (emoji_name, count) in enumerate(sorted_emojis[:5]):
-            emoji_obj = discord.utils.get(client.emojis, name=emoji_name)
-            emoji_display = str(emoji_obj) if emoji_obj else f":{emoji_name}:"
-            top_emojis_text += f"**{i+1}.** {emoji_display} - `{count}` mal benutzt\n"
-
-        if top_emojis_text:
-            emoji_embed = discord.Embed(title="Deine Top 5 Emojis", description=top_emojis_text, color=color)
-            pages.append(emoji_embed)
-
-    # --- Page 6: Top 5 Activities ---
+    # Top Activity
     if user_stats.get('activity_usage'):
-        print("    - [Wrapped] Generating Top 5 Activities page...")
         activity_usage = json.loads(user_stats['activity_usage'])
-        # Filter out generic activities that aren't very informative
         filtered_activities = {k: v for k, v in activity_usage.items() if k.lower() not in ['custom status', 'spotify']}
-        sorted_activities = sorted(filtered_activities.items(), key=lambda item: item[1], reverse=True)
-        top_activities_text = ""
-        for i, (activity_name, count) in enumerate(sorted_activities[:5]):
-            # The count here is an arbitrary number from presence updates, so we show it as a relative score
-            top_activities_text += f"**{i+1}.** `{activity_name}`\n"
+        if filtered_activities:
+            fav_activity = max(filtered_activities, key=filtered_activities.get)
+            activity_embed.add_field(name="Deine Top-Aktivität", value=f"Abgesehen von Discord warst du am häufigsten in **{fav_activity}** unterwegs.", inline=False)
+    
+    if activity_embed.fields: # Only add the page if it has content
+        pages.append(activity_embed)
 
-        if top_activities_text:
-            activity_embed = discord.Embed(title="Deine Top 5 Aktivitäten", description=top_activities_text, color=color)
-            activity_embed.set_footer(text="Basiert auf den Spielen & Programmen, die du am häufigsten offen hattest.")
-            pages.append(activity_embed)
-
-    # --- Page 7: Game Wrapped Page ---
+    # --- Page 6: Game Wrapped Page ---
     if user_stats.get('game_usage'):
         monthly_game_stats = json.loads(user_stats['game_usage'])
         if monthly_game_stats:
-            print("    - [Wrapped] Generating Game stats page...")
             # Find favorite game by total minutes this month
             fav_game_name = max(monthly_game_stats, key=lambda g: monthly_game_stats[g]['total_minutes'])
             fav_game_data = monthly_game_stats[fav_game_name]
@@ -919,9 +958,8 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
             game_embed.set_footer(text="Verglichen mit anderen Spielern dieses Spiels auf dem Server.")
             pages.append(game_embed)
 
-    # --- Page 8: Spotify Wrapped Page ---
+    # --- Page 7: Spotify Wrapped Page ---
     if user_stats.get('spotify_minutes'):
-        print("    - [Wrapped] Generating Spotify stats page...")
         spotify_minutes_data = json.loads(user_stats['spotify_minutes'])
         if spotify_minutes_data: # Check if the JSON object is not empty
             total_minutes = sum(spotify_minutes_data.values())
@@ -941,20 +979,28 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
                 pages.append(spotify_embed)
 
     # --- Final Page: Gemini Summary ---
+    # --- REFACTORED: Conditionally build the stats dictionary for the AI ---
     gemini_stats = {
-        "message_count": user_stats.get('message_count', 0),
-        "avg_message_count": server_averages['avg_messages'],
-        "vc_hours": vc_hours, 
-        "avg_vc_hours": server_averages['avg_vc_minutes'] / 60,
-        "fav_channel_name": f"#{fav_channel_obj.name}" if fav_channel_obj else "Unbekannt",
-        "fav_emoji_display": fav_emoji_display, "fav_activity": fav_activity,
-        "message_rank_text": message_rank_text, "vc_rank_text": vc_rank_text,
-        "top_game": top_game, "top_song": top_song,
-        "total_spotify_minutes": total_spotify_minutes
+        "message_count": user_stats.get('message_count', 0), "avg_message_count": server_averages['avg_messages'],
+        "vc_hours": vc_hours, "avg_vc_hours": server_averages['avg_vc_minutes'] / 60,
+        "message_rank_text": message_rank_text, "vc_rank_text": vc_rank_text
     }
+    # Add activity if it exists
+    if 'activity_embed' in locals() and activity_embed.fields:
+        field_value = activity_embed.fields[-1].value # Assumes activity is the last field
+        match = re.search(r'\*\*(.*?)\*\*', field_value)
+        if match:
+            gemini_stats["fav_activity"] = match.group(1)
+    # Add top game if it exists
+    if 'fav_game_name' in locals():
+        gemini_stats["top_game"] = fav_game_name
+    # Add top song if it exists
+    if 'sorted_songs' in locals() and sorted_songs:
+        gemini_stats["top_song"] = sorted_songs[0][0]
+
     summary_text, _ = await get_wrapped_summary_from_api(user.display_name, gemini_stats, config, GEMINI_API_KEY, OPENAI_API_KEY)
     print(f"    - [Wrapped] Generated Gemini summary for {user.name}.")
-    summary_embed = discord.Embed(title="Mein Urteil über dich", description=f"## _{summary_text}_", color=color)
+    summary_embed = discord.Embed(title="Mein Urteil über dich", description=f"## _{await replace_emoji_tags(summary_text, client)}_", color=color)
     summary_embed.set_footer(text="Nächstes Mal gibst du dir mehr Mühe, ja? :erm:")
     pages.append(summary_embed)
 
@@ -973,18 +1019,18 @@ def _get_percentile_rank(user_id, rank_map, total_users):
     try:
         # The rank map gives us the 0-indexed rank directly
         user_rank = rank_map.get(user_id, total_users - 1)
-        percentile = (user_rank / (total_users - 1)) * 100
-        top_percentile = 100 - percentile
+        # --- FIX: Correctly calculate the percentile ---
+        # This now represents the percentage of users you are ranked higher than.
+        percentile = ((total_users - 1 - user_rank) / (total_users - 1)) * 100
 
         # --- NEW: Use ranks from config file ---
         ranks = config['modules']['wrapped']['percentile_ranks']
         # We sort the keys numerically to ensure correct order, ignoring 'default'.
         sorted_thresholds = sorted([int(k) for k in ranks.keys() if k.isdigit()])
 
-        for threshold in sorted_thresholds:
-            if threshold == "default": continue
-            if top_percentile <= int(threshold):
-                return ranks[threshold]
+        for threshold in sorted(ranks.keys(), key=lambda x: int(x) if x.isdigit() else 999, reverse=True):
+            if threshold.isdigit() and percentile >= (100 - int(threshold)):
+                return ranks[str(threshold)]
         
         return ranks.get("default", "N/A")
     except StopIteration:

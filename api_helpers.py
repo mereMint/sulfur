@@ -300,27 +300,30 @@ class GeminiProvider(AIProvider):
         if not self.api_key:
             return "Puh, deine Stats waren so... existent, dass meiner KI das Hirn geschmolzen ist. Konnte nichts Witziges dazu finden.", None
 
-        # Format the stats for the prompt
-        stats_text = f"""
-        - Nachrichten gesendet: {stats.get('message_count', 0)} (Durchschnitt: {stats.get('avg_message_count', 0):.0f})
-        - Stunden im Voice Chat: {stats.get('vc_hours', 0.0):.1f} (Durchschnitt: {stats.get('avg_vc_hours', 0.0):.1f})
-        - Lieblings-Kanal: {stats.get('fav_channel_name', 'Unbekannt')}
-        - Lieblings-Emoji: {stats.get('fav_emoji_display', 'Keins')}
-        - Lieblings-Aktivität: {stats.get('fav_activity', 'Nichts tun')}
-        - Top Game: {stats.get('top_game', 'N/A')}
-        - Top Song (nach Hörzeit): {stats.get('top_song', 'N/A')}
-
-        Hier sind die Ränge des Benutzers (z.B. Top 10% bedeutet, dass er besser als 90% der Leute war):
-        - Nachrichten-Rang: {stats.get('message_rank_text', 'N/A')}
-        - Voice-Chat-Rang: {stats.get('vc_rank_text', 'N/A')}
-        """
+        # --- REFACTORED: Conditionally build the stats text to avoid showing "N/A" ---
+        stats_lines = [
+            f"- Nachrichten gesendet: {stats.get('message_count', 0)} (Durchschnitt: {stats.get('avg_message_count', 0):.0f})",
+            f"- Stunden im Voice Chat: {stats.get('vc_hours', 0.0):.1f} (Durchschnitt: {stats.get('avg_vc_hours', 0.0):.1f})",
+            f"- Nachrichten-Rang: {stats.get('message_rank_text', 'N/A')}",
+            f"- Voice-Chat-Rang: {stats.get('vc_rank_text', 'N/A')}"
+        ]
+        if 'fav_activity' in stats:
+            stats_lines.append(f"- Deine Top-Aktivität (neben Discord): {stats['fav_activity']}")
+        if 'top_game' in stats:
+            stats_lines.append(f"- Dein Top-Game: {stats['top_game']}")
+        if 'top_song' in stats:
+            stats_lines.append(f"- Dein Top-Song (nach Hörzeit): {stats['top_song']}")
+        
+        stats_text = "\n".join(stats_lines)
 
         prompt = f"""
-        Du bist Sulfur, eine KI mit einer frechen Gen-Z-Persönlichkeit. Du erstellst eine personalisierte, witzige und leicht sarkastische "Wrapped"-Zusammenfassung (2-3 Sätze) für den Benutzer '{user_name}'.
+        Du bist Sulfur (kurz Sulf), eine KI mit einer frechen Gen-Z-Persönlichkeit, die gerne Leute aufzieht. Du erstellst eine personalisierte, witzige und sarkastische "Wrapped"-Zusammenfassung (2-3 Sätze) für den Benutzer '{user_name}'.
+        Sprich in der Ich-Form aus deiner Sicht und direkt an den Benutzer. Benutze deutschen Gen-Z-Slang, aber übertreib es nicht.
+
         Hier sind die Statistiken des Benutzers für den letzten Monat:
         {stats_text}
 
-        Deine Aufgabe ist es, eine unterhaltsame Zusammenfassung zu schreiben. Sprich in der Ich-Form aus deiner Sicht und direkt an den Benutzer.
+        Deine Aufgabe ist es, eine unterhaltsame, leicht fiese Zusammenfassung zu schreiben.
         - Vergleiche die Stats des Nutzers mit dem Durchschnitt. Wenn sie weit darüber liegen, mach dich lustig, dass er keine Hobbys hat. Wenn sie weit darunter liegen, erwähne, dass er anscheinend ein Leben hat.
         - Beziehe dich auf den Top-Song oder das Top-Game, wenn es interessant ist.
         - Sei kreativ und nicht repetitiv.
@@ -482,8 +485,23 @@ class OpenAIProvider(AIProvider):
 
     async def get_wrapped_summary(self, user_name, stats):
         # This is also very similar
-        stats_text = f"Nachrichten: {stats.get('message_count', 0)} (Avg: {stats.get('avg_message_count', 0):.0f}), VC Stunden: {stats.get('vc_hours', 0.0):.1f} (Avg: {stats.get('avg_vc_hours', 0.0):.1f}), Top Song: {stats.get('top_song', 'N/A')}, Top Game: {stats.get('top_game', 'N/A')}, Nachrichten-Rang: {stats.get('message_rank_text', 'N/A')}, VC-Rang: {stats.get('vc_rank_text', 'N/A')}"
-        prompt = f"Du bist Sulfur, eine freche Gen-Z KI. Schreibe eine kurze, witzige, leicht sarkastische 'Wrapped'-Zusammenfassung (2-3 Sätze) für den Benutzer '{user_name}' basierend auf diesen Stats: {stats_text}. Vergleiche die Stats mit dem Durchschnitt. Wenn der Rang Top 10% ist, mach dich lustig, dass er keine Hobbys hat. Wenn der Rang niedrig ist (Bottom 50%), erwähne, dass er ein Leben hat. Beziehe dich auf den Top-Song oder das Top-Game."
+        # --- REFACTORED: Conditionally build the stats text for OpenAI as well ---
+        stats_lines = [
+            f"Nachrichten: {stats.get('message_count', 0)} (Avg: {stats.get('avg_message_count', 0):.0f})",
+            f"VC Stunden: {stats.get('vc_hours', 0.0):.1f} (Avg: {stats.get('avg_vc_hours', 0.0):.1f})",
+            f"Nachrichten-Rang: {stats.get('message_rank_text', 'N/A')}",
+            f"VC-Rang: {stats.get('vc_rank_text', 'N/A')}"
+        ]
+        if 'fav_activity' in stats: stats_lines.append(f"Top-Aktivität: {stats['fav_activity']}")
+        if 'top_game' in stats: stats_lines.append(f"Top-Game: {stats['top_game']}")
+        if 'top_song' in stats: stats_lines.append(f"Top-Song: {stats['top_song']}")
+        
+        stats_text = ", ".join(stats_lines)
+
+        prompt = f"""
+        Du bist Sulfur, eine freche Gen-Z KI. Schreibe eine kurze, witzige, leicht sarkastische 'Wrapped'-Zusammenfassung (2-3 Sätze) für den Benutzer '{user_name}' basierend auf diesen Stats: {stats_text}.
+        Vergleiche die Stats mit dem Durchschnitt. Wenn der Rang hoch ist (z.B. Top 10%), mach dich lustig, dass er keine Hobbys hat. Wenn der Rang niedrig ist (z.B. Bottom 50%), erwähne, dass er anscheinend ein Leben hat. Beziehe dich auf den Top-Song oder das Top-Game, falls vorhanden.
+        """
         payload = {"model": self.config['api']['openai']['utility_model'], "messages": [{"role": "user", "content": prompt}], "temperature": self.config['api']['openai']['utility_temperature'], "max_tokens": self.config['api']['openai']['utility_max_tokens']}
         api_url = "https://api.openai.com/v1/chat/completions"
         timeout = aiohttp.ClientTimeout(total=self.config['api']['timeout'])

@@ -1009,3 +1009,69 @@ async def get_user_wrapped_stats(user_id, stat_period):
     finally:
         cursor.close()
         cnx.close()
+
+async def get_wrapped_extra_stats(user_id, stat_period):
+    """
+    Fetches the new Wrapped stats (Bestie, Prime Time, VC stats) for a user.
+    """
+    cnx = db_pool.get_connection()
+    if not cnx: return None
+    cursor = cnx.cursor(dictionary=True)
+    
+    start_date = f"{stat_period}-01"
+    # A bit of a hack to get the end date of the month
+    from datetime import datetime, timedelta
+    next_month = (datetime.strptime(start_date, "%Y-%m-%d") + timedelta(days=32)).replace(day=1)
+    end_date = (next_month - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    stats = {
+        "server_bestie_id": None,
+        "prime_time_hour": None,
+        "temp_vcs_created": 0,
+        "longest_vc_session_seconds": 0
+    }
+
+    try:
+        # 1. Server Bestie
+        # This query combines mentions and replies, groups them, and finds the top one.
+        bestie_query = """
+            SELECT bestie_id, COUNT(*) as interaction_count FROM (
+                SELECT mentioned_user_id as bestie_id FROM message_activity WHERE user_id = %s AND mentioned_user_id IS NOT NULL AND DATE(message_timestamp) BETWEEN %s AND %s
+                UNION ALL
+                SELECT replied_to_user_id as bestie_id FROM message_activity WHERE user_id = %s AND replied_to_user_id IS NOT NULL AND DATE(message_timestamp) BETWEEN %s AND %s
+            ) as interactions
+            GROUP BY bestie_id ORDER BY interaction_count DESC LIMIT 1;
+        """
+        cursor.execute(bestie_query, (user_id, start_date, end_date, user_id, start_date, end_date))
+        bestie_result = cursor.fetchone()
+        if bestie_result:
+            stats["server_bestie_id"] = bestie_result['bestie_id']
+
+        # 2. Prime Time
+        prime_time_query = "SELECT HOUR(message_timestamp) as hour, COUNT(*) as count FROM message_activity WHERE user_id = %s AND DATE(message_timestamp) BETWEEN %s AND %s GROUP BY hour ORDER BY count DESC LIMIT 1;"
+        cursor.execute(prime_time_query, (user_id, start_date, end_date))
+        prime_time_result = cursor.fetchone()
+        if prime_time_result:
+            stats["prime_time_hour"] = prime_time_result['hour']
+
+        # 3. Temp VCs Created
+        temp_vc_query = "SELECT COUNT(*) as count FROM temp_vc_creations WHERE user_id = %s AND DATE(creation_timestamp) BETWEEN %s AND %s;"
+        cursor.execute(temp_vc_query, (user_id, start_date, end_date))
+        temp_vc_result = cursor.fetchone()
+        if temp_vc_result:
+            stats["temp_vcs_created"] = temp_vc_result['count']
+
+        # 4. Longest VC Session
+        longest_session_query = "SELECT MAX(duration_seconds) as longest_session FROM voice_sessions WHERE user_id = %s AND DATE(session_end_timestamp) BETWEEN %s AND %s;"
+        cursor.execute(longest_session_query, (user_id, start_date, end_date))
+        longest_session_result = cursor.fetchone()
+        if longest_session_result and longest_session_result['longest_session']:
+            stats["longest_vc_session_seconds"] = longest_session_result['longest_session']
+
+        return stats
+    except mysql.connector.Error as err:
+        print(f"Error in get_wrapped_extra_stats: {err}")
+        return stats # Return default stats on error
+    finally:
+        cursor.close()
+        cnx.close()
