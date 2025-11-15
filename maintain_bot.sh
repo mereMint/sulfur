@@ -48,16 +48,6 @@ BOT_PANE_ID=$(tmux split-window -h -P -F "#{pane_id}" "./start_bot.sh")
 
 
 while true; do
-    # Give it a moment to start and get the PID of the python process.
-    sleep 2
-    BOT_PID=$(pgrep -f "python3 ./bot.py")
-
-    if [ -z "$BOT_PID" ]; then
-        echo "Warning: Could not find bot PID. It might have crashed on startup. Will try restarting..."
-    else
-        echo "Bot is running in pane $BOT_PANE_ID (PID: $BOT_PID). Checking for updates every 30 seconds."
-    fi
-
     # This function will be called to clean up the bot and any child processes.
     cleanup() {
         echo "Restarting bot process in pane $BOT_PANE_ID..."
@@ -71,8 +61,18 @@ while true; do
         echo "Cleanup complete."
     }
 
-    # This loop runs as long as the bot process exists
-    while kill -0 $BOT_PID 2>/dev/null; do
+    # --- REFACTORED: Main monitoring loop ---
+    # This loop now continuously checks for the bot's PID.
+    while true; do
+        BOT_PID=$(pgrep -f "python3 -u ./bot.py")
+
+        # If the PID doesn't exist, the bot has crashed or not started.
+        if [ -z "$BOT_PID" ]; then
+            echo "Warning: Bot process not found. It may have crashed. Restarting..."
+            break # Exit this inner loop to trigger the cleanup/restart logic.
+        fi
+
+        echo "Bot is running (PID: $BOT_PID). Checking for updates..."
         sleep 15
 
         # Fetch the latest changes from the remote repository
@@ -84,7 +84,7 @@ while true; do
             # Create the flag file to signal the bot to go idle
             touch update_pending.flag
             cleanup # This now respawns the bot in the same pane
-            break # Exit the inner loop to allow the outer loop to restart it
+            sleep 5 # Give it a moment to respawn before the next check
         fi
     done
 
