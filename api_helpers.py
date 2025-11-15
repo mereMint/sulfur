@@ -1,5 +1,6 @@
 import aiohttp
 import json
+from collections import deque
 from datetime import datetime, timezone
 
 # --- Constants ---
@@ -13,6 +14,23 @@ async def get_chat_response(history, user_prompt, user_display_name, system_prom
     """
     provider = config.get('api', {}).get('provider', 'gemini')
     timeout = config.get('api', {}).get('timeout', 30)
+
+    # --- FIX: Validate and clean the history to ensure alternating roles ---
+    # The Gemini API requires a strict user -> model -> user -> model sequence.
+    clean_history = deque()
+    last_role = None
+    for msg in history:
+        # Skip if the role is the same as the last one
+        if msg.get('role') == last_role:
+            continue
+        clean_history.append(msg)
+        last_role = msg.get('role')
+
+    # Ensure the history starts with a 'user' role
+    while clean_history and clean_history[0].get('role') != 'user':
+        clean_history.popleft()
+
+    history = list(clean_history)
 
     # Add the current user prompt to the history for the API call
     history.append({"role": "user", "parts": [{"text": f"User '{user_display_name}' said: {user_prompt}"}]})
