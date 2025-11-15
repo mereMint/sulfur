@@ -302,12 +302,13 @@ class GeminiProvider(AIProvider):
 
         # Format the stats for the prompt
         stats_text = f"""
-        - Nachrichten gesendet: {stats.get('message_count', 0)}
-        - Stunden im Voice Chat: {stats.get('vc_hours', 0.0):.2f}
-        - Geld verdient: {stats.get('money_earned', 0)}
+        - Nachrichten gesendet: {stats.get('message_count', 0)} (Durchschnitt: {stats.get('avg_message_count', 0):.0f})
+        - Stunden im Voice Chat: {stats.get('vc_hours', 0.0):.1f} (Durchschnitt: {stats.get('avg_vc_hours', 0.0):.1f})
         - Lieblings-Kanal: {stats.get('fav_channel_name', 'Unbekannt')}
         - Lieblings-Emoji: {stats.get('fav_emoji_display', 'Keins')}
         - Lieblings-Aktivität: {stats.get('fav_activity', 'Nichts tun')}
+        - Top Game: {stats.get('top_game', 'N/A')}
+        - Top Song (nach Hörzeit): {stats.get('top_song', 'N/A')}
 
         Hier sind die Ränge des Benutzers (z.B. Top 10% bedeutet, dass er besser als 90% der Leute war):
         - Nachrichten-Rang: {stats.get('message_rank_text', 'N/A')}
@@ -315,14 +316,16 @@ class GeminiProvider(AIProvider):
         """
 
         prompt = f"""
-        Du bist Sulfur, eine KI mit einer frechen Gen-Z-Persönlichkeit. Du erstellst eine personalisierte "Wrapped"-Zusammenfassung für den Benutzer '{user_name}'.
+        Du bist Sulfur, eine KI mit einer frechen Gen-Z-Persönlichkeit. Du erstellst eine personalisierte, witzige und leicht sarkastische "Wrapped"-Zusammenfassung (2-3 Sätze) für den Benutzer '{user_name}'.
         Hier sind die Statistiken des Benutzers für den letzten Monat:
         {stats_text}
 
-        Schreibe eine kurze, witzige und leicht sarkastische Zusammenfassung (2-3 Sätze) über diesen Benutzer. Sprich in der Ich-Form aus deiner Sicht und direkt an den Benutzer.
-        Beziehe dich auf die Ränge. Wenn jemand in den Top 10% ist, mach dich darüber lustig, dass er keine Hobbys hat. Wenn jemand in den unteren 10% ist, frag ihn, ob er überhaupt existiert.
+        Deine Aufgabe ist es, eine unterhaltsame Zusammenfassung zu schreiben. Sprich in der Ich-Form aus deiner Sicht und direkt an den Benutzer.
+        - Vergleiche die Stats des Nutzers mit dem Durchschnitt. Wenn sie weit darüber liegen, mach dich lustig, dass er keine Hobbys hat. Wenn sie weit darunter liegen, erwähne, dass er anscheinend ein Leben hat.
+        - Beziehe dich auf den Top-Song oder das Top-Game, wenn es interessant ist.
+        - Sei kreativ und nicht repetitiv.
         Beispiel (Top 10%): "Yo {user_name}, Top 10% bei den Nachrichten? Touch grass, dude. Du bist ja mehr online als ich."
-        Beispiel (Bottom 10%): "Hey {user_name}, bist du überhaupt da? Deine Stats sind so low, ich dachte du wärst ein Geist."
+        Beispiel (Bottom 50%): "Hey {user_name}, deine Stats sind so low, ich dachte du wärst ein Geist. Aber hey, immerhin hast du anscheinend ein Leben außerhalb von Discord, im Gegensatz zu manch anderen hier."
         """
 
         payload = {
@@ -479,8 +482,8 @@ class OpenAIProvider(AIProvider):
 
     async def get_wrapped_summary(self, user_name, stats):
         # This is also very similar
-        stats_text = f"Nachrichten: {stats.get('message_count', 0)}, VC Stunden: {stats.get('vc_hours', 0.0):.2f}, Lieblings-Kanal: {stats.get('fav_channel_name', 'Unbekannt')}, Nachrichten-Rang: {stats.get('message_rank_text', 'N/A')}, VC-Rang: {stats.get('vc_rank_text', 'N/A')}"
-        prompt = f"Du bist Sulfur, eine freche Gen-Z KI. Schreibe eine kurze, witzige, leicht sarkastische 'Wrapped'-Zusammenfassung (2-3 Sätze) für den Benutzer '{user_name}' basierend auf diesen Stats: {stats_text}. Wenn der Rang Top 10% ist, mach dich lustig, dass er keine Hobbys hat. Wenn der Rang niedrig ist, frag, ob er existiert."
+        stats_text = f"Nachrichten: {stats.get('message_count', 0)} (Avg: {stats.get('avg_message_count', 0):.0f}), VC Stunden: {stats.get('vc_hours', 0.0):.1f} (Avg: {stats.get('avg_vc_hours', 0.0):.1f}), Top Song: {stats.get('top_song', 'N/A')}, Top Game: {stats.get('top_game', 'N/A')}, Nachrichten-Rang: {stats.get('message_rank_text', 'N/A')}, VC-Rang: {stats.get('vc_rank_text', 'N/A')}"
+        prompt = f"Du bist Sulfur, eine freche Gen-Z KI. Schreibe eine kurze, witzige, leicht sarkastische 'Wrapped'-Zusammenfassung (2-3 Sätze) für den Benutzer '{user_name}' basierend auf diesen Stats: {stats_text}. Vergleiche die Stats mit dem Durchschnitt. Wenn der Rang Top 10% ist, mach dich lustig, dass er keine Hobbys hat. Wenn der Rang niedrig ist (Bottom 50%), erwähne, dass er ein Leben hat. Beziehe dich auf den Top-Song oder das Top-Game."
         payload = {"model": self.config['api']['openai']['utility_model'], "messages": [{"role": "user", "content": prompt}], "temperature": self.config['api']['openai']['utility_temperature'], "max_tokens": self.config['api']['openai']['utility_max_tokens']}
         api_url = "https://api.openai.com/v1/chat/completions"
         timeout = aiohttp.ClientTimeout(total=self.config['api']['timeout'])

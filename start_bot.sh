@@ -15,10 +15,16 @@ fi
 LOG_TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 LOG_FILE="${LOG_DIR}/startup_log_${LOG_TIMESTAMP}.log"
 
+# --- NEW: Define sync file ---
+SYNC_FILE="database_sync.sql"
+
 # This function will be executed when the script is stopped (e.g., with CTRL+C)
 cleanup() {
     echo "Script stopped. Log file is at: $LOG_FILE"
-    # Add any other cleanup here, like stopping mysql if it was started by the script.
+    # --- NEW: Export database on exit for synchronization ---
+    echo "Exporting database to $SYNC_FILE for synchronization..."
+    mysqldump --user=$DB_USER --host=localhost $DB_NAME > "$SYNC_FILE"
+    echo "Database export complete. Remember to commit and push '$SYNC_FILE' if you want to sync this state."
 }
 trap cleanup EXIT
 
@@ -31,12 +37,23 @@ export OPENAI_API_KEY="sk-proj-B06K_5XTW5V-iXAXQYZSqOBRPhYwHVLsM93HJaztJ74tW4rKz
 
 echo "Checking for updates from the repository..."
 echo "  -> Stashing local changes to avoid conflicts..."
-git stash
+git stash > /dev/null 2>&1
+# --- NEW: Get the commit hash before pulling ---
+OLD_HEAD=$(git rev-parse HEAD)
 echo "  -> Pulling latest version from the repository..."
-git pull
+git pull > /dev/null 2>&1
+# --- NEW: Get the commit hash after pulling ---
+NEW_HEAD=$(git rev-parse HEAD)
 echo "  -> Re-applying stashed local changes..."
-git stash pop
+git stash pop > /dev/null 2>&1
 echo "Update check complete."
+
+# --- NEW: Check if the sync file was updated and import it ---
+if [ "$OLD_HEAD" != "$NEW_HEAD" ] && git diff --name-only "$OLD_HEAD" "$NEW_HEAD" | grep -q "$SYNC_FILE"; then
+    echo "Database sync file has been updated. Importing new data..."
+    mysql --user=$DB_USER --host=localhost $DB_NAME < "$SYNC_FILE"
+    echo "Database import complete."
+fi
 
 # --- NEW: Ensure maintenance scripts are always executable after a pull ---
 echo "Ensuring core scripts are executable..."

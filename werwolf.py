@@ -174,11 +174,11 @@ class WerwolfGame:
         """Returns a list of alive WerwolfPlayer objects."""
         return [p for p in self.players.values() if p.is_alive]
 
-    def get_player_by_name(self, name):
-        """Finds an alive player by their display name (case-insensitive)."""
-        name_lower = name.lower()
+    def get_player_by_name(self, name_or_id):
+        """Finds an alive player by their display name (case-insensitive) or ID."""
+        name_lower = str(name_or_id).lower()
         for player in self.get_alive_players():
-            if player.user.display_name.lower() == name_lower:
+            if str(player.user.id) == name_lower or player.user.display_name.lower() == name_lower:
                 return player
         return None
     async def start_game(self, config, gemini_key, openai_key, db_helpers, ziel_spieler=None):
@@ -206,7 +206,7 @@ class WerwolfGame:
                 for name in bot_names:
                     bot_name = name
                     # Check for name collisions, though unlikely
-                    while self.get_player_by_name(bot_name):
+                    if any(p.user.display_name == bot_name for p in self.players.values()):
                         bot_name += "+"
                     fake_user = FakeUser(name=bot_name)
                     self.add_player(fake_user)

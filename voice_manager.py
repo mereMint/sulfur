@@ -103,31 +103,32 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
         channel_config = await get_managed_channel_config(before.channel.id)
         if channel_config:
             # --- FIX: Fetch the channel again to get an accurate member count. ---
-            # The 'before.channel.members' list is from BEFORE the user left, so it's not empty.
-            # We need to get the current state of the channel.
+            # The 'before.channel' object is a snapshot. We need the *current* state of the channel
+            # to ensure our checks and actions are based on the most up-to-date information.
             try:
-                current_channel_state = await member.guild.fetch_channel(before.channel.id)
+                # --- REFACTORED: Use this fresh channel object for all subsequent operations ---
+                fresh_channel = await member.guild.fetch_channel(before.channel.id)
             except discord.NotFound:
                 # The channel was already deleted, nothing to do.
                 await remove_managed_channel(before.channel.id, keep_owner_record=True)
                 return
 
-            if not current_channel_state.members: # Check if the channel is NOW empty
+            if not fresh_channel.members: # Check if the channel is NOW empty
                 # Save the current name and limit for the owner by passing their ID
-                await update_managed_channel_config((channel_config['owner_id'], member.guild.id), by_owner=True, name=before.channel.name, limit=before.channel.user_limit)
+                await update_managed_channel_config((channel_config['owner_id'], member.guild.id), by_owner=True, name=fresh_channel.name, limit=fresh_channel.user_limit)
                 
                 # Check if the channel is empty and old enough to delete
                 creation_grace_period = config['modules']['voice_manager']['empty_channel_delete_grace_period_seconds']
-                is_old_enough_to_delete = (discord.utils.utcnow() - before.channel.created_at).total_seconds() > creation_grace_period
+                is_old_enough_to_delete = (discord.utils.utcnow() - fresh_channel.created_at).total_seconds() > creation_grace_period
                 if not is_old_enough_to_delete:
                     return # Don't delete a channel that was just created
                 
                 try:
-                    await before.channel.delete(reason="Channel is empty")
+                    await fresh_channel.delete(reason="Channel is empty")
                     # We keep the record in the DB for the user's settings by setting channel_id to NULL
                     await remove_managed_channel(before.channel.id, keep_owner_record=True)
-                    print(f"Deleted empty managed voice channel: {before.channel.name} ({before.channel.id})")
+                    print(f"Deleted empty managed voice channel: {fresh_channel.name} ({fresh_channel.id})")
                 except (discord.NotFound, discord.Forbidden) as e:
-                    print(f"Error deleting channel {before.channel.name}: {e}")
+                    print(f"Error deleting channel {fresh_channel.name}: {e}")
                     # Still remove from DB to prevent orphans
                     await remove_managed_channel(before.channel.id, keep_owner_record=True)

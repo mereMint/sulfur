@@ -67,6 +67,11 @@ def initialize_database():
             ALTER TABLE players
             ADD COLUMN IF NOT EXISTS spotify_history JSON NULL;
         """)
+        # --- NEW: Add game_history column for persistent game stats ---
+        cursor.execute("""
+            ALTER TABLE players
+            ADD COLUMN IF NOT EXISTS game_history JSON NULL;
+        """)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS chat_history (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -126,6 +131,16 @@ def initialize_database():
         cursor.execute("""
             ALTER TABLE user_monthly_stats
             ADD COLUMN IF NOT EXISTS activity_usage JSON;
+        """)
+        # --- NEW: Add game_usage column for Wrapped stats ---
+        cursor.execute("""
+            ALTER TABLE user_monthly_stats
+            ADD COLUMN IF NOT EXISTS game_usage JSON;
+        """)
+        # --- NEW: Add spotify_minutes column for Wrapped stats ---
+        cursor.execute("""
+            ALTER TABLE user_monthly_stats
+            ADD COLUMN IF NOT EXISTS spotify_minutes JSON;
         """)
         # --- NEW: Table for Werwolf bot names ---
         cursor.execute("""
@@ -202,7 +217,8 @@ async def get_managed_channel_config(id, by_owner=False):
     cursor = cnx.cursor(dictionary=True)
     try:
         if by_owner: # by_owner now expects a tuple (owner_id, guild_id)
-            cursor.execute("SELECT * FROM managed_voice_channels WHERE owner_id = %s", (id,))
+            # --- FIX: Use both owner_id and guild_id from the tuple for the lookup ---
+            cursor.execute("SELECT * FROM managed_voice_channels WHERE owner_id = %s AND guild_id = %s", id)
         else:
             cursor.execute("SELECT * FROM managed_voice_channels WHERE channel_id = %s", (id,))
         result = cursor.fetchone()
@@ -238,11 +254,13 @@ async def update_managed_channel_config(id, by_owner=False, is_private=None, all
         if not updates: return
 
         if by_owner: # by_owner now expects a tuple (owner_id, guild_id)
-            query = f"UPDATE managed_voice_channels SET {', '.join(updates)} WHERE owner_id = %s"
+            # --- FIX: Use both owner_id and guild_id from the tuple for the update ---
+            query = f"UPDATE managed_voice_channels SET {', '.join(updates)} WHERE owner_id = %s AND guild_id = %s"
+            params.extend(id) # Add the (owner_id, guild_id) tuple to the parameters
         else:
             query = f"UPDATE managed_voice_channels SET {', '.join(updates)} WHERE channel_id = %s"
+            params.append(id)
             
-        params.append(id)
         cursor.execute(query, tuple(params))
         cnx.commit()
     finally:
@@ -523,25 +541,83 @@ async def add_balance(user_id, display_name, amount_to_add, stat_period=None):
         cursor.close()
         cnx.close()
 
-async def update_spotify_history(client, user_id, display_name, song_title, song_artist):
-    """Adds a song to a user's Spotify history, keeping only the last 10."""
+async def update_spotify_history(client, user_id: int, display_name: str, song_title: str, song_artist: str):
+    """
+    Increments the play count for a song in a user's persistent Spotify history.
+    The history is stored as a JSON object mapping 'song by artist' to a play count.
+    """
     cnx = db_pool.get_connection()
     if not cnx: return
 
-    print(f"  -> Logging Spotify song for {display_name}: '{song_title}' by {song_artist}")
+    print(f"    - [DB] Updating spotify_history for {display_name} ({user_id}) with song: '{song_title}'")
+    cursor = cnx.cursor()
+    song_key = f"{song_title} by {song_artist}"
+    try:
+        # --- REFACTORED: Use a more robust transaction to handle all cases. ---
+        # Step 1: Ensure the player exists.
+        cursor.execute(
+            "INSERT INTO players (discord_id, display_name) VALUES (%s, %s) ON DUPLICATE KEY UPDATE display_name = VALUES(display_name)",
+            (user_id, display_name)
+        )
+
+        # Step 2: Atomically increment the count for the song in the JSON object.
+        # This correctly handles cases where spotify_history is NULL or the song key doesn't exist yet.
+        update_query = """
+            UPDATE players
+            SET spotify_history = JSON_SET(
+                COALESCE(spotify_history, '{}'),
+                CONCAT('$."', %s, '"'),
+                COALESCE(JSON_UNQUOTE(JSON_EXTRACT(spotify_history, CONCAT('$."', %s, '"'))), 0) + 1
+            )
+            WHERE discord_id = %s;
+        """
+        cursor.execute(update_query, (song_key, song_key, user_id))
+        cnx.commit()
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def log_game_session(user_id, stat_period, game_name, duration_minutes):
+    """
+    Logs a completed game session, updating both monthly and all-time stats.
+    """
+    cnx = db_pool.get_connection()
+    if not cnx: return
     cursor = cnx.cursor()
     try:
-        # This complex query fetches the existing history, adds the new song, and truncates the list to 10 items.
-        # It's all done in a single atomic operation.
-        query = """
-            INSERT INTO players (discord_id, display_name, spotify_history)
-            VALUES (%s, %s, JSON_ARRAY(JSON_OBJECT('title', %s, 'artist', %s)))
+        # --- Update Monthly Stats (user_monthly_stats table) ---
+        # This query increments the play count and total minutes for the game in the current month.
+        monthly_query = """
+            INSERT INTO user_monthly_stats (user_id, stat_period, game_usage)
+            VALUES (%s, %s, JSON_OBJECT(%s, JSON_OBJECT('play_count', 1, 'total_minutes', %s)))
             ON DUPLICATE KEY UPDATE
-                spotify_history = JSON_ARRAY_APPEND(COALESCE(spotify_history, '[]'), '$', JSON_OBJECT('title', %s, 'artist', %s)),
-                spotify_history = JSON_EXTRACT(spotify_history, '$[#-10 to #]');
+                game_usage = JSON_SET(
+                    COALESCE(game_usage, '{}'),
+                    CONCAT('$."', %s, '".play_count'), COALESCE(JSON_UNQUOTE(JSON_EXTRACT(game_usage, CONCAT('$."', %s, '".play_count'))), 0) + 1,
+                    CONCAT('$."', %s, '".total_minutes'), COALESCE(JSON_UNQUOTE(JSON_EXTRACT(game_usage, CONCAT('$."', %s, '".total_minutes'))), 0) + %s
+                );
         """
-        cursor.execute(query, (user_id, display_name, song_title, song_artist, song_title, song_artist))
+        cursor.execute(monthly_query, (user_id, stat_period, game_name, duration_minutes, game_name, game_name, game_name, game_name, duration_minutes))
+
+        # --- Update All-Time Stats (players table) ---
+        # This query increments the total sessions and total minutes ever played for the game.
+        all_time_query = """
+            UPDATE players
+            SET game_history = JSON_SET(
+                COALESCE(game_history, '{}'),
+                CONCAT('$."', %s, '".total_sessions_ever'), COALESCE(JSON_UNQUOTE(JSON_EXTRACT(game_history, CONCAT('$."', %s, '".total_sessions_ever'))), 0) + 1,
+                CONCAT('$."', %s, '".total_minutes_ever'), COALESCE(JSON_UNQUOTE(JSON_EXTRACT(game_history, CONCAT('$."', %s, '".total_minutes_ever'))), 0) + %s
+            )
+            WHERE discord_id = %s;
+        """
+        # We also need to ensure the player exists in the players table first.
+        cursor.execute("INSERT INTO players (discord_id, display_name) VALUES (%s, %s) ON DUPLICATE KEY UPDATE display_name=VALUES(display_name)", (user_id, "Player"))
+        cursor.execute(all_time_query, (game_name, game_name, game_name, game_name, duration_minutes, user_id))
+
         cnx.commit()
+        print(f"    - [DB] Logged game session for {user_id}: {duration_minutes:.2f} mins of '{game_name}'")
+    except mysql.connector.Error as err:
+        print(f"Error in log_game_session: {err}")
     finally:
         cursor.close()
         cnx.close()
@@ -609,7 +685,7 @@ async def log_vc_minutes(user_id, minutes_to_add, stat_period):
         cursor.close()
         cnx.close()
 
-async def log_stat_increment(user_id, stat_period, column_name, key=None):
+async def log_stat_increment(user_id, stat_period, column_name, key=None, amount=1):
     """A generic function to increment a stat or a key within a JSON column."""
     cnx = db_pool.get_connection()
     if not cnx: return
@@ -617,18 +693,19 @@ async def log_stat_increment(user_id, stat_period, column_name, key=None):
     try:
         if key: # It's a JSON column
             # Safely construct the JSON path using CONCAT
+            # --- FIX: Correctly use the 'amount' parameter for both INSERT and UPDATE ---
             query = f"""
-                INSERT INTO user_monthly_stats (user_id, stat_period, {column_name}) VALUES (%s, %s, JSON_OBJECT(%s, 1))
-                ON DUPLICATE KEY UPDATE {column_name} = JSON_SET(COALESCE({column_name}, '{{}}'), CONCAT('$.', %s), COALESCE(JSON_UNQUOTE(JSON_EXTRACT({column_name}, CONCAT('$.', %s))), 0) + 1);
+                INSERT INTO user_monthly_stats (user_id, stat_period, {column_name}) VALUES (%s, %s, JSON_OBJECT(%s, %s))
+                ON DUPLICATE KEY UPDATE {column_name} = JSON_SET(COALESCE({column_name}, '{{}}'), CONCAT('$.', %s), COALESCE(JSON_UNQUOTE(JSON_EXTRACT({column_name}, CONCAT('$.', %s))), 0) + %s);
             """
-            params = (user_id, stat_period, key, key, key)
+            params = (user_id, stat_period, key, amount, key, key, amount)
         else: # It's a simple INT column
-            query = f"INSERT INTO user_monthly_stats (user_id, stat_period, {column_name}) VALUES (%s, %s, 1) ON DUPLICATE KEY UPDATE {column_name} = {column_name} + 1;"
-            params = (user_id, stat_period)
+            query = f"INSERT INTO user_monthly_stats (user_id, stat_period, {column_name}) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE {column_name} = {column_name} + %s;"
+            params = (user_id, stat_period, amount, amount)
         cursor.execute(query, params)
         cnx.commit()
     except mysql.connector.Error as err:
-        print(f"Error in log_stat_increment for column {column_name}: {err}")
+        print(f"Error in log_stat_increment for column '{column_name}': {err}")
     finally:
         cursor.close()
         cnx.close()
@@ -642,6 +719,26 @@ async def get_wrapped_stats_for_period(stat_period):
         query = "SELECT * FROM user_monthly_stats WHERE stat_period = %s"
         cursor.execute(query, (stat_period,))
         return cursor.fetchall()
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def get_spotify_history(user_id):
+    """Fetches the full Spotify history for a user."""
+    cnx = db_pool.get_connection()
+    if not cnx: return None
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        cursor.execute("SELECT spotify_history FROM players WHERE discord_id = %s", (user_id,))
+        result = cursor.fetchone()
+        print(f"    [DB] get_spotify_history for {user_id}: Raw result = {result}")
+        if result and result.get('spotify_history'):
+            return json.loads(result['spotify_history'])
+        print(f"    [DB] get_spotify_history for {user_id}: No valid history found in result.")
+        return None
+    except mysql.connector.Error as err:
+        print(f"Error fetching spotify history: {err}")
+        return None
     finally:
         cursor.close()
         cnx.close()
@@ -699,8 +796,9 @@ async def get_player_rank(user_id):
     cursor = cnx.cursor(dictionary=True)
     try:
         # Find the rank of the user
+        # --- FIX: Also select wins and losses for the /rank command ---
         query = """
-            SELECT p.discord_id, p.display_name, p.level, p.xp,
+            SELECT p.discord_id, p.display_name, p.level, p.xp, p.wins, p.losses,
                    (SELECT COUNT(*) + 1 FROM players AS r WHERE r.level > p.level OR (r.level = p.level AND r.xp > p.xp)) AS `rank`
             FROM players AS p
             WHERE p.discord_id = %s;
@@ -730,6 +828,31 @@ async def get_level_leaderboard():
     except mysql.connector.Error as err:
         print(f"Error fetching level leaderboard: {err}")
         return None, "Fehler beim Abrufen des Leaderboards."
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def get_player_profile(user_id):
+    """Fetches all relevant stats for a user's profile."""
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return None, "Database connection failed."
+
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        # This query joins the player's main stats with their rank calculation.
+        query = """
+            SELECT p.*,
+                   (SELECT COUNT(*) + 1 FROM players AS r WHERE r.level > p.level OR (r.level = p.level AND r.xp > p.xp)) AS `rank`
+            FROM players AS p
+            WHERE p.discord_id = %s;
+        """
+        cursor.execute(query, (user_id,))
+        result = cursor.fetchone()
+        return result, None
+    except mysql.connector.Error as err:
+        print(f"Error fetching player profile: {err}")
+        return None, "An error occurred while fetching the profile."
     finally:
         cursor.close()
         cnx.close()

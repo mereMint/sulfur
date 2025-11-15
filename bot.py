@@ -95,7 +95,7 @@ intents.presences = True         # To get member status (online, idle, etc.)
 active_werwolf_games = {}
 
 # --- NEW: Import and initialize DB helpers ---
-from db_helpers import init_db_pool, initialize_database, get_leaderboard, add_xp, get_player_rank, get_level_leaderboard, save_message_to_history, get_chat_history, get_relationship_summary, update_relationship_summary, save_bulk_history, clear_channel_history, update_user_presence, add_balance, update_spotify_history, get_all_managed_channels, remove_managed_channel, get_managed_channel_config, update_managed_channel_config, log_message_stat, log_vc_minutes, get_wrapped_stats_for_period, get_user_wrapped_stats, log_stat_increment
+from db_helpers import init_db_pool, initialize_database, get_leaderboard, add_xp, get_player_rank, get_level_leaderboard, save_message_to_history, get_chat_history, get_relationship_summary, update_relationship_summary, save_bulk_history, clear_channel_history, update_user_presence, add_balance, update_spotify_history, get_all_managed_channels, remove_managed_channel, get_managed_channel_config, update_managed_channel_config, log_message_stat, log_vc_minutes, get_wrapped_stats_for_period, get_user_wrapped_stats, log_stat_increment, get_spotify_history, get_player_profile
 import db_helpers
 db_helpers.init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
 from level_system import grant_xp, get_xp_for_level
@@ -111,6 +111,16 @@ from api_helpers import get_wrapped_summary_from_api
 
 client = discord.Client(intents=intents)
 tree = app_commands.CommandTree(client)
+
+# --- NEW: In-memory cache to prevent duplicate Spotify logging ---
+last_spotify_log = {}
+# --- NEW: In-memory cache for tracking Spotify listening start times ---
+spotify_start_times = {}
+# --- NEW: In-memory cache to handle Spotify pause/resume ---
+spotify_pause_cache = {}
+# --- NEW: In-memory cache for tracking game session start times ---
+game_start_times = {}
+
 
 @tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
@@ -195,6 +205,29 @@ def get_embed_color(config_obj):
 @client.event
 async def on_ready():
     """Fires when the bot logs in."""
+    # --- NEW: Scan for existing Spotify sessions on startup ---
+    print("Scanning for active Spotify sessions on startup...")
+    initial_spotify_logs = 0
+    for guild in client.guilds:
+        for member in guild.members:
+            if member.bot: continue
+            # Find Spotify activity
+            spotify_activity = next((activity for activity in member.activities if isinstance(activity, discord.Spotify)), None)
+            if spotify_activity:
+                # --- REFACTORED: Use a single user_id key for all caches ---
+                song_tuple = (spotify_activity.title, spotify_activity.artist)
+                # --- FIX: Check pause cache on startup ---
+                if member.id not in spotify_pause_cache:
+                    await db_helpers.update_spotify_history(client, member.id, member.display_name, song_tuple[0], song_tuple[1])
+                
+                last_spotify_log[member.id] = song_tuple
+                spotify_start_times[member.id] = (song_tuple, datetime.now(timezone.utc))
+                spotify_pause_cache.pop(member.id, None) # Clear pause cache
+                initial_spotify_logs += 1
+    if initial_spotify_logs > 0:
+        print(f"  -> Found and started tracking {initial_spotify_logs} active Spotify session(s).")
+
+
     # --- NEW: Unmute all users on startup ---
     # This handles cases where the bot crashed and left users muted/deafened.
     print("Checking for users left muted from a previous session...")
@@ -269,6 +302,7 @@ async def on_ready():
     # --- NEW: Start the background task for empty channel cleanup ---
     if not cleanup_empty_channels.is_running():
         cleanup_empty_channels.start()
+    
 
     print(f"Synced {len(synced)} global commands.")
 
@@ -364,15 +398,84 @@ async def on_presence_update(before, after):
     if after.status == discord.Status.offline and before.status == discord.Status.offline:
         return
 
+    # --- NEW: Spotify Listening Time Tracking ---
+    now = datetime.now(timezone.utc)
+    # --- REFACTORED: Use a single user_id key to centralize tracking across all servers ---
+    user_id = after.id
+
+    # Check if a song was playing and has now stopped/changed
+    if user_id in spotify_start_times:
+        logged_song, start_time = spotify_start_times[user_id]
+        after_spotify = next((act for act in after.activities if isinstance(act, discord.Spotify)), None)
+        
+        # Condition for song stopping: no spotify activity OR a different song is playing
+        if not after_spotify or (after_spotify.title, after_spotify.artist) != logged_song:
+            print(f"  -> [Spotify] Song stopped/changed for {after.display_name} (ID: {user_id}).")
+            # --- NEW: Handle pause case ---
+            if not after_spotify:
+                print(f"    - Paused '{logged_song[0]}'. Caching session.")
+                spotify_pause_cache[user_id] = (logged_song, start_time)
+                del spotify_start_times[user_id] # Stop the active timer
+                return # Exit early, don't log duration yet
+            duration_seconds = (now - start_time).total_seconds()
+            # Only log if they listened for a meaningful amount of time (e.g., > 30 seconds)
+            # The check `if user_id in spotify_start_times` prevents logging duration multiple times from different server events.
+            if duration_seconds > 30 and user_id in spotify_start_times:
+                duration_minutes = duration_seconds / 60.0
+                stat_period = now.strftime('%Y-%m')
+                # Use a generic function to increment the JSON value
+                await db_helpers.log_stat_increment(user_id, stat_period, 'spotify_minutes', key=f"{logged_song[0]} by {logged_song[1]}", amount=duration_minutes)
+                print(f"    - Logged {duration_minutes:.2f} mins for '{logged_song[0]}'.")
+                # Remove the entry immediately after logging to prevent duplicates.
+                del spotify_start_times[user_id]
+
+    # Check if a new song has started
+    after_spotify = next((act for act in after.activities if isinstance(act, discord.Spotify)), None)
+    if after_spotify:
+        # --- NEW: Handle resume case ---
+        resumed_song = (after_spotify.title, after_spotify.artist)
+        if user_id in spotify_pause_cache and spotify_pause_cache[user_id][0] == resumed_song:
+            print(f"  -> [Spotify] Resumed '{resumed_song[0]}' for {after.display_name}. Restarting timer.")
+            spotify_start_times[user_id] = spotify_pause_cache.pop(user_id) # Restore timer from cache
+        elif user_id not in spotify_start_times:
+             print(f"  -> [Spotify] New song session started for {after.display_name} (ID: {user_id}): '{after_spotify.title}'. Starting timer.")
+             spotify_start_times[user_id] = (resumed_song, now)
+
+    # --- NEW: Game Session Tracking ---
+    before_game = next((act for act in before.activities if isinstance(act, discord.Game)), None)
+    after_game = next((act for act in after.activities if isinstance(act, discord.Game)), None)
+
+    # Case 1: Game has stopped or changed
+    if before_game and (not after_game or after_game.name != before_game.name):
+        if user_id in game_start_times and game_start_times[user_id][0] == before_game.name:
+            _, start_time = game_start_times.pop(user_id)
+            duration_seconds = (now - start_time).total_seconds()
+            # Only log sessions longer than a minute to filter out quick restarts/alt-tabs
+            if duration_seconds > 60:
+                duration_minutes = duration_seconds / 60.0
+                stat_period = now.strftime('%Y-%m')
+                await db_helpers.log_game_session(user_id, stat_period, before_game.name, duration_minutes)
+            print(f"  -> [Game] Session ended for {after.display_name}: '{before_game.name}' after {duration_seconds/60.0:.1f} minutes.")
+
+    # Case 2: A new game has started
+    if after_game and (not before_game or before_game.name != after_game.name):
+        if user_id not in game_start_times:
+            game_start_times[user_id] = (after_game.name, now)
+            print(f"  -> [Game] Session started for {after.display_name}: '{after_game.name}'.")
+
     # We only care about changes in status or activity
     if before.status == after.status and before.activity == after.activity:
         return
 
     # --- NEW: Spotify Tracking ---
+    # --- FIX: Use in-memory cache to prevent duplicate song logging ---
     if isinstance(after.activity, discord.Spotify):
-        # Check if the song is different from the last one to avoid spamming the DB
-        is_new_song = not isinstance(before.activity, discord.Spotify) or before.activity.title != after.activity.title
-        if is_new_song:
+        current_song = (after.activity.title, after.activity.artist)
+        last_logged_song_for_user = last_spotify_log.get(user_id)
+        
+        if current_song != last_logged_song_for_user:
+            print(f"  -> [Spotify] New unique song detected for {after.display_name} (ID: {user_id}). Incrementing play count.")
+            spotify_pause_cache.pop(user_id, None) # Clear pause cache on new song
             await db_helpers.update_spotify_history(
                 client=client, # Pass client for logging
                 user_id=after.id,
@@ -380,6 +483,7 @@ async def on_presence_update(before, after):
                 song_title=after.activity.title,
                 song_artist=after.activity.artist
             )
+            last_spotify_log[user_id] = current_song
 
     activity_name = None
     if after.activity:
@@ -393,11 +497,12 @@ async def on_presence_update(before, after):
         status=str(after.status),
         activity_name=activity_name
     )
-    # --- NEW: Log activity for Wrapped ---
-    if activity_name:
-        # We only log the primary activity name to avoid noise from custom statuses
+    # --- REFACTORED: Log activity for Wrapped, distinguishing games ---
+    if after.activity and not isinstance(after.activity, (discord.Game, discord.Spotify, discord.CustomActivity)):
         stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
-        await db_helpers.log_stat_increment(after.id, stat_period, 'activity_usage', key=activity_name)
+        if after.activity.name:
+            await db_helpers.log_stat_increment(after.id, stat_period, 'activity_usage', key=after.activity.name)
+
 
 @tasks.loop(minutes=1)
 async def grant_voice_xp():
@@ -525,6 +630,20 @@ async def manage_wrapped_event():
                 total_users=total_users
             )
 
+async def _calculate_server_averages(all_stats):
+    """Helper to calculate average stats for the server."""
+    total_users = len(all_stats)
+    if total_users == 0:
+        return {'avg_messages': 0, 'avg_vc_minutes': 0}
+
+    total_messages = sum(s.get('message_count', 0) for s in all_stats)
+    total_vc_minutes = sum(s.get('minutes_in_vc', 0) for s in all_stats)
+
+    return {
+        'avg_messages': total_messages / total_users,
+        'avg_vc_minutes': total_vc_minutes / total_users
+    }
+
 @manage_wrapped_event.before_loop
 async def before_manage_wrapped_event():
     await client.wait_until_ready()
@@ -560,7 +679,7 @@ class WrappedView(discord.ui.View):
         self.next_button.disabled = len(self.pages) <= 1
         self.message = await self.user.send(embed=self.pages[0], view=self)
 
-async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_stats_for_period, total_users):
+async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_stats_for_period, total_users, server_averages):
     """Helper function to generate and DM the Wrapped story to a single user."""
     user_id = user_stats['user_id']
     user = None
@@ -608,6 +727,21 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
         if activity_usage:
             fav_activity = max(activity_usage, key=activity_usage.get)
 
+    # --- NEW: Find top game and spotify stats for AI summary ---
+    top_game = "N/A"
+    if user_stats.get('game_usage'):
+        game_usage = json.loads(user_stats['game_usage'])
+        if game_usage:
+            top_game = max(game_usage, key=game_usage.get)
+
+    top_song = "N/A"
+    total_spotify_minutes = 0
+    if user_stats.get('spotify_minutes'):
+        spotify_minutes_data = json.loads(user_stats['spotify_minutes'])
+        if spotify_minutes_data:
+            total_spotify_minutes = sum(spotify_minutes_data.values())
+            top_song = max(spotify_minutes_data, key=spotify_minutes_data.get)
+
     # --- Page 1: Intro ---
     intro_embed = discord.Embed(
         title=f"Dein {stat_period_date.strftime('%B')} Wrapped ist da, {user.display_name}!",
@@ -632,14 +766,16 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
     # --- Page 3: Message Stats ---
     message_rank_text = _get_percentile_rank(user.id, message_ranks, total_users)
     msg_embed = discord.Embed(title="Du und der Chat", color=color)
-    msg_embed.add_field(name="Gesendete Nachrichten", value=f"## `{user_stats.get('message_count', 0)}`", inline=False)
+    msg_embed.add_field(name="Deine Nachrichten", value=f"## `{user_stats.get('message_count', 0)}`", inline=True)
+    msg_embed.add_field(name="Server-Durchschnitt", value=f"## `{int(server_averages['avg_messages'])}`", inline=True)
     msg_embed.add_field(name="Dein Rang", value=f"Du gehörst zu den **{message_rank_text}** der aktivsten Chatter!", inline=False)
     pages.append(msg_embed)
 
     # --- Page 4: VC Stats ---
     vc_rank_text = _get_percentile_rank(user.id, vc_ranks, total_users)
     vc_embed = discord.Embed(title="Deine Voice-Chat Story", color=color)
-    vc_embed.add_field(name="Stunden im Voice-Chat", value=f"## `{vc_hours:.2f}`", inline=False)
+    vc_embed.add_field(name="Deine VC-Stunden", value=f"## `{vc_hours:.2f}`", inline=True)
+    vc_embed.add_field(name="Server-Durchschnitt", value=f"## `{server_averages['avg_vc_minutes'] / 60:.2f}`", inline=True)
     vc_embed.add_field(name="Dein Rang", value=f"Du warst in den **{vc_rank_text}** der größten Quasselstrippen!", inline=False)
     pages.append(vc_embed)
 
@@ -688,11 +824,79 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
             activity_embed.set_footer(text="Basiert auf den Spielen & Programmen, die du am häufigsten offen hattest.")
             pages.append(activity_embed)
 
+    # --- REFACTORED: Overhauled Game Wrapped Page ---
+    if user_stats.get('game_usage'):
+        monthly_game_stats = json.loads(user_stats['game_usage'])
+        if monthly_game_stats:
+            print("    - [Wrapped] Generating Game stats page...")
+            # Find favorite game by total minutes this month
+            fav_game_name = max(monthly_game_stats, key=lambda g: monthly_game_stats[g]['total_minutes'])
+            fav_game_data = monthly_game_stats[fav_game_name]
+            user_minutes = fav_game_data['total_minutes']
+
+            # Calculate server average and leaderboard for this specific game
+            other_players_minutes = []
+            leaderboard_data = []
+            for stats in all_stats_for_period:
+                if stats.get('game_usage'):
+                    period_game_stats = json.loads(stats['game_usage'])
+                    if fav_game_name in period_game_stats:
+                        player_minutes = period_game_stats[fav_game_name]['total_minutes']
+                        other_players_minutes.append(player_minutes)
+                        leaderboard_data.append({'user_id': stats['user_id'], 'minutes': player_minutes})
+            
+            server_avg_minutes = sum(other_players_minutes) / len(other_players_minutes) if other_players_minutes else 0
+            
+            # Build leaderboard
+            leaderboard_data.sort(key=lambda x: x['minutes'], reverse=True)
+            leaderboard_text = ""
+            for i, data in enumerate(leaderboard_data[:3]): # Top 3
+                player_user = client.get_user(data['user_id'])
+                player_name = player_user.display_name if player_user else f"User {data['user_id']}"
+                leaderboard_text += f"**{i+1}.** {player_name} - *{data['minutes']:.0f} Min.*\n"
+
+            game_embed = discord.Embed(title=f"Dein Lieblingsspiel: {fav_game_name}", color=color)
+            game_embed.add_field(name="Deine Spielzeit (diesen Monat)", value=f"## `{user_minutes:.0f}`\n*Minuten*", inline=True)
+            game_embed.add_field(name="Server-Durchschnitt", value=f"## `{server_avg_minutes:.0f}`\n*Minuten*", inline=True)
+            
+            if leaderboard_text:
+                game_embed.add_field(name=f"Leaderboard für {fav_game_name}", value=leaderboard_text, inline=False)
+            
+            game_embed.set_footer(text="Verglichen mit anderen Spielern dieses Spiels auf dem Server.")
+            pages.append(game_embed)
+
+    # --- NEW: Spotify Wrapped Page ---
+    if user_stats.get('spotify_minutes'):
+        print("    - [Wrapped] Generating Spotify stats page...")
+        spotify_minutes_data = json.loads(user_stats['spotify_minutes'])
+        if spotify_minutes_data: # Check if the JSON object is not empty
+            total_minutes = sum(spotify_minutes_data.values())
+            
+            # Sort songs by listening time
+            sorted_songs = sorted(spotify_minutes_data.items(), key=lambda item: item[1], reverse=True)
+            
+            top_songs_text = ""
+            for i, (song, minutes) in enumerate(sorted_songs[:5]):
+                top_songs_text += f"**{i+1}.** `{song}` - *{minutes:.0f} Minuten*\n"
+
+            if top_songs_text:
+                spotify_embed = discord.Embed(title="Dein Spotify-Rückblick", color=discord.Color.green())
+                spotify_embed.add_field(name="Gesamte Hörzeit", value=f"Du hast diesen Monat insgesamt **{total_minutes:.0f} Minuten** Musik gehört.", inline=False)
+                spotify_embed.add_field(name="Deine Top 5 Songs (nach Hörzeit)", value=top_songs_text, inline=False)
+                spotify_embed.set_footer(text="Basiert auf der Zeit, die du Songs über Discord gehört hast.")
+                pages.append(spotify_embed)
+
     # --- Page 6: Gemini Summary ---
     gemini_stats = {
-        "vc_hours": vc_hours, "fav_channel_name": f"#{fav_channel_obj.name}" if fav_channel_obj else "Unbekannt",
+        "message_count": user_stats.get('message_count', 0),
+        "avg_message_count": server_averages['avg_messages'],
+        "vc_hours": vc_hours, 
+        "avg_vc_hours": server_averages['avg_vc_minutes'] / 60,
+        "fav_channel_name": f"#{fav_channel_obj.name}" if fav_channel_obj else "Unbekannt",
         "fav_emoji_display": fav_emoji_display, "fav_activity": fav_activity,
-        "message_rank_text": message_rank_text, "vc_rank_text": vc_rank_text
+        "message_rank_text": message_rank_text, "vc_rank_text": vc_rank_text,
+        "top_game": top_game, "top_song": top_song,
+        "total_spotify_minutes": total_spotify_minutes
     }
     summary_text, _ = await get_wrapped_summary_from_api(user.display_name, gemini_stats, config, GEMINI_API_KEY, OPENAI_API_KEY)
     print(f"    - [Wrapped] Generated Gemini summary for {user.name}.")
@@ -1033,7 +1237,8 @@ class AdminGroup(app_commands.Group):
             user_stats=target_user_stats,
             stat_period_date=now,
             all_stats_for_period=all_stats,
-            total_users=len(all_stats)
+            total_users=len(all_stats),
+            server_averages=await _calculate_server_averages(all_stats)
         )
 
         await interaction.followup.send(f"Eine 'Wrapped'-Vorschau für den aktuellen Monat wurde an {user.mention} gesendet.", ephemeral=True)
@@ -1220,16 +1425,62 @@ async def rank(interaction: discord.Interaction, user: discord.Member = None):
     xp = player_stats['xp']
     rank = player_stats['rank']
     xp_for_next_level = get_xp_for_level(level)
+    wins = player_stats.get('wins', 0)
+    losses = player_stats.get('losses', 0)
     
     # Create a progress bar
     progress = int((xp / xp_for_next_level) * 20) # 20 characters for the bar
     progress_bar = '█' * progress + '░' * (20 - progress)
 
-    embed = discord.Embed(color=get_embed_color(config)) 
+    embed = discord.Embed(color=get_embed_color(config))
     embed.set_author(name=f"Rang von {target_user.display_name}", icon_url=target_user.display_avatar.url) 
     embed.add_field(name="Level", value=f"```{level}```", inline=True) 
     embed.add_field(name="Global Rang", value=f"```#{rank}```", inline=True) 
     embed.add_field(name="Fortschritt", value=f"`{xp} / {xp_for_next_level} XP`\n`{progress_bar}`", inline=False) 
+
+    await interaction.followup.send(embed=embed)
+
+@tree.command(name="profile", description="Zeigt dein Profil oder das eines anderen Benutzers an.")
+@app_commands.describe(user="Der Benutzer, dessen Profil du sehen möchtest (optional).")
+async def profile(interaction: discord.Interaction, user: discord.Member = None):
+    """Displays a user's profile with various stats."""
+    target_user = user or interaction.user
+    await interaction.response.defer()
+
+    profile_data, error = await db_helpers.get_player_profile(target_user.id)
+
+    if error:
+        await interaction.followup.send(error, ephemeral=True)
+        return
+
+    if not profile_data:
+        await interaction.followup.send(f"{target_user.display_name} hat noch keine Aktivitäten gezeigt und daher kein Profil.", ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title=f"Profil von {target_user.display_name}",
+        color=get_embed_color(config)
+    )
+    embed.set_thumbnail(url=target_user.display_avatar.url)
+
+    # Leveling and Economy
+    embed.add_field(name="Level", value=f"**{profile_data.get('level', 1)}**", inline=True)
+    embed.add_field(name="Guthaben", value=f"**{profile_data.get('balance', 0)}** 🪙", inline=True)
+    embed.add_field(name="Globaler Rang", value=f"**#{profile_data.get('rank', 'N/A')}**", inline=True)
+
+    # Werwolf Stats
+    wins = profile_data.get('wins', 0)
+    losses = profile_data.get('losses', 0)
+    total_games = wins + losses
+    win_rate = (wins / total_games * 100) if total_games > 0 else 0
+    embed.add_field(
+        name="🐺 Werwolf Stats",
+        value=f"Siege: `{wins}`\nNiederlagen: `{losses}`\nWin-Rate: `{win_rate:.1f}%`",
+        inline=False
+    )
+
+    # Placeholder for items
+    embed.add_field(name="🎒 Inventar", value="*Keine Items im Inventar.*", inline=False)
 
     await interaction.followup.send(embed=embed)
 
@@ -1256,6 +1507,89 @@ async def leaderboard(interaction: discord.Interaction):
 
     embed.add_field(name="Top 10", value=leaderboard_text, inline=False)
     await interaction.followup.send(embed=embed)
+
+@tree.command(name="spotify", description="Zeigt deine Spotify-Statistiken an.")
+@app_commands.describe(user="Der Benutzer, dessen Statistiken du sehen möchtest (optional).")
+async def spotify_stats(interaction: discord.Interaction, user: discord.Member = None):
+    """Displays a user's Spotify listening stats."""
+    target_user = user or interaction.user
+    print(f"--- /spotify command triggered for {target_user.display_name} (ID: {target_user.id}) ---")
+    await interaction.response.defer()
+
+    # --- FIX: The spotify history is in the 'players' table, not user_monthly_stats ---
+    history = await db_helpers.get_spotify_history(target_user.id)
+    print(f"  -> Fetched history from DB: {history}")
+
+    if not history:
+        print("  -> No history found, sending 'cringe' message.")
+        await interaction.followup.send(f"{target_user.display_name} hat noch keine Spotify-Daten oder hört keine Musik. Cringe.", ephemeral=True)
+        return
+
+    # --- NEW: Get total listening time for the month ---
+    stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+    user_stats = await db_helpers.get_user_wrapped_stats(target_user.id, stat_period)
+    total_minutes = 0
+
+    # Calculate top songs and artists
+    from collections import Counter
+    song_counts = Counter(history)
+    artist_counts = Counter()
+
+    embed = discord.Embed(
+        title=f"Spotify Stats für {target_user.display_name}",
+        color=discord.Color.green()
+    )
+    embed.set_thumbnail(url=target_user.display_avatar.url)
+
+    # Current song
+    current_spotify = next((activity for activity in target_user.activities if isinstance(activity, discord.Spotify)), None)
+    if current_spotify:
+        # --- NEW: Add album art ---
+        if current_spotify.album_cover_url:
+            embed.set_thumbnail(url=current_spotify.album_cover_url)
+        else:
+            embed.set_thumbnail(url=target_user.display_avatar.url)
+
+        embed.add_field(
+            name="🎶 Aktueller Song",
+            value=f"**{current_spotify.title}**\nvon {current_spotify.artist}",
+            inline=False
+        )
+
+    # Top 5 Songs
+    top_songs_text = ""
+    # --- FIX: Update to work with new {song: count} data structure ---
+    for i, (song_key, count) in enumerate(song_counts.most_common(5)):
+        top_songs_text += f"**{i+1}.** {song_key} (`{count}x`)\n"
+        # Also populate artist_counts from the song key
+        try:
+            artist = song_key.split(' by ')[1]
+            artist_counts[artist] += count
+        except IndexError:
+            pass # Ignore if the key is malformed
+    if top_songs_text:
+        embed.add_field(name="Top 5 Songs (All-Time)", value=top_songs_text, inline=False)
+
+    # Top 5 Artists
+    top_artists_text = ""
+    if top_artists_text:
+        embed.add_field(name="Top 5 Künstler (letzte 10)", value=top_artists_text, inline=False)
+
+    # --- NEW: Add total listening time ---
+    if user_stats and user_stats.get('spotify_minutes'):
+        spotify_minutes_data = json.loads(user_stats['spotify_minutes'])
+        total_minutes = sum(spotify_minutes_data.values())
+        embed.add_field(name="Hörzeit diesen Monat", value=f"Du hast diesen Monat **{total_minutes:.0f} Minuten** Musik gehört.", inline=False)
+
+
+    # Footer
+    embed.set_footer(text=f"Insgesamt {len(song_counts)} einzigartige Songs getrackt.")
+
+    await interaction.followup.send(embed=embed)
+
+
+
+
 
 @tree.command(name="stats", description="Zeigt die Werwolf-Statistiken und das Leaderboard an.")
 async def stats(interaction: discord.Interaction):
@@ -1447,7 +1781,7 @@ async def on_message(message):
             # Commands with arguments
             if len(parts) > 1:
                 target_name = " ".join(parts[1:])
-                target_player = player_game.get_player_by_name(target_name)
+                target_player = player_game.get_player_by_name(target_name) # This now also accepts IDs
 
                 if not target_player:
                     await message.author.send(f"Ich konnte den Spieler '{target_name}' nicht finden. Achte auf die genaue Schreibweise.")

@@ -15,6 +15,17 @@ $logTimestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 $logFile = Join-Path -Path $logDir -ChildPath "startup_log_${logTimestamp}.txt"
 
 Write-Host "Logging this session to: $logFile"
+
+# --- NEW: Define sync file and database connection details ---
+$syncFile = "C:\sulfur\database_sync.sql"
+$mysqldumpPath = "C:\xampp\mysql\bin\mysqldump.exe"
+$mysqlPath = "C:\xampp\mysql\bin\mysql.exe"
+$dbName = "sulfur_bot"
+$dbUser = "sulfur_bot_user"
+
+# --- NEW: Register an action to export the database on script exit ---
+Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action { & $mysqldumpPath --user=$dbUser --host=localhost $dbName > $syncFile; Write-Host "Database exported to $syncFile for synchronization." } | Out-Null
+
 Start-Transcript -Path $logFile
 
 Write-Host "Setting environment variables for the bot..."
@@ -24,12 +35,23 @@ $env:OPENAI_API_KEY="sk-proj-B06K_5XTW5V-iXAXQYZSqOBRPhYwHVLsM93HJaztJ74tW4rKzoW
 
 Write-Host "Checking for updates from the repository..."
 Write-Host "  -> Stashing local changes to avoid conflicts..."
-git stash
+git stash | Out-Null
+# --- NEW: Get the commit hash before pulling ---
+$oldHead = git rev-parse HEAD
 Write-Host "  -> Pulling latest version from the repository..."
-git pull
+git pull | Out-Null
+# --- NEW: Get the commit hash after pulling ---
+$newHead = git rev-parse HEAD
 Write-Host "  -> Re-applying stashed local changes..."
-git stash pop
+git stash pop | Out-Null
 Write-Host "Update check complete."
+
+# --- NEW: Check if the sync file was updated and import it ---
+if (($oldHead -ne $newHead) -and (git diff --name-only $oldHead $newHead | Select-String -Pattern $syncFile)) {
+    Write-Host "Database sync file has been updated. Importing new data..."
+    Get-Content $syncFile | & $mysqlPath --user=$dbUser --host=localhost $dbName
+    Write-Host "Database import complete."
+}
 
 # --- REFACTORED: Check if MySQL is already running ---
 $mysqlProcess = Get-Process -Name "mysqld" -ErrorAction SilentlyContinue
@@ -43,9 +65,6 @@ Start-Sleep -Seconds 5 # Give the database a moment to initialize before the bot
 
 Write-Host "Backing up the database..."
 $backupDir = "C:\sulfur\backups"
-$mysqldumpPath = "C:\xampp\mysql\bin\mysqldump.exe"
-$dbName = "sulfur_bot"
-$dbUser = "sulfur_bot_user"
 
 # Create backup directory if it doesn't exist
 if (-not (Test-Path -Path $backupDir -PathType Container)) {
