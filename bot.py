@@ -170,14 +170,24 @@ vc_session_starts = {}
 BOT_START_TIME = datetime.now(timezone.utc)
 
 
+@client.event
+async def on_error(event, *args, **kwargs):
+    """
+    Global event handler for unhandled exceptions in other event listeners (e.g., on_message).
+    """
+    import sys
+    import traceback
+    print(f"Unhandled exception in event '{event}':", file=sys.stderr)
+    traceback.print_exc()
+    # --- NEW: Set status to idle on unhandled error ---
+    await client.change_presence(
+        status=discord.Status.idle,
+        activity=discord.Activity(type=discord.ActivityType.watching, name="on an error...")
+    )
+
 @tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     """Handles errors from the command tree globally."""
-    # If the interaction is already done, we can't send a new response.
-    # This can happen if a command's own error handler has already responded.
-    if interaction.response.is_done():
-        return
-
     if isinstance(error, app_commands.CommandNotFound):
         # This can happen if a user tries to use a command that was recently removed.
         # The command might still be cached on their Discord client.
@@ -205,8 +215,21 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
         # For other errors, log them to the console.
         print(f"Unhandled exception in command tree: {error}")
         message = "Ups, da ist etwas schiefgelaufen. Wahrscheinlich deine Schuld. :dono:"
+        # --- NEW: Set status to idle on unhandled command error ---
+        await client.change_presence(
+            status=discord.Status.idle,
+            activity=discord.Activity(type=discord.ActivityType.watching, name="on an error...")
+        )
 
-    await interaction.response.send_message(message, ephemeral=True)
+    # --- FIX: Use followup if interaction is already acknowledged ---
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
+    except discord.errors.HTTPException as e:
+        # This can happen if the original interaction token expires or is invalid.
+        print(f"Failed to send error message for interaction {interaction.id}: {e}")
 
 async def split_message(text, limit=2000):
     """
@@ -1724,7 +1747,7 @@ async def rank(interaction: discord.Interaction, user: discord.Member = None):
 async def profile(interaction: discord.Interaction, user: discord.Member = None):
     """Displays a user's profile with various stats."""
     target_user = user or interaction.user
-    await interaction.response.defer()
+    await interaction.response.defer(ephemeral=False) # Use ephemeral=False if the response should be public
 
     profile_data, error = await db_helpers.get_player_profile(target_user.id)
 
@@ -2173,9 +2196,11 @@ async def on_message(message):
             await message.channel.send(f"{message.author.mention} {error_message}")
         else:
             # --- NEW: Save messages to DB ---
-            # The user prompt was already added to the history list by get_gemini_response
-            user_message_content = history[-2]['parts'][0]['text']
-            await db_helpers.save_message_to_history(message.channel.id, "user", user_message_content)
+            # The user prompt was already added to the history list by get_chat_response
+            # --- FIX: Check history length before accessing ---
+            if len(history) >= 2:
+                user_message_content = history[-2]['parts'][0]['text']
+                await db_helpers.save_message_to_history(message.channel.id, "user", user_message_content)
             await db_helpers.save_message_to_history(message.channel.id, "model", response_text)
 
             # --- NEW: Periodically update relationship summary ---
@@ -2210,7 +2235,7 @@ if __name__ == "__main__":
 async def summary(interaction: discord.Interaction, user: discord.Member = None):
     """Displays the bot's relationship summary for a user."""
     target_user = user or interaction.user
-    await interaction.response.defer(ephemeral=True)
+    await interaction.response.defer(ephemeral=True) # Deferring is correct here
 
     summary_text = await db_helpers.get_relationship_summary(target_user.id)
 
@@ -2266,7 +2291,7 @@ async def rank(interaction: discord.Interaction, user: discord.Member = None):
 async def profile(interaction: discord.Interaction, user: discord.Member = None):
     """Displays a user's profile with various stats."""
     target_user = user or interaction.user
-    await interaction.response.defer()
+    await interaction.response.defer() # Deferring is correct here
 
     profile_data, error = await db_helpers.get_player_profile(target_user.id)
 
