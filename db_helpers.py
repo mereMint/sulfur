@@ -157,6 +157,44 @@ def initialize_database():
         cursor.close()
         cnx.close()
 
+async def cleanup_custom_status_entries():
+    """
+    A one-time cleanup function to remove 'Custom Status' entries from JSON columns.
+    This is useful after changing logging logic to clean up old, irrelevant data.
+    """
+    cnx = db_pool.get_connection()
+    if not cnx:
+        print("DB Cleanup: Could not connect to database.")
+        return
+
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        # We'll check a sample of rows first to see if cleanup is likely needed.
+        cursor.execute("SELECT user_id, stat_period, activity_usage, game_usage FROM user_monthly_stats WHERE activity_usage LIKE '%Custom Status%' OR game_usage LIKE '%Custom Status%' LIMIT 5")
+        if not cursor.fetchall():
+            print("DB Cleanup: No 'Custom Status' entries found. Skipping cleanup.")
+            return
+
+        print("DB Cleanup: Found 'Custom Status' entries. Starting cleanup process...")
+        # This query removes the 'Custom Status' key from the JSON object if it exists.
+        # It needs to be run for both activity_usage and game_usage columns.
+        cursor.execute("UPDATE user_monthly_stats SET activity_usage = JSON_REMOVE(activity_usage, '$.\"Custom Status\"') WHERE JSON_CONTAINS_PATH(activity_usage, 'one', '$.\"Custom Status\"') = 1;")
+        activity_rows = cursor.rowcount
+        cursor.execute("UPDATE user_monthly_stats SET game_usage = JSON_REMOVE(game_usage, '$.\"Custom Status\"') WHERE JSON_CONTAINS_PATH(game_usage, 'one', '$.\"Custom Status\"') = 1;")
+        game_rows = cursor.rowcount
+        
+        if activity_rows > 0 or game_rows > 0:
+            cnx.commit()
+            print(f"DB Cleanup: Successfully removed 'Custom Status' from {activity_rows} activity entries and {game_rows} game entries.")
+        else:
+            print("DB Cleanup: No rows needed updating.")
+
+    except mysql.connector.Error as err:
+        print(f"DB Cleanup Error: {err}")
+    finally:
+        cursor.close()
+        cnx.close()
+
 # --- NEW: Voice Channel Management DB Functions ---
 
 async def get_owned_channel(owner_id, guild_id):

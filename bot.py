@@ -95,7 +95,7 @@ intents.presences = True         # To get member status (online, idle, etc.)
 active_werwolf_games = {}
 
 # --- NEW: Import and initialize DB helpers ---
-from db_helpers import init_db_pool, initialize_database, get_leaderboard, add_xp, get_player_rank, get_level_leaderboard, save_message_to_history, get_chat_history, get_relationship_summary, update_relationship_summary, save_bulk_history, clear_channel_history, update_user_presence, add_balance, update_spotify_history, get_all_managed_channels, remove_managed_channel, get_managed_channel_config, update_managed_channel_config, log_message_stat, log_vc_minutes, get_wrapped_stats_for_period, get_user_wrapped_stats, log_stat_increment, get_spotify_history, get_player_profile
+from db_helpers import init_db_pool, initialize_database, get_leaderboard, add_xp, get_player_rank, get_level_leaderboard, save_message_to_history, get_chat_history, get_relationship_summary, update_relationship_summary, save_bulk_history, clear_channel_history, update_user_presence, add_balance, update_spotify_history, get_all_managed_channels, remove_managed_channel, get_managed_channel_config, update_managed_channel_config, log_message_stat, log_vc_minutes, get_wrapped_stats_for_period, get_user_wrapped_stats, log_stat_increment, get_spotify_history, get_player_profile, cleanup_custom_status_entries
 import db_helpers
 db_helpers.init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
 from level_system import grant_xp, get_xp_for_level
@@ -120,6 +120,8 @@ spotify_start_times = {}
 spotify_pause_cache = {}
 # --- NEW: In-memory cache for tracking game session start times ---
 game_start_times = {}
+# --- NEW: In-memory cache for tracking active voice channel users for XP ---
+active_vc_users = {}
 
 
 @tree.error
@@ -245,6 +247,10 @@ async def on_ready():
                         print(f"  -> Failed to unmute {member.display_name}: {e}")
     if unmuted_count > 0:
         print(f"Cleanup complete. Unmuted {unmuted_count} user(s).")
+
+    # --- NEW: Run one-time cleanup for old database entries ---
+    print("Running one-time database cleanup tasks...")
+    await db_helpers.cleanup_custom_status_entries()
 
     # --- NEW: Clean up leftover game channels on restart ---
     print("Checking for leftover game channels...")
@@ -489,45 +495,51 @@ async def on_presence_update(before, after):
     if after.activity:
         # For games, streaming, etc., it has a name. For custom status, it's in 'state'.
         activity_name = after.activity.name or after.activity.state
+    
+    # --- NEW: Prioritize non-custom activities ---
+    # Find the most "important" activity to log.
+    # Order of importance: Game > Spotify > Other Activity > Custom Status
+    primary_activity = next((act for act in after.activities if isinstance(act, discord.Game)), None)
+    if not primary_activity:
+        primary_activity = next((act for act in after.activities if isinstance(act, discord.Spotify)), None)
+    if not primary_activity:
+        primary_activity = next((act for act in after.activities if not isinstance(act, discord.CustomActivity)), None)
+    if not primary_activity:
+        primary_activity = next((act for act in after.activities if isinstance(act, discord.CustomActivity)), None)
 
     # Update the database with the new presence info
     await db_helpers.update_user_presence(
         user_id=after.id,
         display_name=after.display_name,
         status=str(after.status),
-        activity_name=activity_name
+        activity_name=primary_activity.name if primary_activity and hasattr(primary_activity, 'name') else (primary_activity.state if primary_activity and hasattr(primary_activity, 'state') else None)
     )
-    # --- REFACTORED: Log activity for Wrapped, distinguishing games ---
-    if after.activity and not isinstance(after.activity, (discord.Game, discord.Spotify, discord.CustomActivity)):
-        stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
-        if after.activity.name:
-            await db_helpers.log_stat_increment(after.id, stat_period, 'activity_usage', key=after.activity.name)
 
 
 @tasks.loop(minutes=1)
 async def grant_voice_xp():
-    """A background task that grants XP to users in voice channels every minute."""
-    # Iterate through all guilds the bot is in
-    for guild in client.guilds:
-        for member in guild.members:
-            # Conditions to grant XP:
-            # 1. Member is in a voice channel.
-            # 2. Member is not a bot.
-            # 3. Member is not server-deafened (to prevent AFK farming).
-            if member.voice and not member.bot and not member.voice.deaf:
-                stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
-                new_level = await db_helpers.add_xp(member.id, member.display_name, config['modules']['leveling']['xp_per_minute_in_vc'])
-                await db_helpers.log_vc_minutes(member.id, 1, stat_period) # Log 1 minute for Wrapped
-                if new_level:
-                    bonus = calculate_level_up_bonus(new_level, config)
-                    await db_helpers.add_balance(member.id, member.display_name, bonus, stat_period)
-                    # --- FIX: Send level-up notifications via DM and only for special levels ---
-                    if new_level % config['modules']['leveling']['vc_level_up_notification_interval'] == 0:
-                        try:
-                            await member.send(f"GG! Du bist durch deine Aktivität im Voice-Chat jetzt Level **{new_level}**! :YESS:\n"
-                                             f"Du erhältst **{bonus}** Währung als Belohnung!")
-                        except discord.Forbidden:
-                            print(f"Could not send voice level up DM to {member.name} (DMs likely closed).")
+    """A background task that grants XP to users in voice channels every minute.
+    This is now highly efficient as it only iterates over users currently in a VC."""
+    # Create a copy of the user IDs to prevent issues if the set changes during iteration
+    users_to_process = list(active_vc_users.keys())
+    
+    for user_id in users_to_process:
+        member = active_vc_users.get(user_id)
+        if not member: continue
+
+        stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+        new_level = await db_helpers.add_xp(member.id, member.display_name, config['modules']['leveling']['xp_per_minute_in_vc'])
+        await db_helpers.log_vc_minutes(member.id, 1, stat_period) # Log 1 minute for Wrapped
+        if new_level:
+            bonus = calculate_level_up_bonus(new_level, config)
+            await db_helpers.add_balance(member.id, member.display_name, bonus, stat_period)
+            # --- FIX: Send level-up notifications via DM and only for special levels ---
+            if new_level % config['modules']['leveling']['vc_level_up_notification_interval'] == 0:
+                try:
+                    await member.send(f"GG! Du bist durch deine Aktivität im Voice-Chat jetzt Level **{new_level}**! :YESS:\n"
+                                     f"Du erhältst **{bonus}** Währung als Belohnung!")
+                except discord.Forbidden:
+                    print(f"Could not send voice level up DM to {member.name} (DMs likely closed).")
 
 @grant_voice_xp.before_loop
 async def before_grant_voice_xp():
@@ -939,6 +951,16 @@ def _get_percentile_rank(user_id, rank_map, total_users):
 @client.event
 async def on_voice_state_update(member, before, after):
     """Handles players joining/leaving Werwolf lobby channels."""
+    # --- NEW: Efficiently track users in voice channels for XP gain ---
+    if not member.bot:
+        # User is in a VC and not deafened -> add to XP list
+        if after.channel and not after.deaf:
+            active_vc_users[member.id] = member
+        # User left VC or got deafened -> remove from XP list
+        elif (not after.channel or after.deaf) and member.id in active_vc_users:
+            del active_vc_users[member.id]
+
+
     # --- NEW: Handle "Join to Create" logic first, passing config ---
     await voice_manager.handle_voice_state_update(member, before, after, config)
 
@@ -1258,20 +1280,6 @@ class AdminGroup(app_commands.Group):
         except Exception as e:
             await interaction.followup.send(f"❌ Fehler beim Neuladen der Konfiguration: `{e}`")
 
-    @app_commands.command(name="set_bio", description="Aktualisiert die 'Über mich'-Beschreibung des Bots aus der config.json.")
-    async def set_bio(self, interaction: discord.Interaction):
-        """Updates the bot's 'About Me' from the config file."""
-        await interaction.response.defer(ephemeral=True)
-        new_bio = config.get('bot', {}).get('description')
-        if not new_bio:
-            await interaction.followup.send("❌ In der `config.json` wurde keine `description` gefunden.", ephemeral=True)
-            return
-        try:
-            await client.user.edit(bio=new_bio)
-            await interaction.followup.send("✅ Bot-Biografie wurde erfolgreich aktualisiert.", ephemeral=True)
-        except Exception as e:
-            await interaction.followup.send(f"❌ Fehler beim Aktualisieren der Biografie: `{e}`", ephemeral=True)
-
     @app_commands.command(name="view_dates", description="Zeigt die berechneten Daten für das nächste 'Wrapped'-Event an.")
     async def view_dates(self, interaction: discord.Interaction):
         """Displays the calculated dates for the next Wrapped event."""
@@ -1308,35 +1316,6 @@ class AdminGroup(app_commands.Group):
             await interaction.followup.send("✅ Test-Event wurde erfolgreich in diesem Server erstellt.")
         except Exception as e:
             await interaction.followup.send(f"❌ Fehler beim Erstellen des Test-Events: `{e}`")
-
-# --- NEW: Pagination View for Embeds ---
-class PaginationView(discord.ui.View):
-    def __init__(self, embeds, timeout=120):
-        super().__init__(timeout=timeout)
-        self.embeds = embeds
-        self.current_page = 0
-
-    def update_buttons(self):
-        """Enables or disables buttons based on the current page."""
-        self.children[0].disabled = self.current_page == 0
-        self.children[1].disabled = self.current_page == len(self.embeds) - 1
-
-    # --- FIX: Create the buttons and assign the callbacks ---
-    prev_btn = discord.ui.button(label="◀ Zurück", style=discord.ButtonStyle.secondary, disabled=True)
-    next_btn = discord.ui.button(label="Weiter ▶", style=discord.ButtonStyle.secondary)
-
-    # Assign the methods to the button callbacks
-    async def previous_button_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.current_page -= 1
-        self.update_buttons()
-        await interaction.response.edit_message(embed=self.embeds[self.current_page], view=self)
-    prev_btn.callback = previous_button_callback
-
-    async def next_button_callback(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.current_page += 1
-        self.update_buttons()
-        await interaction.response.edit_message(embed=self.embeds[self.current_page], view=self)
-    next_btn.callback = next_button_callback
 
     @app_commands.command(name="save_history", description="Speichert den Chatverlauf dieses Kanals manuell in der Datenbank.")
     @app_commands.describe(limit="Die Anzahl der zu speichernden Nachrichten (Standard: 100).")
