@@ -149,10 +149,90 @@ def initialize_database():
                 name VARCHAR(255) NOT NULL UNIQUE
             )
         """)
+        # --- NEW: Tables for enhanced Wrapped stats ---
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS message_activity (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                guild_id BIGINT NOT NULL,
+                mentioned_user_id BIGINT,
+                replied_to_user_id BIGINT,
+                message_timestamp DATETIME NOT NULL,
+                INDEX(user_id, guild_id)
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS temp_vc_creations (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                guild_id BIGINT NOT NULL,
+                creation_timestamp DATETIME NOT NULL,
+                INDEX(user_id, guild_id)
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS voice_sessions (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                guild_id BIGINT NOT NULL,
+                duration_seconds INT NOT NULL,
+                session_end_timestamp DATETIME NOT NULL,
+                INDEX(user_id, guild_id)
+            )
+        """)
 
         print("Database tables checked/created successfully.")
     except mysql.connector.Error as err:
         print(f"Failed creating table: {err}")
+    finally:
+        cursor.close()
+        cnx.close()
+
+# --- NEW: DB functions for enhanced Wrapped stats ---
+
+async def log_mention_reply(user_id, guild_id, mentioned_id, replied_id, timestamp):
+    """Logs a mention or reply for Server Bestie stats."""
+    if not mentioned_id and not replied_id:
+        return
+    cnx = db_pool.get_connection()
+    if not cnx: return
+    cursor = cnx.cursor()
+    try:
+        query = "INSERT INTO message_activity (user_id, guild_id, mentioned_user_id, replied_to_user_id, message_timestamp) VALUES (%s, %s, %s, %s, %s)"
+        cursor.execute(query, (user_id, guild_id, mentioned_id, replied_id, timestamp))
+        cnx.commit()
+    except mysql.connector.Error as err:
+        print(f"Error in log_mention_reply: {err}")
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def log_temp_vc_creation(user_id, guild_id, timestamp):
+    """Logs when a user creates a temporary voice channel."""
+    cnx = db_pool.get_connection()
+    if not cnx: return
+    cursor = cnx.cursor()
+    try:
+        query = "INSERT INTO temp_vc_creations (user_id, guild_id, creation_timestamp) VALUES (%s, %s, %s)"
+        cursor.execute(query, (user_id, guild_id, timestamp))
+        cnx.commit()
+    except mysql.connector.Error as err:
+        print(f"Error in log_temp_vc_creation: {err}")
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def log_vc_session(user_id, guild_id, duration_seconds, timestamp):
+    """Logs a completed voice channel session duration."""
+    cnx = db_pool.get_connection()
+    if not cnx: return
+    cursor = cnx.cursor()
+    try:
+        query = "INSERT INTO voice_sessions (user_id, guild_id, duration_seconds, session_end_timestamp) VALUES (%s, %s, %s, %s)"
+        cursor.execute(query, (user_id, guild_id, duration_seconds, timestamp))
+        cnx.commit()
+    except mysql.connector.Error as err:
+        print(f"Error in log_vc_session: {err}")
     finally:
         cursor.close()
         cnx.close()

@@ -1,7 +1,7 @@
 import asyncio
 import asyncio
 import discord
-from db_helpers import get_owned_channel, add_managed_channel, remove_managed_channel, get_managed_channel_config, update_managed_channel_config
+from db_helpers import get_owned_channel, add_managed_channel, remove_managed_channel, get_managed_channel_config, update_managed_channel_config, log_temp_vc_creation
 
 # --- NEW: Anti-race-condition lock ---
 creating_channel_for = set()
@@ -63,6 +63,9 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
 
             # --- REORDERED: Add to DB *before* moving the user to prevent race condition ---
             await add_managed_channel(new_channel.id, member.id, guild.id)
+            # --- NEW: Log the creation for Wrapped stats ---
+            await log_temp_vc_creation(member.id, guild.id, discord.utils.utcnow())
+
             print(f"Created managed voice channel: {new_channel.name} ({new_channel.id})")
 
             # --- FIX: Wait a moment before moving the user to avoid race conditions ---

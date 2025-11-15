@@ -45,51 +45,30 @@ echo "Creating a dedicated pane for the bot's output..."
 # The -P flag prints the new pane's info, and -F gets just the ID.
 # The pane will initially run the start script.
 BOT_PANE_ID=$(tmux split-window -h -P -F "#{pane_id}" "./start_bot.sh")
-
+echo "Bot started in pane ${BOT_PANE_ID}. Watcher is active."
 
 while true; do
-    # This function will be called to clean up the bot and any child processes.
-    cleanup() {
-        echo "Restarting bot process in pane $BOT_PANE_ID..."
-        # The 'respawn-pane' command kills the old process and starts a new one in the same pane.
-        # --- FIX: Ensure start_bot.sh is executable before respawning ---
-        chmod +x ./start_bot.sh
+    echo "Checking for updates..."
+
+    # Fetch the latest changes from the remote repository
+    git remote update > /dev/null 2>&1
+    STATUS=$(git status -uno)
+
+    if echo "$STATUS" | grep -q "Your branch is behind"; then
+        echo "New version found! Restarting the bot to apply updates..."
+        # The 'respawn-pane' command kills the old process and starts a new one.
         # The -k flag ensures the old command is killed before respawning.
+        chmod +x ./start_bot.sh
         tmux respawn-pane -k -t "$BOT_PANE_ID" "./start_bot.sh"
-        # Remove the flag file so the new instance starts with a clean status
-        rm -f update_pending.flag
-        echo "Cleanup complete."
-    }
-
-    # --- REFACTORED: Main monitoring loop ---
-    # This loop now continuously checks for the bot's PID.
-    while true; do
-        BOT_PID=$(pgrep -f "python3 -u ./bot.py")
-
-        # If the PID doesn't exist, the bot has crashed or not started.
-        if [ -z "$BOT_PID" ]; then
-            echo "Warning: Bot process not found. It may have crashed. Restarting..."
-            break # Exit this inner loop to trigger the cleanup/restart logic.
-        fi
-
-        echo "Bot is running (PID: $BOT_PID). Checking for updates..."
-        sleep 15
-
-        # Fetch the latest changes from the remote repository
-        git remote update > /dev/null 2>&1
-        STATUS=$(git status -uno)
-
-        if echo "$STATUS" | grep -q "Your branch is behind"; then
-            echo "New version found in the repository! Restarting the bot to apply updates..."
-            # Create the flag file to signal the bot to go idle
-            touch update_pending.flag
-            cleanup # This now respawns the bot in the same pane
-            sleep 20 # Give it more time to respawn and start up before the next check
-        fi
-    done
-
-    # If the loop exits because the bot crashed, ensure cleanup is still performed.
-    cleanup
-    echo "Bot process stopped or crashed. Restarting it in 5 seconds... (Press CTRL+C to stop the watcher)"
-    sleep 20 # Give it more time to restart, especially if the database needs to start
+        echo "Bot is restarting with the new version."
+        # Wait a bit longer after a restart to avoid spamming git
+        sleep 60
+    elif ! tmux list-panes -F "#{pane_id}" | grep -q "^${BOT_PANE_ID}$"; then
+        echo "Error: Bot pane ${BOT_PANE_ID} not found. It was likely closed manually."
+        echo "Exiting watcher. Restart the script to create a new bot session."
+        exit 1
+    fi
+    
+    # Check every 60 seconds
+    sleep 60
 done
