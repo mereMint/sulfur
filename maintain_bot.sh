@@ -9,6 +9,15 @@
 
 echo "--- Sulfur Bot Maintenance Watcher (Linux/Termux) ---"
 
+# --- FIX: Load environment variables from .env file ---
+# This is crucial for the cleanup trap in start_bot.sh to have DB credentials
+# when this maintenance script kills the child process for a restart.
+if [ -f .env ]; then
+    set -a # automatically export all variables
+    source .env
+    set +a # stop automatically exporting
+fi
+
 # Ensure we are in the script's directory
 cd "$(dirname "$0")"
 

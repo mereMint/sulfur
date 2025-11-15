@@ -33,9 +33,6 @@ SYNC_FILE="database_sync.sql"
 DB_NAME="sulfur_bot"
 DB_USER="sulfur_bot_user"
 
-# --- NEW: Define sync file ---
-SYNC_FILE="database_sync.sql"
-
 # This function will be executed when the script is stopped (e.g., with CTRL+C)
 cleanup() {
     echo "Script stopped. Log file is at: $LOG_FILE"
