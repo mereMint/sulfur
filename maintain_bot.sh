@@ -84,12 +84,12 @@ while true; do
             # Create the flag file to signal the bot to go idle
             touch update_pending.flag
             cleanup # This now respawns the bot in the same pane
-            sleep 5 # Give it a moment to respawn before the next check
+            sleep 20 # Give it more time to respawn and start up before the next check
         fi
     done
 
     # If the loop exits because the bot crashed, ensure cleanup is still performed.
     cleanup
     echo "Bot process stopped or crashed. Restarting it in 5 seconds... (Press CTRL+C to stop the watcher)"
-    sleep 5 # Brief pause before restarting
+    sleep 20 # Give it more time to restart, especially if the database needs to start
 done
