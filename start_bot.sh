@@ -23,7 +23,7 @@ cleanup() {
     echo "Script stopped. Log file is at: $LOG_FILE"
     # --- NEW: Export database on exit for synchronization ---
     echo "Exporting database to $SYNC_FILE for synchronization..."
-    mysqldump --user=$DB_USER --host=localhost $DB_NAME > "$SYNC_FILE"
+    mysqldump --user=$DB_USER --host=localhost --default-character-set=utf8mb4 $DB_NAME > "$SYNC_FILE"
     echo "Database export complete. Remember to commit and push '$SYNC_FILE' if you want to sync this state."
 }
 trap cleanup EXIT
@@ -51,7 +51,7 @@ echo "Update check complete."
 # --- NEW: Check if the sync file was updated and import it ---
 if [ "$OLD_HEAD" != "$NEW_HEAD" ] && git diff --name-only "$OLD_HEAD" "$NEW_HEAD" | grep -q "$SYNC_FILE"; then
     echo "Database sync file has been updated. Importing new data..."
-    mysql --user=$DB_USER --host=localhost $DB_NAME < "$SYNC_FILE"
+    mysql --user=$DB_USER --host=localhost --default-character-set=utf8mb4 $DB_NAME < "$SYNC_FILE"
     echo "Database import complete."
 fi
 
@@ -82,7 +82,7 @@ TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 BACKUP_FILE="${BACKUP_DIR}/${DB_NAME}_backup_${TIMESTAMP}.sql"
 
 # Note: This assumes mysqldump is in the system's PATH and MySQL is running.
-mysqldump --user=$DB_USER --host=localhost $DB_NAME > "$BACKUP_FILE"
+mysqldump --user=$DB_USER --host=localhost --default-character-set=utf8mb4 $DB_NAME > "$BACKUP_FILE"
 echo "Backup created successfully at $BACKUP_FILE"
 
 # --- NEW: Clean up old backups ---

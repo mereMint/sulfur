@@ -24,7 +24,7 @@ $dbName = "sulfur_bot"
 $dbUser = "sulfur_bot_user"
 
 # --- NEW: Register an action to export the database on script exit ---
-Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action { & $mysqldumpPath --user=$dbUser --host=localhost $dbName > $syncFile; Write-Host "Database exported to $syncFile for synchronization." } | Out-Null
+Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action { & $mysqldumpPath --user=$dbUser --host=localhost --default-character-set=utf8mb4 $dbName > $syncFile; Write-Host "Database exported to $syncFile for synchronization." } | Out-Null
 
 Start-Transcript -Path $logFile
 
@@ -49,7 +49,7 @@ Write-Host "Update check complete."
 # --- NEW: Check if the sync file was updated and import it ---
 if (($oldHead -ne $newHead) -and (git diff --name-only $oldHead $newHead | Select-String -Pattern $syncFile)) {
     Write-Host "Database sync file has been updated. Importing new data..."
-    Get-Content $syncFile | & $mysqlPath --user=$dbUser --host=localhost $dbName
+    Get-Content $syncFile | & $mysqlPath --user=$dbUser --host=localhost --default-character-set=utf8mb4 $dbName
     Write-Host "Database import complete."
 }
 
@@ -73,7 +73,7 @@ if (-not (Test-Path -Path $backupDir -PathType Container)) {
 
 $timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 $backupFile = Join-Path -Path $backupDir -ChildPath "${dbName}_backup_${timestamp}.sql"
-& $mysqldumpPath --user=$dbUser --host=localhost $dbName > $backupFile
+& $mysqldumpPath --user=$dbUser --host=localhost --default-character-set=utf8mb4 $dbName > $backupFile
 Write-Host "Backup created successfully at $backupFile"
 
 # --- NEW: Clean up old backups ---
