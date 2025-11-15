@@ -9,6 +9,25 @@
 
 echo "--- Sulfur Bot Maintenance Watcher (Linux/Termux) ---"
 
+# --- NEW: Lock file to prevent multiple instances ---
+LOCKFILE="/tmp/sulfur_maintainer.lock"
+
+if [ -e "$LOCKFILE" ]; then
+    # Lockfile exists, check if the process is still running
+    PID=$(cat "$LOCKFILE")
+    if kill -0 "$PID" > /dev/null 2>&1; then
+        echo "Maintainer script is already running with PID $PID. Exiting."
+        exit 1
+    else
+        # The process is not running, so the lock file is stale. Remove it.
+        echo "Found stale lock file. Removing it."
+        rm -f "$LOCKFILE"
+    fi
+fi
+
+echo $$ > "$LOCKFILE"
+trap 'rm -f "$LOCKFILE"' EXIT INT TERM
+
 # --- FIX: Load environment variables from .env file ---
 # This is crucial for the cleanup trap in start_bot.sh to have DB credentials
 # when this maintenance script kills the child process for a restart.
@@ -43,6 +62,18 @@ while true; do
         
         # --- NEW: Log the time of the update check ---
         date -u --iso-8601=seconds > last_check.txt
+
+        # --- NEW: Check for local changes, commit, and push them ---
+        # Stash any untracked files to not interfere with git status
+        git stash push -u -q
+        # --- FIX: Only commit changes to the database sync file ---
+        if ! git diff --quiet --exit-code HEAD -- database_sync.sql; then
+            echo "Local changes to database_sync.sql detected. Committing and pushing..."
+            git add database_sync.sql
+            git commit -m "Auto-commit: Update database sync or other tracked files"
+            git push
+        fi
+        git stash pop -q # Unstash the untracked files
 
         # Fetch the latest changes from the remote repository
         git remote update > /dev/null 2>&1

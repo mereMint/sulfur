@@ -362,64 +362,57 @@ class WerwolfGame:
         # --- Bot Night Actions ---
         print("  [WW] Processing bot night actions...")
         await asyncio.sleep(1) # Small delay for realism
-        
-        # Check if there's a human wolf
-        human_wolf_exists = any(p for p in self.get_alive_players() if p.role == WERWOLF and not self.is_bot_player(p))
 
         # --- NEW: Bot actions are now processed in a logical order ---
         # 1. Seer acts first to gather information.
         # 2. Wolves act next.
         # 3. Witch acts last, using information from the night's events.
-        for player in self.get_alive_players():
-            if not self.is_bot_player(player):
-                continue
-            if player.role == WERWOLF:
-                # If a human wolf exists, the bot does not act. The human decides.
-                if human_wolf_exists:
-                    continue
-                print(f"    - Bot '{player.user.display_name}' (Werwolf) is choosing a target...")
-                # Bot wolf picks a random non-wolf to kill
-                targets = [p for p in self.get_alive_players() if p.role != WERWOLF]
-                if targets:
-                    target = random.choice(targets)
-                    await self.handle_night_action(player, "kill", target, self.config, self.gemini_api_key, self.openai_api_key)
-            elif player.role == SEHERIN:
-                print(f"    - Bot '{player.user.display_name}' (Seherin) is choosing a target...")
-                # Bot seer picks a random player to see (not themselves)
-                targets = [p for p in self.get_alive_players() if p.user.id != player.user.id]
-                if targets:
-                    target = random.choice(targets)
-                    # --- NEW: Seer bot now records its findings ---
-                    self.seer_findings[target.user.id] = target.role
-                    await self.handle_night_action(player, "see", target, self.config, self.gemini_api_key, self.openai_api_key)
+        bot_players = [p for p in self.get_alive_players() if self.is_bot_player(p)]
+        human_wolf_exists = any(p for p in self.get_alive_players() if p.role == WERWOLF and not self.is_bot_player(p))
+
+        # --- FIX: Process each bot role independently to prevent logic errors ---
+        # Bot Seer
+        bot_seer = next((p for p in bot_players if p.role == SEHERIN), None)
+        if bot_seer:
+            print(f"    - Bot '{bot_seer.user.display_name}' (Seherin) is choosing a target...")
+            targets = [p for p in self.get_alive_players() if p.user.id != bot_seer.user.id]
+            if targets:
+                target = random.choice(targets)
+                self.seer_findings[target.user.id] = target.role
+                await self.handle_night_action(bot_seer, "see", target, self.config, self.gemini_api_key, self.openai_api_key)
+
+        # Bot Wolf (only acts if no human wolves are alive)
+        bot_wolf = next((p for p in bot_players if p.role == WERWOLF), None)
+        if bot_wolf and not human_wolf_exists:
+            print(f"    - Bot '{bot_wolf.user.display_name}' (Werwolf) is choosing a target...")
+            targets = [p for p in self.get_alive_players() if p.role != WERWOLF]
+            if targets:
+                target = random.choice(targets)
+                await self.handle_night_action(bot_wolf, "kill", target, self.config, self.gemini_api_key, self.openai_api_key)
         
         # --- NEW: Process Dönerstopfer action after Seer/Wolf ---
-        for player in self.get_alive_players():
-            if self.is_bot_player(player) and player.role == DÖNERSTOPFER:
-                print(f"    - Bot '{player.user.display_name}' (Dönerstopfer) is choosing a target...")
-                targets = [p for p in self.get_alive_players() if p.user.id != player.user.id]
-                if targets:
-                    target = random.choice(targets)
-                    await self.handle_night_action(player, "mute", target, self.config, self.gemini_api_key, self.openai_api_key)
+        bot_doner = next((p for p in bot_players if p.role == DÖNERSTOPFER), None)
+        if bot_doner:
+            print(f"    - Bot '{bot_doner.user.display_name}' (Dönerstopfer) is choosing a target...")
+            targets = [p for p in self.get_alive_players() if p.user.id != bot_doner.user.id]
+            if targets:
+                target = random.choice(targets)
+                await self.handle_night_action(bot_doner, "mute", target, self.config, self.gemini_api_key, self.openai_api_key)
 
         # --- NEW: Process Hexe action last ---
-        for player in self.get_alive_players():
-            if self.is_bot_player(player) and player.role == HEXE:
-                # Hexe decides whether to heal
-                wolf_victim_id = next(iter(self.night_votes.values()), None)
-                if wolf_victim_id and player.has_healing_potion:
-                    wolf_victim = self.players.get(wolf_victim_id)
-                    # Heal if the victim is not a known wolf
-                    if wolf_victim and self.seer_findings.get(wolf_victim.user.id) != WERWOLF:
-                        await self.handle_night_action(player, "heal", None, self.config, self.gemini_api_key, self.openai_api_key)
-                # Hexe decides whether to poison
-                elif player.has_kill_potion:
-                    # Poison a known wolf
-                    known_wolves = [p_id for p_id, role in self.seer_findings.items() if role == WERWOLF]
-                    if known_wolves:
-                        target_to_poison = self.players.get(random.choice(known_wolves))
-                        if target_to_poison and target_to_poison.is_alive:
-                            await self.handle_night_action(player, "poison", target_to_poison, self.config, self.gemini_api_key, self.openai_api_key)
+        bot_hexe = next((p for p in bot_players if p.role == HEXE), None)
+        if bot_hexe:
+            wolf_victim_id = next(iter(self.night_votes.values()), None)
+            if wolf_victim_id and bot_hexe.has_healing_potion:
+                wolf_victim = self.players.get(wolf_victim_id)
+                if wolf_victim and self.seer_findings.get(wolf_victim.user.id) != WERWOLF:
+                    await self.handle_night_action(bot_hexe, "heal", None, self.config, self.gemini_api_key, self.openai_api_key)
+            elif bot_hexe.has_kill_potion:
+                known_wolves = [p_id for p_id, role in self.seer_findings.items() if role == WERWOLF]
+                if known_wolves:
+                    target_to_poison = self.players.get(random.choice(known_wolves))
+                    if target_to_poison and target_to_poison.is_alive:
+                        await self.handle_night_action(bot_hexe, "poison", target_to_poison, self.config, self.gemini_api_key, self.openai_api_key)
 
         # The night now ends only when all special roles have acted.
 

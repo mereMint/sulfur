@@ -64,11 +64,13 @@ python3 -m pip install -r requirements.txt
 echo "Dependencies are up to date."
 
 # --- NEW: Check if the sync file was updated and import it ---
-if [ "$OLD_HEAD" != "$NEW_HEAD" ] && git diff --name-only "$OLD_HEAD" "$NEW_HEAD" | grep -q "$SYNC_FILE"; then
-    echo "Database sync file has been updated. Importing new data..."
-    mariadb --user="$DB_USER" --host=localhost --default-character-set=utf8mb4 "$DB_NAME" < "$SYNC_FILE"
-    echo "Database import complete."
-fi
+# --- DISABLED: The automatic database import is disabled to prevent accidental data loss. ---
+# The database_sync.sql file will still be pulled, but must be imported manually if needed.
+# if [ "$OLD_HEAD" != "$NEW_HEAD" ] && git diff --name-only "$OLD_HEAD" "$NEW_HEAD" | grep -q "$SYNC_FILE"; then
+#     echo "Database sync file has been updated. Importing new data..."
+#     mariadb --user="$DB_USER" --host=localhost --default-character-set=utf8mb4 "$DB_NAME" < "$SYNC_FILE"
+#     echo "Database import complete."
+# fi
 
 # --- NEW: Ensure maintenance scripts are always executable after a pull ---
 echo "Ensuring core scripts are executable..."

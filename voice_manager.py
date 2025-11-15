@@ -79,6 +79,10 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
             except discord.HTTPException:
                 # This can happen if the user disconnects while the channel is being created.
                 print(f"Failed to move {member.display_name} to their new channel (they may have disconnected).")
+                # --- FIX: Clean up the orphaned channel immediately ---
+                await new_channel.delete(reason="User disconnected before being moved.")
+                await remove_managed_channel(new_channel.id, keep_owner_record=True)
+                print(f"Cleaned up orphaned channel '{new_channel.name}' immediately.")
 
         except discord.Forbidden:
             print(f"Error: Bot lacks permissions to create channels or move members in '{guild.name}'.")

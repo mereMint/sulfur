@@ -22,8 +22,8 @@ load_dotenv()
 
 from discord import app_commands
 from discord.ext import tasks
-from werwolf import WerwolfGame, FakeUser
-from api_helpers import get_chat_response, get_relationship_summary_from_api, get_wrapped_summary_from_api
+from werwolf import WerwolfGame
+from api_helpers import get_chat_response, get_relationship_summary_from_api, get_wrapped_summary_from_api, get_game_details_from_api
 
 # --- CONFIGURATION ---
 
@@ -169,21 +169,6 @@ vc_session_starts = {}
 # --- NEW: Bot Start Time for Uptime Command ---
 BOT_START_TIME = datetime.now(timezone.utc)
 
-
-@client.event
-async def on_error(event, *args, **kwargs):
-    """
-    Global event handler for unhandled exceptions in other event listeners (e.g., on_message).
-    """
-    import sys
-    import traceback
-    print(f"Unhandled exception in event '{event}':", file=sys.stderr)
-    traceback.print_exc()
-    # --- NEW: Set status to idle on unhandled error ---
-    await client.change_presence(
-        status=discord.Status.idle, # Set status to Idle
-        activity=None # Clear the activity
-    )
 
 @tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
@@ -400,30 +385,22 @@ async def update_presence_task():
         )
         return # Skip the normal presence update
 
-    # --- REFACTORED: Find an online user and set a cool presence ---
-    all_members = []
-    # Get all non-bot members from all guilds
+    # --- REFACTORED: More efficient way to find a random user ---
+    # 1. Get all non-bot members from all guilds the bot is in.
+    all_online_members = []
     for guild in client.guilds:
-        all_members.extend([m for m in guild.members if not m.bot])
+        all_online_members.extend([m for m in guild.members if not m.bot and m.status != discord.Status.offline])
 
-    random.shuffle(all_members)
+    # 2. If we found any online members, pick one at random.
+    if all_online_members:
+        member_to_watch = random.choice(all_online_members)
+        templates = config['bot']['presence']['activity_templates']
+        template = random.choice(templates)
+        activity_name = template.format(user=member_to_watch.display_name)
 
-    for member_candidate in all_members:
-        try:
-            # Fetch the member again to get the most up-to-date status
-            # We fetch the member to ensure they still exist in the guild.
-            fresh_member = await member_candidate.guild.fetch_member(member_candidate.id) 
-            if fresh_member:
-                # Found a valid user (online or offline), now set the cool presence
-                templates = config['bot']['presence']['activity_templates']
-                template = random.choice(templates)
-                activity_name = template.format(user=fresh_member.display_name)
-                
-                print(f"  -> Presence update: {activity_name}")
-                await client.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=activity_name))
-                return  # Success, exit the task for this run
-        except (discord.NotFound, discord.HTTPException):
-            continue  # Member left or another issue, try next candidate
+        print(f"  -> Presence update: {activity_name}")
+        await client.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=activity_name))
+        return # Success, exit the task for this run
 
     # Fallback if no human members were found at all.
     print("  -> Presence update: No human members found. Using fallback.")
@@ -478,40 +455,34 @@ async def on_presence_update(before, after):
     # --- REFACTORED: Use a single user_id key to centralize tracking across all servers ---
     user_id = after.id
 
-    # Check if a song was playing and has now stopped/changed
-    if user_id in spotify_start_times:
-        logged_song, start_time = spotify_start_times[user_id]
-        after_spotify = next((act for act in after.activities if isinstance(act, discord.Spotify)), None)
-        
-        # Condition for song stopping: no spotify activity OR a different song is playing
-        if not after_spotify or (after_spotify.title, after_spotify.artist) != logged_song:
-            print(f"  -> [Spotify] Song stopped/changed for {after.display_name} (ID: {user_id}).")
-            # --- NEW: Handle pause case ---
+    before_spotify = next((act for act in before.activities if isinstance(act, discord.Spotify)), None)
+    after_spotify = next((act for act in after.activities if isinstance(act, discord.Spotify)), None)
+
+    # Case 1: Song has stopped (or changed)
+    if before_spotify and (not after_spotify or after_spotify.track_id != before_spotify.track_id):
+        if user_id in spotify_start_times:
+            logged_song, start_time = spotify_start_times.pop(user_id)
+            duration_seconds = (now - start_time).total_seconds()
+            # Only log if they listened for a meaningful amount of time (e.g., > 30s)
+            if duration_seconds > 30:
+                duration_minutes = duration_seconds / 60.0
+                stat_period = now.strftime('%Y-%m')
+                await db_helpers.log_stat_increment(user_id, stat_period, 'spotify_minutes', key=f"{logged_song[0]} by {logged_song[1]}", amount=duration_minutes)
+                print(f"    - Logged {duration_minutes:.2f} mins for '{logged_song[0]}'.")
+
+            # If the song just stopped (not changed), cache it for potential resume
             if not after_spotify:
                 print(f"    - Paused '{logged_song[0]}'. Caching session.")
                 spotify_pause_cache[user_id] = (logged_song, start_time)
-                del spotify_start_times[user_id] # Stop the active timer
-                return # Exit early, don't log duration yet
-            duration_seconds = (now - start_time).total_seconds()
-            # Only log if they listened for a meaningful amount of time (e.g., > 30 seconds)
-            # The check `if user_id in spotify_start_times` prevents logging duration multiple times from different server events.
-            if duration_seconds > 30 and user_id in spotify_start_times:
-                duration_minutes = duration_seconds / 60.0
-                stat_period = now.strftime('%Y-%m')
-                # Use a generic function to increment the JSON value
-                await db_helpers.log_stat_increment(user_id, stat_period, 'spotify_minutes', key=f"{logged_song[0]} by {logged_song[1]}", amount=duration_minutes)
-                print(f"    - Logged {duration_minutes:.2f} mins for '{logged_song[0]}'.")
-                # Remove the entry immediately after logging to prevent duplicates.
-                del spotify_start_times[user_id]
 
-    # Check if a new song has started
-    after_spotify = next((act for act in after.activities if isinstance(act, discord.Spotify)), None)
+    # Case 2: Song has started (or resumed)
     if after_spotify:
-        # --- NEW: Handle resume case ---
         resumed_song = (after_spotify.title, after_spotify.artist)
+        # Check if it's a resume from pause
         if user_id in spotify_pause_cache and spotify_pause_cache[user_id][0] == resumed_song:
             print(f"  -> [Spotify] Resumed '{resumed_song[0]}' for {after.display_name}. Restarting timer.")
             spotify_start_times[user_id] = spotify_pause_cache.pop(user_id) # Restore timer from cache
+        # Check if it's a brand new song session
         elif user_id not in spotify_start_times:
              print(f"  -> [Spotify] New song session started for {after.display_name} (ID: {user_id}): '{after_spotify.title}'. Starting timer.")
              spotify_start_times[user_id] = (resumed_song, now)
@@ -1022,6 +993,15 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
             if leaderboard_text:
                 game_embed.add_field(name=f"Leaderboard für {fav_game_name}", value=leaderboard_text, inline=False)
             
+            # --- FIX: Fetch game image from the API ---
+            # This defines the 'api_response' variable that was previously missing.
+            api_response, _ = await get_game_details_from_api([fav_game_name], config, GEMINI_API_KEY, OPENAI_API_KEY)
+            game_image_url = api_response.get(fav_game_name, {}).get('image') if api_response else None
+            
+            if game_image_url:
+                game_embed.set_thumbnail(url=game_image_url)
+
+
             game_embed.set_footer(text="Verglichen mit anderen Spielern dieses Spiels auf dem Server.")
             pages.append(game_embed)
 
@@ -1038,10 +1018,26 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
             for i, (song, minutes) in enumerate(sorted_songs[:5]):
                 top_songs_text += f"**{i+1}.** `{song}` - *{minutes:.0f} Minuten*\n"
 
+            # --- NEW: Calculate Top Artists for Wrapped ---
+            artist_minutes = {}
+            for song_key, minutes in spotify_minutes_data.items():
+                try:
+                    artist = song_key.split(' by ')[1]
+                    artist_minutes[artist] = artist_minutes.get(artist, 0) + minutes
+                except IndexError:
+                    continue # Skip malformed song keys
+            
+            sorted_artists = sorted(artist_minutes.items(), key=lambda item: item[1], reverse=True)
+            top_artists_text = ""
+            for i, (artist, minutes) in enumerate(sorted_artists[:5]):
+                top_artists_text += f"**{i+1}.** `{artist}` - *{minutes:.0f} Minuten*\n"
+
             if top_songs_text:
                 spotify_embed = discord.Embed(title="Dein Spotify-Rückblick", color=discord.Color.green())
                 spotify_embed.add_field(name="Gesamte Hörzeit", value=f"Du hast diesen Monat insgesamt **{total_minutes:.0f} Minuten** Musik gehört.", inline=False)
                 spotify_embed.add_field(name="Deine Top 5 Songs (nach Hörzeit)", value=top_songs_text, inline=False)
+                if top_artists_text:
+                    spotify_embed.add_field(name="Deine Top 5 Künstler (nach Hörzeit)", value=top_artists_text, inline=False)
                 spotify_embed.set_footer(text="Basiert auf der Zeit, die du Songs über Discord gehört hast.")
                 pages.append(spotify_embed)
 
@@ -1390,14 +1386,6 @@ async def voice_config_unpermit(interaction: discord.Interaction, user: discord.
         except Exception as e:
             print(f"Could not kick user after unpermit: {e}")
 
-# --- NEW: Custom check for admin commands ---
-def is_admin_or_authorised(interaction: discord.Interaction) -> bool:
-    """Checks if the user is an admin or has the 'authorised' role."""
-    if interaction.user.guild_permissions.administrator:
-        return True
-    authorised_role = discord.utils.get(interaction.user.roles, name=config['bot']['authorised_role'])
-    return authorised_role is not None
-
 # --- REFACTORED: Admin Commands using a class-based approach ---
 @app_commands.check(is_admin_or_authorised)
 class AdminGroup(app_commands.Group):
@@ -1408,10 +1396,12 @@ class AdminGroup(app_commands.Group):
     async def view_wrapped(self, interaction: discord.Interaction, user: discord.Member):
         await interaction.response.defer(ephemeral=True)
         
-        # For the admin preview, we generate the Wrapped for the CURRENT month
+        # --- FIX: Generate the preview for the PREVIOUS month, just like the real event ---
+        # This ensures the data is complete and the preview is accurate.
         now = datetime.now(timezone.utc)
-        stat_period = now.strftime('%Y-%m')
-        
+        first_day_of_current_month = now.replace(day=1)
+        last_month_first_day = (first_day_of_current_month - timedelta(days=1)).replace(day=1)
+        stat_period = last_month_first_day.strftime('%Y-%m')
         # We need all stats for the period to calculate ranks
         all_stats = await db_helpers.get_wrapped_stats_for_period(stat_period)
         if not all_stats:
@@ -1428,13 +1418,13 @@ class AdminGroup(app_commands.Group):
         # The helper function now calculates ranks internally.
         await _generate_and_send_wrapped_for_user(
             user_stats=target_user_stats,
-            stat_period_date=now,
+            stat_period_date=last_month_first_day,
             all_stats_for_period=all_stats,
             total_users=len(all_stats),
             server_averages=await _calculate_server_averages(all_stats)
         )
 
-        await interaction.followup.send(f"Eine 'Wrapped'-Vorschau für den aktuellen Monat wurde an {user.mention} gesendet.", ephemeral=True)
+        await interaction.followup.send(f"Eine 'Wrapped'-Vorschau für `{stat_period}` wurde an {user.mention} gesendet.", ephemeral=True)
 
     @app_commands.command(name="reload_config", description="Lädt die config.json und die System-Prompt-Datei neu.")
     async def reload_config(self, interaction: discord.Interaction):
@@ -1632,6 +1622,21 @@ class AdminGroup(app_commands.Group):
         embed.set_footer(text=f"Gestartet am: {BOT_START_TIME.strftime('%Y-%m-%d %H:%M:%S UTC')}")
 
         await interaction.followup.send(embed=embed)
+
+    @app_commands.command(name="deletememory", description="Löscht das 'Gedächtnis' (Beziehungszusammenfassung) des Bots über einen Benutzer.")
+    @app_commands.describe(user="Der Benutzer, dessen Gedächtnis gelöscht werden soll.")
+    async def deletememory(self, interaction: discord.Interaction, user: discord.Member):
+        """Deletes the bot's relationship summary for a specific user."""
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            # Setting the summary to NULL in the database effectively deletes it.
+            await db_helpers.update_relationship_summary(user.id, None)
+            await interaction.followup.send(f"✅ Das Gedächtnis über {user.mention} wurde erfolgreich gelöscht.")
+            print(f"--- Admin {interaction.user.name} deleted memory for user {user.name} ({user.id}) ---")
+        except Exception as e:
+            await interaction.followup.send(f"❌ Fehler beim Löschen des Gedächtnisses: `{e}`")
+            print(f"--- Error in /admin deletememory for user {user.id}: {e} ---")
 
 
 # --- NEW: View for the AI Dashboard ---
@@ -1873,9 +1878,12 @@ async def spotify_stats(interaction: discord.Interaction, user: discord.Member =
         embed.add_field(name="Top 5 Songs (All-Time)", value=top_songs_text, inline=False)
 
     # Top 5 Artists
+    # --- FIX: Populate the top artists text ---
     top_artists_text = ""
+    for i, (artist, count) in enumerate(artist_counts.most_common(5)):
+        top_artists_text += f"**{i+1}.** {artist} (`{count}x`)\n"
     if top_artists_text:
-        embed.add_field(name="Top 5 Künstler (letzte 10)", value=top_artists_text, inline=False)
+        embed.add_field(name="Top 5 Künstler (All-Time)", value=top_artists_text, inline=False)
 
     # --- NEW: Add total listening time ---
     if user_stats and user_stats.get('spotify_minutes'):
@@ -2059,31 +2067,39 @@ async def on_message(message):
         print(f"Chatbot triggered by {message.author.name} in channel {channel_name}.")
         if not isinstance(message.channel, discord.DMChannel):
             stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
-            await db_helpers.log_stat_increment(message.author.id, stat_period, 'sulf_interactions')
+            await log_stat_increment(message.author.id, stat_period, 'sulf_interactions')
         user_prompt = message.content.replace(f"<@{client.user.id}>", "").strip()
         if not user_prompt:
             await message.channel.send(config['bot']['chat']['empty_ping_response'])
             return
-        history = await db_helpers.get_chat_history(message.channel.id, config['bot']['chat']['max_history_messages'])
-        async with message.channel.typing():
-            relationship_summary = await db_helpers.get_relationship_summary(message.author.id)
-            dynamic_system_prompt = config['bot']['system_prompt']
-            if relationship_summary:
-                dynamic_system_prompt += f"\n\nZusätzlicher Kontext über deine Beziehung zu '{message.author.display_name}': {relationship_summary}"
-            provider_to_use = await get_current_provider(config)
-            if provider_to_use == 'gemini':
-                await db_helpers.increment_gemini_usage()
-            temp_config = config.copy()
-            temp_config['api']['provider'] = provider_to_use
-            response_text, error_message, updated_history = await get_chat_response(history, user_prompt, message.author.display_name, dynamic_system_prompt, temp_config, GEMINI_API_KEY, OPENAI_API_KEY)
-            if error_message:
-                await message.channel.send(f"{message.author.mention} {error_message}")
-                return
+        history = await get_chat_history(message.channel.id, config['bot']['chat']['max_history_messages'])
+
+        # --- FIX: Revert to using the 'typing' context manager which works for DMs and Guilds. ---
+        # The asyncio.wait_for will prevent the rate-limiting issue by timing out the AI call.
+        try:
+            async with message.channel.typing():
+                # Wait for the AI response, but with a timeout.
+                response_text, error_message, updated_history = await asyncio.wait_for(
+                    _get_ai_response(history, message, user_prompt),
+                    timeout=config.get('api', {}).get('timeout', 30)
+                )
+        except asyncio.TimeoutError:
+            print(f"  -> [AI] Response for channel {message.channel.id} timed out after {config['api']['request_timeout_seconds']} seconds.")
+            error_message = "Die Anfrage hat zu lange gedauert. Versuche es später erneut."
+            response_text, updated_history = None, None
+
+        if error_message:
+            await message.channel.send(f"{message.author.mention} {error_message}")
+            return
+
+        # --- REFACTORED: Save history and send response after getting it ---
+        if response_text:
             if len(updated_history) >= 2:
                 # --- FIX: Use updated_history to get the correct user message ---
                 user_message_content = updated_history[-2]['parts'][0]['text']
-                await db_helpers.save_message_to_history(message.channel.id, "user", user_message_content)
-            await db_helpers.save_message_to_history(message.channel.id, "model", response_text)
+                await save_message_to_history(message.channel.id, "user", user_message_content)
+            await save_message_to_history(message.channel.id, "model", response_text)
+
             update_interval = config['bot']['chat']['relationship_update_interval'] * 2
             if len(updated_history) > 0 and len(updated_history) % update_interval == 0:
                 print(f"Updating relationship summary for {message.author.name}.")
@@ -2092,12 +2108,35 @@ async def on_message(message):
                     await db_helpers.increment_gemini_usage()
                 temp_config_summary = config.copy()
                 temp_config_summary['api']['provider'] = provider_to_use_summary
-                new_summary, _ = await get_relationship_summary_from_api(updated_history, message.author.display_name, relationship_summary, temp_config_summary, GEMINI_API_KEY, OPENAI_API_KEY)
+                new_summary, _ = await get_relationship_summary_from_api(updated_history, message.author.display_name, await get_relationship_summary(message.author.id), temp_config_summary, GEMINI_API_KEY, OPENAI_API_KEY)
                 if new_summary:
-                    await db_helpers.update_relationship_summary(message.author.id, new_summary)
+                    await update_relationship_summary(message.author.id, new_summary)
+
             final_response = await replace_emoji_tags(response_text, client)
             for chunk in await split_message(final_response):
                 if chunk: await message.channel.send(chunk)
+
+    async def _get_ai_response(history, message, user_prompt):
+        """Helper function to encapsulate the API call logic."""
+        relationship_summary = await get_relationship_summary(message.author.id)
+        dynamic_system_prompt = config['bot']['system_prompt']
+        if relationship_summary:
+            dynamic_system_prompt += f"\n\nZusätzlicher Kontext über deine Beziehung zu '{message.author.display_name}': {relationship_summary}"
+        
+        # --- NEW: Add detailed logging for AI calls ---
+        provider_to_use = await get_current_provider(config)
+        print(f"  -> [AI] Calling provider '{provider_to_use}' for user '{message.author.display_name}'...")
+        if provider_to_use == 'gemini':
+            await increment_gemini_usage()
+            
+        temp_config = config.copy()
+        temp_config['api']['provider'] = provider_to_use
+        
+        response_text, error_message, updated_history = await get_chat_response(
+            history, user_prompt, message.author.display_name, dynamic_system_prompt, temp_config, GEMINI_API_KEY, OPENAI_API_KEY
+        )
+        print(f"  -> [AI] Received response from '{provider_to_use}'. Error: {error_message is not None}")
+        return response_text, error_message, updated_history
 
     # 1. Ignore messages from the bot itself. This is the most important guard to prevent loops.
     if message.author == client.user:
@@ -2105,14 +2144,9 @@ async def on_message(message):
 
     # 2. Handle Direct Messages.
     if isinstance(message.channel, discord.DMChannel):
-        # Check if the DM is a command for an active Werwolf game.
-        for game in active_werwolf_games.values():
-            if message.author.id in game.players:
-                author_player = game.players.get(message.author.id)
-                if author_player and game.phase == "night" and author_player.is_alive:
-                    # This is a game action. The game logic will handle the response, so we stop here.
-                    return
-        # If it's not a game command, treat it as a chatbot message and then stop all further processing.
+
+        # --- FIX: If it's not a game command, treat it as a chatbot message. ---
+        # The original code had a bug where this was missed.
         await run_chatbot(message)
         return
 
@@ -2159,10 +2193,6 @@ async def on_message(message):
 
     # 4. Fallback for any other channel types (e.g., threads) to prevent any processing.
     return
-
-
-async def on_message_old(message):
-    """Fires on every message in any channel the bot can see."""
 
 # --- RUN THE BOT ---
 if __name__ == "__main__":

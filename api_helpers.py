@@ -373,3 +373,71 @@ async def get_wrapped_summary_from_api(user_display_name, stats, config, gemini_
             return "My brain is melting, can't think of a verdict.", str(e)
 
     return "You did... stuff. Congrats?", "Invalid provider for Wrapped summary."
+
+# --- NEW: Function to get game details from the API ---
+async def get_game_details_from_api(game_names: list, config: dict, gemini_key: str, openai_key: str):
+    """
+    Fetches details (like an image URL) for a list of game names using the configured AI provider.
+    Returns a dictionary mapping game names to their details.
+    """
+    provider = config.get('api', {}).get('provider', 'gemini')
+    timeout = config.get('api', {}).get('timeout', 30)
+    results = {}
+    error_message = None
+
+    for game_name in game_names:
+        prompt = f"""
+        You are a helpful assistant that provides video game information.
+        For the game titled "{game_name}", provide a publicly accessible URL for its cover art or a high-quality promotional image.
+        Return ONLY a raw JSON object with a single key "image" containing the URL string.
+        Example: {{"image": "https://example.com/image.jpg"}}
+        If you cannot find an image, return {{"image": null}}.
+        """
+
+        if provider == 'gemini':
+            model = config.get('api', {}).get('gemini', {}).get('utility_model', 'gemini-2.5-flash')
+            generation_config = {"response_mime_type": "application/json"} # Force JSON output
+            safety_settings = [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            ]
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": generation_config,
+                "safetySettings": safety_settings
+            }
+            response_text, error = await _call_gemini_api(payload, model, gemini_key, timeout)
+            if error:
+                error_message = error
+            if response_text:
+                try:
+                    results[game_name] = json.loads(response_text)
+                except json.JSONDecodeError:
+                    print(f"  [API Helper] Failed to decode JSON for game '{game_name}': {response_text}")
+
+        elif provider == 'openai':
+            model = config.get('api', {}).get('openai', {}).get('utility_model', 'gpt-4o-mini')
+            headers = {"Authorization": f"Bearer {openai_key}"}
+            messages = [{"role": "system", "content": "You are a helpful assistant that returns JSON."}, {"role": "user", "content": prompt}]
+            payload = {"model": model, "messages": messages, "response_format": {"type": "json_object"}}
+
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(OPENAI_API_BASE_URL, json=payload, headers=headers, timeout=timeout) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            response_content = data['choices'][0]['message']['content']
+                            try:
+                                results[game_name] = json.loads(response_content)
+                            except json.JSONDecodeError:
+                                print(f"  [API Helper] Failed to decode JSON for game '{game_name}': {response_content}")
+                        else:
+                            error_text = await response.text()
+                            print(f"OpenAI API Error (get_game_details): {error_text}")
+                            error_message = f"API Error {response.status}"
+            except Exception as e:
+                error_message = str(e)
+
+    return results, error_message

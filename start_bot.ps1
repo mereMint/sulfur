@@ -25,65 +25,90 @@ if (Test-Path -Path ".env") {
 }
 
 # --- NEW: Setup Logging ---
-$logDir = "C:\sulfur\logs"
+# --- REFACTORED: Use relative paths for portability ---
+$logDir = Join-Path -Path $PSScriptRoot -ChildPath "logs"
 if (-not (Test-Path -Path $logDir -PathType Container)) {
     New-Item -ItemType Directory -Path $logDir | Out-Null
     Write-Host "Created logs directory at $logDir"
 }
 
 $logTimestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
-$logFile = Join-Path -Path $logDir -ChildPath "startup_log_${logTimestamp}.txt"
+$logFile = Join-Path -Path $logDir -ChildPath "bot_session_${logTimestamp}.log"
 
 Write-Host "Logging this session to: $logFile"
 
-# --- REFACTORED: Define sync file and database connection details at the top ---
-$syncFile = "C:\sulfur\database_sync.sql"
-$mysqldumpPath = "C:\xampp\mysql\bin\mysqldump.exe"
-$mysqlPath = "C:\xampp\mysql\bin\mysql.exe"
+# --- REFACTORED: Define paths and database connection details at the top ---
+$xamppPath = "C:\xampp" # Centralize the XAMPP path for easy configuration
+$mysqlBinPath = Join-Path -Path $xamppPath -ChildPath "mysql\bin"
+$mysqlStartScript = Join-Path -Path $xamppPath -ChildPath "mysql_start.bat"
+$mysqldumpPath = Join-Path -Path $mysqlBinPath -ChildPath "mysqldump.exe"
+
+$syncFile = Join-Path -Path $PSScriptRoot -ChildPath "database_sync.sql"
 $dbName = "sulfur_bot"
 $dbUser = "sulfur_bot_user"
 
 # --- FIX: Register an action to export the database on script exit (needs variables defined above) ---
-Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action { & $mysqldumpPath --user=$dbUser --host=localhost --default-character-set=utf8mb4 $dbName > $syncFile; Write-Host "Database exported to $syncFile for synchronization." } | Out-Null
+# --- FIX: Use Set-Content with explicit UTF8 encoding to prevent file corruption ---
+# --- FIX: Use utf8NoBOM to prevent null characters in the SQL file ---
+Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action {
+    & $mysqldumpPath --user=$dbUser --host=localhost --default-character-set=utf8mb4 $dbName | Set-Content -Path $syncFile -Encoding utf8
+    Write-Host "Database exported to $syncFile for synchronization."
+} | Out-Null
 
 Write-Host "Checking for updates from the repository..."
 Write-Host "  -> Stashing local changes to avoid conflicts..."
 git stash | Out-Null
-# --- NEW: Get the commit hash before pulling ---
-$oldHead = git rev-parse HEAD
+
+# --- FIX: Check for errors during git pull ---
 Write-Host "  -> Pulling latest version from the repository..."
-git pull | Out-Null
-# --- NEW: Get the commit hash after pulling ---
-$newHead = git rev-parse HEAD
+git pull
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "--------------------------------------------------------" -ForegroundColor Red
+    Write-Host "Error: 'git pull' failed. The script cannot continue." -ForegroundColor Red
+    Write-Host "Please check your internet connection and git status, then try again." -ForegroundColor Yellow
+    Read-Host "Press Enter to exit."
+    exit 1
+}
+
 Write-Host "  -> Re-applying stashed local changes..."
 git stash pop | Out-Null
 Write-Host "Update check complete."
 
+# --- NEW: Check if the sync file was updated and import it ---
+# --- DISABLED: The automatic database import is disabled to prevent accidental data loss. ---
+# The database_sync.sql file will still be pulled, but must be imported manually if needed.
+# if (($oldHead -ne $newHead) -and (git diff --name-only $oldHead $newHead | Select-String -Pattern $syncFile)) {
+#     Write-Host "Database sync file has been updated. Importing new data..."
+#     Get-Content $syncFile | & $mysqlPath --user=$dbUser --host=localhost --default-character-set=utf8mb4 $dbName
+#     Write-Host "Database import complete."
+# }
+
+# --- NEW: Check for Python executable before proceeding ---
+if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
+    Write-Host "--------------------------------------------------------" -ForegroundColor Red
+    Write-Host "Error: 'python' command not found." -ForegroundColor Red
+    Write-Host "Please ensure Python is installed and its location is in your system's PATH environment variable." -ForegroundColor Yellow
+    Read-Host "Press Enter to exit."
+    exit 1
+}
+
 # --- NEW: Install/update Python dependencies ---
 Write-Host "Installing/updating Python dependencies from requirements.txt..."
-# Using python -m pip is more robust than just 'pip'
 python -m pip install -r requirements.txt
 Write-Host "Dependencies are up to date."
-
-# --- NEW: Check if the sync file was updated and import it ---
-if (($oldHead -ne $newHead) -and (git diff --name-only $oldHead $newHead | Select-String -Pattern $syncFile)) {
-    Write-Host "Database sync file has been updated. Importing new data..."
-    Get-Content $syncFile | & $mysqlPath --user=$dbUser --host=localhost --default-character-set=utf8mb4 $dbName
-    Write-Host "Database import complete."
-}
 
 # --- REFACTORED: Check if MySQL is already running ---
 $mysqlProcess = Get-Process -Name "mysqld" -ErrorAction SilentlyContinue
 if (-not $mysqlProcess) {
     Write-Host "MySQL not running. Starting XAMPP MySQL server..."
-    Start-Process -FilePath "C:\xampp\mysql_start.bat"
+    Start-Process -FilePath $mysqlStartScript
 } else {
     Write-Host "MySQL server is already running."
 }
 Start-Sleep -Seconds 5 # Give the database a moment to initialize before the bot connects.
 
 Write-Host "Backing up the database..."
-$backupDir = "C:\sulfur\backups"
+$backupDir = Join-Path -Path $PSScriptRoot -ChildPath "backups"
 
 # Create backup directory if it doesn't exist
 if (-not (Test-Path -Path $backupDir -PathType Container)) {
@@ -92,7 +117,8 @@ if (-not (Test-Path -Path $backupDir -PathType Container)) {
 
 $timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
 $backupFile = Join-Path -Path $backupDir -ChildPath "${dbName}_backup_${timestamp}.sql"
-& $mysqldumpPath --user=$dbUser --host=localhost --default-character-set=utf8mb4 $dbName > $backupFile
+# --- FIX: Use Set-Content with explicit UTF8 encoding to prevent file corruption ---
+& $mysqldumpPath --user=$dbUser --host=localhost --default-character-set=utf8mb4 $dbName | Set-Content -Path $backupFile -Encoding utf8
 Write-Host "Backup created successfully at $backupFile"
 
 # --- NEW: Clean up old backups ---
@@ -110,7 +136,7 @@ Write-Host "Starting the bot... (Press CTRL+C to stop)"
 
 # --- REFACTORED: Call python directly and use Tee-Object to capture all output to the log file ---
 # This is the PowerShell equivalent of `2>&1 | tee -a` in bash.
-python -u bot.py *>&1 | Tee-Object -FilePath $logFile -Append
+python -u -X utf8 bot.py *>&1 | Tee-Object -FilePath $logFile -Append
 
 # --- NEW: Pause on error to allow copying logs ---
 # --- FIX: Use $pipelinestatus to get the correct exit code from the python process, not Tee-Object ---
