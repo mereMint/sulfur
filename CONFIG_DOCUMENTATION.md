@@ -1,5 +1,9 @@
 # Sulfur Bot Configuration Documentation
 
+> **Note:** Many API settings, such as the active provider and model, can now be changed in real-time using the `/admin ai_dashboard` command in Discord. Changes made there will be saved back to your `config.json` file automatically.
+
+---
+
 This file explains all the available settings in `config.json`. You can modify these values to customize the bot's behavior.
 
 ---
@@ -41,7 +45,7 @@ Configuration for the AI model providers (Gemini and OpenAI).
 
 ### `api.gemini`
 
-- **`model`**: The specific Gemini model to use for all tasks (e.g., `gemini-1.5-flash-latest`).
+- **`model`**: The specific Gemini model to use for all tasks (e.g., `gemini-2.5-flash`).
 - **`generation_config`**: Settings for standard chat conversations.
   - `temperature`: Controls creativity. Higher is more random (e.g., 0.9), lower is more predictable (e.g., 0.2).
   - `top_k`: A sampling method. Best to leave as is unless you know what you're doing.
@@ -50,7 +54,7 @@ Configuration for the AI model providers (Gemini and OpenAI).
 
 ### `api.openai`
 
-- **`chat_model`**: The OpenAI model to use for chat when Gemini is unavailable (e.g., `gpt-4.1-nano`).
+- **`chat_model`**: The OpenAI model to use for chat when Gemini is unavailable (e.g., `gpt-4o-mini`).
 - **`utility_model`**: The OpenAI model for background tasks.
 - **`chat_temperature` / `chat_max_tokens`**: Temperature and max length for OpenAI chat responses.
 - **`utility_temperature` / `utility_max_tokens`**: Temperature and max length for OpenAI utility tasks.

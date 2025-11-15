@@ -1,150 +1,143 @@
 # Sulfur Bot
 
-Big brother is helpful but always watching.
+A multi-purpose, slightly arrogant Discord bot with a personality. Sulfur offers a range of features from an advanced AI chatbot to server games and management utilities.
 
-Sulfur is a sophisticated, multi-purpose Discord bot with a unique, sassy Gen-Z personality. It's designed to be a central part of a server community, offering everything from entertainment and games to detailed activity tracking and administration. Powered by modern AI and packed with features, Sulfur keeps your server engaging and lively.
+## Features
 
-## ✨ Features
+- **Advanced AI Chatbot**: Responds to mentions and its name, with a persistent memory of conversations and relationships with users.
+- **Dual AI Provider Support**: Automatically switches between Gemini and OpenAI APIs, with a daily usage counter and fallback mechanism.
+- **Interactive AI Dashboard**: Admins can view API usage and switch AI models on the fly using the `/admin ai_dashboard` command.
+- **Leveling System**: Users gain XP for sending messages and spending time in voice channels.
+- **Economy System**: Users earn currency on level-up, which can be used for future shop features.
+- **Werwolf (Werewolf) Game**: A fully integrated, automated game of Werewolf with roles, private threads, and TTS narration.
+- **Dynamic Voice Channels**: A "Join to Create" system that lets users create their own temporary voice channels.
+- **"Wrapped" Monthly Stats**: A Spotify-style monthly summary of user activity, delivered via DM.
+- **And more**: User profiles, leaderboards, Spotify tracking, and various admin utilities.
 
-- **🤖 AI Chatbot**: Engage in conversations with Sulfur by mentioning it. Powered by either Gemini or OpenAI, it has a configurable personality and remembers past interactions to build "relationships" with users.
-- **🐺 Werwolf Game**: A fully automated, voice-based game of Werwolf (Mafia). The bot handles roles, night actions, voting, and TTS announcements, creating an immersive experience.
-- **📈 Activity Tracking & `/wrapped`**: Like Spotify Wrapped, but for your Discord server! At the end of each month, users receive a personalized summary of their activity, including:
-  - Message and voice chat statistics compared to the server average.
-  - Top games played, with leaderboards.
-  - Top Spotify songs and artists, with total listening time.
-  - An AI-generated witty summary of their monthly activity.
-- **🎤 Join to Create Voice Channel**: A "Join to Create" channel that lets users generate their own temporary voice channels, which they can then configure with commands like `/voice config name` and `/voice config lock`.
-- **💰 Leveling & Economy**: Users gain XP and currency for sending messages and spending time in voice channels.
-- **📊 Profiles & Leaderboards**: A suite of commands to show off stats:
-  - `/profile`: Displays a user's level, balance, and game stats.
-  - `/rank`: Shows a user's level progress and global rank.
-  - `/spotify`: Shows a user's all-time top Spotify songs and artists.
-  - `/leaderboard`: A global leaderboard for levels and XP.
-- **🔄 Auto-Update & Maintenance**: Includes robust maintenance scripts for both Windows and Linux (Termux) that automatically pull the latest code from Git and restart the bot, ensuring it's always up-to-date.
-- **💾 Database Sync**: A built-in, controlled mechanism to synchronize the bot's database between different host machines (e.g., a laptop and a phone) using Git.
+---
 
-## 🚀 Setup and Installation
+## Installation & Setup Guide
 
-Follow these steps to get your own instance of Sulfur running.
+This guide will walk you through setting up the Sulfur bot from scratch. For stable, 24/7 operation, the **Termux / Linux** setup is highly recommended.
 
 ### Prerequisites
 
-- **Python 3.12+**
-- **Git**
-- **A MySQL-compatible database**:
-  - **Windows**: XAMPP is recommended as it provides MariaDB (a MySQL fork).
-  - **Termux/Linux**: MariaDB (`pkg install mariadb`).
+- **Git**: For cloning the repository.
+- **Python 3.11+**: The bot is built on Python.
+- **MySQL Server**: A database is required for storing all data.
+   - For **Windows**, it's recommended to use XAMPP.
+   - For **Termux/Linux**, you can install `mariadb`.
 
-### 1. Clone the Repository
+---
 
-```bash
-git clone <your-repository-url>
+### Step 1: Discord Bot Application Setup
+
+Before you can run the code, you need to create a bot application in Discord.
+
+1.  **Create the Application**:
+    -   Go to the Discord Developer Portal and click **"New Application"**.
+    -   Give your bot a name (e.g., "Sulfur") and agree to the terms.
+
+2.  **Configure the Bot**:
+    -   In the left-hand menu, go to the **"Bot"** tab.
+    -   Under the "Privileged Gateway Intents" section, **enable all three intents**:
+        -   `PRESENCE INTENT`
+        -   `SERVER MEMBERS INTENT`
+        -   `MESSAGE CONTENT INTENT`
+    -   Click **"Save Changes"**.
+
+3.  **Get Your Bot Token**:
+    -   At the top of the "Bot" page, click **"Reset Token"**.
+    -   Copy this token. You will need it in Step 3. **Do not share this token with anyone.**
+
+4.  **Invite the Bot to Your Server**:
+    -   In the left-hand menu, go to **"OAuth2" -> "URL Generator"**.
+    -   In the "Scopes" box, check `bot` and `applications.commands`.
+    -   In the "Bot Permissions" box that appears, check **`Administrator`**. This is the easiest way to ensure the bot has all the permissions it needs to function.
+    -   Copy the generated URL at the bottom of the page, paste it into your browser, and invite the bot to your server.
+
+---
+
+### Step 2: Get the Code
+
+Open your terminal or command prompt and clone the project.
+
+> **Note for Termux/Linux users:** It is highly recommended to set up an SSH key for GitHub first (see the Termux guide below) and use the SSH clone URL. For a quick setup on Windows, the HTTPS URL is fine.
+
+```sh
+# Use this for Windows (HTTPS)
+git clone https://github.com/mereMint/sulfur.git
+
+# Or use this for Termux/Linux after setting up SSH (recommended)
+# git clone git@github.com:mereMint/sulfur.git
+
 cd sulfur
 ```
 
-### 2. Install Dependencies
+### 2. Create the Environment File
 
-Install the required Python libraries using the `requirements.txt` file.
+The bot uses a `.env` file to store secret keys. Create a file named `.env` in the `c:\sulfur` directory and paste the following content into it.
 
-```bash
-pip install -r requirements.txt
+```env
+# This file stores your secret API keys.
+# DO NOT commit this file to your Git repository. Add it to your .gitignore file.
+DISCORD_BOT_TOKEN="YOUR_DISCORD_BOT_TOKEN_HERE"
+GEMINI_API_KEY="YOUR_GEMINI_API_KEY_HERE"
+OPENAI_API_KEY="YOUR_OPENAI_API_KEY_HERE"
 ```
 
-### 3. Database Setup
+- **`DISCORD_BOT_TOKEN`**: Get this from the "Bot" page on your Discord Developer Portal.
+- **`GEMINI_API_KEY`**: Get this from Google AI Studio.
+- **`OPENAI_API_KEY`**: Get this from your OpenAI Dashboard.
 
-The bot needs a database and a dedicated user to access it.
+### 3. Set up the Database
 
-1.  Start your MySQL/MariaDB server.
-2.  Connect to the database shell (e.g., using `mysql -u root -p` or the XAMPP shell).
-3.  Run the following SQL commands:
+You need to create a database and a dedicated user for the bot.
 
-    ```sql
-    CREATE DATABASE sulfur_bot;
-    CREATE USER 'sulfur_bot_user'@'localhost' IDENTIFIED BY ''; -- No password for local use
-    GRANT ALL PRIVILEGES ON sulfur_bot.* TO 'sulfur_bot_user'@'localhost';
-    FLUSH PRIVILEGES;
-    EXIT;
-    ```
+1.  Access your MySQL server.
+2.  Run the following SQL commands:
 
-### 4. Configuration
+```sql
+-- Create the database
+CREATE DATABASE sulfur_bot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
-The bot is configured through environment variables set in the startup scripts (`start_bot.sh` and `start_bot.ps1`).
+-- Create a user for the bot
+CREATE USER 'sulfur_bot_user'@'localhost' IDENTIFIED BY ''; -- No password for local use
 
-1.  **API Keys**: Open `start_bot.sh` (for Termux/Linux) or `start_bot.ps1` (for Windows) and fill in your API keys:
-    - `DISCORD_BOT_TOKEN`: Your bot's token from the Discord Developer Portal.
-    - `GEMINI_API_KEY`: Your Google AI Studio API key.
-    - `OPENAI_API_KEY`: Your OpenAI API key.
+-- Grant the user all privileges on the new database
+GRANT ALL PRIVILEGES ON sulfur_bot.* TO 'sulfur_bot_user'@'localhost';
 
-2.  **`config.json`**: This file controls the bot's behavior, personality, and features. Review and customize the settings as needed. For example, you can change the AI provider from `openai` to `gemini`.
-
-3.  **Windows Path (if using XAMPP)**: In `start_bot.ps1`, ensure the `$mysqldumpPath` and `$mysqlPath` variables point to the correct location within your XAMPP installation directory.
-
-### 5. Running the Bot
-
-The bot includes startup scripts for easy execution and maintenance scripts for automatic updates.
-
-#### On Windows (PowerShell)
-
-- **To run directly**:
-  ```powershell
-  .\start_bot.ps1
-  ```
-- **For automatic updates**:
-  ```powershell
-  .\maintain_bot.ps1
-  ```
-
-#### On Termux / Linux
-
-First, make the scripts executable:
-```bash
-chmod +x ./start_bot.sh
-chmod +x ./maintain_bot.sh
+-- Apply the changes
+FLUSH PRIVILEGES;
 ```
 
-- **To run directly**:
-  ```bash
-  ./start_bot.sh
-  ```
-- **For automatic updates (recommended)**: Run inside a `tmux` session to keep it active in the background.
-  ```bash
-  # Start a new session named 'sulfur'
-  tmux new -s sulfur
+The bot will automatically create the necessary tables when it starts for the first time.
 
-  # Run the maintenance script inside the session
-  ./maintain_bot.sh
+### 4. Run the Bot
 
-  # Detach from the session by pressing CTRL+B, then D
-  ```
+The startup scripts will automatically install Python dependencies and start the bot.
 
-## 🗃️ Database Synchronization
+#### On Windows:
 
-The bot supports a manual, one-way database synchronization process between devices. This is useful for transferring your bot's data from your phone to your laptop, or vice-versa.
+Open PowerShell, navigate to the `c:\sulfur` directory, and run the maintenance script.
 
-**Workflow to sync from Device A to Device B:**
+```powershell
+.\maintain_bot.ps1
+```
 
-1.  **On Device A (Source):**
-    - Stop the bot. This will automatically trigger an export of the current database state to a file named `database_sync.sql`.
-    - Commit and push this file to your Git repository:
-      ```bash
-      git add database_sync.sql
-      git commit -m "Sync database from Device A"
-      git push
-      ```
+#### On Termux / Linux:
 
-2.  **On Device B (Destination):**
-    - Start the bot using `start_bot.sh` or `start_bot.ps1`.
-    - The script will automatically pull the latest changes. It will detect the updated `database_sync.sql` file and import its contents, overwriting the local database with the state from Device A.
+First, make the scripts executable. Then, run the maintenance script.
 
-> **⚠️ Warning:** This is a destructive, one-way sync. The database on the destination device will be completely replaced. Always be sure of the direction you want to sync. The `database_sync.sql` file is a text-based SQL dump and is safe for Git, but can become large.
+```sh
+chmod +x maintain_bot.sh start_bot.sh
+./maintain_bot.sh
+```
 
-## 🛠️ Usage
+The `maintain_bot` script acts as a watcher that will automatically restart the bot to apply updates from your Git repository.
 
-Interact with the bot using its slash commands. Here are a few key commands to get started:
+---
 
-- `/profile`: View your user profile.
-- `/rank`: Check your server rank and level progress.
-- `/spotify`: See your personal Spotify listening stats.
-- `/ww start`: Start a new game of Werwolf.
-- `/voice setup`: (Admin) Set up the "Join to Create" voice channel.
-- **Chat**: Mention the bot (`@Sulfur`) in a channel or send it a DM to start a conversation.
+## Configuration
+
+Most of the bot's behavior can be customized by editing the `config.json` file. For a detailed explanation of every setting, please refer to the **CONFIG_DOCUMENTATION.md** file.

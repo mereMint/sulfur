@@ -5,6 +5,10 @@
 # 1. Make it executable: chmod +x ./start_bot.sh
 # 2. Run the script with: ./start_bot.sh
 
+# --- FIX: Set the working directory to the script's location ---
+# This ensures that relative paths for files like .env and bot.py work correctly.
+cd "$(dirname "$0")"
+
 # --- NEW: Setup Logging ---
 LOG_DIR="logs"
 if [ ! -d "$LOG_DIR" ]; then
@@ -42,6 +46,11 @@ NEW_HEAD=$(git rev-parse HEAD)
 echo "  -> Re-applying stashed local changes..."
 git stash pop > /dev/null 2>&1
 echo "Update check complete."
+
+# --- NEW: Install/update Python dependencies ---
+echo "Installing/updating Python dependencies from requirements.txt..."
+python3 -m pip install -r requirements.txt
+echo "Dependencies are up to date."
 
 # --- NEW: Check if the sync file was updated and import it ---
 if [ "$OLD_HEAD" != "$NEW_HEAD" ] && git diff --name-only "$OLD_HEAD" "$NEW_HEAD" | grep -q "$SYNC_FILE"; then
@@ -91,3 +100,12 @@ echo "Starting the bot... (Press CTRL+C to stop)"
 # This sends all output (stdout and stderr) from the Python script to the tee command,
 # which then writes it to both the console (the tmux pane) and the log file.
 python3 -u ./bot.py 2>&1 | tee -a "$LOG_FILE"
+
+# --- NEW: Pause on error to allow copying logs ---
+exit_code=${PIPESTATUS[0]} # Get the exit code of the python script, not tee
+if [ $exit_code -ne 0 ]; then
+    echo "--------------------------------------------------------"
+    echo "The bot process exited with an error (Exit Code: $exit_code)."
+    echo "The script is paused. Press Enter to close this window."
+    read
+fi

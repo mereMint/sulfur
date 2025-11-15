@@ -16,6 +16,10 @@ if discord.__version__.split('.')[0] < '2':
     print("Please update it by running: pip install -U discord.py")
     exit()
 
+# --- NEW: Load environment variables from .env file ---
+from dotenv import load_dotenv
+load_dotenv()
+
 from discord import app_commands
 from discord.ext import tasks
 from werwolf import WerwolfGame, FakeUser
@@ -23,11 +27,12 @@ from api_helpers import get_chat_response, get_relationship_summary_from_api, ge
 
 # --- CONFIGURATION ---
 
+
 # !! WARNING: This is the "easy" way, NOT the "safe" way. !!
 # !! DO NOT SHARE THIS FILE WITH YOUR KEYS IN IT. !!
 
 # 1. SET these as environment variables
-DISCORD_BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
+DISCORD_BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "").strip().strip('"').strip("'")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
@@ -38,9 +43,19 @@ DB_USER = os.environ.get("DB_USER", "sulfur_bot_user")
 DB_PASS = os.environ.get("DB_PASS", "") # No password is set for this user
 DB_NAME = os.environ.get("DB_NAME", "sulfur_bot")
 
+# --- REFACTORED: Add a more robust token check with diagnostics ---
 if not DISCORD_BOT_TOKEN:
     print("Error: DISCORD_BOT_TOKEN environment variable is not set.")
-    print("Please set it before running the bot.")
+    print("Please ensure your '.env' file exists in the same directory as the bot and contains the line:")
+    print('DISCORD_BOT_TOKEN="YOUR_BOT_TOKEN_HERE"')
+    exit()
+
+# --- NEW: Diagnostic check to ensure the token looks valid ---
+token_parts = DISCORD_BOT_TOKEN.split('.')
+if len(token_parts) != 3:
+    print("Error: The DISCORD_BOT_TOKEN appears to be malformed.")
+    print(f"  -> Sanitized Token Preview: {DISCORD_BOT_TOKEN[:5]}...{DISCORD_BOT_TOKEN[-5:]}")
+    print("A valid token should have three parts separated by dots. Please get a new token from the Discord Developer Portal.")
     exit()
 
 # --- REFACTORED: Check for API keys based on provider ---
@@ -72,6 +87,16 @@ def load_config():
         print("FATAL: 'config.json' is malformed. Please check the JSON syntax.")
         exit()
 
+def save_config(new_config):
+    """Saves the provided configuration dictionary back to config.json."""
+    # We don't want to save the full system prompt back into the file
+    config_to_save = new_config.copy()
+    if 'bot' in config_to_save and 'system_prompt' in config_to_save['bot']:
+        del config_to_save['bot']['system_prompt']
+        
+    with open("config.json", "w", encoding="utf-8") as f:
+        json.dump(config_to_save, f, indent=2)
+
 config = load_config()
 
 # --- REFACTORED: Validate API keys after loading config ---
@@ -99,10 +124,10 @@ tree = app_commands.CommandTree(client)
 active_werwolf_games = {}
 
 # --- NEW: Import and initialize DB helpers ---
-from db_helpers import init_db_pool, initialize_database, get_leaderboard, add_xp, get_player_rank, get_level_leaderboard, save_message_to_history, get_chat_history, get_relationship_summary, update_relationship_summary, save_bulk_history, clear_channel_history, update_user_presence, add_balance, update_spotify_history, get_all_managed_channels, remove_managed_channel, get_managed_channel_config, update_managed_channel_config, log_message_stat, log_vc_minutes, get_wrapped_stats_for_period, get_user_wrapped_stats, log_stat_increment, get_spotify_history, get_player_profile, cleanup_custom_status_entries, log_mention_reply, log_vc_session, get_wrapped_extra_stats, get_gemini_usage, increment_gemini_usage
+from db_helpers import init_db_pool, initialize_database, get_leaderboard, add_xp, get_player_rank, get_level_leaderboard, save_message_to_history, get_chat_history, get_relationship_summary, update_relationship_summary, save_bulk_history, clear_channel_history, update_user_presence, add_balance, update_spotify_history, get_all_managed_channels, remove_managed_channel, get_managed_channel_config, update_managed_channel_config, log_message_stat, log_vc_minutes, get_wrapped_stats_for_period, get_user_wrapped_stats, log_stat_increment, get_spotify_history, get_player_profile, cleanup_custom_status_entries, log_mention_reply, log_vc_session, get_wrapped_extra_stats, get_gemini_usage, increment_gemini_usage, get_xp_for_level
 import db_helpers
 db_helpers.init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
-from level_system import grant_xp, get_xp_for_level
+from level_system import grant_xp
 # --- NEW: Import Voice Manager ---
 import voice_manager
 # --- NEW: Import Economy ---
@@ -120,11 +145,13 @@ async def get_current_provider(config_obj):
     If the Gemini daily limit is reached, it will switch to 'openai' for the rest of the day.
     """
     provider = config_obj['api']['provider']
-    if provider != 'gemini':
-        return provider # If it's not configured to use Gemini, do nothing.
-
-    usage = await db_helpers.get_gemini_usage()
-    return 'openai' if usage >= GEMINI_DAILY_LIMIT else 'gemini'
+    # --- FIX: Only check Gemini usage if the provider is set to 'gemini' ---
+    if provider == 'gemini':
+        usage = await db_helpers.get_gemini_usage()
+        # If the limit is reached, switch to openai for this call.
+        return 'openai' if usage >= GEMINI_DAILY_LIMIT else 'gemini'
+    # If the provider is 'openai' or anything else, just use that.
+    return provider
 
 # --- NEW: In-memory cache to prevent duplicate Spotify logging ---
 last_spotify_log = {}
@@ -1021,14 +1048,15 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
     summary_embed.set_footer(text="Nächstes Mal gibst du dir mehr Mühe, ja? :erm:")
     pages.append(summary_embed)
 
+    # --- FIX: Make exception handling more specific to DM failures ---
+    # The API call now has its own robust error handling, so we only need to catch
+    # errors related to sending the message to the user.
+    view = WrappedView(pages, user)
     try:
-        view = WrappedView(pages, user)
         await view.send_initial_message()
         print(f"  - [Wrapped] Successfully sent DM to {user.name}.")
-    except discord.Forbidden:
-        print(f"  - [Wrapped] FAILED to DM {user.name} (DMs likely closed).")
-    except Exception as e:
-        print(f"  - [Wrapped] An unexpected error occurred while sending to {user.name}: {e}")
+    except (discord.Forbidden, discord.HTTPException) as e:
+        print(f"  - [Wrapped] FAILED to DM {user.name} (DMs likely closed or another Discord error occurred): {e}")
 
 def _get_percentile_rank(user_id, rank_map, total_users):
     """Helper function to calculate a user's percentile rank from a sorted list."""
@@ -1500,22 +1528,32 @@ class AdminGroup(app_commands.Group):
 
         # Determine status and color
         if current_provider == 'gemini':
+            model_in_use = config['api']['gemini']['model']
             status_text = "Aktiv"
             embed_color = discord.Color.green()
         else:
-            status_text = "Fallback (Limit erreicht)"
+            model_in_use = config['api']['openai']['chat_model']
+            # Check if this is a fallback or the primary choice
+            if config['api']['provider'] == 'gemini':
+                status_text = "Fallback (Limit erreicht)"
+            else:
+                status_text = "Aktiv"
             embed_color = discord.Color.red()
 
         embed = discord.Embed(
             title="🤖 AI API Dashboard",
             description="Status des aktuell genutzten Sprachmodells.",
-            color=embed_color
+            color=get_embed_color(config)
         )
-        embed.add_field(name="Aktiver Provider", value=f"**`{current_provider.capitalize()}`**", inline=True)
-        embed.add_field(name="Status", value=status_text, inline=True)
+        embed.add_field(name="Aktiver Provider", value=f"**`{current_provider.capitalize()}`**", inline=False)
+        embed.add_field(name="Aktives Modell", value=f"`{model_in_use}`", inline=True)
+        embed.add_field(name="Provider-Status", value=status_text, inline=True)
         embed.add_field(name=f"Gemini-Nutzung (Heute)", value=f"`{gemini_usage} / {GEMINI_DAILY_LIMIT}` Aufrufe\n`{progress_bar}`", inline=False)
         embed.set_footer(text="Der Zähler wird täglich um 00:00 UTC zurückgesetzt.")
-        await interaction.followup.send(embed=embed)
+        
+        # --- NEW: Add a view with a model selector ---
+        view = AIDashboardView()
+        await interaction.followup.send(embed=embed, view=view)
 
     @app_commands.command(name="status", description="Zeigt den Uptime- und Versionsstatus des Bots an.")
     async def status(self, interaction: discord.Interaction):
@@ -1571,6 +1609,600 @@ class AdminGroup(app_commands.Group):
         embed.set_footer(text=f"Gestartet am: {BOT_START_TIME.strftime('%Y-%m-%d %H:%M:%S UTC')}")
 
         await interaction.followup.send(embed=embed)
+
+
+# --- NEW: View for the AI Dashboard ---
+class AIDashboardView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None) # Persistent view
+
+    async def _update_dashboard(self, interaction: discord.Interaction):
+        """Helper function to regenerate and edit the dashboard message."""
+        # This is a simplified version of the ai_dashboard command's logic
+        # It's necessary to regenerate the embed after a change.
+        # We create a temporary AdminGroup instance to call the method.
+        temp_admin_group = AdminGroup()
+        await temp_admin_group.ai_dashboard(interaction)
+
+    @discord.ui.select(
+        placeholder="Wähle ein neues KI-Modell...",
+        options=[
+            discord.SelectOption(label="Gemini 2.5 Flash (Schnell & Modern)", value="gemini:gemini-2.5-flash", emoji="⚡"),
+            discord.SelectOption(label="Gemini 1.0 Pro (Stabil)", value="gemini:gemini-1.0-pro", emoji="💎"),
+            discord.SelectOption(label="OpenAI GPT-4o Mini (Schnell)", value="openai:gpt-4o-mini", emoji="🚀"),
+            discord.SelectOption(label="OpenAI GPT-4o (Leistungsstark)", value="openai:gpt-4o", emoji="🧠"),
+        ]
+    )
+    async def model_select_callback(self, interaction: discord.Interaction, select: discord.ui.Select):
+        """Handles the model selection."""
+        # Defer the response to prevent "interaction failed"
+        await interaction.response.defer()
+
+        global config
+        provider, model_name = select.values[0].split(':')
+
+        if provider == 'gemini':
+            config['api']['gemini']['model'] = model_name
+            config['api']['provider'] = 'gemini' # Switch active provider to Gemini
+        elif provider == 'openai':
+            config['api']['openai']['chat_model'] = model_name
+            config['api']['provider'] = 'openai' # Switch active provider to OpenAI
+
+        # Save the changes to the config.json file
+        save_config(config)
+        
+        # Reload the config in memory to be safe
+        config = load_config()
+
+        # Create a new embed with the updated info and edit the original message
+        # We can reuse the logic from the ai_dashboard command itself.
+        # To do this, we create a temporary instance of the AdminGroup and call the method.
+        # This is a bit of a workaround but keeps the embed logic in one place.
+        temp_admin_group = AdminGroup()
+        # We need to "re-call" the command logic to generate the new embed.
+        # The original interaction object is used to edit the existing message.
+        await temp_admin_group.ai_dashboard(interaction)
+
+@tree.command(name="summary", description="Zeigt Sulfurs Meinung über einen Benutzer an.")
+@app_commands.describe(user="Der Benutzer, dessen Zusammenfassung du sehen möchtest (optional).")
+async def summary(interaction: discord.Interaction, user: discord.Member = None):
+    """Displays the bot's relationship summary for a user."""
+    target_user = user or interaction.user
+    await interaction.response.defer(ephemeral=True)
+
+    summary_text = await db_helpers.get_relationship_summary(target_user.id)
+
+    if not summary_text:
+        await interaction.followup.send(f"Ich hab mir über {target_user.display_name} noch keine richtige Meinung gebildet. Wir sollten mehr quatschen.")
+        return
+
+    embed = discord.Embed(
+        title=f"Meine Meinung zu {target_user.display_name}", 
+        description=f"_{summary_text}_",
+        color=get_embed_color(config)
+    )
+    await interaction.followup.send(embed=embed)
+
+@tree.command(name="rank", description="Überprüfe deinen oder den Rang eines anderen Benutzers.")
+@app_commands.describe(user="Der Benutzer, dessen Rang du sehen möchtest (optional).")
+async def rank(interaction: discord.Interaction, user: discord.Member = None):
+    """Displays the level and rank of a user."""
+    target_user = user or interaction.user
+    await interaction.response.defer()
+
+    player_stats, error = await db_helpers.get_player_rank(target_user.id)
+
+    if error:
+        await interaction.followup.send(error, ephemeral=True)
+        return
+
+    if not player_stats:
+        await interaction.followup.send(f"{target_user.display_name} hat noch keine Nachrichten geschrieben und daher keinen Rang.", ephemeral=True)
+        return
+
+    level = player_stats['level'] or 1
+    xp = player_stats['xp']
+    rank = player_stats['rank']
+    xp_for_next_level = get_xp_for_level(level)
+    wins = player_stats.get('wins', 0)
+    losses = player_stats.get('losses', 0)
+    
+    # Create a progress bar
+    progress = int((xp / xp_for_next_level) * 20) # 20 characters for the bar
+    progress_bar = '█' * progress + '░' * (20 - progress)
+
+    embed = discord.Embed(color=get_embed_color(config))
+    embed.set_author(name=f"Rang von {target_user.display_name}", icon_url=target_user.display_avatar.url) 
+    embed.add_field(name="Level", value=f"```{level}```", inline=True) 
+    embed.add_field(name="Global Rang", value=f"```#{rank}```", inline=True) 
+    embed.add_field(name="Fortschritt", value=f"`{xp} / {xp_for_next_level} XP`\n`{progress_bar}`", inline=False) 
+
+    await interaction.followup.send(embed=embed)
+
+@tree.command(name="profile", description="Zeigt dein Profil oder das eines anderen Benutzers an.")
+@app_commands.describe(user="Der Benutzer, dessen Profil du sehen möchtest (optional).")
+async def profile(interaction: discord.Interaction, user: discord.Member = None):
+    """Displays a user's profile with various stats."""
+    target_user = user or interaction.user
+    await interaction.response.defer()
+
+    profile_data, error = await db_helpers.get_player_profile(target_user.id)
+
+    if error:
+        await interaction.followup.send(error, ephemeral=True)
+        return
+
+    if not profile_data:
+        await interaction.followup.send(f"{target_user.display_name} hat noch keine Aktivitäten gezeigt und daher kein Profil.", ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title=f"Profil von {target_user.display_name}",
+        color=get_embed_color(config)
+    )
+    embed.set_thumbnail(url=target_user.display_avatar.url)
+
+    # Leveling and Economy
+    embed.add_field(name="Level", value=f"**{profile_data.get('level', 1)}**", inline=True)
+    embed.add_field(name="Guthaben", value=f"**{profile_data.get('balance', 0)}** 🪙", inline=True)
+    embed.add_field(name="Globaler Rang", value=f"**#{profile_data.get('rank', 'N/A')}**", inline=True)
+
+    # Werwolf Stats
+    wins = profile_data.get('wins', 0)
+    losses = profile_data.get('losses', 0)
+    total_games = wins + losses
+    win_rate = (wins / total_games * 100) if total_games > 0 else 0
+    embed.add_field(
+        name="🐺 Werwolf Stats",
+        value=f"Siege: `{wins}`\nNiederlagen: `{losses}`\nWin-Rate: `{win_rate:.1f}%`",
+        inline=False
+    )
+
+    # Placeholder for items
+    embed.add_field(name="🎒 Inventar", value="*Keine Items im Inventar.*", inline=False)
+
+    await interaction.followup.send(embed=embed)
+
+@tree.command(name="leaderboard", description="Zeigt das globale Level-Leaderboard an.")
+async def leaderboard(interaction: discord.Interaction):
+    """Displays the global level leaderboard."""
+    await interaction.response.defer()
+
+    leaderboard_data, error = await db_helpers.get_level_leaderboard()
+
+    if error:
+        await interaction.followup.send(error, ephemeral=True)
+        return
+
+    if not leaderboard_data:
+        await interaction.followup.send("Noch niemand hat XP gesammelt. Schreibt ein paar Nachrichten!", ephemeral=True)
+        return
+
+    embed = discord.Embed(title="🏆 Globales Leaderboard 🏆", description="Die aktivsten Mitglieder", color=get_embed_color(config))
+    
+    leaderboard_text = ""
+    for i, player in enumerate(leaderboard_data):
+        leaderboard_text += f"**{i + 1}. {player['display_name']}** - Level {player['level']} ({player['xp']} XP)\n"
+
+    embed.add_field(name="Top 10", value=leaderboard_text, inline=False)
+    await interaction.followup.send(embed=embed)
+
+@tree.command(name="spotify", description="Zeigt deine Spotify-Statistiken an.")
+@app_commands.describe(user="Der Benutzer, dessen Statistiken du sehen möchtest (optional).")
+async def spotify_stats(interaction: discord.Interaction, user: discord.Member = None):
+    """Displays a user's Spotify listening stats."""
+    target_user = user or interaction.user
+    print(f"--- /spotify command triggered for {target_user.display_name} (ID: {target_user.id}) ---")
+    await interaction.response.defer()
+
+    # --- FIX: The spotify history is in the 'players' table, not user_monthly_stats ---
+    history = await db_helpers.get_spotify_history(target_user.id)
+    print(f"  -> Fetched history from DB: {history}")
+
+    if not history:
+        print("  -> No history found, sending 'cringe' message.")
+        await interaction.followup.send(f"{target_user.display_name} hat noch keine Spotify-Daten oder hört keine Musik. Cringe.", ephemeral=True)
+        return
+
+    # --- NEW: Get total listening time for the month ---
+    stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+    user_stats = await db_helpers.get_user_wrapped_stats(target_user.id, stat_period)
+    total_minutes = 0
+
+    # Calculate top songs and artists
+    from collections import Counter
+    song_counts = Counter(history)
+    artist_counts = Counter()
+
+    embed = discord.Embed(
+        title=f"Spotify Stats für {target_user.display_name}",
+        color=discord.Color.green()
+    )
+    embed.set_thumbnail(url=target_user.display_avatar.url)
+
+    # Current song
+    current_spotify = next((activity for activity in target_user.activities if isinstance(activity, discord.Spotify)), None)
+    if current_spotify:
+        # --- NEW: Add album art ---
+        if current_spotify.album_cover_url:
+            embed.set_thumbnail(url=current_spotify.album_cover_url)
+        else:
+            embed.set_thumbnail(url=target_user.display_avatar.url)
+
+        embed.add_field(
+            name="🎶 Aktueller Song",
+            value=f"**{current_spotify.title}**\nvon {current_spotify.artist}",
+            inline=False
+        )
+
+    # Top 5 Songs
+    top_songs_text = ""
+    # --- FIX: Update to work with new {song: count} data structure ---
+    for i, (song_key, count) in enumerate(song_counts.most_common(5)):
+        top_songs_text += f"**{i+1}.** {song_key} (`{count}x`)\n"
+        # Also populate artist_counts from the song key
+        try:
+            artist = song_key.split(' by ')[1]
+            artist_counts[artist] += count
+        except IndexError:
+            pass # Ignore if the key is malformed
+    if top_songs_text:
+        embed.add_field(name="Top 5 Songs (All-Time)", value=top_songs_text, inline=False)
+
+    # Top 5 Artists
+    top_artists_text = ""
+    if top_artists_text:
+        embed.add_field(name="Top 5 Künstler (letzte 10)", value=top_artists_text, inline=False)
+
+    # --- NEW: Add total listening time ---
+    if user_stats and user_stats.get('spotify_minutes'):
+        spotify_minutes_data = json.loads(user_stats['spotify_minutes'])
+        total_minutes = sum(spotify_minutes_data.values())
+        embed.add_field(name="Hörzeit diesen Monat", value=f"Du hast diesen Monat insgesamt **{total_minutes:.0f} Minuten** Musik gehört.", inline=False)
+
+
+    # Footer
+    embed.set_footer(text=f"Insgesamt {len(song_counts)} einzigartige Songs getrackt.")
+
+    await interaction.followup.send(embed=embed)
+
+
+
+
+
+@tree.command(name="stats", description="Zeigt die Werwolf-Statistiken und das Leaderboard an.")
+async def stats(interaction: discord.Interaction):
+    """Displays the Werwolf leaderboard."""
+    await interaction.response.defer()
+
+    leaderboard, error = await db_helpers.get_leaderboard()
+
+    if error:
+        await interaction.followup.send(error, ephemeral=True)
+        return
+
+    if not leaderboard:
+        await interaction.followup.send("Es gibt noch keine Statistiken. Spielt erst mal eine Runde!", ephemeral=True)
+        return
+
+    embed = discord.Embed(title="🐺 Werwolf Leaderboard 🐺", description="Die Top-Spieler mit den meisten Siegen.", color=get_embed_color(config))
+
+    leaderboard_text = ""
+    for i, player in enumerate(leaderboard):
+        rank = i + 1
+        win_loss_ratio = player['wins'] / (player['wins'] + player['losses']) if (player['wins'] + player['losses']) > 0 else 0
+        leaderboard_text += f"**{rank}. {player['display_name']}**\n"
+        leaderboard_text += f"   Wins: `{player['wins']}` | Losses: `{player['losses']}` | W/L Ratio: `{win_loss_ratio:.2f}`\n"
+
+    embed.add_field(name="Rangliste", value=leaderboard_text, inline=False)
+    embed.set_footer(text="Wer hier nicht oben steht, ist ein Noob :xdx:")
+    await interaction.followup.send(embed=embed)
+
+@ww_group.command(name="start", description="Startet ein neues Werwolf-Spiel.")
+@app_commands.describe(
+    ziel_spieler="Die Ziel-Spieleranzahl. Bots füllen auf, wenn angegeben."
+)
+async def ww_start(interaction: discord.Interaction, ziel_spieler: int = None):
+    """Handles the start of a Werwolf game."""
+    channel_id = interaction.channel.id
+    game = active_werwolf_games.get(channel_id)
+    author = interaction.user
+
+    if game:
+        await interaction.response.send_message("In diesem Channel wurde bereits ein Spiel gestartet. Schau in die Kategorie '🐺 WERWOLF SPIEL 🐺'.", ephemeral=True)
+        return
+    
+    await interaction.response.defer() # Defer while we create channels
+
+    original_channel = interaction.channel # Store the channel where the command was used
+    # --- NEW: Create dedicated category and channels ---
+    try:
+        guild = interaction.guild
+        # Create a category for the game
+        category = await guild.create_category(config['modules']['werwolf']['game_category_name'])
+
+        # --- NEW: Set permissions to make the channel read-only for players ---
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(send_messages=False, read_messages=True),
+            client.user: discord.PermissionOverwrite(send_messages=True) # Ensure the bot can write
+        }
+        # Create the text and voice channels inside the category
+        game_text_channel = await category.create_text_channel("🐺-werwolf-chat", overwrites=overwrites)
+        lobby_vc = await category.create_voice_channel(name="🐺 Werwolf Lobby", reason="Neues Werwolf-Spiel")
+    except Exception as e:
+        await interaction.followup.send(f"Konnte die Spiel-Channels nicht erstellen. Berechtigungen prüfen? Fehler: {e}", ephemeral=True)
+        return
+
+    game = WerwolfGame(game_text_channel, author, original_channel)
+    game.lobby_vc = lobby_vc
+    game.category = category
+    game.join_message = None # Initialize join_message attribute
+
+    active_werwolf_games[game_text_channel.id] = game
+    # Send the ephemeral message to the command user
+    await interaction.followup.send(f"Ein Werwolf-Spiel wurde in der Kategorie **{category.name}** erstellt! Schau in den Channel {game_text_channel.mention}.", ephemeral=True)
+    # Send the public join message and store it for later deletion
+    embed = discord.Embed(
+        title="🐺 Ein neues Werwolf-Spiel wurde gestartet! 🐺",
+        description=f"Tretet dem Voice-Channel **`{lobby_vc.name}`** bei, um mitzuspielen!",
+        color=get_embed_color(config)
+    )
+    embed.add_field(name="Automatischer Start", value="Das Spiel startet in **15 Sekunden**.")
+    embed.add_field(name="Spieler (1)", value=author.display_name, inline=False)
+    embed.set_footer(text="Wer nicht beitritt, ist ein Werwolf!")
+    
+    # Create the view and send the initial message
+    join_duration = config['modules']['werwolf']['join_phase_duration_seconds']
+    view = WerwolfJoinView(game, join_duration)
+    join_message = await game_text_channel.send(embed=embed, view=view)
+    game.join_message = join_message
+
+    # Start the countdown and wait for either the timer to finish or the button to be pressed
+    countdown_task = asyncio.create_task(view.run_countdown())
+    try:
+        await asyncio.wait_for(view.start_now_event.wait(), timeout=join_duration)
+    except asyncio.TimeoutError:
+        pass # Timer finished normally
+    finally:
+        countdown_task.cancel()
+
+    if game_text_channel.id not in active_werwolf_games:
+        return # Game was cancelled
+
+    # --- FIX: Check if anyone OTHER than the starter joined ---
+    # If only the starter is in the game, cancel it and clean up.
+    if len(game.players) <= 1:
+        await game.game_channel.send("Niemand ist beigetreten. Das Spiel wird abgebrochen und die Channels werden aufgeräumt.")
+        await game.end_game(None) # End game without a winner
+        del active_werwolf_games[game_text_channel.id]
+        return
+
+    # Automatically start the game
+    # Bot filling logic is now handled inside start_game
+    error_message = await game.start_game(config, GEMINI_API_KEY, OPENAI_API_KEY, db_helpers, ziel_spieler)
+    if error_message:
+        await game.game_channel.send(error_message)
+        del active_werwolf_games[game_text_channel.id]
+        await game.lobby_vc.delete(reason="Fehler beim Spielstart")
+
+# --- NEW: Add the voice command group to the tree ---
+tree.add_command(voice_group)
+
+# --- NEW: Add the admin command group to the tree ---
+tree.add_command(AdminGroup(name="admin"))
+
+class WerwolfJoinView(discord.ui.View):
+    """A view for the Werwolf join phase, including a start button and countdown."""
+    def __init__(self, game, duration):
+        super().__init__(timeout=duration + 5) # Timeout slightly longer than the join phase
+        self.game = game
+        self.duration = duration
+        self.start_now_event = asyncio.Event()
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        # Only the game starter can press the "Start Now" button
+        if interaction.data['custom_id'] == 'ww_start_now':
+            if interaction.user.id != self.game.starter.id:
+                await interaction.response.send_message("Nur der Ersteller des Spiels kann das Spiel sofort starten.", ephemeral=True)
+                return False
+        return True
+
+    @discord.ui.button(label="Sofort starten", style=discord.ButtonStyle.success, custom_id="ww_start_now")
+    async def start_now(self, interaction: discord.Interaction, button: discord.ui.Button):
+        button.disabled = True
+        button.label = "Spiel startet..."
+        await interaction.response.edit_message(view=self)
+        self.start_now_event.set() # Signal the main task to stop waiting
+
+    async def run_countdown(self):
+        """Updates the join embed with a countdown timer."""
+        while self.duration > 0:
+            embed = self.game.join_message.embeds[0]
+            embed.set_field_at(0, name="Automatischer Start", value=f"Das Spiel startet in **{self.duration} Sekunden**.")
+            try:
+                await self.game.join_message.edit(embed=embed)
+            except discord.NotFound:
+                return # Message was deleted, stop countdown
+            
+            await asyncio.sleep(min(5, self.duration)) # Update every 5 seconds or less
+            self.duration -= 5
+
+@client.event
+async def on_message(message):
+    """Fires on every message in any channel the bot can see."""
+    
+    # 1. Don't reply to yourself, bot!
+    if message.author == client.user:
+        return
+
+    # --- NEW: Werwolf DM Action Handler ---
+    if isinstance(message.channel, discord.DMChannel):
+        # Find which game the user is in
+        player_game = None
+        author_player = None
+        for game in active_werwolf_games.values():
+            if message.author.id in game.players:
+                player_game = game
+                author_player = game.players[message.author.id]
+                break
+
+        if player_game and player_game.phase == "night" and author_player.is_alive:
+            # Parse the command from the DM
+            parts = message.content.lower().split()
+            command = parts[0]
+            
+            # Commands without arguments
+            if command == "heal":
+                error_message = await player_game.handle_night_action(author_player, "heal", None, config, GEMINI_API_KEY, OPENAI_API_KEY)
+                await message.author.send(error_message or "Deine Aktion (Heilen) wurde registriert.")
+                return # Stop further processing
+
+            # Commands with arguments
+            if len(parts) > 1:
+                target_name = " ".join(parts[1:])
+                target_player = player_game.get_player_by_name(target_name) # This now also accepts IDs
+
+                if not target_player:
+                    await message.author.send(f"Ich konnte den Spieler '{target_name}' nicht finden. Achte auf die genaue Schreibweise.")
+                    return
+
+                if command in ["kill", "see", "poison", "mute"]:
+                    error_message = await player_game.handle_night_action(author_player, command, target_player, config, GEMINI_API_KEY, OPENAI_API_KEY)
+                    # Specific confirmations are sent from handle_night_action, so we only send errors here.
+                    if error_message:
+                        await message.author.send(error_message)
+                    return
+
+    # --- NEW: Ignore messages in Werwolf channels to not trigger chatbot ---
+    if message.channel.id in active_werwolf_games:
+        game = active_werwolf_games.get(message.channel.id)
+        # Ignore messages in the main game channel if game is running
+        if game and game.phase != "joining":
+             # Also ignore messages in the private wolf thread
+            if game.werwolf_thread and message.channel.id == game.werwolf_thread.id:
+                return
+
+    # --- NEW: Leveling System ---
+    # Grant XP for regular messages, but not for commands or in DMs
+    if not message.content.startswith('/') and isinstance(message.channel, discord.TextChannel):
+        stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+
+        # --- NEW: Log stats for Wrapped ---
+        # Find custom emojis in the message
+        custom_emojis = re.findall(r'<a?:(\w+):\d+>', message.content)
+        await db_helpers.log_message_stat(message.author.id, message.channel.id, custom_emojis, stat_period)
+        # --- NEW: Log mentions and replies for Server Bestie ---
+        mentioned_id = message.mentions[0].id if message.mentions and not message.mentions[0].bot else None
+        replied_id = None
+        if message.reference and isinstance(message.reference.resolved, discord.Message):
+            # Don't count replies to the bot itself
+            if message.reference.resolved.author.id != client.user.id:
+                replied_id = message.reference.resolved.author.id
+        
+        # Also log the timestamp for Prime Time calculation
+        await db_helpers.log_mention_reply(message.author.id, message.guild.id, mentioned_id, replied_id, message.created_at)
+
+
+        # Grant XP
+        new_level = await grant_xp(message.author.id, message.author.display_name, db_helpers.add_xp, config)
+        if new_level:
+            # --- NEW: Grant economy bonus on level up ---
+            bonus = calculate_level_up_bonus(new_level, config)
+            await db_helpers.add_balance(message.author.id, message.author.display_name, bonus, config, stat_period)
+            try:
+                # --- FIX: Send level-up message as a DM ---
+                await message.author.send(f"GG! Du bist durch das Schreiben von Nachrichten jetzt Level **{new_level}**! :YESS:\n"
+                                          f"Du erhältst **{bonus}** Währung als Belohnung!")
+            except discord.Forbidden:
+                print(f"Could not send level up DM to {message.author.name} (DMs likely closed).")
+            # --- FIX: Stop processing after sending a level-up DM to avoid triggering chatbot ---
+            return
+
+    # 2. Check for trigger.
+    # In DMs, the bot should always respond.
+    # In a server, the bot must be @mentioned or its name ("sulf", "sulfur") must be used.
+    is_dm = message.guild is None
+    if not is_dm:
+        is_pinged = client.user in message.mentions
+        message_lower = message.content.lower()
+        # Check for "sulf" or "sulfur" as whole words to avoid triggering on "sulfuric" etc.
+        # --- NEW: Use bot names from config ---
+        is_name_used = any(name in message_lower.split() for name in config['bot']['names'])
+
+        # If not in a DM and not pinged/named, we don't care
+        if not is_pinged and not is_name_used:
+            return
+        print(f"Chatbot triggered by {message.author.name} in channel #{message.channel.name}.")
+        
+        # --- NEW: Log interaction with Sulf for Wrapped ---
+        stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+        await db_helpers.log_stat_increment(message.author.id, stat_period, 'sulf_interactions')
+
+    # 3. Clean the user's prompt (remove the @mention)
+    # This makes the prompt cleaner for the AI
+    user_prompt = message.content.replace(f"<@{client.user.id}>", "").strip()
+
+    if not user_prompt:
+        await message.channel.send(config['bot']['chat']['empty_ping_response'])
+        return
+    
+    # 4. Get chat history from the database
+    history = await db_helpers.get_chat_history(message.channel.id, config['bot']['chat']['max_history_messages'])
+
+    # 5. Let the user know the bot is "thinking"
+    async with message.channel.typing():
+        # 6. Get the response from Gemini
+        # --- NEW: Add relationship context to the system prompt ---
+        relationship_summary = await db_helpers.get_relationship_summary(message.author.id)
+        dynamic_system_prompt = config['bot']['system_prompt']
+        if relationship_summary:
+            dynamic_system_prompt += f"\n\nZusätzlicher Kontext über deine Beziehung zu '{message.author.display_name}': {relationship_summary}"
+
+        # The get_chat_response function modifies the history list in-place
+        # --- NEW: Determine provider and increment counter ---
+        provider_to_use = await get_current_provider(config)
+        if provider_to_use == 'gemini':
+            await db_helpers.increment_gemini_usage()
+        
+        temp_config = config.copy()
+        temp_config['api']['provider'] = provider_to_use
+        response_text, error_message = await get_chat_response(history, user_prompt, message.author.display_name, dynamic_system_prompt, temp_config, GEMINI_API_KEY, OPENAI_API_KEY)
+
+        # 7. Send the response
+        if error_message:
+            await message.channel.send(f"{message.author.mention} {error_message}")
+        else:
+            # --- NEW: Save messages to DB ---
+            # The user prompt was already added to the history list by get_gemini_response
+            user_message_content = history[-2]['parts'][0]['text']
+            await db_helpers.save_message_to_history(message.channel.id, "user", user_message_content)
+            await db_helpers.save_message_to_history(message.channel.id, "model", response_text)
+
+            # --- NEW: Periodically update relationship summary ---
+            # The interval is based on exchanges (1 user msg + 1 bot msg = 2 history items)
+            update_interval = config['bot']['chat']['relationship_update_interval'] * 2
+            if len(history) > 0 and len(history) % update_interval == 0:
+                print(f"Updating relationship summary for {message.author.name}.")
+                # --- NEW: Determine provider and increment counter ---
+                provider_to_use_summary = await get_current_provider(config)
+                if provider_to_use_summary == 'gemini':
+                    await db_helpers.increment_gemini_usage()
+                temp_config_summary = config.copy()
+                temp_config_summary['api']['provider'] = provider_to_use_summary
+                new_summary, _ = await get_relationship_summary_from_api(history, message.author.display_name, relationship_summary, temp_config_summary, GEMINI_API_KEY, OPENAI_API_KEY)
+                if new_summary:
+                    await db_helpers.update_relationship_summary(message.author.id, new_summary)
+
+            final_response = await replace_emoji_tags(response_text, client)
+            # Split if the message is too long (over 2000 chars)
+            chunks = await split_message(final_response)
+            for chunk in chunks:
+                if chunk: # Don't send empty messages
+                    await message.channel.send(chunk)
+
+# --- RUN THE BOT ---
+if __name__ == "__main__":
+    client.run(DISCORD_BOT_TOKEN)
 
 
 @tree.command(name="summary", description="Zeigt Sulfurs Meinung über einen Benutzer an.")

@@ -4,8 +4,44 @@ from collections import deque
 from datetime import datetime, timezone
 
 # --- Constants ---
-GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1/models"
+GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 OPENAI_API_BASE_URL = "https://api.openai.com/v1/chat/completions"
+
+# --- REFACTORED: Centralized Gemini API call logic ---
+async def _call_gemini_api(payload, model_name, api_key, timeout):
+    """
+    A centralized function to handle all calls to the Gemini API.
+    """
+    api_url = f"{GEMINI_API_BASE_URL}/{model_name}:generateContent?key={api_key}"
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(api_url, json=payload, timeout=timeout) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    # Robust checking for valid API response content
+                    if data.get('candidates') and data['candidates'][0].get('content') and data['candidates'][0]['content'].get('parts'):
+                        return data['candidates'][0]['content']['parts'][0]['text'], None
+                    else:
+                        # This happens if the response was blocked for safety or other reasons.
+                        error_reason = data.get('promptFeedback', {}).get('blockReason', 'UNKNOWN')
+                        if not error_reason:
+                             error_reason = data.get('candidates', [{}])[0].get('finishReason', 'UNKNOWN')
+                        print(f"Gemini API Error: No content in response. Finish Reason: {error_reason}")
+                        print(f"Full API response: {data}")
+                        return None, f"Meine Antwort wurde blockiert (Grund: {error_reason}). Versuchs mal anders zu formulieren."
+                else:
+                    # --- NEW: Add specific diagnostic for 404 errors ---
+                    if response.status == 404:
+                        error_text = await response.text()
+                        print(f"Gemini API Error (Status 404): {error_text}")
+                        return None, f"Modell '{model_name}' nicht gefunden (404). **Überprüfe, ob die 'Generative Language API' in deinem Google Cloud Projekt aktiviert ist und dein API-Schlüssel die Berechtigung dafür hat.**"
+                    error_text = await response.text()
+                    print(f"Gemini API Error (Status {response.status}): {error_text}")
+                    return None, f"Ich habe einen Fehler vom Server erhalten (Status: {response.status}). Wahrscheinlich ist die API down oder dein Key ist ungültig."
+    except Exception as e:
+        print(f"An exception occurred while calling Gemini API: {e}")
+        return None, "Ich konnte die AI nicht erreichen. Überprüfe die Internetverbindung oder die API-Keys."
 
 async def get_chat_response(history, user_prompt, user_display_name, system_prompt, config, gemini_key, openai_key):
     """
@@ -37,36 +73,32 @@ async def get_chat_response(history, user_prompt, user_display_name, system_prom
 
     if provider == 'gemini':
         # --- FIX: Dynamically build the URL with the model from config ---
-        model = config.get('api', {}).get('gemini', {}).get('model', 'gemini-1.5-flash-latest')
-        api_url = f"{GEMINI_API_BASE_URL}/{model}:generateContent?key={gemini_key}"
-        
+        model = config.get('api', {}).get('gemini', {}).get('model', 'gemini-2.5-flash')
         generation_config = config.get('api', {}).get('gemini', {}).get('generation_config', {})
         
+        # --- FIX: Prepend system prompt to contents instead of using system_instruction ---
+        # This is more compatible with newer models like gemini-1.5-flash.
+        final_contents = [{"role": "user", "parts": [{"text": system_prompt}]}, {"role": "model", "parts": [{"text": "Understood."}]}] + history
+        
+        # --- FIX: Add safety settings to prevent blocking ---
+        safety_settings = [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+        ]
+
         payload = {
-            "contents": history,
+            "contents": final_contents,
             "generationConfig": generation_config,
-            "systemInstruction": {
-                "role": "system",
-                "parts": [{"text": system_prompt}]
-            }
+            "safetySettings": safety_settings
         }
         
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(api_url, json=payload, timeout=timeout) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        response_text = data['candidates'][0]['content']['parts'][0]['text']
-                        # Add the bot's response to the history for future context
-                        history.append({"role": "model", "parts": [{"text": response_text}]})
-                        return response_text, None
-                    else:
-                        error_text = await response.text()
-                        print(f"Gemini API Error (Status {response.status}): {error_text}")
-                        return None, f"Ich habe einen Fehler vom Server erhalten (Status: {response.status}). Wahrscheinlich ist die API down oder dein Key ist ungültig."
-        except Exception as e:
-            print(f"An exception occurred while calling Gemini API: {e}")
-            return None, "Ich konnte die AI nicht erreichen. Überprüfe die Internetverbindung oder die API-Keys."
+        response_text, error = await _call_gemini_api(payload, model, gemini_key, timeout)
+        if response_text:
+            # Add the bot's response to the history for future context
+            history.append({"role": "model", "parts": [{"text": response_text}]})
+        return response_text, error
 
     elif provider == 'openai':
         model = config.get('api', {}).get('openai', {}).get('chat_model', 'gpt-4o-mini')
@@ -111,7 +143,7 @@ async def get_chat_response(history, user_prompt, user_display_name, system_prom
 
 async def get_relationship_summary_from_api(history, user_display_name, old_summary, config, gemini_key, openai_key):
     """Generates a new relationship summary based on chat history."""
-    provider = config.get('api', {}).get('provider', 'gemini')
+    provider = config.get('api', {}).get('provider') # Use the provider from the passed config
     timeout = config.get('api', {}).get('timeout', 30)
 
     prompt = f"""
@@ -127,22 +159,49 @@ async def get_relationship_summary_from_api(history, user_display_name, old_summ
     """
 
     if provider == 'gemini':
-        model = config.get('api', {}).get('gemini', {}).get('utility_model', config.get('api', {}).get('gemini', {}).get('model', 'gemini-1.5-flash-latest'))
-        api_url = f"{GEMINI_API_BASE_URL}/{model}:generateContent?key={gemini_key}"
+        model = config.get('api', {}).get('gemini', {}).get('utility_model', config.get('api', {}).get('gemini', {}).get('model', 'gemini-2.5-flash'))
         generation_config = config.get('api', {}).get('gemini', {}).get('utility_generation_config', {})
-        payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": generation_config}
+        safety_settings = [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+        ]
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}], 
+            "generationConfig": generation_config,
+            "safetySettings": safety_settings
+        }
+        summary, error = await _call_gemini_api(payload, model, gemini_key, timeout)
+        return summary.strip() if summary else None, error
+
+    elif provider == 'openai':
+        model = config.get('api', {}).get('openai', {}).get('utility_model', 'gpt-4o-mini')
+        temperature = config.get('api', {}).get('openai', {}).get('utility_temperature', 0.7)
+        max_tokens = config.get('api', {}).get('openai', {}).get('utility_max_tokens', 150)
+        headers = {"Authorization": f"Bearer {openai_key}"}
         
+        # For OpenAI, the prompt is a simple user message.
+        messages = [{"role": "user", "content": prompt}]
+
+        payload = {
+            "model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens
+        }
+
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(api_url, json=payload, timeout=timeout) as response:
+                async with session.post(OPENAI_API_BASE_URL, json=payload, headers=headers, timeout=timeout) as response:
                     if response.status == 200:
                         data = await response.json()
-                        return data['candidates'][0]['content']['parts'][0]['text'].strip(), None
-                    return None, f"API Error {response.status}"
+                        return data['choices'][0]['message']['content'].strip(), None
+                    else:
+                        error_text = await response.text()
+                        print(f"OpenAI API Error (get_relationship_summary): {error_text}")
+                        return None, f"API Error {response.status}"
         except Exception as e:
             return None, str(e)
-    # (OpenAI fallback could be added here if needed)
-    return None, "Utility function only supports Gemini for now."
+
+    return None, "Invalid provider for relationship summary."
 
 async def get_werwolf_tts_message(event_text, config, gemini_key, openai_key):
     """Generates a short, dramatic TTS message for a Werwolf game event."""
@@ -160,21 +219,43 @@ async def get_werwolf_tts_message(event_text, config, gemini_key, openai_key):
     """
     
     if provider == 'gemini':
-        model = config.get('api', {}).get('gemini', {}).get('utility_model', config.get('api', {}).get('gemini', {}).get('model', 'gemini-1.5-flash-latest'))
-        api_url = f"{GEMINI_API_BASE_URL}/{model}:generateContent?key={gemini_key}"
+        model = config.get('api', {}).get('gemini', {}).get('utility_model', config.get('api', {}).get('gemini', {}).get('model', 'gemini-2.5-flash'))
         generation_config = config.get('api', {}).get('gemini', {}).get('utility_generation_config', {})
-        payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": generation_config}
-        
+        safety_settings = [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+        ]
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}], 
+            "generationConfig": generation_config,
+            "safetySettings": safety_settings
+        }
+        tts_text, _ = await _call_gemini_api(payload, model, gemini_key, timeout)
+        return tts_text.strip().replace("*", "") if tts_text else event_text
+
+    elif provider == 'openai':
+        model = config.get('api', {}).get('openai', {}).get('utility_model', 'gpt-4o-mini')
+        temperature = config.get('api', {}).get('openai', {}).get('utility_temperature', 0.7)
+        max_tokens = config.get('api', {}).get('openai', {}).get('utility_max_tokens', 50) # Short response
+        headers = {"Authorization": f"Bearer {openai_key}"}
+        messages = [{"role": "user", "content": prompt}]
+        payload = {"model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
+
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(api_url, json=payload, timeout=timeout) as response:
+                async with session.post(OPENAI_API_BASE_URL, json=payload, headers=headers, timeout=timeout) as response:
                     if response.status == 200:
                         data = await response.json()
-                        return data['candidates'][0]['content']['parts'][0]['text'].strip().replace("*", "")
-                    return event_text # Fallback to the original text
-        except Exception:
+                        return data['choices'][0]['message']['content'].strip().replace("*", "")
+                    else:
+                        print(f"OpenAI API Error (get_werwolf_tts_message): {await response.text()}")
+                        return event_text # Fallback
+        except Exception as e:
+            print(f"An exception occurred while calling OpenAI API for TTS: {e}")
             return event_text # Fallback
-    return event_text # Fallback
+    return event_text
 
 async def get_random_names(count, db_helpers, config, gemini_key, openai_key):
     """Gets random names for Werwolf bots, from DB or API."""
@@ -189,23 +270,47 @@ async def get_random_names(count, db_helpers, config, gemini_key, openai_key):
         prompt = f"Generate a list of {needed} unique, random, gender-neutral German first names. Output them as a simple comma-separated list, and nothing else. Example: Alex, Kai, Jo, Chris"
         
         if provider == 'gemini':
-            model = config.get('api', {}).get('gemini', {}).get('utility_model', config.get('api', {}).get('gemini', {}).get('model', 'gemini-1.5-flash-latest'))
-            api_url = f"{GEMINI_API_BASE_URL}/{model}:generateContent?key={gemini_key}"
+            model = config.get('api', {}).get('gemini', {}).get('utility_model', config.get('api', {}).get('gemini', {}).get('model', 'gemini-2.5-flash'))
             generation_config = config.get('api', {}).get('gemini', {}).get('utility_generation_config', {})
-            payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": generation_config}
-            
+            safety_settings = [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            ]
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}], 
+                "generationConfig": generation_config,
+                "safetySettings": safety_settings
+            }
+            new_names_text, error = await _call_gemini_api(payload, model, gemini_key, timeout)
+            if new_names_text:
+                new_names = [name.strip() for name in new_names_text.split(',')]
+                await db_helpers.add_bot_names_to_pool(new_names)
+                # Now fetch the names we just added
+                names.extend(await db_helpers.get_and_remove_bot_names(needed))
+        
+        elif provider == 'openai':
+            model = config.get('api', {}).get('openai', {}).get('utility_model', 'gpt-4o-mini')
+            temperature = config.get('api', {}).get('openai', {}).get('utility_temperature', 1.0)
+            max_tokens = config.get('api', {}).get('openai', {}).get('utility_max_tokens', 200)
+            headers = {"Authorization": f"Bearer {openai_key}"}
+            messages = [{"role": "user", "content": prompt}]
+            payload = {"model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
+
             try:
                 async with aiohttp.ClientSession() as session:
-                    async with session.post(api_url, json=payload, timeout=timeout) as response:
+                    async with session.post(OPENAI_API_BASE_URL, json=payload, headers=headers, timeout=timeout) as response:
                         if response.status == 200:
                             data = await response.json()
-                            new_names_text = data['candidates'][0]['content']['parts'][0]['text']
+                            new_names_text = data['choices'][0]['message']['content']
                             new_names = [name.strip() for name in new_names_text.split(',')]
                             await db_helpers.add_bot_names_to_pool(new_names)
-                            # Now fetch the names we just added
                             names.extend(await db_helpers.get_and_remove_bot_names(needed))
+                        else:
+                            print(f"OpenAI API Error (get_random_names): {await response.text()}")
             except Exception as e:
-                print(f"  [WW] Failed to fetch new names from API: {e}")
+                print(f"  [WW] Failed to fetch new names from OpenAI API: {e}")
 
     # Fallback if API fails
     if len(names) < count:
@@ -229,19 +334,40 @@ async def get_wrapped_summary_from_api(user_display_name, stats, config, gemini_
     """
     
     if provider == 'gemini':
-        model = config.get('api', {}).get('gemini', {}).get('utility_model', config.get('api', {}).get('gemini', {}).get('model', 'gemini-1.5-flash-latest'))
-        api_url = f"{GEMINI_API_BASE_URL}/{model}:generateContent?key={gemini_key}"
+        model = config.get('api', {}).get('gemini', {}).get('utility_model', config.get('api', {}).get('gemini', {}).get('model', 'gemini-2.5-flash'))
         generation_config = config.get('api', {}).get('gemini', {}).get('utility_generation_config', {})
-        payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": generation_config}
-        
+        safety_settings = [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+        ]
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}], 
+            "generationConfig": generation_config,
+            "safetySettings": safety_settings
+        }
+        summary, error = await _call_gemini_api(payload, model, gemini_key, timeout)
+        return summary.strip() if summary else "You survived another month, I guess.", error
+
+    elif provider == 'openai':
+        model = config.get('api', {}).get('openai', {}).get('utility_model', 'gpt-4o-mini')
+        temperature = config.get('api', {}).get('openai', {}).get('utility_temperature', 0.8)
+        max_tokens = config.get('api', {}).get('openai', {}).get('utility_max_tokens', 100)
+        headers = {"Authorization": f"Bearer {openai_key}"}
+        messages = [{"role": "user", "content": prompt}]
+        payload = {"model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
+
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(api_url, json=payload, timeout=timeout) as response:
+                async with session.post(OPENAI_API_BASE_URL, json=payload, headers=headers, timeout=timeout) as response:
                     if response.status == 200:
                         data = await response.json()
-                        return data['candidates'][0]['content']['parts'][0]['text'].strip(), None
-                    return "You survived another month, I guess.", f"API Error {response.status}"
+                        return data['choices'][0]['message']['content'].strip(), None
+                    else:
+                        print(f"OpenAI API Error (get_wrapped_summary): {await response.text()}")
+                        return "You did... stuff. Congrats?", f"API Error {response.status}"
         except Exception as e:
             return "My brain is melting, can't think of a verdict.", str(e)
-            
-    return "You did... stuff. Congrats?", "OpenAI not configured for this."
+
+    return "You did... stuff. Congrats?", "Invalid provider for Wrapped summary."

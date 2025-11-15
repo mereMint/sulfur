@@ -9,11 +9,13 @@
 
 echo "--- Sulfur Bot Maintenance Watcher (Linux/Termux) ---"
 
-# --- NEW: Set environment variables in the top-level script ---
-echo "Setting environment variables for the bot session..."
-export DISCORD_BOT_TOKEN="MTQzODU5NTUzNjE1MTM4MDAxOA.GwuLkF.NYHg6QXtQfhGIPK6SRA8TxDo4-wOtJrTzn00EU"
-export GEMINI_API_KEY="AIzaSyD7h08ULN7KXhYCFFiIa6MPEbN_TnL5COU"
-export OPENAI_API_KEY="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"
+# --- REFACTORED: Load environment variables from .env file ---
+echo "Loading environment variables from .env file..."
+if [ -f .env ]; then
+    set -a # automatically export all variables
+    source .env
+    set +a # stop automatically exporting
+fi
 
 # Ensure we are in the script's directory
 cd "$(dirname "$0")"

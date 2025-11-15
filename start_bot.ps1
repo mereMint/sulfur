@@ -4,6 +4,10 @@
 # 2. Navigate to this directory (cd c:\sulfur)
 # 3. Run the script with: .\start_bot.ps1
 
+# --- FIX: Set the working directory to the script's location ---
+# This ensures that relative paths for files like .env and bot.py work correctly.
+Set-Location -Path $PSScriptRoot
+
 # --- NEW: Setup Logging ---
 $logDir = "C:\sulfur\logs"
 if (-not (Test-Path -Path $logDir -PathType Container)) {
@@ -26,8 +30,6 @@ $dbUser = "sulfur_bot_user"
 # --- NEW: Register an action to export the database on script exit ---
 Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action { & $mysqldumpPath --user=$dbUser --host=localhost --default-character-set=utf8mb4 $dbName > $syncFile; Write-Host "Database exported to $syncFile for synchronization." } | Out-Null
 
-Start-Transcript -Path $logFile
-
 Write-Host "Checking for updates from the repository..."
 Write-Host "  -> Stashing local changes to avoid conflicts..."
 git stash | Out-Null
@@ -40,6 +42,12 @@ $newHead = git rev-parse HEAD
 Write-Host "  -> Re-applying stashed local changes..."
 git stash pop | Out-Null
 Write-Host "Update check complete."
+
+# --- NEW: Install/update Python dependencies ---
+Write-Host "Installing/updating Python dependencies from requirements.txt..."
+# Using python -m pip is more robust than just 'pip'
+python -m pip install -r requirements.txt
+Write-Host "Dependencies are up to date."
 
 # --- NEW: Check if the sync file was updated and import it ---
 if (($oldHead -ne $newHead) -and (git diff --name-only $oldHead $newHead | Select-String -Pattern $syncFile)) {
@@ -81,4 +89,24 @@ Get-ChildItem -Path $backupDir -Filter "*.sql" | Where-Object { $_.LastWriteTime
 Write-Host "Cleanup complete."
 
 Write-Host "Starting the bot... (Press CTRL+C to stop)"
-python ./bot.py
+# --- FIX: Use Start-Process for more reliable execution in the same window ---
+# The -u flag forces python's output to be unbuffered, ensuring logs appear immediately.
+
+# --- REFACTORED: Call python directly and use Tee-Object to capture all output to the log file ---
+# This is the PowerShell equivalent of `2>&1 | tee -a` in bash.
+python -u ./bot.py *>&1 | Tee-Object -FilePath $logFile -Append
+
+# --- NEW: Pause on error to allow copying logs ---
+# --- FIX: Use $pipelinestatus to get the correct exit code from the python process, not Tee-Object ---
+$pythonExitCode = 1 # Default to 1 (error) if the pipeline fails to populate the variable
+if ($pipelinestatus -and $pipelinestatus.Count -gt 0) {
+    $pythonExitCode = $pipelinestatus[0]
+}
+
+# A non-zero exit code indicates an error.
+if ($LASTEXITCODE -ne 0 -or ($pythonExitCode -ne 0 -and $null -ne $pythonExitCode)) {
+    Write-Host "--------------------------------------------------------" -ForegroundColor Red
+    Write-Host "The bot process exited with an error (Exit Code: $pythonExitCode)." -ForegroundColor Red
+    Write-Host "The script is paused. Press Enter to close this window." -ForegroundColor Yellow
+    Read-Host
+}

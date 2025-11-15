@@ -2,11 +2,16 @@ import mysql.connector
 import json
 from mysql.connector import errorcode, pooling
 import time
-from level_system import get_xp_for_level # Import the level calculation function
 
 # This file handles all database interactions for the bot.
 
 db_pool = None
+
+def get_xp_for_level(level):
+    """Calculates the total XP needed to reach the next level."""
+    # A common formula that increases with each level: 5 * (lvl^2) + 50 * lvl + 100
+    return 5 * (level ** 2) + (50 * level) + 100
+
 
 def init_db_pool(host, user, password, database):
     """Initializes the database connection pool."""

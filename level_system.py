@@ -17,11 +17,6 @@ def get_default_config():
         }
     }
 
-def get_xp_for_level(level):
-    """Calculates the total XP needed to reach the next level."""
-    # Eine gängige Formel, die mit jedem Level ansteigt: 5 * (lvl^2) + 50 * lvl + 100
-    return 5 * (level ** 2) + (50 * level) + 100
-
 async def grant_xp(user_id, username, add_xp_func, config):
     """
     Grants XP to a user if they are not on cooldown.
