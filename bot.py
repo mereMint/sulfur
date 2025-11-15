@@ -2053,136 +2053,104 @@ class WerwolfJoinView(discord.ui.View):
 @client.event
 async def on_message(message):
     """Fires on every message in any channel the bot can see."""
-    
-    # 1. Don't reply to yourself, bot!
     if message.author == client.user:
         return
 
-    # --- NEW: Werwolf DM Action Handler ---
+    # --- REFACTORED: Handle DMs first and exit ---
     if isinstance(message.channel, discord.DMChannel):
-        # Find which game the user is in
-        player_game = None
-        author_player = None
+        # Check for Werwolf DM commands
         for game in active_werwolf_games.values():
             if message.author.id in game.players:
-                player_game = game
                 author_player = game.players[message.author.id]
-                break
+                if game.phase == "night" and author_player.is_alive:
+                    parts = message.content.lower().split()
+                    command = parts[0]
+                    target_player = None
+                    if len(parts) > 1:
+                        target_name = " ".join(parts[1:])
+                        target_player = game.get_player_by_name(target_name)
+                        if not target_player:
+                            await message.author.send(f"Ich konnte den Spieler '{target_name}' nicht finden.")
+                            return
+                    
+                    if command in ["kill", "see", "poison", "mute", "heal"]:
+                        error_message = await game.handle_night_action(author_player, command, target_player, config, GEMINI_API_KEY, OPENAI_API_KEY)
+                        if error_message:
+                            await message.author.send(error_message)
+                        # Confirmation is sent from handle_night_action, so we just return.
+                        return
 
-        if player_game and player_game.phase == "night" and author_player.is_alive:
-            # Parse the command from the DM
-            parts = message.content.lower().split()
-            command = parts[0]
-            
-            # Commands without arguments
-            if command == "heal":
-                error_message = await player_game.handle_night_action(author_player, "heal", None, config, GEMINI_API_KEY, OPENAI_API_KEY)
-                await message.author.send(error_message or "Deine Aktion (Heilen) wurde registriert.")
-                return # Stop further processing
-
-            # Commands with arguments
-            if len(parts) > 1:
-                target_name = " ".join(parts[1:])
-                target_player = player_game.get_player_by_name(target_name) # This now also accepts IDs
-
-                if not target_player:
-                    await message.author.send(f"Ich konnte den Spieler '{target_name}' nicht finden. Achte auf die genaue Schreibweise.")
+        # If it's not a Werwolf command, treat it as a regular chatbot DM
+        is_chatbot_trigger = True
+    
+    # --- REFACTORED: Handle Guild messages ---
+    elif isinstance(message.channel, discord.TextChannel):
+        # Ignore messages in active Werwolf game channels
+        if message.channel.id in active_werwolf_games:
+            game = active_werwolf_games.get(message.channel.id)
+            if game and game.phase != "joining":
+                if game.werwolf_thread and message.channel.id == game.werwolf_thread.id:
                     return
-
-                if command in ["kill", "see", "poison", "mute"]:
-                    error_message = await player_game.handle_night_action(author_player, command, target_player, config, GEMINI_API_KEY, OPENAI_API_KEY)
-                    # Specific confirmations are sent from handle_night_action, so we only send errors here.
-                    if error_message:
-                        await message.author.send(error_message)
-                    return
-
-    # --- NEW: Ignore messages in Werwolf channels to not trigger chatbot ---
-    if message.channel.id in active_werwolf_games:
-        game = active_werwolf_games.get(message.channel.id)
-        # Ignore messages in the main game channel if game is running
-        if game and game.phase != "joining":
-             # Also ignore messages in the private wolf thread
-            if game.werwolf_thread and message.channel.id == game.werwolf_thread.id:
                 return
 
-    # --- NEW: Leveling System ---
-    # Grant XP for regular messages, but not for commands or in DMs
-    if not message.content.startswith('/') and isinstance(message.channel, discord.TextChannel):
-        stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
-
-        # --- NEW: Log stats for Wrapped ---
-        # Find custom emojis in the message
-        custom_emojis = re.findall(r'<a?:(\w+):\d+>', message.content)
-        await db_helpers.log_message_stat(message.author.id, message.channel.id, custom_emojis, stat_period)
-        # --- NEW: Log mentions and replies for Server Bestie ---
-        mentioned_id = message.mentions[0].id if message.mentions and not message.mentions[0].bot else None
-        replied_id = None
-        if message.reference and isinstance(message.reference.resolved, discord.Message):
-            # Don't count replies to the bot itself
-            if message.reference.resolved.author.id != client.user.id:
-                replied_id = message.reference.resolved.author.id
-        
-        # Also log the timestamp for Prime Time calculation
-        await db_helpers.log_mention_reply(message.author.id, message.guild.id, mentioned_id, replied_id, message.created_at)
-
-
-        # Grant XP
-        new_level = await grant_xp(message.author.id, message.author.display_name, db_helpers.add_xp, config)
-        if new_level:
-            # --- NEW: Grant economy bonus on level up ---
-            bonus = calculate_level_up_bonus(new_level, config)
-            await db_helpers.add_balance(message.author.id, message.author.display_name, bonus, config, stat_period)
-            try:
-                # --- FIX: Send level-up message as a DM ---
-                await message.author.send(f"GG! Du bist durch das Schreiben von Nachrichten jetzt Level **{new_level}**! :YESS:\n"
-                                          f"Du erhältst **{bonus}** Währung als Belohnung!")
-            except discord.Forbidden:
-                print(f"Could not send level up DM to {message.author.name} (DMs likely closed).")
-            # --- FIX: Stop processing after sending a level-up DM to avoid triggering chatbot ---
-            return
-
-    # 2. Check for trigger.
-    # In DMs, the bot should always respond.
-    # In a server, the bot must be @mentioned or its name ("sulf", "sulfur") must be used.
-    is_dm = message.guild is None
-    if not is_dm:
+        # Check if the message is a chatbot trigger
         is_pinged = client.user in message.mentions
         message_lower = message.content.lower()
-        # Check for "sulf" or "sulfur" as whole words to avoid triggering on "sulfuric" etc.
-        # --- NEW: Use bot names from config ---
         is_name_used = any(name in message_lower.split() for name in config['bot']['names'])
+        is_chatbot_trigger = is_pinged or is_name_used
 
-        # If not in a DM and not pinged/named, we don't care
-        if not is_pinged and not is_name_used:
+        # --- Leveling System ---
+        if not message.content.startswith('/'):
+            stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+            custom_emojis = re.findall(r'<a?:(\w+):\d+>', message.content)
+            await db_helpers.log_message_stat(message.author.id, message.channel.id, custom_emojies, stat_period)
+
+            mentioned_id = message.mentions[0].id if message.mentions and not message.mentions[0].bot else None
+            replied_id = None
+            if message.reference and isinstance(message.reference.resolved, discord.Message):
+                if message.reference.resolved.author.id != client.user.id:
+                    replied_id = message.reference.resolved.author.id
+            await db_helpers.log_mention_reply(message.author.id, message.guild.id, mentioned_id, replied_id, message.created_at)
+
+            new_level = await grant_xp(message.author.id, message.author.display_name, db_helpers.add_xp, config)
+            if new_level:
+                bonus = calculate_level_up_bonus(new_level, config)
+                await db_helpers.add_balance(message.author.id, message.author.display_name, bonus, config, stat_period)
+                try:
+                    await message.author.send(f"GG! Du bist durch das Schreiben von Nachrichten jetzt Level **{new_level}**! :YESS:\n"
+                                              f"Du erhältst **{bonus}** Währung als Belohnung!")
+                except discord.Forbidden:
+                    print(f"Could not send level up DM to {message.author.name} (DMs likely closed).")
+
+        # If it's not a chatbot trigger, we are done with this message.
+        if not is_chatbot_trigger:
             return
-        print(f"Chatbot triggered by {message.author.name} in channel #{message.channel.name}.")
-        
-        # --- NEW: Log interaction with Sulf for Wrapped ---
+    else:
+        # Not a DM or a TextChannel, ignore.
+        return
+
+    # --- REFACTORED: Centralized Chatbot Logic ---
+    # This part is now only reached if is_chatbot_trigger is True.
+    print(f"Chatbot triggered by {message.author.name} in channel #{message.channel.name}.")
+    
+    if not isinstance(message.channel, discord.DMChannel):
         stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
         await db_helpers.log_stat_increment(message.author.id, stat_period, 'sulf_interactions')
 
-    # 3. Clean the user's prompt (remove the @mention)
-    # This makes the prompt cleaner for the AI
     user_prompt = message.content.replace(f"<@{client.user.id}>", "").strip()
 
     if not user_prompt:
         await message.channel.send(config['bot']['chat']['empty_ping_response'])
         return
     
-    # 4. Get chat history from the database
     history = await db_helpers.get_chat_history(message.channel.id, config['bot']['chat']['max_history_messages'])
 
-    # 5. Let the user know the bot is "thinking"
     async with message.channel.typing():
-        # 6. Get the response from Gemini
-        # --- NEW: Add relationship context to the system prompt ---
         relationship_summary = await db_helpers.get_relationship_summary(message.author.id)
         dynamic_system_prompt = config['bot']['system_prompt']
         if relationship_summary:
             dynamic_system_prompt += f"\n\nZusätzlicher Kontext über deine Beziehung zu '{message.author.display_name}': {relationship_summary}"
 
-        # The get_chat_response function modifies the history list in-place
-        # --- NEW: Determine provider and increment counter ---
         provider_to_use = await get_current_provider(config)
         if provider_to_use == 'gemini':
             await db_helpers.increment_gemini_usage()
@@ -2191,39 +2159,30 @@ async def on_message(message):
         temp_config['api']['provider'] = provider_to_use
         response_text, error_message = await get_chat_response(history, user_prompt, message.author.display_name, dynamic_system_prompt, temp_config, GEMINI_API_KEY, OPENAI_API_KEY)
 
-        # 7. Send the response
         if error_message:
             await message.channel.send(f"{message.author.mention} {error_message}")
-        else:
-            # --- NEW: Save messages to DB ---
-            # The user prompt was already added to the history list by get_chat_response
-            # --- FIX: Check history length before accessing ---
-            if len(history) >= 2:
-                user_message_content = history[-2]['parts'][0]['text']
-                await db_helpers.save_message_to_history(message.channel.id, "user", user_message_content)
-            await db_helpers.save_message_to_history(message.channel.id, "model", response_text)
+            return
 
-            # --- NEW: Periodically update relationship summary ---
-            # The interval is based on exchanges (1 user msg + 1 bot msg = 2 history items)
-            update_interval = config['bot']['chat']['relationship_update_interval'] * 2
-            if len(history) > 0 and len(history) % update_interval == 0:
-                print(f"Updating relationship summary for {message.author.name}.")
-                # --- NEW: Determine provider and increment counter ---
-                provider_to_use_summary = await get_current_provider(config)
-                if provider_to_use_summary == 'gemini':
-                    await db_helpers.increment_gemini_usage()
-                temp_config_summary = config.copy()
-                temp_config_summary['api']['provider'] = provider_to_use_summary
-                new_summary, _ = await get_relationship_summary_from_api(history, message.author.display_name, relationship_summary, temp_config_summary, GEMINI_API_KEY, OPENAI_API_KEY)
-                if new_summary:
-                    await db_helpers.update_relationship_summary(message.author.id, new_summary)
+        if len(history) >= 2:
+            user_message_content = history[-2]['parts'][0]['text']
+            await db_helpers.save_message_to_history(message.channel.id, "user", user_message_content)
+        await db_helpers.save_message_to_history(message.channel.id, "model", response_text)
 
-            final_response = await replace_emoji_tags(response_text, client)
-            # Split if the message is too long (over 2000 chars)
-            chunks = await split_message(final_response)
-            for chunk in chunks:
-                if chunk: # Don't send empty messages
-                    await message.channel.send(chunk)
+        update_interval = config['bot']['chat']['relationship_update_interval'] * 2
+        if len(history) > 0 and len(history) % update_interval == 0:
+            print(f"Updating relationship summary for {message.author.name}.")
+            provider_to_use_summary = await get_current_provider(config)
+            if provider_to_use_summary == 'gemini':
+                await db_helpers.increment_gemini_usage()
+            temp_config_summary = config.copy()
+            temp_config_summary['api']['provider'] = provider_to_use_summary
+            new_summary, _ = await get_relationship_summary_from_api(history, message.author.display_name, relationship_summary, temp_config_summary, GEMINI_API_KEY, OPENAI_API_KEY)
+            if new_summary:
+                await db_helpers.update_relationship_summary(message.author.id, new_summary)
+
+        final_response = await replace_emoji_tags(response_text, client)
+        for chunk in await split_message(final_response):
+            if chunk: await message.channel.send(chunk)
 
 # --- RUN THE BOT ---
 if __name__ == "__main__":
