@@ -9,6 +9,15 @@
 # This ensures that relative paths for files like .env and bot.py work correctly.
 cd "$(dirname "$0")"
 
+# --- NEW: Load environment variables from .env file ---
+# This makes the script runnable on its own, without relying on the parent.
+if [ -f .env ]; then
+    echo "Loading environment variables from .env file..."
+    set -a # automatically export all variables
+    source .env
+    set +a # stop automatically exporting
+fi
+
 # --- NEW: Setup Logging ---
 LOG_DIR="logs"
 if [ ! -d "$LOG_DIR" ]; then
@@ -19,6 +28,11 @@ fi
 LOG_TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 LOG_FILE="${LOG_DIR}/startup_log_${LOG_TIMESTAMP}.log"
 
+# --- NEW: Define database connection details at the top ---
+SYNC_FILE="database_sync.sql"
+DB_NAME="sulfur_bot"
+DB_USER="sulfur_bot_user"
+
 # --- NEW: Define sync file ---
 SYNC_FILE="database_sync.sql"
 
@@ -27,8 +41,8 @@ cleanup() {
     echo "Script stopped. Log file is at: $LOG_FILE"
     # --- NEW: Export database on exit for synchronization ---
     echo "Exporting database to $SYNC_FILE for synchronization..."
-    mysqldump --user=$DB_USER --host=localhost --default-character-set=utf8mb4 $DB_NAME > "$SYNC_FILE"
-    echo "Database export complete. Remember to commit and push '$SYNC_FILE' if you want to sync this state."
+    mariadb-dump --user=$DB_USER --host=localhost --default-character-set=utf8mb4 $DB_NAME > "$SYNC_FILE"
+    echo "Database export complete. Remember to commit and push '$SYNC_FILE' if you want to sync this state." | tee -a "$LOG_FILE"
 }
 trap cleanup EXIT
 
@@ -55,7 +69,7 @@ echo "Dependencies are up to date."
 # --- NEW: Check if the sync file was updated and import it ---
 if [ "$OLD_HEAD" != "$NEW_HEAD" ] && git diff --name-only "$OLD_HEAD" "$NEW_HEAD" | grep -q "$SYNC_FILE"; then
     echo "Database sync file has been updated. Importing new data..."
-    mysql --user=$DB_USER --host=localhost --default-character-set=utf8mb4 $DB_NAME < "$SYNC_FILE"
+    mariadb --user="$DB_USER" --host=localhost --default-character-set=utf8mb4 "$DB_NAME" < "$SYNC_FILE"
     echo "Database import complete."
 fi
 
@@ -64,18 +78,19 @@ echo "Ensuring core scripts are executable..."
 chmod +x ./maintain_bot.sh
 chmod +x ./maintain_bot.ps1
 
-# --- NEW: Check if MySQL is already running ---
-if ! pgrep -x "mysqld" > /dev/null
-then
-    echo "MySQL not running. Starting server..."
-    mysqld_safe --user=root --datadir=/data/data/com.termux/files/usr/var/lib/mysql &
-    sleep 5 # Give it a moment to start
+# --- REFACTORED: Check if MariaDB/MySQL is running and start if necessary ---
+if ! pgrep -x "mysqld" > /dev/null; then
+    echo "MariaDB/MySQL server not detected."
+    # Check if we are in Termux by looking for its specific directory structure
+    if [[ -d "/data/data/com.termux/files/usr" ]]; then
+        echo "Termux environment detected. Starting server with 'mysqld_safe'..."
+        mysqld_safe --user=root --datadir=/data/data/com.termux/files/usr/var/lib/mysql &
+        sleep 5 # Give it a moment to start
+    fi
 fi
 
 echo "Backing up the database..."
 BACKUP_DIR="backups"
-DB_NAME="sulfur_bot"
-DB_USER="sulfur_bot_user"
 
 # Create backup directory if it doesn't exist
 if [ ! -d "$BACKUP_DIR" ]; then
@@ -85,8 +100,8 @@ fi
 TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 BACKUP_FILE="${BACKUP_DIR}/${DB_NAME}_backup_${TIMESTAMP}.sql"
 
-# Note: This assumes mysqldump is in the system's PATH and MySQL is running.
-mysqldump --user=$DB_USER --host=localhost --default-character-set=utf8mb4 $DB_NAME > "$BACKUP_FILE"
+# Use mariadb-dump on Termux/Linux systems
+mariadb-dump --user="$DB_USER" --host=localhost --default-character-set=utf8mb4 "$DB_NAME" > "$BACKUP_FILE"
 echo "Backup created successfully at $BACKUP_FILE"
 
 # --- NEW: Clean up old backups ---
@@ -99,7 +114,7 @@ echo "Starting the bot... (Press CTRL+C to stop)"
 # --- FIX: Pipe the bot's output to tee for reliable logging in tmux ---
 # This sends all output (stdout and stderr) from the Python script to the tee command,
 # which then writes it to both the console (the tmux pane) and the log file.
-python3 -u ./bot.py 2>&1 | tee -a "$LOG_FILE"
+python3 -u bot.py 2>&1 | tee -a "$LOG_FILE"
 
 # --- NEW: Pause on error to allow copying logs ---
 exit_code=${PIPESTATUS[0]} # Get the exit code of the python script, not tee

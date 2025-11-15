@@ -8,6 +8,15 @@
 # This ensures that relative paths for files like .env and bot.py work correctly.
 Set-Location -Path $PSScriptRoot
 
+# --- NEW: Load environment variables from .env file ---
+if (Test-Path -Path ".env") {
+    Get-Content .\.env | ForEach-Object {
+        if ($_ -match "^\s*([\w.-]+)\s*=\s*(.*)") {
+            [System.Environment]::SetEnvironmentVariable($matches[1], $matches[2], "Process")
+        }
+    }
+}
+
 # --- NEW: Setup Logging ---
 $logDir = "C:\sulfur\logs"
 if (-not (Test-Path -Path $logDir -PathType Container)) {
@@ -20,14 +29,14 @@ $logFile = Join-Path -Path $logDir -ChildPath "startup_log_${logTimestamp}.txt"
 
 Write-Host "Logging this session to: $logFile"
 
-# --- NEW: Define sync file and database connection details ---
+# --- REFACTORED: Define sync file and database connection details at the top ---
 $syncFile = "C:\sulfur\database_sync.sql"
 $mysqldumpPath = "C:\xampp\mysql\bin\mysqldump.exe"
 $mysqlPath = "C:\xampp\mysql\bin\mysql.exe"
 $dbName = "sulfur_bot"
 $dbUser = "sulfur_bot_user"
 
-# --- NEW: Register an action to export the database on script exit ---
+# --- FIX: Register an action to export the database on script exit (needs variables defined above) ---
 Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action { & $mysqldumpPath --user=$dbUser --host=localhost --default-character-set=utf8mb4 $dbName > $syncFile; Write-Host "Database exported to $syncFile for synchronization." } | Out-Null
 
 Write-Host "Checking for updates from the repository..."
@@ -94,7 +103,7 @@ Write-Host "Starting the bot... (Press CTRL+C to stop)"
 
 # --- REFACTORED: Call python directly and use Tee-Object to capture all output to the log file ---
 # This is the PowerShell equivalent of `2>&1 | tee -a` in bash.
-python -u ./bot.py *>&1 | Tee-Object -FilePath $logFile -Append
+python -u bot.py *>&1 | Tee-Object -FilePath $logFile -Append
 
 # --- NEW: Pause on error to allow copying logs ---
 # --- FIX: Use $pipelinestatus to get the correct exit code from the python process, not Tee-Object ---

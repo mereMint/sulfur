@@ -9,14 +9,6 @@
 
 echo "--- Sulfur Bot Maintenance Watcher (Linux/Termux) ---"
 
-# --- REFACTORED: Load environment variables from .env file ---
-echo "Loading environment variables from .env file..."
-if [ -f .env ]; then
-    set -a # automatically export all variables
-    source .env
-    set +a # stop automatically exporting
-fi
-
 # Ensure we are in the script's directory
 cd "$(dirname "$0")"
 
