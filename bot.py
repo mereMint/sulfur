@@ -19,7 +19,7 @@ if discord.__version__.split('.')[0] < '2':
 from discord import app_commands
 from discord.ext import tasks
 from werwolf import WerwolfGame, FakeUser
-from api_helpers import get_chat_response, get_werwolf_tts_message, get_random_names, get_relationship_summary_from_api
+from api_helpers import get_chat_response, get_relationship_summary_from_api, get_wrapped_summary_from_api
 
 # --- CONFIGURATION ---
 
@@ -125,9 +125,6 @@ async def get_current_provider(config_obj):
 
     usage = await db_helpers.get_gemini_usage()
     return 'openai' if usage >= GEMINI_DAILY_LIMIT else 'gemini'
-
-# --- NEW: Import API helpers that were moved ---
-from api_helpers import get_wrapped_summary_from_api
 
 # --- NEW: In-memory cache to prevent duplicate Spotify logging ---
 last_spotify_log = {}
@@ -1393,7 +1390,7 @@ class AdminGroup(app_commands.Group):
         """Hot-reloads the configuration files."""
         await interaction.response.defer(ephemeral=True)
         print("--- Admin triggered config reload ---")
-        global config, GEMINI_API_URL
+        global config
         try:
             new_config = load_config()
             config = new_config
