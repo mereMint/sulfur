@@ -30,11 +30,6 @@ trap cleanup EXIT
 
 echo "Logging this session to: $LOG_FILE"
 
-echo "Setting environment variables for the bot..."
-export DISCORD_BOT_TOKEN="MTQzODU5NTUzNjE1MTM4MDAxOA.GwuLkF.NYHg6QXtQfhGIPK6SRA8TxDo4-wOtJrTzn00EU"
-export GEMINI_API_KEY="AIzaSyD7h08ULN7KXhYCFFiIa6MPEbN_TnL5COU"
-export OPENAI_API_KEY="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" # <-- ADD YOUR OPENAI KEY HERE
-
 echo "Checking for updates from the repository..."
 echo "  -> Stashing local changes to avoid conflicts..."
 git stash > /dev/null 2>&1

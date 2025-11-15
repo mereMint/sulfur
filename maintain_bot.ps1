@@ -9,15 +9,17 @@
 
 Write-Host "--- Sulfur Bot Maintenance Watcher ---"
 
+# --- NEW: Set environment variables in the top-level script ---
+Write-Host "Setting environment variables for the bot session..."
+$env:DISCORD_BOT_TOKEN="MTQzODU5NTUzNjE1MTM4MDAxOA.GwuLkF.NYHg6QXtQfhGIPK6SRA8TxDo4-wOtJrTzn00EU"
+$env:GEMINI_API_KEY="AIzaSyD7h08ULN7KXhYCFFiIa6MPEbN_TnL5COU"
+$env:OPENAI_API_KEY="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"
+
 while ($true) {
     Write-Host "Starting the bot process..."
     # Start the main bot script as a background job.
     # This allows the watcher to continue running while the bot is active.
     $botJob = Start-Job -ScriptBlock { 
-        # We need to pass environment variables to the job's scope
-        $env:DISCORD_BOT_TOKEN = $using:env:DISCORD_BOT_TOKEN
-        $env:GEMINI_API_KEY = $using:env:GEMINI_API_KEY
-        $env:OPENAI_API_KEY = $using:env:OPENAI_API_KEY
         & .\start_bot.ps1 
     }
 
