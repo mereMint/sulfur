@@ -3,11 +3,9 @@ param(
     [string]$LogFile
 )
 
-# This script sets the necessary environment variables and starts the Sulfur bot.
-# To run it:
-# 1. Open PowerShell
-# 2. Navigate to this directory (cd c:\sulfur)
-# 3. Run the script with: .\start_bot.ps1
+# --- FIX: Set the working directory to the script's location AFTER the param block ---
+# This ensures that relative paths for files like .env and bot.py work correctly.
+Set-Location -Path $PSScriptRoot
 
 # If LogFile is not passed, create a new one (for standalone execution)
 $IsStandalone = [string]::IsNullOrEmpty($LogFile)

@@ -57,11 +57,13 @@ $dbSyncFile = "database_sync.sql"
 # --- NEW: Function to start and verify the Web Dashboard ---
 function Start-WebDashboard {
     param(
-        [string]$PythonExecutable
+        [string]$PythonExecutable,
+        [string]$LogFilePath
     )
-    Write-Host "Starting the Web Dashboard in a new window..."
-    $webDashboardCommand = "& `"$PythonExecutable`" -u web_dashboard.py"
-    $webDashboardProcess = Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", $webDashboardCommand -PassThru
+    Write-Host "Starting the Web Dashboard as a background process..."
+    # --- REFACTORED: Start python directly, not in a new window. Redirect output to the main log file. ---
+    # This gives us the correct process ID to kill later and keeps all logs in one place.
+    $webDashboardProcess = Start-Process -FilePath $PythonExecutable -ArgumentList "-u", "web_dashboard.py" -NoNewWindow -PassThru -RedirectStandardOutput $LogFilePath -Append -RedirectStandardError $LogFilePath -Append
     Write-Host "Web Dashboard process started (Process ID: $($webDashboardProcess.Id))"
 
     Write-Host "Waiting for the Web Dashboard to become available on http://localhost:5000..." -ForegroundColor Gray
@@ -92,8 +94,8 @@ function Start-WebDashboard {
 }
 
 # --- Start the Web Dashboard for the first time ---
-$script:webDashboardProcess = Start-WebDashboard -PythonExecutable $venvPython
-if ($null -eq $script:webDashboardProcess) {
+$script:webDashboardProcess = Start-WebDashboard -PythonExecutable $venvPython -LogFilePath $logFile
+if (-not $script:webDashboardProcess) {
     Write-Host "Failed to start the Web Dashboard. Exiting." -ForegroundColor Red
     exit 1
 }
@@ -119,7 +121,8 @@ while ($true) {
     Write-Host "Starting the bot process..."
     # Start the main bot script as a background job.
     # This allows the watcher to continue running while the bot is active.
-    $script:botProcess = Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", "& `"$($PSScriptRoot)\start_bot.ps1`"" -PassThru
+    # --- FIX: Pass the central log file path to the bot script ---
+    $script:botProcess = Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", "& `"$($PSScriptRoot)\start_bot.ps1`" -LogFile `"$logFile`"" -PassThru
 
     [System.IO.File]::WriteAllText($statusFile, (@{status = "Running"; pid = $script:botProcess.Id } | ConvertTo-Json -Compress), ([System.Text.UTF8Encoding]::new($false)))
     Write-Host "Bot is running in a new window (Process ID: $($script:botProcess.Id)). Checking for updates every 60 seconds."
@@ -148,7 +151,7 @@ while ($true) {
 
                 Write-Host "Shutdown complete."
                 [System.IO.File]::WriteAllText($statusFile, (@{status = "Shutdown" } | ConvertTo-Json -Compress), ([System.Text.UTF8Encoding]::new($false)))
-                if ($script:webDashboardProcess) { Stop-ProcessGracefully -ProcessId $script:webDashboardProcess.Id } # Stop the web dashboard
+                if ($script:webDashboardProcess) { Stop-ProcessGracefully -ProcessId $script:webDashboardProcess.Id }
                 exit 0
             }
         }
@@ -186,7 +189,7 @@ while ($true) {
             # --- NEW: Check if the web dashboard is still running, restart if not ---
             if ($null -eq (Get-Process -Id $script:webDashboardProcess.Id -ErrorAction SilentlyContinue)) {
                 Write-Host "Web Dashboard process is not running. Attempting to restart..." -ForegroundColor Yellow
-                $script:webDashboardProcess = Start-WebDashboard -PythonExecutable $venvPython
+                $script:webDashboardProcess = Start-WebDashboard -PythonExecutable $venvPython -LogFilePath $logFile
             }
 
             (Get-Date).ToUniversalTime().ToString("o") | Out-File -FilePath "last_check.txt" -Encoding utf8
