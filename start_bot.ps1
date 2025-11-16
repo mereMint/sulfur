@@ -132,9 +132,15 @@ Write-Host "Starting the bot... (Press CTRL+C to stop)"
 # --- REFACTORED: Simply execute the bot. The parent job will capture its output. ---
 # The -u flag forces python's output to be unbuffered.
 if ($IsStandalone) {
+    # When run by itself, create a new log file and show output on console.
     & $pythonExecutable -u -X utf8 bot.py *>&1 | Tee-Object -FilePath $LogFile -Append
 } else {
-    & $pythonExecutable -u -X utf8 bot.py
+    # When called by maintain_bot.ps1, redirect all output to the provided log file.
+    # This is the key to making the live console work.
+    $tempLog = [System.IO.Path]::GetTempFileName()
+    & $pythonExecutable -u -X utf8 bot.py *> $tempLog
+    Get-Content $tempLog | Add-Content -Path $LogFile -Encoding utf8
+    Remove-Item $tempLog
 }
 
 # --- NEW: Pause on error to allow copying logs ---

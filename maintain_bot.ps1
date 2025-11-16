@@ -65,18 +65,11 @@ function Start-WebDashboard {
         [string]$LogFilePath
     )
     Write-Host "Starting the Web Dashboard as a background process..."
-    # --- REFACTORED: Use Start-Job and have it return the process object directly. ---
-    # This is the most reliable way to get the PID in PS 5.1 without race conditions.
-    $script:webDashboardJob = Start-Job -ScriptBlock {
-        param($py, $ScriptRoot)
-        # Set the working directory and run the python script.
-        # The job will automatically capture all stdout and stderr.
-        Set-Location -Path $ScriptRoot
-        & $py -u "web_dashboard.py"
-    } -ArgumentList $PythonExecutable, $PSScriptRoot
-    # Wait for the job to output the process object and receive it.
-    # In PS 5.1, the process started by the job is a child of the job's powershell.exe process.
-    $webDashboardProcess = Get-Process -Id ($script:webDashboardJob.ChildJobs[0].ProcessId)
+    # --- FINAL FIX: Use Start-Process with cmd.exe for robust, PS 5.1-compatible redirection. ---
+    # This avoids all race conditions and compatibility issues with Start-Job and -Append.
+    $command = "cmd.exe /c `"$PythonExecutable`" -u web_dashboard.py >> `"$LogFilePath`" 2>&1"
+    # We start a hidden powershell process that runs the cmd command. This gives us a process object to manage.
+    $webDashboardProcess = Start-Process powershell.exe -ArgumentList "-WindowStyle Hidden", "-Command", $command -PassThru
     Write-Host "Web Dashboard process started (Process ID: $($webDashboardProcess.Id))"
 
     Write-Host "Waiting for the Web Dashboard to become available on http://localhost:5000..." -ForegroundColor Gray
@@ -144,22 +137,13 @@ function Receive-JobOutput {
 while ($true) {
     [System.IO.File]::WriteAllText($statusFile, (@{status = "Starting..." } | ConvertTo-Json -Compress), ([System.Text.UTF8Encoding]::new($false)))
     Write-Host "Starting the bot process..."
-    # --- REFACTORED: Start the bot as a background job for reliable control and output capture ---
-    # This is the most reliable way to get the PID in PS 5.1 without race conditions.
-    # --- FIX: Pass the script root path into the job's scope ---
-    # --- REFACTORED: Run the bot script directly inside the job, don't create a new window. ---
-    # --- FIX: Get the correct process ID from the job ---
-    $script:botJob = Start-Job -ScriptBlock {
-        param($ScriptRoot, $log)
-        # Set the location and execute the start script. All output will be captured by the job.
-        Set-Location -Path $ScriptRoot
-        # Start the bot script in a new window and pass the process object out of the job
-        Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", "& '$ScriptRoot\start_bot.ps1' -LogFile '$log'" -PassThru
-    } -ArgumentList $PSScriptRoot, $logFile
-    $script:botProcess = $script:botJob | Wait-Job | Receive-Job
+    # --- FINAL FIX: Use Start-Process to launch the bot in a new window. ---
+    # The start_bot.ps1 script itself will handle logging its output to the file we provide.
+    $botCommand = "& `"$PSScriptRoot\start_bot.ps1`" -LogFile `"$logFile`""
+    $script:botProcess = Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", $botCommand -PassThru
 
     [System.IO.File]::WriteAllText($statusFile, (@{status = "Running"; pid = $script:botProcess.Id } | ConvertTo-Json -Compress), ([System.Text.UTF8Encoding]::new($false)))
-    Write-Host "Bot is running as a background job (Process ID: $($script:botProcess.Id)). Checking for updates every 60 seconds."
+    Write-Host "Bot is running in a new window (Process ID: $($script:botProcess.Id)). Checking for updates every 60 seconds."
 
     # --- NEW: Counter for periodic checks ---
     $checkCounter = 0
@@ -167,9 +151,6 @@ while ($true) {
 
     while (Test-ProcessRunning -ProcessId $script:botProcess.Id) {
         # --- NEW: Continuously capture and log output from the bot job ---
-        Receive-JobOutput -Job $script:botJob -LogFilePath $logFile
-        Receive-JobOutput -Job $script:webDashboardJob -LogFilePath $logFile
-
         # --- Check for shutdown key press ---
         if ([System.Console]::KeyAvailable) {
             $key = [System.Console]::ReadKey($true) # $true hides the key press from the console
@@ -281,7 +262,7 @@ while ($true) {
     }
 
     # --- NEW: Clean up the finished job before restarting ---
-    Remove-Job -Job $script:botJob -Force
+    # No longer using jobs for the main processes, so this is not needed.
 
     [System.IO.File]::WriteAllText($statusFile, (@{status = "Stopped" } | ConvertTo-Json -Compress), ([System.Text.UTF8Encoding]::new($false)))
     Write-Host "Bot process stopped. It will be restarted shortly..."
