@@ -251,4 +251,4 @@ if __name__ == '__main__':
     from waitress import serve
     print("--- Starting Sulfur Bot Web Dashboard ---")
     print("--- Access it at http://localhost:5000 ---")
-    serve(socketio.run(app), host='0.0.0.0', port=5000)
+    serve(socketio.WSGIApp(app), host='0.0.0.0', port=5000)
