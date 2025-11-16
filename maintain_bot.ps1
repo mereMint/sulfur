@@ -114,18 +114,28 @@ function Start-WebDashboard {
         Set-Location $Root
         & $Python -u web_dashboard.py 2>&1 | Tee-Object -FilePath $Log -Append
     } -ArgumentList $pythonExe,$PSScriptRoot,$webLog
-    
-    for($i=0;$i -lt 15;$i++){
+
+    $maxTries=20
+    for($i=0; $i -lt $maxTries; $i++){
         Start-Sleep 2
         try {
-            $connection=Test-NetConnection -ComputerName localhost -Port 5000 -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
-            if($connection -and $connection.TcpTestSucceeded){
+            # Prefer an HTTP HEAD check to avoid ping dependency or ICMP issues
+            $resp = Invoke-WebRequest -Uri 'http://127.0.0.1:5000/' -Method Head -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
+            if($resp.StatusCode -ge 200 -and $resp.StatusCode -lt 500){
                 Write-ColorLog 'Web Dashboard running at http://localhost:5000' 'Green' '[WEB] '
                 return $job
             }
         } catch {
-            # Connection test failed, continue waiting
+            # Fallback to a quick TCP probe
+            try {
+                $ok = Test-NetConnection -ComputerName 127.0.0.1 -Port 5000 -InformationLevel Quiet -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
+                if($ok){
+                    Write-ColorLog 'Web Dashboard TCP port open at http://localhost:5000' 'Green' '[WEB] '
+                    return $job
+                }
+            } catch {}
         }
+
         if($job.State -in 'Failed','Stopped'){
             Write-ColorLog 'Web Dashboard failed to start' 'Red' '[WEB] '
             Remove-Job $job -Force -ErrorAction SilentlyContinue

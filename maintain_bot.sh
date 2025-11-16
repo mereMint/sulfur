@@ -278,8 +278,10 @@ start_web_dashboard() {
     
     while [ $retries -lt $max_retries ]; do
         sleep 2
-        
-        if nc -z localhost 5000 2>/dev/null || curl -s http://localhost:5000 &>/dev/null; then
+
+        # Prefer an HTTP HEAD check with a short timeout; fall back to nc
+        if curl -sf --max-time 2 -I http://127.0.0.1:5000 >/dev/null 2>&1 \
+           || nc -z 127.0.0.1 5000 2>/dev/null; then
             log_success "Web Dashboard running at http://localhost:5000 (PID: $web_pid)"
             return 0
         fi
