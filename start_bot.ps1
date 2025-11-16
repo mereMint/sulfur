@@ -92,24 +92,33 @@ if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
-# --- NEW: Setup and use a Python Virtual Environment ---
-$venvPath = Join-Path -Path $PSScriptRoot -ChildPath "venv"
-$pythonExecutable = Join-Path -Path $venvPath -ChildPath "Scripts\python.exe"
+# --- NEW: Function to ensure Python Virtual Environment is set up ---
+function Ensure-Venv {
+    param(
+        [string]$ScriptRoot
+    )
+    $venvPath = Join-Path -Path $ScriptRoot -ChildPath "venv"
+    $pythonExecutable = Join-Path -Path $venvPath -ChildPath "Scripts\python.exe"
 
-if (-not (Test-Path -Path $pythonExecutable)) {
-    Write-Host "Python virtual environment not found. Creating one now..." -ForegroundColor Yellow
-    python -m venv $venvPath
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "Failed to create the Python virtual environment. Please check your Python installation." -ForegroundColor Red
-        Read-Host "Press Enter to exit."
-        exit 1
+    if (-not (Test-Path -Path $pythonExecutable)) {
+        Write-Host "Python virtual environment not found. Creating one now..." -ForegroundColor Yellow
+        python -m venv $venvPath
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "Failed to create the Python virtual environment. Please check your Python installation." -ForegroundColor Red
+            Read-Host "Press Enter to exit."
+            exit 1
+        }
     }
+
+    Write-Host "Installing/updating Python dependencies from requirements.txt..."
+    & $pythonExecutable -m pip install -r requirements.txt
+    Write-Host "Dependencies are up to date."
+
+    return $pythonExecutable
 }
 
-# --- NEW: Install/update Python dependencies ---
-Write-Host "Installing/updating Python dependencies from requirements.txt..."
-& $pythonExecutable -m pip install -r requirements.txt
-Write-Host "Dependencies are up to date."
+# --- Setup and use a Python Virtual Environment ---
+$pythonExecutable = Ensure-Venv -ScriptRoot $PSScriptRoot
 
 # --- REFACTORED: Check if MySQL is already running ---
 $mysqlProcess = Get-Process -Name "mysqld" -ErrorAction SilentlyContinue

@@ -15,17 +15,60 @@
 Write-Host "--- Sulfur Bot Maintenance Watcher ---"
 Write-Host "Press 'Q' at any time to gracefully shut down the bot and exit." -ForegroundColor Yellow
 
+# --- NEW: Import the venv setup function from start_bot.ps1 ---
+. "$PSScriptRoot\start_bot.ps1"
+
+# --- NEW: Ensure the Python virtual environment and dependencies are ready ---
+Write-Host "Checking Python virtual environment..."
+$venvPython = Ensure-Venv -ScriptRoot $PSScriptRoot
+Write-Host "Python environment is ready."
+
 # --- NEW: Define the file to watch for database changes ---
 $dbSyncFile = "database_sync.sql"
 
-# --- NEW: Start the Web Dashboard in a new window ---
-Write-Host "Starting the Web Dashboard in a new window..."
-# Use the Python executable from the virtual environment for consistency and to avoid permission errors.
-$venvPython = Join-Path -Path $PSScriptRoot -ChildPath "venv\Scripts\python.exe"
-$webDashboardCommand = "& `"$venvPython`" -m pip install -r requirements.txt; & `"$venvPython`" -u web_dashboard.py"
+# --- NEW: Function to start and verify the Web Dashboard ---
+function Start-WebDashboard {
+    param(
+        [string]$PythonExecutable
+    )
+    Write-Host "Starting the Web Dashboard in a new window..."
+    $webDashboardCommand = "& `"$PythonExecutable`" -u web_dashboard.py"
+    $webDashboardProcess = Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", $webDashboardCommand -PassThru
+    Write-Host "Web Dashboard process started (Process ID: $($webDashboardProcess.Id))"
 
-$webDashboardProcess = Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", $webDashboardCommand -PassThru
-Write-Host "Web Dashboard is running at http://localhost:5000 (Process ID: $($webDashboardProcess.Id))"
+    Write-Host "Waiting for the Web Dashboard to become available on http://localhost:5000..." -ForegroundColor Gray
+    $timeoutSeconds = 15
+    $startTime = Get-Date
+    $serverReady = $false
+
+    while (((Get-Date) - $startTime).TotalSeconds -lt $timeoutSeconds) {
+        if ($null -eq (Get-Process -Id $webDashboardProcess.Id -ErrorAction SilentlyContinue)) {
+            Write-Host "Web Dashboard process terminated unexpectedly during startup. Check the new window for error messages." -ForegroundColor Red
+            return $null
+        }
+        if (Test-NetConnection -ComputerName localhost -Port 5000 -WarningAction SilentlyContinue -ErrorAction SilentlyContinue) {
+            $serverReady = $true
+            break
+        }
+        Start-Sleep -Seconds 1
+    }
+
+    if (-not $serverReady) {
+        Write-Host "Error: Web Dashboard did not become available within $timeoutSeconds seconds. Shutting down." -ForegroundColor Red
+        Stop-Process -Id $webDashboardProcess.Id -Force -ErrorAction SilentlyContinue
+        return $null
+    }
+
+    Write-Host "Web Dashboard is online and ready." -ForegroundColor Green
+    return $webDashboardProcess
+}
+
+# --- Start the Web Dashboard for the first time ---
+$webDashboardProcess = Start-WebDashboard -PythonExecutable $venvPython
+if ($null -eq $webDashboardProcess) {
+    Write-Host "Failed to start the Web Dashboard. Exiting." -ForegroundColor Red
+    exit 1
+}
 
 # --- Function to check if a process is running ---
 function Test-ProcessRunning {
@@ -106,6 +149,12 @@ while ($true) {
         # Only run the expensive update check every $checkIntervalSeconds
         if ($checkCounter -ge $checkIntervalSeconds) {
             # --- Log the time of the update check ---
+            # --- NEW: Check if the web dashboard is still running, restart if not ---
+            if ($null -eq (Get-Process -Id $webDashboardProcess.Id -ErrorAction SilentlyContinue)) {
+                Write-Host "Web Dashboard process is not running. Attempting to restart..." -ForegroundColor Yellow
+                $webDashboardProcess = Start-WebDashboard -PythonExecutable $venvPython
+            }
+
             (Get-Date).ToUniversalTime().ToString("o") | Out-File -FilePath "last_check.txt" -Encoding utf8
 
             # Fetch the latest changes from the remote repository
