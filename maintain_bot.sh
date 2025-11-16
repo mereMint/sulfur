@@ -23,6 +23,10 @@ echo "Python environment is ready."
 
 DB_SYNC_FILE="database_sync.sql"
 
+# --- NEW: Declare PIDs globally for the trap ---
+WEB_DASHBOARD_PID=""
+BOT_PID=""
+
 # --- Function to start and verify the Web Dashboard ---
 function start_web_dashboard {
     echo "Starting the Web Dashboard..."

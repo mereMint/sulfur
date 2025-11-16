@@ -13,15 +13,15 @@
 # 3. Run the script with: .\maintain_bot.ps1
 
 # --- NEW: Initialize process variables ---
-$webDashboardProcess = $null
-$botProcess = $null
+$script:webDashboardProcess = $null
+$script:botProcess = $null
 
 # --- NEW: Trap to catch script termination (e.g., closing the window) ---
 trap [System.Management.Automation.PipelineStoppedException] {
     Write-Host "Watcher window closed or script stopped. Cleaning up child processes..." -ForegroundColor Red
     # Gracefully stop child processes
-    if ($botProcess) { Stop-Process -Id $botProcess.Id -Force -ErrorAction SilentlyContinue }
-    if ($webDashboardProcess) { Stop-Process -Id $webDashboardProcess.Id -Force -ErrorAction SilentlyContinue }
+    if ($script:botProcess) { Stop-Process -Id $script:botProcess.Id -Force -ErrorAction SilentlyContinue }
+    if ($script:webDashboardProcess) { Stop-Process -Id $script:webDashboardProcess.Id -Force -ErrorAction SilentlyContinue }
     # Exit the script cleanly
     exit 0
 }
@@ -78,8 +78,8 @@ function Start-WebDashboard {
 }
 
 # --- Start the Web Dashboard for the first time ---
-$webDashboardProcess = Start-WebDashboard -PythonExecutable $venvPython
-if ($null -eq $webDashboardProcess) {
+$script:webDashboardProcess = Start-WebDashboard -PythonExecutable $venvPython
+if ($null -eq $script:webDashboardProcess) {
     Write-Host "Failed to start the Web Dashboard. Exiting." -ForegroundColor Red
     exit 1
 }
@@ -104,21 +104,21 @@ while ($true) {
     Write-Host "Starting the bot process..."
     # Start the main bot script as a background job.
     # This allows the watcher to continue running while the bot is active.
-    $botProcess = Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", "& `"$($PSScriptRoot)\start_bot.ps1`"" -PassThru
+    $script:botProcess = Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", "& `"$($PSScriptRoot)\start_bot.ps1`"" -PassThru
 
-    Write-Host "Bot is running in a new window (Process ID: $($botProcess.Id)). Checking for updates every 60 seconds."
+    Write-Host "Bot is running in a new window (Process ID: $($script:botProcess.Id)). Checking for updates every 60 seconds."
 
     # --- NEW: Counter for periodic checks ---
     $checkCounter = 0
     $checkIntervalSeconds = 15
 
-    while (Test-ProcessRunning -ProcessId $botProcess.Id) {
+    while (Test-ProcessRunning -ProcessId $script:botProcess.Id) {
         # --- Check for shutdown key press ---
         if ([System.Console]::KeyAvailable) {
             $key = [System.Console]::ReadKey($true) # $true hides the key press from the console
             if ($key.Key -eq 'Q') {
                 Write-Host "Shutdown key ('Q') pressed. Stopping bot and exiting..." -ForegroundColor Yellow
-                Stop-ProcessGracefully -ProcessId $botProcess.Id
+                Stop-ProcessGracefully -ProcessId $script:botProcess.Id
                 # The start_bot script's exit trap handles the DB dump. Give it a moment.
                 Start-Sleep -Seconds 2
 
@@ -131,7 +131,7 @@ while ($true) {
                 }
 
                 Write-Host "Shutdown complete."
-                Stop-ProcessGracefully -ProcessId $webDashboardProcess.Id # Stop the web dashboard
+                Stop-ProcessGracefully -ProcessId $script:webDashboardProcess.Id # Stop the web dashboard
                 exit 0
             }
         }
@@ -139,14 +139,14 @@ while ($true) {
         # --- NEW: Check for control flags from web dashboard ---
         if (Test-Path -Path "stop.flag") {
             Write-Host "Stop signal received from web dashboard. Shutting down..." -ForegroundColor Yellow
-            Stop-ProcessGracefully -ProcessId $botProcess.Id
+            Stop-ProcessGracefully -ProcessId $script:botProcess.Id
             Start-Sleep -Seconds 2
             Remove-Item "stop.flag" -ErrorAction SilentlyContinue
             # Final DB commit
             if (git status --porcelain | Select-String -Pattern $dbSyncFile) {
                 git add $dbSyncFile; git commit -m "chore: Sync database schema on shutdown"; git push
             }
-            Stop-ProcessGracefully -ProcessId $webDashboardProcess.Id # Stop the web dashboard
+            Stop-ProcessGracefully -ProcessId $script:webDashboardProcess.Id # Stop the web dashboard
             exit 0
         }
         if (Test-Path -Path "restart.flag") {
@@ -164,9 +164,9 @@ while ($true) {
         if ($checkCounter -ge $checkIntervalSeconds) {
             # --- Log the time of the update check ---
             # --- NEW: Check if the web dashboard is still running, restart if not ---
-            if ($null -eq (Get-Process -Id $webDashboardProcess.Id -ErrorAction SilentlyContinue)) {
+            if ($null -eq (Get-Process -Id $script:webDashboardProcess.Id -ErrorAction SilentlyContinue)) {
                 Write-Host "Web Dashboard process is not running. Attempting to restart..." -ForegroundColor Yellow
-                $webDashboardProcess = Start-WebDashboard -PythonExecutable $venvPython
+                $script:webDashboardProcess = Start-WebDashboard -PythonExecutable $venvPython
             }
 
             (Get-Date).ToUniversalTime().ToString("o") | Out-File -FilePath "last_check.txt" -Encoding utf8
@@ -179,7 +179,7 @@ while ($true) {
                 Write-Host "New version found in the repository! Restarting the bot to apply updates..."
                 # Create the flag file to signal the bot to go idle
                 New-Item -Path "update_pending.flag" -ItemType File -Force | Out-Null
-                Stop-ProcessGracefully -ProcessId $botProcess.Id # Stop the bot
+                Stop-ProcessGracefully -ProcessId $script:botProcess.Id # Stop the bot
                 Start-Sleep -Seconds 2 # Give it a moment for the exit trap to run
                 
                 # --- NEW: Commit database changes before pulling ---
@@ -198,7 +198,7 @@ while ($true) {
 
                 if ($watcher_updated) {
                     Write-Host "Watcher script has been updated! Rebooting the entire watcher system..." -ForegroundColor Magenta
-                    if ($webDashboardProcess) { Stop-ProcessGracefully -ProcessId $webDashboardProcess.Id }
+                    if ($script:webDashboardProcess) { Stop-ProcessGracefully -ProcessId $script:webDashboardProcess.Id }
                     # Start the bootstrapper to restart the watcher, then exit this old instance.
                     Start-Process powershell.exe -ArgumentList "-File `"$($PSScriptRoot)\bootstrapper.ps1`""
                     exit 0

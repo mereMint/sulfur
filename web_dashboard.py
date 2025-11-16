@@ -27,7 +27,9 @@ db_helpers.init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
 
 # --- Flask App Setup ---
 
-app = Flask(__name__)
+# --- FIX: Specify the template folder to be the current directory ---
+# By default, Flask looks for a 'templates' subfolder. Since the HTML files are in the root, we point it here.
+app = Flask(__name__, template_folder='.')
 app.secret_key = os.urandom(24)  # Needed for flashing messages
 socketio = SocketIO(app, async_mode='threading')
 
