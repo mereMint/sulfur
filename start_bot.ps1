@@ -8,6 +8,9 @@
 # This ensures that relative paths for files like .env and bot.py work correctly.
 Set-Location -Path $PSScriptRoot
 
+# --- NEW: Import shared functions ---
+. "$PSScriptRoot\shared_functions.ps1"
+
 # --- NEW: Load environment variables from .env file ---
 if (Test-Path -Path ".env") {
     Get-Content .\.env | ForEach-Object {
@@ -90,31 +93,6 @@ if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
     Write-Host "Please ensure Python is installed and its location is in your system's PATH environment variable." -ForegroundColor Yellow
     Read-Host "Press Enter to exit."
     exit 1
-}
-
-# --- NEW: Function to ensure Python Virtual Environment is set up ---
-function Ensure-Venv {
-    param(
-        [string]$ScriptRoot
-    )
-    $venvPath = Join-Path -Path $ScriptRoot -ChildPath "venv"
-    $pythonExecutable = Join-Path -Path $venvPath -ChildPath "Scripts\python.exe"
-
-    if (-not (Test-Path -Path $pythonExecutable)) {
-        Write-Host "Python virtual environment not found. Creating one now..." -ForegroundColor Yellow
-        python -m venv $venvPath
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "Failed to create the Python virtual environment. Please check your Python installation." -ForegroundColor Red
-            Read-Host "Press Enter to exit."
-            exit 1
-        }
-    }
-
-    Write-Host "Installing/updating Python dependencies from requirements.txt..."
-    & $pythonExecutable -m pip install -r requirements.txt
-    Write-Host "Dependencies are up to date."
-
-    return $pythonExecutable
 }
 
 # --- Setup and use a Python Virtual Environment ---

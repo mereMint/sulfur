@@ -1,5 +1,6 @@
 import json
 import os
+import platform
 import subprocess
 import threading
 import time
@@ -112,38 +113,47 @@ def config_editor():
     
     return render_template('config.html', config_content=config_content)
 
-@app.route('/database')
-async def database_viewer():
+@app.route('/database', methods=['GET'])
+def database_viewer():
     """Renders the database viewer page."""
-    # List of tables to display
     tables_to_show = ['players', 'user_monthly_stats', 'managed_voice_channels', 'chat_history', 'api_usage']
     table_data = {}
+    conn = None
+    cursor = None
     for table_name in tables_to_show:
         try:
-            # Using a generic fetch function
             query = f"SELECT * FROM {table_name} ORDER BY 1 DESC LIMIT 50"
-            conn = await db_helpers.get_db_connection()
-            async with conn.cursor(db_helpers.DictCursor) as cursor:
-                await cursor.execute(query)
-                results = await cursor.fetchall()
-                table_data[table_name] = results
-            conn.close()
+            conn = db_helpers.db_pool.get_connection()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(query)
+            table_data[table_name] = cursor.fetchall()
         except Exception as e:
             table_data[table_name] = {'error': str(e)}
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
             
     return render_template('database.html', table_data=table_data)
 
-@app.route('/ai_usage')
-async def ai_usage_viewer():
+@app.route('/ai_usage', methods=['GET'])
+def ai_usage_viewer():
     """Renders the AI usage page."""
+    conn = None
+    cursor = None
     try:
-        conn = await db_helpers.get_db_connection()
-        async with conn.cursor(db_helpers.DictCursor) as cursor:
-            await cursor.execute("SELECT * FROM api_usage ORDER BY usage_date DESC")
-            usage_data = await cursor.fetchall()
-        conn.close()
+        conn = db_helpers.db_pool.get_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM api_usage ORDER BY usage_date DESC")
+        usage_data = cursor.fetchall()
     except Exception as e:
         usage_data = [{'error': str(e)}]
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
         
     return render_template('ai_usage.html', usage_data=usage_data)
 
@@ -170,11 +180,18 @@ def api_update_bot():
 @app.route('/api/restart-bot', methods=['POST'])
 def api_restart_bot():
     """API endpoint to restart the bot."""
+    # This is now handled by creating a flag file that the maintenance script detects.
+    # This is more reliable than trying to find and kill/restart processes from Python.
     try:
-        message = restart_bot()
+        with open('restart.flag', 'w') as f:
+            f.write('1')
+        message = "Restart signal sent to the maintenance script. The bot will restart shortly."
+        print(message)
         return jsonify({'status': 'success', 'message': message})
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        error_message = f"Failed to create restart flag: {e}"
+        print(error_message)
+        return jsonify({'status': 'error', 'message': error_message}), 500
 
 @app.route('/api/stop-bot', methods=['POST'])
 def api_stop_bot():
@@ -184,6 +201,28 @@ def api_stop_bot():
         return jsonify({'status': 'success', 'message': message})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+def restart_bot():
+    """Creates a flag file to signal the maintenance script to restart the bot."""
+    with open('restart.flag', 'w') as f:
+        f.write('1')
+    return "Restart signal sent. The bot will be restarted by the maintenance script."
+
+def stop_bot_processes():
+    """Creates a flag file to signal the maintenance script to stop everything."""
+    with open('stop.flag', 'w') as f:
+        f.write('1')
+    return "Stop signal sent. All bot-related processes will be shut down by the maintenance script."
+
+def update_bot_from_git():
+    """Triggers a git pull. The maintenance script will handle the restart."""
+    # The maintenance script automatically pulls, so we just need to trigger a restart.
+    return restart_bot()
+
+def sync_database_changes():
+    """This is now handled automatically by the bot scripts on shutdown/restart."""
+    return "Database synchronization is handled automatically by the start/maintenance scripts. Trigger a restart to sync."
+
 
 if __name__ == '__main__':
     # Start the log following thread

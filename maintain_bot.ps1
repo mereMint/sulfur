@@ -15,8 +15,8 @@
 Write-Host "--- Sulfur Bot Maintenance Watcher ---"
 Write-Host "Press 'Q' at any time to gracefully shut down the bot and exit." -ForegroundColor Yellow
 
-# --- NEW: Import the venv setup function from start_bot.ps1 ---
-. "$PSScriptRoot\start_bot.ps1"
+# --- NEW: Import shared functions ---
+. "$PSScriptRoot\shared_functions.ps1"
 
 # --- NEW: Ensure the Python virtual environment and dependencies are ready ---
 Write-Host "Checking Python virtual environment..."

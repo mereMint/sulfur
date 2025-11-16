@@ -1,133 +1,122 @@
 #!/bin/bash
 
-# This script acts as a watcher to maintain the Sulfur bot in a Termux environment.
-# It starts the bot and then checks for updates from the Git repository.
-# If updates are found, it automatically restarts the bot.
-#
-# --- How to Stop ---
-# To gracefully shut down the bot and this script, press the 'Q' key.
-# The script will stop the bot, perform a final database commit if needed, and then exit.
-#
-
-# --- How to run it ---
-# 1. Make sure this script is executable: chmod +x maintain_bot.sh
+# This script acts as a watcher to maintain the Sulfur bot on Linux/Termux.
+# To run it:
+# 1. Make it executable: chmod +x maintain_bot.sh
 # 2. Run the script with: ./maintain_bot.sh
 
-echo "--- Sulfur Bot Maintenance Watcher (Termux Version) ---"
-echo -e "\033[0;33mPress 'Q' at any time to gracefully shut down the bot and exit.\033[0m"
+echo "--- Sulfur Bot Maintenance Watcher ---"
+echo "Press 'Q' at any time to gracefully shut down the bot and exit."
 
-# Define the file to watch for database changes
+# --- Import shared functions ---
+cd "$(dirname "$0")"
+source ./shared_functions.sh
+
+# --- Ensure Python environment is ready ---
+echo "Checking Python virtual environment..."
+VENV_PYTHON=$(ensure_venv)
+echo "Python environment is ready."
+
 DB_SYNC_FILE="database_sync.sql"
 
-# --- NEW: Start the Web Dashboard in the background ---
-echo "Starting the Web Dashboard..."
-pip install -r requirements.txt &>/dev/null
-python -u web_dashboard.py &
-WEB_PID=$!
-echo "Web Dashboard is running at http://localhost:5000 (PID: $WEB_PID)"
+# --- Function to start and verify the Web Dashboard ---
+function start_web_dashboard {
+    echo "Starting the Web Dashboard..."
+    # Start in the background and get its PID
+    "$VENV_PYTHON" -u web_dashboard.py &> web_dashboard.log &
+    WEB_DASHBOARD_PID=$!
+    echo "Web Dashboard process started (PID: $WEB_DASHBOARD_PID)"
 
+    echo "Waiting for the Web Dashboard to become available on http://localhost:5000..."
+    for i in {1..15}; do
+        # Check if the process is still running
+        if ! ps -p $WEB_DASHBOARD_PID > /dev/null; then
+            echo "Web Dashboard process terminated unexpectedly during startup. Check web_dashboard.log for errors."
+            return 1
+        fi
+        # Check if the port is open
+        if curl --output /dev/null --silent --head --fail http://localhost:5000; then
+            echo "Web Dashboard is online and ready."
+            return 0
+        fi
+        sleep 1
+    done
 
-# Function to check for and commit database changes
-commit_db_changes() {
-    # Check if the sync file has any changes staged or unstaged
-    if git status --porcelain | grep -q "$DB_SYNC_FILE"; then
-        echo -e "\033[0;36mDatabase changes detected. Committing and pushing...\033[0m"
-        git add "$DB_SYNC_FILE"
-        git commit -m "chore: Sync database schema"
-        git push
-    fi
+    echo "Error: Web Dashboard did not become available. Shutting down."
+    kill -9 $WEB_DASHBOARD_PID
+    return 1
 }
 
+# --- Start the Web Dashboard for the first time ---
+start_web_dashboard
+if [ $? -ne 0 ]; then
+    echo "Failed to start the Web Dashboard. Exiting."
+    exit 1
+fi
+
+# --- Main loop ---
 while true; do
     echo "Starting the bot process..."
     # Start the main bot script in the background
     ./start_bot.sh &
-    
-    # Get the Process ID (PID) of the background job
     BOT_PID=$!
 
-    echo "Bot is running in the background (PID: $BOT_PID). Checking for updates..."
+    echo "Bot is running (PID: $BOT_PID). Checking for updates every 60 seconds."
 
-    # Loop while the bot process is still running
-    # `kill -0` checks if a process with the given PID exists
-    while kill -0 "$BOT_PID" 2>/dev/null; do
-        # Check for shutdown key press without blocking
-        # -t 0.1: timeout of 0.1s, -N 1: read 1 char
-        if read -t 0.1 -N 1 key; then
-            if [[ "$key" == "q" || "$key" == "Q" ]]; then
-                echo -e "\033[0;33mShutdown key ('Q') pressed. Stopping bot and exiting...\033[0m"
-                kill "$BOT_PID"
-                wait "$BOT_PID" 2>/dev/null # Wait for the process to terminate
+    # Inner loop to monitor the running bot
+    while ps -p $BOT_PID > /dev/null; do
+        # Check for shutdown key press (non-blocking read)
+        read -t 1 -n 1 key
+        if [[ $key == "q" || $key == "Q" ]]; then
+            echo "Shutdown key ('Q') pressed. Stopping bot and exiting..."
+            kill $BOT_PID
+            sleep 2 # Give it a moment for the exit trap to run
 
-                echo "Performing final database check..."
-                commit_db_changes
-
-                echo "Shutdown complete."
-                kill "$WEB_PID" # Stop the web dashboard
-                exit 0
+            # Final DB commit
+            if [[ -n $(git status --porcelain "$DB_SYNC_FILE") ]]; then
+                echo "Final database changes detected. Committing and pushing..."
+                git add "$DB_SYNC_FILE"
+                git commit -m "chore: Sync database schema on shutdown"
+                git push
             fi
+            
+            echo "Shutdown complete."
+            kill -9 $WEB_DASHBOARD_PID
+            exit 0
         fi
 
-        # --- NEW: Check for control flags from web dashboard ---
+        # Check for control flags
         if [ -f "stop.flag" ]; then
-            echo -e "\033[0;33mStop signal received from web dashboard. Shutting down...\033[0m"
-            kill "$BOT_PID"
-            wait "$BOT_PID" 2>/dev/null
+            echo "Stop signal received. Shutting down..."
             rm -f "stop.flag"
-            commit_db_changes
-            kill "$WEB_PID" # Stop the web dashboard
+            kill $BOT_PID
+            # Trigger the shutdown sequence by sending 'q' to ourselves
+            echo "q" | ./maintain_bot.sh &> /dev/null
             exit 0
         fi
         if [ -f "restart.flag" ]; then
-            echo -e "\033[0;33mRestart signal received from web dashboard. Restarting bot...\033[0m"
+            echo "Restart signal received. Restarting bot..."
             rm -f "restart.flag"
-            # Force the update check to succeed, triggering a restart
-            git remote update &>/dev/null
-            break # Break inner loop to force restart
+            kill $BOT_PID # This will break the inner loop and trigger a restart
         fi
 
-        sleep 15
+        # Check for git updates every 60 seconds
+        git remote update
+        STATUS=$(git status -uno)
 
-        # Log the time of the update check
-        date -u +"%Y-%m-%dT%H:%M:%SZ" > last_check.txt
-
-        # Fetch the latest changes from the remote repository
-        git remote update &>/dev/null
-        
-        # Check if the local branch is behind the remote
-        if git status -uno | grep -q "Your branch is behind"; then
-            echo "New version found in the repository! Restarting the bot to apply updates..."
-            # Create the flag file to signal the bot to go idle
-            touch update_pending.flag
-            kill "$BOT_PID" # Stop the bot
-            wait "$BOT_PID" 2>/dev/null # Wait for the process to terminate
-
-            commit_db_changes
-
-            # --- NEW: Check if the watcher script itself is being updated ---
-            git fetch &>/dev/null
-            watcher_updated=false
-            if git diff --name-only HEAD...origin/main | grep -q "maintain_bot.sh"; then
-                watcher_updated=true
-            fi
-
-            echo "Pulling latest changes from git..."
-            git pull
-            
-            if [ "$watcher_updated" = true ]; then
-                echo -e "\033[0;35mWatcher script has been updated! Rebooting the entire watcher system...\033[0m"
-                kill "$WEB_PID"
-                # Execute the bootstrapper, which will then start the new watcher.
-                exec ./bootstrapper.sh
-            fi
-
-            # Log the time of the successful update
-            date -u +"%Y-%m-%dT%H:%M:%SZ" > last_update.txt
-            rm -f update_pending.flag # Clean up the flag
-            break # Exit the inner loop to allow the outer loop to restart it
+        if [[ "$STATUS" == *"Your branch is behind"* ]]; then
+            echo "New version found! Restarting the bot to apply updates..."
+            touch "update_pending.flag"
+            kill $BOT_PID
+            sleep 2
+            # The start_bot.sh script handles the pre-pull commit via its exit trap
+            rm -f "update_pending.flag"
+            break # Exit inner loop to restart
         fi
+
+        sleep 59 # Sleep for the rest of the minute
     done
 
     echo "Bot process stopped. It will be restarted shortly..."
-    sleep 5 # Brief pause before restarting
+    sleep 5
 done
