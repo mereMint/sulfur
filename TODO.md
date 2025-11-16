@@ -3,22 +3,7 @@
 
 ## 🔴 High Priority - Bug Fixes
 
-### Werwolf Game Issues
-- [x] **Fix game startup detection** - COMPLETED
-  - Fixed player detection logic
-  - Improved game initialization in `modules/werwolf.py`
-  - Better player registration/join mechanics
-  
-- [x] **Fix lobby cleanup** - COMPLETED
-  - Added proper cleanup in game end handlers with fresh channel fetch
-  - Voice channels now properly removed using concurrent deletion
-  - Game state cleared from database
-  
-- [x] **General Werwolf game overhaul** - COMPLETED
-  - Reviewed entire game flow logic
-  - Fixed state machine transitions
-  - Improved error handling and edge cases
-  - Added better logging for debugging
+- maintain_bot can't talk to the web dashboard and the bot 
 
 ---
 
