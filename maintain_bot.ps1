@@ -34,7 +34,7 @@ trap [System.Management.Automation.PipelineStoppedException] {
     # Gracefully stop child processes
     if ($script:botProcess) { Stop-Process -Id $script:botProcess.Id -Force -ErrorAction SilentlyContinue }
     if ($script:webDashboardProcess) { Stop-Process -Id $script:webDashboardProcess.Id -Force -ErrorAction SilentlyContinue }
-    @{status = "Shutdown" } | ConvertTo-Json | Set-Content -Path $statusFile -Encoding utf8NoBOM
+    [System.IO.File]::WriteAllText($statusFile, (@{status = "Shutdown" } | ConvertTo-Json -Compress), ([System.Text.UTF8Encoding]::new($false)))
     Stop-Transcript
     # Exit the script cleanly
     exit 0
@@ -115,13 +115,13 @@ function Stop-ProcessGracefully {
 }
 
 while ($true) {
-    @{status = "Starting..." } | ConvertTo-Json | Set-Content -Path $statusFile -Encoding utf8NoBOM
+    [System.IO.File]::WriteAllText($statusFile, (@{status = "Starting..." } | ConvertTo-Json -Compress), ([System.Text.UTF8Encoding]::new($false)))
     Write-Host "Starting the bot process..."
     # Start the main bot script as a background job.
     # This allows the watcher to continue running while the bot is active.
     $script:botProcess = Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", "& `"$($PSScriptRoot)\start_bot.ps1`"" -PassThru
 
-    @{status = "Running"; pid = $script:botProcess.Id } | ConvertTo-Json | Set-Content -Path $statusFile -Encoding utf8NoBOM
+    [System.IO.File]::WriteAllText($statusFile, (@{status = "Running"; pid = $script:botProcess.Id } | ConvertTo-Json -Compress), ([System.Text.UTF8Encoding]::new($false)))
     Write-Host "Bot is running in a new window (Process ID: $($script:botProcess.Id)). Checking for updates every 60 seconds."
 
     # --- NEW: Counter for periodic checks ---
@@ -147,7 +147,7 @@ while ($true) {
                 }
 
                 Write-Host "Shutdown complete."
-                @{status = "Shutdown" } | ConvertTo-Json | Set-Content -Path $statusFile -Encoding utf8NoBOM
+                [System.IO.File]::WriteAllText($statusFile, (@{status = "Shutdown" } | ConvertTo-Json -Compress), ([System.Text.UTF8Encoding]::new($false)))
                 if ($script:webDashboardProcess) { Stop-ProcessGracefully -ProcessId $script:webDashboardProcess.Id } # Stop the web dashboard
                 exit 0
             }
@@ -163,7 +163,7 @@ while ($true) {
             if (git status --porcelain | Select-String -Pattern $dbSyncFile) {
                 git add $dbSyncFile; git commit -m "chore: Sync database schema on shutdown"; git push
             }
-            @{status = "Shutdown" } | ConvertTo-Json | Set-Content -Path $statusFile -Encoding utf8NoBOM
+            [System.IO.File]::WriteAllText($statusFile, (@{status = "Shutdown" } | ConvertTo-Json -Compress), ([System.Text.UTF8Encoding]::new($false)))
             if ($script:webDashboardProcess) { Stop-ProcessGracefully -ProcessId $script:webDashboardProcess.Id } # Stop the web dashboard
             Stop-Transcript
             exit 0
@@ -171,7 +171,7 @@ while ($true) {
         if (Test-Path -Path "restart.flag") {
             Write-Host "Restart signal received from web dashboard. Restarting bot..." -ForegroundColor Yellow
             Remove-Item "restart.flag" -ErrorAction SilentlyContinue
-            @{status = "Restarting..." } | ConvertTo-Json | Set-Content -Path $statusFile -Encoding utf8NoBOM
+            [System.IO.File]::WriteAllText($statusFile, (@{status = "Restarting..." } | ConvertTo-Json -Compress), ([System.Text.UTF8Encoding]::new($false)))
             # Setting status to trigger a restart in the outer loop
             $status = "*Your branch is behind*" 
         }
@@ -196,7 +196,7 @@ while ($true) {
             $status = git status -uno
 
             if ($status -like "*Your branch is behind*") {
-                @{status = "Updating..." } | ConvertTo-Json | Set-Content -Path $statusFile -Encoding utf8NoBOM
+                [System.IO.File]::WriteAllText($statusFile, (@{status = "Updating..." } | ConvertTo-Json -Compress), ([System.TextUTF8Encoding]::new($false)))
                 Write-Host "New version found in the repository! Restarting the bot to apply updates..."
                 # Create the flag file to signal the bot to go idle
                 New-Item -Path "update_pending.flag" -ItemType File -Force | Out-Null
@@ -239,7 +239,7 @@ while ($true) {
         }
     }
 
-    @{status = "Stopped" } | ConvertTo-Json | Set-Content -Path $statusFile -Encoding utf8NoBOM
+    [System.IO.File]::WriteAllText($statusFile, (@{status = "Stopped" } | ConvertTo-Json -Compress), ([System.Text.UTF8Encoding]::new($false)))
     Write-Host "Bot process stopped. It will be restarted shortly..."
     Start-Sleep -Seconds 5 # Brief pause before restarting
 }
