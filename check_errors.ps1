@@ -12,13 +12,28 @@ $WarningCount = 0
 # === 1. Check Python Syntax ===
 Write-Host "[1/7] Checking Python syntax..." -ForegroundColor Yellow
 $syntaxErrors = @()
-Get-ChildItem -Recurse -Filter *.py -File | Where-Object { $_.DirectoryName -notlike '*__pycache__*' } | ForEach-Object {
-    $null = python -m py_compile $_.FullName 2>&1
+# Exclude venv, __pycache__, and .git directories to speed up
+$pyFiles = Get-ChildItem -Recurse -Filter *.py -File | Where-Object { 
+    $_.DirectoryName -notlike '*__pycache__*' -and 
+    $_.DirectoryName -notlike '*\venv\*' -and 
+    $_.DirectoryName -notlike '*\.git\*' -and
+    $_.DirectoryName -notlike '*\backups\*'
+}
+$total = $pyFiles.Count
+$current = 0
+Write-Host "  Found $total Python files to check..." -ForegroundColor Gray
+foreach ($file in $pyFiles) {
+    $current++
+    Write-Host "`r  Checking file $current/$total : $($file.Name)..." -NoNewline -ForegroundColor Gray
+    $null = python -m py_compile $file.FullName 2>&1
     if ($LASTEXITCODE -ne 0) {
-        $syntaxErrors += $_.Name
+        Write-Host ""  # New line before error
+        Write-Host "  ✗ Syntax error in: $($file.Name)" -ForegroundColor Red
+        $syntaxErrors += $file.Name
         $ErrorCount++
     }
 }
+Write-Host ""  # New line after progress
 
 if ($syntaxErrors.Count -eq 0) {
     Write-Host "  ??? No syntax errors detected" -ForegroundColor Green
@@ -132,7 +147,10 @@ $importTests = @(
 )
 
 $missingModules = @()
+$importCount = 0
 foreach ($test in $importTests) {
+    $importCount++
+    Write-Host "  Testing import $importCount/$($importTests.Count): $($test.Name)..." -ForegroundColor Gray
     python -c "import $($test.Module)" 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) {
         $missingModules += $test.Name
@@ -150,6 +168,7 @@ if ($missingModules.Count -eq 0) {
 
 # === 6. Check for Common Code Issues ===
 Write-Host "`n[6/7] Scanning for potential issues..." -ForegroundColor Yellow
+Write-Host "  Searching for anti-patterns in code..." -ForegroundColor Gray
 $antiPatterns = @{
     "except:\s*\n\s*pass" = "Bare except with pass (silent errors)"
     "except Exception:\s*\n\s*pass" = "Catching all exceptions silently"
@@ -158,6 +177,7 @@ $antiPatterns = @{
 
 $foundIssues = @()
 foreach ($pattern in $antiPatterns.GetEnumerator()) {
+    Write-Host "  Searching for: $($pattern.Value)..." -ForegroundColor Gray
     $searchResults = Select-String -Pattern $pattern.Key -Path *.py,modules\*.py,web\*.py -SimpleMatch:$false -ErrorAction SilentlyContinue
     if ($searchResults) {
         foreach ($match in $searchResults) {

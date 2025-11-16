@@ -187,6 +187,46 @@ def ai_usage_viewer():
         
     return render_template('ai_usage.html', usage_data=usage_data)
 
+@app.route('/ai_dashboard', methods=['GET'])
+def ai_dashboard():
+    """Renders the AI usage dashboard with statistics and charts."""
+    from modules.db_helpers import get_ai_usage_stats
+    import asyncio
+    
+    try:
+        # Get stats for different time periods
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        stats_7days = loop.run_until_complete(get_ai_usage_stats(7))
+        stats_30days = loop.run_until_complete(get_ai_usage_stats(30))
+        stats_all = loop.run_until_complete(get_ai_usage_stats(365))
+        
+        loop.close()
+        
+        # Calculate totals
+        total_calls = sum(stat['total_calls'] for stat in stats_all)
+        total_tokens = sum(stat['total_input_tokens'] + stat['total_output_tokens'] for stat in stats_all)
+        total_cost = sum(stat['total_cost'] for stat in stats_all)
+        
+        return render_template('ai_dashboard.html',
+                             stats_7days=stats_7days,
+                             stats_30days=stats_30days,
+                             stats_all=stats_all,
+                             total_calls=total_calls,
+                             total_tokens=total_tokens,
+                             total_cost=total_cost)
+    except Exception as e:
+        print(f"Error loading AI dashboard: {e}")
+        return render_template('ai_dashboard.html',
+                             stats_7days=[],
+                             stats_30days=[],
+                             stats_all=[],
+                             total_calls=0,
+                             total_tokens=0,
+                             total_cost=0,
+                             error=str(e))
+
 # --- API Endpoints for Bot Control ---
 
 @app.route('/api/bot-status', methods=['GET'])
@@ -244,6 +284,31 @@ def api_stop_bot():
         message = stop_bot_processes()
         return jsonify({'status': 'success', 'message': message})
     except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/ai-usage', methods=['GET'])
+def api_ai_usage():
+    """API endpoint to get AI usage statistics."""
+    try:
+        days = int(request.args.get('days', 30))
+        
+        # Import here to avoid circular import
+        from modules.db_helpers import get_ai_usage_stats
+        import asyncio
+        
+        # Run async function in sync context
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        stats = loop.run_until_complete(get_ai_usage_stats(days))
+        loop.close()
+        
+        return jsonify({
+            'status': 'success',
+            'data': stats,
+            'period_days': days
+        })
+    except Exception as e:
+        print(f"Error fetching AI usage: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 def restart_bot():

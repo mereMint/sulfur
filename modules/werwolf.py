@@ -803,12 +803,12 @@ class WerwolfGame:
 
     async def end_game(self, config, winner_team=None, winner_message=None):
         """Ends the game and announces the winner."""
-        if self.phase == "stopping":
+        if self.phase == "stopping" or self.phase == "finished":
             return # Already in the process of stopping
         self.phase = "stopping"
 
         # --- NEW: Record stats in the database ---
-        if winner_team:
+        if winner_team and config:
             winning_roles = []
             if winner_team == "Dorfbewohner":
                 winning_roles = [DORFBEWOHNER, SEHERIN, HEXE, DÖNERSTOPFER]
@@ -822,6 +822,9 @@ class WerwolfGame:
                 
                 won = player.role in winning_roles
                 await update_player_stats(player.user.id, player.user.display_name, won)
+        elif not config:
+            # Game was cancelled before it truly started, no stats to record
+            pass
 
         if winner_team:
             winner_message = f"Das Spiel ist vorbei! Die **{winner_team}** haben gewonnen!"
@@ -829,8 +832,8 @@ class WerwolfGame:
             winner_message = "Das Spiel wurde beendet."
 
         # --- NEW: Post summary to original channel ---
-        if self.original_channel:
-            embed_color = discord.Color(int(self.config.get('bot', {}).get('embed_color', '#7289DA').lstrip('#'), 16))
+        if self.original_channel and config:
+            embed_color = discord.Color(int(config.get('bot', {}).get('embed_color', '#7289DA').lstrip('#'), 16))
             summary_embed = discord.Embed(title="Werwolf - Spielzusammenfassung", description=winner_message, color=embed_color)
             player_roles = []
             for p in self.players.values():
@@ -838,7 +841,7 @@ class WerwolfGame:
             summary_embed.add_field(name="Spieler und Rollen", value="\n".join(player_roles), inline=False)
             try:
                 await self.original_channel.send(embed=summary_embed)
-            except discord.Forbidden:
+            except (discord.Forbidden, discord.HTTPException):
                 print(f"Could not send summary to original channel {self.original_channel.id}")
 
         self.phase = "finished" # Mark as finished before cleanup
@@ -862,8 +865,12 @@ class WerwolfGame:
                 # Now, delete the category itself
                 await fresh_category.delete(reason="Spielende")
                 print(f"  [WW] Successfully cleaned up category.")
+            except discord.NotFound:
+                print(f"  [WW] Category already deleted, skipping cleanup.")
+            except discord.Forbidden:
+                print(f"  [WW] Missing permissions to delete category.")
             except Exception as e:
-                print(f"Fehler beim Aufräumen der Spiel-Kategorie: {e}")
+                print(f"  [WW] Error during category cleanup: {e}")
 
         # The game object will be deleted from the main bot file.
 

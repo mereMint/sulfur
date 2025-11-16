@@ -134,7 +134,7 @@ tree = app_commands.CommandTree(client)
 active_werwolf_games = {}
 
 # --- NEW: Import and initialize DB helpers ---
-from modules.db_helpers import init_db_pool, initialize_database, get_leaderboard, add_xp, get_player_rank, get_level_leaderboard, save_message_to_history, get_chat_history, get_relationship_summary, update_relationship_summary, save_bulk_history, clear_channel_history, update_user_presence, add_balance, update_spotify_history, get_all_managed_channels, remove_managed_channel, get_managed_channel_config, update_managed_channel_config, log_message_stat, log_vc_minutes, get_wrapped_stats_for_period, get_user_wrapped_stats, log_stat_increment, get_spotify_history, get_player_profile, cleanup_custom_status_entries, log_mention_reply, log_vc_session, get_wrapped_extra_stats, get_xp_for_level
+from modules.db_helpers import init_db_pool, initialize_database, get_leaderboard, add_xp, get_player_rank, get_level_leaderboard, save_message_to_history, get_chat_history, get_relationship_summary, update_relationship_summary, save_bulk_history, clear_channel_history, update_user_presence, add_balance, update_spotify_history, get_all_managed_channels, remove_managed_channel, get_managed_channel_config, update_managed_channel_config, log_message_stat, log_vc_minutes, get_wrapped_stats_for_period, get_user_wrapped_stats, log_stat_increment, get_spotify_history, get_player_profile, cleanup_custom_status_entries, log_mention_reply, log_vc_session, get_wrapped_extra_stats, get_xp_for_level, register_for_wrapped, unregister_from_wrapped, is_registered_for_wrapped, get_wrapped_registrations
 import modules.db_helpers as db_helpers
 db_helpers.init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
 from modules.level_system import grant_xp
@@ -725,6 +725,12 @@ async def manage_wrapped_event():
         print(f"Distributing Wrapped for period {last_month_stat_period}...")
         stats = await db_helpers.get_wrapped_stats_for_period(last_month_stat_period)
 
+        # --- NEW: Get list of registered users ---
+        registered_users = await db_helpers.get_wrapped_registrations()
+        if not registered_users:
+            print(f"No users registered for Wrapped. Skipping distribution.")
+            return
+
         # --- NEW: Pre-calculate ranks ---
         total_users = len(stats)
         if total_users == 0:
@@ -733,7 +739,12 @@ async def manage_wrapped_event():
 
         # Create sorted lists for ranking
 
+        # --- NEW: Only send to registered users ---
         for user_stats in stats:
+            user_id = user_stats.get('user_id')
+            if user_id not in registered_users:
+                continue  # Skip users who haven't opted in
+            
             await _generate_and_send_wrapped_for_user(
                 user_stats=user_stats,
                 stat_period_date=last_month_first_day,
@@ -1993,6 +2004,85 @@ async def stats(interaction: discord.Interaction):
     embed.set_footer(text="Wer hier nicht oben steht, ist ein Noob :xdx:")
     await interaction.followup.send(embed=embed)
 
+# --- NEW: Wrapped Registration Commands ---
+
+@tree.command(name="wrapped-register", description="Registriere dich für monatliche Wrapped-Zusammenfassungen.")
+async def wrapped_register(interaction: discord.Interaction):
+    """Allows users to opt-in to receive Wrapped summaries."""
+    await interaction.response.defer(ephemeral=True)
+    
+    success = await db_helpers.register_for_wrapped(interaction.user.id, interaction.user.display_name)
+    
+    if success:
+        embed = discord.Embed(
+            title="✅ Erfolgreich registriert!",
+            description="Du wirst ab jetzt monatlich deine persönliche Wrapped-Zusammenfassung per DM erhalten!",
+            color=discord.Color.green()
+        )
+        embed.add_field(
+            name="Was ist Wrapped?",
+            value="Jeden Monat bekommst du eine personalisierte Zusammenfassung deiner Server-Aktivität:\n"
+                  "📊 Nachrichten & Reaktionen\n"
+                  "🎤 Voice-Channel Zeit\n"
+                  "🎵 Spotify-Statistiken\n"
+                  "👥 Server-Bestie & mehr!",
+            inline=False
+        )
+        embed.set_footer(text="Du kannst dich jederzeit mit /wrapped-unregister abmelden.")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    else:
+        await interaction.followup.send("❌ Ein Fehler ist aufgetreten. Bitte versuche es später erneut.", ephemeral=True)
+
+@tree.command(name="wrapped-unregister", description="Melde dich von den Wrapped-Zusammenfassungen ab.")
+async def wrapped_unregister(interaction: discord.Interaction):
+    """Allows users to opt-out of receiving Wrapped summaries."""
+    await interaction.response.defer(ephemeral=True)
+    
+    success = await db_helpers.unregister_from_wrapped(interaction.user.id)
+    
+    if success:
+        embed = discord.Embed(
+            title="✅ Erfolgreich abgemeldet",
+            description="Du wirst keine Wrapped-Zusammenfassungen mehr erhalten.",
+            color=discord.Color.orange()
+        )
+        embed.set_footer(text="Du kannst dich jederzeit wieder mit /wrapped-register anmelden.")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    else:
+        await interaction.followup.send("❌ Ein Fehler ist aufgetreten. Bitte versuche es später erneut.", ephemeral=True)
+
+@tree.command(name="wrapped-status", description="Überprüfe deinen Wrapped-Registrierungsstatus.")
+async def wrapped_status(interaction: discord.Interaction):
+    """Shows the user's current Wrapped registration status."""
+    await interaction.response.defer(ephemeral=True)
+    
+    is_registered = await db_helpers.is_registered_for_wrapped(interaction.user.id)
+    
+    if is_registered:
+        embed = discord.Embed(
+            title="📊 Wrapped Status",
+            description="✅ Du bist **registriert** und wirst Wrapped-Zusammenfassungen erhalten.",
+            color=discord.Color.green()
+        )
+        embed.add_field(
+            name="Nächste Wrapped",
+            value="Die nächste Zusammenfassung wird in der zweiten Woche des nächsten Monats versendet.",
+            inline=False
+        )
+    else:
+        embed = discord.Embed(
+            title="📊 Wrapped Status",
+            description="❌ Du bist **nicht registriert** und wirst keine Wrapped-Zusammenfassungen erhalten.",
+            color=discord.Color.red()
+        )
+        embed.add_field(
+            name="Jetzt registrieren?",
+            value="Nutze `/wrapped-register` um dich anzumelden!",
+            inline=False
+        )
+    
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
 @ww_group.command(name="start", description="Startet ein neues Werwolf-Spiel.")
 @app_commands.describe(
     ziel_spieler="Die Ziel-Spieleranzahl. Bots füllen auf, wenn angegeben."
@@ -2034,6 +2124,10 @@ async def ww_start(interaction: discord.Interaction, ziel_spieler: int = None):
     game.join_message = None # Initialize join_message attribute
 
     active_werwolf_games[game_text_channel.id] = game
+    
+    # --- FIX: Add the starter to the game immediately ---
+    game.add_player(author)
+    
     # Send the ephemeral message to the command user
     await interaction.followup.send(f"Ein Werwolf-Spiel wurde in der Kategorie **{category.name}** erstellt! Schau in den Channel {game_text_channel.mention}.", ephemeral=True)
     # Send the public join message and store it for later deletion
@@ -2064,11 +2158,17 @@ async def ww_start(interaction: discord.Interaction, ziel_spieler: int = None):
     if game_text_channel.id not in active_werwolf_games:
         return # Game was cancelled
 
-    # --- FIX: Check if anyone OTHER than the starter joined ---
-    # If only the starter is in the game, cancel it and clean up.
-    if len(game.players) <= 1:
+    # --- FIX: Add all members currently in the lobby VC to ensure accurate count ---
+    if lobby_vc:
+        for member in lobby_vc.members:
+            if not member.bot and member.id not in game.players:
+                game.add_player(member)
+    
+    # --- FIX: Check if we have enough players (at least 1) ---
+    # The game can run with 1 player + bots if configured
+    if len(game.players) < 1:
         await game.game_channel.send("Niemand ist beigetreten. Das Spiel wird abgebrochen und die Channels werden aufgeräumt.")
-        await game.end_game(None) # End game without a winner
+        await game.end_game(config) # Pass config for cleanup
         del active_werwolf_games[game_text_channel.id]
         return
 

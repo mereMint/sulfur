@@ -1,0 +1,189 @@
+{% extends "layout.html" %}
+{% block title %}AI Dashboard{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <h2>AI Usage Dashboard</h2>
+        <p class="text-muted">Monitor AI model usage, token consumption, and costs</p>
+    </div>
+</div>
+
+<!-- Summary Cards -->
+<div class="row mt-4">
+    <div class="col-md-4">
+        <div class="card text-white bg-primary">
+            <div class="card-body">
+                <h5 class="card-title">Total API Calls</h5>
+                <h2>{{ "{:,}".format(total_calls) }}</h2>
+                <p class="card-text">All time</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-white bg-success">
+            <div class="card-body">
+                <h5 class="card-title">Total Tokens</h5>
+                <h2>{{ "{:,}".format(total_tokens) }}</h2>
+                <p class="card-text">Input + Output</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-white bg-info">
+            <div class="card-body">
+                <h5 class="card-title">Estimated Cost</h5>
+                <h2>${{ "%.4f"|format(total_cost) }}</h2>
+                <p class="card-text">Total spend</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Last 7 Days -->
+<div class="row mt-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h4>Last 7 Days</h4>
+            </div>
+            <div class="card-body">
+                {% if stats_7days %}
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Model</th>
+                                <th>Feature</th>
+                                <th>Calls</th>
+                                <th>Input Tokens</th>
+                                <th>Output Tokens</th>
+                                <th>Cost</th>
+                                <th>Last Used</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for stat in stats_7days %}
+                            <tr>
+                                <td><span class="badge bg-secondary">{{ stat.model_name }}</span></td>
+                                <td>{{ stat.feature }}</td>
+                                <td>{{ "{:,}".format(stat.total_calls) }}</td>
+                                <td>{{ "{:,}".format(stat.total_input_tokens) }}</td>
+                                <td>{{ "{:,}".format(stat.total_output_tokens) }}</td>
+                                <td>${{ "%.4f"|format(stat.total_cost) }}</td>
+                                <td>{{ stat.last_use }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted">No AI usage data available for the last 7 days.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Last 30 Days -->
+<div class="row mt-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-success text-white">
+                <h4>Last 30 Days</h4>
+            </div>
+            <div class="card-body">
+                {% if stats_30days %}
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Model</th>
+                                <th>Feature</th>
+                                <th>Calls</th>
+                                <th>Input Tokens</th>
+                                <th>Output Tokens</th>
+                                <th>Total Tokens</th>
+                                <th>Cost</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for stat in stats_30days %}
+                            <tr>
+                                <td><span class="badge bg-secondary">{{ stat.model_name }}</span></td>
+                                <td>{{ stat.feature }}</td>
+                                <td>{{ "{:,}".format(stat.total_calls) }}</td>
+                                <td>{{ "{:,}".format(stat.total_input_tokens) }}</td>
+                                <td>{{ "{:,}".format(stat.total_output_tokens) }}</td>
+                                <td>{{ "{:,}".format(stat.total_input_tokens + stat.total_output_tokens) }}</td>
+                                <td>${{ "%.4f"|format(stat.total_cost) }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted">No AI usage data available for the last 30 days.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- All Time Stats -->
+<div class="row mt-4 mb-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header bg-info text-white">
+                <h4>All Time Statistics</h4>
+            </div>
+            <div class="card-body">
+                {% if stats_all %}
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Model</th>
+                                <th>Feature</th>
+                                <th>Total Calls</th>
+                                <th>Total Tokens</th>
+                                <th>Cost</th>
+                                <th>First Use</th>
+                                <th>Last Use</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for stat in stats_all %}
+                            <tr>
+                                <td><span class="badge bg-secondary">{{ stat.model_name }}</span></td>
+                                <td>{{ stat.feature }}</td>
+                                <td>{{ "{:,}".format(stat.total_calls) }}</td>
+                                <td>{{ "{:,}".format(stat.total_input_tokens + stat.total_output_tokens) }}</td>
+                                <td>${{ "%.4f"|format(stat.total_cost) }}</td>
+                                <td>{{ stat.first_use }}</td>
+                                <td>{{ stat.last_use }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted">No AI usage data available.</p>
+                <p>AI usage tracking will appear here once you start using AI features with the bot.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if error %}
+<div class="row mt-4">
+    <div class="col-md-12">
+        <div class="alert alert-danger">
+            <strong>Error:</strong> {{ error }}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}

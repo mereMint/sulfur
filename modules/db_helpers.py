@@ -1202,3 +1202,308 @@ async def get_wrapped_extra_stats(user_id, stat_period):
     finally:
         cursor.close()
         cnx.close()
+
+# --- Wrapped Opt-In System ---
+
+@db_operation("Register for Wrapped")
+async def register_for_wrapped(user_id, username):
+    """Registers a user to receive Wrapped summaries."""
+    if not db_pool:
+        return False
+    
+    cnx = db_pool.get_connection()
+    cursor = cnx.cursor()
+    try:
+        query = """
+            INSERT INTO wrapped_registrations (user_id, username, opted_out)
+            VALUES (%s, %s, FALSE)
+            ON DUPLICATE KEY UPDATE
+                username = VALUES(username),
+                opted_out = FALSE,
+                last_updated = CURRENT_TIMESTAMP
+        """
+        cursor.execute(query, (user_id, username))
+        cnx.commit()
+        return True
+    except mysql.connector.Error as err:
+        print(f"Error in register_for_wrapped: {err}")
+        return False
+    finally:
+        cursor.close()
+        cnx.close()
+
+@db_operation("Unregister from Wrapped")
+async def unregister_from_wrapped(user_id):
+    """Opts a user out of receiving Wrapped summaries."""
+    if not db_pool:
+        return False
+    
+    cnx = db_pool.get_connection()
+    cursor = cnx.cursor()
+    try:
+        query = """
+            INSERT INTO wrapped_registrations (user_id, opted_out)
+            VALUES (%s, TRUE)
+            ON DUPLICATE KEY UPDATE
+                opted_out = TRUE,
+                last_updated = CURRENT_TIMESTAMP
+        """
+        cursor.execute(query, (user_id,))
+        cnx.commit()
+        return True
+    except mysql.connector.Error as err:
+        print(f"Error in unregister_from_wrapped: {err}")
+        return False
+    finally:
+        cursor.close()
+        cnx.close()
+
+@db_operation("Check Wrapped Registration")
+async def is_registered_for_wrapped(user_id):
+    """Checks if a user is registered for Wrapped and hasn't opted out."""
+    if not db_pool:
+        return False
+    
+    cnx = db_pool.get_connection()
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        query = "SELECT opted_out FROM wrapped_registrations WHERE user_id = %s"
+        cursor.execute(query, (user_id,))
+        result = cursor.fetchone()
+        
+        if not result:
+            return False  # Not registered at all
+        
+        return not result['opted_out']  # Registered and not opted out
+    except mysql.connector.Error as err:
+        print(f"Error in is_registered_for_wrapped: {err}")
+        return False
+    finally:
+        cursor.close()
+        cnx.close()
+
+@db_operation("Get All Wrapped Registrations")
+async def get_wrapped_registrations():
+    """Returns all user IDs who are registered for Wrapped and haven't opted out."""
+    if not db_pool:
+        return []
+    
+    cnx = db_pool.get_connection()
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        query = "SELECT user_id, username FROM wrapped_registrations WHERE opted_out = FALSE"
+        cursor.execute(query)
+        results = cursor.fetchall()
+        return [row['user_id'] for row in results]
+    except mysql.connector.Error as err:
+        print(f"Error in get_wrapped_registrations: {err}")
+        return []
+    finally:
+        cursor.close()
+        cnx.close()
+
+
+# --- Emoji Descriptions System ---
+
+@db_operation("Save Emoji Description")
+async def save_emoji_description(emoji_id, emoji_name, description, usage_context, image_url):
+    """Saves an emoji description to the database."""
+    if not db_pool:
+        return False
+    
+    cnx = db_pool.get_connection()
+    cursor = cnx.cursor()
+    try:
+        query = """
+            INSERT INTO emoji_descriptions (emoji_id, emoji_name, description, usage_context, image_url, analyzed_at)
+            VALUES (%s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+            ON DUPLICATE KEY UPDATE
+                emoji_name = VALUES(emoji_name),
+                description = VALUES(description),
+                usage_context = VALUES(usage_context),
+                image_url = VALUES(image_url),
+                analyzed_at = CURRENT_TIMESTAMP
+        """
+        cursor.execute(query, (emoji_id, emoji_name, description, usage_context, image_url))
+        cnx.commit()
+        return True
+    except mysql.connector.Error as err:
+        print(f"Error in save_emoji_description: {err}")
+        return False
+    finally:
+        cursor.close()
+        cnx.close()
+
+@db_operation("Get All Emoji Descriptions")
+async def get_all_emoji_descriptions():
+    """Retrieves all emoji descriptions from the database."""
+    if not db_pool:
+        return []
+    
+    cnx = db_pool.get_connection()
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        query = "SELECT emoji_id, emoji_name, description, usage_context FROM emoji_descriptions ORDER BY emoji_name"
+        cursor.execute(query)
+        return cursor.fetchall()
+    except mysql.connector.Error as err:
+        print(f"Error in get_all_emoji_descriptions: {err}")
+        return []
+    finally:
+        cursor.close()
+        cnx.close()
+
+@db_operation("Get Emoji Description")
+async def get_emoji_description(emoji_id):
+    """Retrieves a specific emoji description."""
+    if not db_pool:
+        return None
+    
+    cnx = db_pool.get_connection()
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        query = "SELECT * FROM emoji_descriptions WHERE emoji_id = %s"
+        cursor.execute(query, (emoji_id,))
+        return cursor.fetchone()
+    except mysql.connector.Error as err:
+        print(f"Error in get_emoji_description: {err}")
+        return None
+    finally:
+        cursor.close()
+        cnx.close()
+
+
+# --- Conversation Context System ---
+
+@db_operation("Save Conversation Context")
+async def save_conversation_context(user_id, channel_id, last_user_message, last_bot_response):
+    """Saves conversation context for follow-up detection."""
+    if not db_pool:
+        return False
+    
+    cnx = db_pool.get_connection()
+    cursor = cnx.cursor()
+    try:
+        query = """
+            INSERT INTO conversation_context (user_id, channel_id, last_bot_message_at, last_user_message, last_bot_response)
+            VALUES (%s, %s, CURRENT_TIMESTAMP, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                last_bot_message_at = CURRENT_TIMESTAMP,
+                last_user_message = VALUES(last_user_message),
+                last_bot_response = VALUES(last_bot_response)
+        """
+        cursor.execute(query, (user_id, channel_id, last_user_message, last_bot_response))
+        cnx.commit()
+        return True
+    except mysql.connector.Error as err:
+        print(f"Error in save_conversation_context: {err}")
+        return False
+    finally:
+        cursor.close()
+        cnx.close()
+
+@db_operation("Get Conversation Context")
+async def get_conversation_context(user_id, channel_id):
+    """Retrieves conversation context if it's within 2 minutes."""
+    if not db_pool:
+        return None
+    
+    cnx = db_pool.get_connection()
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        query = """
+            SELECT last_user_message, last_bot_response, 
+                   TIMESTAMPDIFF(SECOND, last_bot_message_at, NOW()) as seconds_ago
+            FROM conversation_context 
+            WHERE user_id = %s AND channel_id = %s
+            AND TIMESTAMPDIFF(SECOND, last_bot_message_at, NOW()) <= 120
+        """
+        cursor.execute(query, (user_id, channel_id))
+        return cursor.fetchone()
+    except mysql.connector.Error as err:
+        print(f"Error in get_conversation_context: {err}")
+        return None
+    finally:
+        cursor.close()
+        cnx.close()
+
+@db_operation("Clear Old Conversation Contexts")
+async def clear_old_conversation_contexts():
+    """Clears conversation contexts older than 5 minutes."""
+    if not db_pool:
+        return False
+    
+    cnx = db_pool.get_connection()
+    cursor = cnx.cursor()
+    try:
+        query = "DELETE FROM conversation_context WHERE TIMESTAMPDIFF(MINUTE, last_bot_message_at, NOW()) > 5"
+        cursor.execute(query)
+        cnx.commit()
+        return True
+    except mysql.connector.Error as err:
+        print(f"Error in clear_old_conversation_contexts: {err}")
+        return False
+    finally:
+        cursor.close()
+        cnx.close()
+
+
+# --- AI Model Usage Tracking ---
+
+@db_operation("Track AI Model Usage")
+async def track_ai_model_usage(model_name, feature, input_tokens, output_tokens, cost=0.0):
+    """Tracks AI model usage for analytics."""
+    if not db_pool:
+        return False
+    
+    cnx = db_pool.get_connection()
+    cursor = cnx.cursor()
+    try:
+        query = """
+            INSERT INTO ai_model_usage (model_name, feature, call_count, input_tokens, output_tokens, total_cost, usage_date)
+            VALUES (%s, %s, 1, %s, %s, %s, CURDATE())
+            ON DUPLICATE KEY UPDATE
+                call_count = call_count + 1,
+                input_tokens = input_tokens + VALUES(input_tokens),
+                output_tokens = output_tokens + VALUES(output_tokens),
+                total_cost = total_cost + VALUES(total_cost)
+        """
+        cursor.execute(query, (model_name, feature, input_tokens, output_tokens, cost))
+        cnx.commit()
+        return True
+    except mysql.connector.Error as err:
+        print(f"Error in track_ai_model_usage: {err}")
+        return False
+    finally:
+        cursor.close()
+        cnx.close()
+
+@db_operation("Get AI Usage Stats")
+async def get_ai_usage_stats(days=30):
+    """Retrieves AI usage statistics for the specified number of days."""
+    if not db_pool:
+        return []
+    
+    cnx = db_pool.get_connection()
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        query = """
+            SELECT model_name, feature, SUM(call_count) as total_calls,
+                   SUM(input_tokens) as total_input_tokens,
+                   SUM(output_tokens) as total_output_tokens,
+                   SUM(total_cost) as total_cost,
+                   MIN(usage_date) as first_use,
+                   MAX(usage_date) as last_use
+            FROM ai_model_usage
+            WHERE usage_date >= DATE_SUB(CURDATE(), INTERVAL %s DAY)
+            GROUP BY model_name, feature
+            ORDER BY total_calls DESC
+        """
+        cursor.execute(query, (days,))
+        return cursor.fetchall()
+    except mysql.connector.Error as err:
+        print(f"Error in get_ai_usage_stats: {err}")
+        return []
+    finally:
+        cursor.close()
+        cnx.close()
