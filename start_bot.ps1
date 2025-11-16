@@ -92,9 +92,23 @@ if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
+# --- NEW: Setup and use a Python Virtual Environment ---
+$venvPath = Join-Path -Path $PSScriptRoot -ChildPath "venv"
+$pythonExecutable = Join-Path -Path $venvPath -ChildPath "Scripts\python.exe"
+
+if (-not (Test-Path -Path $pythonExecutable)) {
+    Write-Host "Python virtual environment not found. Creating one now..." -ForegroundColor Yellow
+    python -m venv $venvPath
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Failed to create the Python virtual environment. Please check your Python installation." -ForegroundColor Red
+        Read-Host "Press Enter to exit."
+        exit 1
+    }
+}
+
 # --- NEW: Install/update Python dependencies ---
 Write-Host "Installing/updating Python dependencies from requirements.txt..."
-python -m pip install -r requirements.txt
+& $pythonExecutable -m pip install -r requirements.txt
 Write-Host "Dependencies are up to date."
 
 # --- REFACTORED: Check if MySQL is already running ---
@@ -136,7 +150,7 @@ Write-Host "Starting the bot... (Press CTRL+C to stop)"
 
 # --- REFACTORED: Call python directly and use Tee-Object to capture all output to the log file ---
 # This is the PowerShell equivalent of `2>&1 | tee -a` in bash.
-python -u -X utf8 bot.py *>&1 | Tee-Object -FilePath $logFile -Append
+& $pythonExecutable -u -X utf8 bot.py *>&1 | Tee-Object -FilePath $logFile -Append
 
 # --- NEW: Pause on error to allow copying logs ---
 # --- FIX: Use $pipelinestatus to get the correct exit code from the python process, not Tee-Object ---

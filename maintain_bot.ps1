@@ -20,7 +20,11 @@ $dbSyncFile = "database_sync.sql"
 
 # --- NEW: Start the Web Dashboard in a new window ---
 Write-Host "Starting the Web Dashboard in a new window..."
-$webDashboardProcess = Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", "python -m pip install -r requirements.txt; python -u web_dashboard.py" -PassThru
+# Use the Python executable from the virtual environment for consistency and to avoid permission errors.
+$venvPython = Join-Path -Path $PSScriptRoot -ChildPath "venv\Scripts\python.exe"
+$webDashboardCommand = "& `"$venvPython`" -m pip install -r requirements.txt; & `"$venvPython`" -u web_dashboard.py"
+
+$webDashboardProcess = Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", $webDashboardCommand -PassThru
 Write-Host "Web Dashboard is running at http://localhost:5000 (Process ID: $($webDashboardProcess.Id))"
 
 # --- Function to check if a process is running ---
@@ -28,7 +32,7 @@ function Test-ProcessRunning {
     param(
         [int]$ProcessId
     )
-    return (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) -ne $null
+    return $null -ne (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)
 }
 
 # --- Function to gracefully stop a process ---
