@@ -17,13 +17,18 @@ def init_db_pool(host, user, password, database):
     """Initializes the database connection pool."""
     global db_pool
     try:
+        print(f"[DB] Attempting to initialize connection pool: {user}@{host}/{database}")
         db_config = {
             'host': host, 'user': user, 'password': password, 'database': database
         }
         db_pool = pooling.MySQLConnectionPool(pool_name="sulfur_pool", pool_size=5, **db_config)
-        print("Database connection pool initialized successfully.")
+        print("[DB] Database connection pool initialized successfully.")
     except mysql.connector.Error as err:
-        print(f"FATAL: Could not initialize database pool: {err}")
+        print(f"[DB] FATAL: Could not initialize database pool: {err}")
+        print(f"[DB] Details: {err.errno} - {err.msg}")
+        db_pool = None
+    except Exception as err:
+        print(f"[DB] FATAL: Unexpected error during database pool initialization: {err}")
         db_pool = None
 
 def get_db_connection():
@@ -37,7 +42,7 @@ def initialize_database():
     """Creates the necessary tables if they don't exist."""
     cnx = get_db_connection()
     if not cnx:
-        print("Could not connect to DB for initialization.")
+        print("[DB] ERROR: Could not connect to DB for initialization. Database tables will not be created.")
         return
 
     cursor = cnx.cursor()

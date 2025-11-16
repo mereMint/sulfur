@@ -221,7 +221,7 @@ while ($true) {
             $status = git status -uno
 
             if ($status -like "*Your branch is behind*") {
-                [System.IO.File]::WriteAllText($statusFile, (@{status = "Updating..." } | ConvertTo-Json -Compress), ([System.TextUTF8Encoding]::new($false)))
+                [System.IO.File]::WriteAllText($statusFile, (@{status = "Updating..." } | ConvertTo-Json -Compress), ([System.Text.UTF8Encoding]::new($false)))
                 Write-Host "New version found in the repository! Restarting the bot to apply updates..."
                 # Create the flag file to signal the bot to go idle
                 New-Item -Path "update_pending.flag" -ItemType File -Force | Out-Null

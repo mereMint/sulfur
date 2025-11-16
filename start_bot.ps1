@@ -56,21 +56,17 @@ Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action {
 
 Write-Host "Checking for updates from the repository..."
 Write-Host "  -> Stashing local changes to avoid conflicts..."
-git stash | Out-Null
+git stash 2>&1 | Out-Null
 
 # --- FIX: Check for errors during git pull ---
 Write-Host "  -> Pulling latest version from the repository..."
-git pull
+git pull 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "--------------------------------------------------------" -ForegroundColor Red
-    Write-Host "Error: 'git pull' failed. The script cannot continue." -ForegroundColor Red
-    Write-Host "Please check your internet connection and git status, then try again." -ForegroundColor Yellow
-    Read-Host "Press Enter to exit."
-    exit 1
+    Write-Host "Note: Git pull had issues, but continuing anyway..." -ForegroundColor Yellow
 }
 
 Write-Host "  -> Re-applying stashed local changes..."
-git stash pop | Out-Null
+git stash pop 2>&1 | Out-Null
 Write-Host "Update check complete."
 
 # --- NEW: Check if the sync file was updated and import it ---
@@ -98,7 +94,11 @@ $pythonExecutable = Invoke-VenvSetup -ScriptRoot $PSScriptRoot
 $mysqlProcess = Get-Process -Name "mysqld" -ErrorAction SilentlyContinue
 if (-not $mysqlProcess) {
     Write-Host "MySQL not running. Starting XAMPP MySQL server..."
-    Start-Process -FilePath $mysqlStartScript
+    if (Test-Path -Path $mysqlStartScript) {
+        Start-Process -FilePath $mysqlStartScript -NoNewWindow
+    } else {
+        Write-Host "WARNING: MySQL start script not found at $mysqlStartScript" -ForegroundColor Yellow
+    }
 } else {
     Write-Host "MySQL server is already running."
 }
@@ -133,7 +133,12 @@ Write-Host "Starting the bot... (Press CTRL+C to stop)"
 # --- FINAL FIX: Use Start-Process with redirection, which is non-blocking and reliable for long-running processes. ---
 # This replaces the problematic Tee-Object pipeline that was causing the script to hang.
 # The -Wait parameter is crucial; it makes this script wait until the python process exits.
-cmd.exe /c "`"$pythonExecutable`" -u -X utf8 bot.py >> `"$LogFile`" 2>&1"
+try {
+    cmd.exe /c "`"$pythonExecutable`" -u -X utf8 bot.py >> `"$LogFile`" 2>&1"
+} catch {
+    Write-Host "Error starting bot: $_" -ForegroundColor Red
+    Write-Host $_.Exception.Message
+}
 
 # --- NEW: Pause on error to allow copying logs ---
 # --- FIX: Use $pipelinestatus to get the correct exit code from the python process, not Tee-Object ---
@@ -144,6 +149,9 @@ $pythonExitCode = $LASTEXITCODE
 if ($pythonExitCode -ne 0) {
     Write-Host "--------------------------------------------------------" -ForegroundColor Red
     Write-Host "The bot process exited with an error (Exit Code: $pythonExitCode)." -ForegroundColor Red
-    Write-Host "The script is paused. Press Enter to close this window." -ForegroundColor Yellow
-    Read-Host
+    Write-Host "Check the log file for details: $LogFile" -ForegroundColor Yellow
+    if ($IsStandalone) {
+        Write-Host "The script is paused. Press Enter to close this window." -ForegroundColor Yellow
+        Read-Host
+    }
 }

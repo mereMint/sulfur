@@ -23,7 +23,12 @@ DB_PASS = os.environ.get("DB_PASS", "")
 DB_NAME = os.environ.get("DB_NAME", "sulfur_bot")
 
 # Initialize the database pool for the web dashboard
+print(f"[Web Dashboard] Initializing database connection to {DB_HOST}:{DB_NAME}...")
 db_helpers.init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
+if not db_helpers.db_pool:
+    print("[Web Dashboard] WARNING: Database pool failed to initialize. Some features may be unavailable.")
+else:
+    print("[Web Dashboard] Database pool initialized successfully.")
 
 # --- Flask App Setup ---
 
@@ -51,27 +56,40 @@ def follow_log_file():
     file = None
 
     while True:
-        latest_log = get_latest_log_file()
+        try:
+            latest_log = get_latest_log_file()
 
-        if latest_log != last_known_file:
+            if latest_log != last_known_file:
+                if file:
+                    file.close()
+                if latest_log:
+                    socketio.emit('log_update', {'data': f'\n--- Switched to new log file: {os.path.basename(latest_log)} ---\n'}, namespace='/')
+                    # --- FIX: Open with error handling for encoding issues ---
+                    try:
+                        file = open(latest_log, 'r', encoding='utf-8', errors='ignore')
+                        # Go to the end of the file
+                        file.seek(0, 2)
+                    except (IOError, OSError) as e:
+                        print(f"[Web Dashboard] Error opening log file {latest_log}: {e}")
+                        file = None
+                last_known_file = latest_log
+
             if file:
-                file.close()
-            if latest_log:
-                socketio.emit('log_update', {'data': f'\n--- Switched to new log file: {os.path.basename(latest_log)} ---\n'}, namespace='/')
-                # --- FIX: Open with error handling for encoding issues ---
-                file = open(latest_log, 'r', encoding='utf-8', errors='ignore')
-                # Go to the end of the file
-                file.seek(0, 2)
-            last_known_file = latest_log
-
-        if file:
-            line = file.readline()
-            if not line:
-                time.sleep(0.1)
-                continue
-            socketio.emit('log_update', {'data': line}, namespace='/')
-        else:
-            # No log file found, wait a bit before checking again
+                try:
+                    line = file.readline()
+                    if not line:
+                        time.sleep(0.1)
+                        continue
+                    socketio.emit('log_update', {'data': line}, namespace='/')
+                except (IOError, OSError) as e:
+                    print(f"[Web Dashboard] Error reading log file: {e}")
+                    file = None
+                    time.sleep(1)
+            else:
+                # No log file found, wait a bit before checking again
+                time.sleep(1)
+        except Exception as e:
+            print(f"[Web Dashboard] Unexpected error in follow_log_file: {e}")
             time.sleep(1)
 
 @socketio.on('connect')
@@ -121,9 +139,14 @@ def database_viewer():
     """Renders the database viewer page."""
     tables_to_show = ['players', 'user_monthly_stats', 'managed_voice_channels', 'chat_history', 'api_usage']
     table_data = {}
-    conn = None
-    cursor = None
+    if not db_helpers.db_pool:
+        for table_name in tables_to_show:
+            table_data[table_name] = [{'error': 'Database pool not initialized'}]
+        return render_template('database.html', table_data=table_data)
+    
     for table_name in tables_to_show:
+        conn = None
+        cursor = None
         try:
             query = f"SELECT * FROM {table_name} ORDER BY 1 DESC LIMIT 50"
             conn = db_helpers.db_pool.get_connection()
@@ -131,7 +154,7 @@ def database_viewer():
             cursor.execute(query)
             table_data[table_name] = cursor.fetchall()
         except Exception as e:
-            table_data[table_name] = {'error': str(e)}
+            table_data[table_name] = [{'error': str(e)}]
         finally:
             if cursor:
                 cursor.close()
@@ -143,6 +166,10 @@ def database_viewer():
 @app.route('/ai_usage', methods=['GET'])
 def ai_usage_viewer():
     """Renders the AI usage page."""
+    if not db_helpers.db_pool:
+        usage_data = [{'error': 'Database pool not initialized'}]
+        return render_template('ai_usage.html', usage_data=usage_data)
+    
     conn = None
     cursor = None
     try:
@@ -245,10 +272,15 @@ if __name__ == '__main__':
     # Start the log following thread
     log_thread = threading.Thread(target=follow_log_file, daemon=True)
     log_thread.start()
+    print("[Web Dashboard] Log streaming thread started.")
     
     # --- REFACTORED: Use a production-ready WSGI server (waitress) instead of Flask's dev server ---
     # This is more stable and reliable for network access.
     from waitress import serve
-    print("--- Starting Sulfur Bot Web Dashboard ---")
-    print("--- Access it at http://localhost:5000 ---")
-    serve(socketio.WSGIApp(app), host='0.0.0.0', port=5000)
+    print("[Web Dashboard] --- Starting Sulfur Bot Web Dashboard ---")
+    print("[Web Dashboard] --- Access it at http://localhost:5000 ---")
+    try:
+        serve(socketio.WSGIApp(app), host='0.0.0.0', port=5000)
+    except Exception as e:
+        print(f"[Web Dashboard] FATAL: Failed to start web server: {e}")
+        exit(1)

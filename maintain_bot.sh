@@ -47,19 +47,19 @@ function start_web_dashboard {
     for i in {1..15}; do
         # Check if the process is still running
         if ! ps -p $WEB_DASHBOARD_PID > /dev/null; then
-            echo "Web Dashboard process terminated unexpectedly during startup. Check log for errors."
+            echo "ERROR: Web Dashboard process terminated unexpectedly during startup. Check log for errors."
             return 1
         fi
         # Check if the port is open
-        if curl --output /dev/null --silent --head --fail http://localhost:5000; then
+        if curl --output /dev/null --silent --head --fail http://localhost:5000 2>/dev/null; then
             echo "Web Dashboard is online and ready."
             return 0
         fi
         sleep 1
     done
 
-    echo "Error: Web Dashboard did not become available. Shutting down."
-    kill -9 $WEB_DASHBOARD_PID
+    echo "ERROR: Web Dashboard did not become available. Shutting down."
+    kill -9 $WEB_DASHBOARD_PID 2>/dev/null
     return 1
 }
 
@@ -67,9 +67,9 @@ function start_web_dashboard {
 function cleanup {
     echo -e "\nCaught exit signal. Shutting down all child processes..."
     # --- NEW: Perform final DB export on shutdown ---
-    if [ -f "$DB_SYNC_FILE" ]; then
+    if [ ! -z "$DB_NAME" ] && [ ! -z "$DB_USER" ]; then
         echo "Exporting database to $DB_SYNC_FILE for synchronization..."
-        mysqldump --user="$DB_USER" --host=localhost --default-character-set=utf8mb4 "$DB_NAME" > "$DB_SYNC_FILE"
+        mysqldump --user="$DB_USER" --host=localhost --default-character-set=utf8mb4 "$DB_NAME" > "$DB_SYNC_FILE" 2>/dev/null
         echo "Database export complete."
     fi
 
@@ -77,7 +77,7 @@ function cleanup {
     # Kill the bot process if it's running
     if [ -n "$BOT_PID" ] && ps -p $BOT_PID > /dev/null; then
         echo "Stopping Bot (PID: $BOT_PID)..."
-        kill -9 $BOT_PID # Use SIGKILL to ensure it stops
+        kill -9 $BOT_PID
     fi
     # Kill the web dashboard process if it's running
     if [ -n "$WEB_DASHBOARD_PID" ] && ps -p $WEB_DASHBOARD_PID > /dev/null; then

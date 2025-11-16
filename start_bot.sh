@@ -30,7 +30,12 @@ PYTHON_EXECUTABLE=$(ensure_venv)
 if ! pgrep -x "mysqld" > /dev/null; then
     echo "MariaDB not running. Starting it now..."
     # This is the standard command to start the MariaDB server in Termux
-    mysqld_safe -u root &
+    if command -v mysqld_safe &> /dev/null; then
+        mysqld_safe -u root &
+    else
+        echo "WARNING: mysqld_safe not found. Attempting to start MySQL..."
+        mysqld -u root &
+    fi
 else
     echo "MariaDB server is already running."
 fi
