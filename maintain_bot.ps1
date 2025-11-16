@@ -63,8 +63,9 @@ function Start-WebDashboard {
     Write-Host "Starting the Web Dashboard as a background process..."
     # --- REFACTORED: Use cmd.exe for robust output redirection compatible with PowerShell 5.1 ---
     # This avoids issues with Start-Job and the missing -Append parameter in Start-Process.
-    # We wrap the python call in `cmd /c` which allows us to use standard `>>` redirection.
-    $command = "cmd /c `"$PythonExecutable`" -u web_dashboard.py >> `"$LogFilePath`" 2>&1"
+    # --- FIX: Remove explicit redirection to the log file to avoid conflicts with Start-Transcript. ---
+    # Start-Transcript will automatically capture the output of this command.
+    $command = "cmd /c `"$PythonExecutable`" -u web_dashboard.py 2>&1"
     $webDashboardProcess = Start-Process powershell.exe -ArgumentList "-Command", $command -NoNewWindow -PassThru
     Write-Host "Web Dashboard process started (Process ID: $($webDashboardProcess.Id))"
 
