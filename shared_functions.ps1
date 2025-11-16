@@ -1,7 +1,7 @@
 # This script contains shared functions used by both start_bot.ps1 and maintain_bot.ps1.
 
-# --- Function to ensure Python Virtual Environment is set up ---
-function Ensure-Venv {
+# --- Function to invoke the Python Virtual Environment setup ---
+function Invoke-VenvSetup {
     param(
         [string]$ScriptRoot
     )

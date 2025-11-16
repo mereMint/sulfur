@@ -1,5 +1,5 @@
 #!/bin/bash
-
+#
 # This script acts as a watcher to maintain the Sulfur bot on Linux/Termux.
 # To run it:
 # 1. Make it executable: chmod +x maintain_bot.sh
@@ -15,6 +15,10 @@ source ./shared_functions.sh
 # --- Ensure Python environment is ready ---
 echo "Checking Python virtual environment..."
 VENV_PYTHON=$(ensure_venv)
+if [ $? -ne 0 ]; then
+    echo "Failed to set up Python environment. Exiting."
+    exit 1
+fi
 echo "Python environment is ready."
 
 DB_SYNC_FILE="database_sync.sql"
@@ -22,7 +26,7 @@ DB_SYNC_FILE="database_sync.sql"
 # --- Function to start and verify the Web Dashboard ---
 function start_web_dashboard {
     echo "Starting the Web Dashboard..."
-    # Start in the background and get its PID
+    # Start in the background, get its PID, and redirect logs
     "$VENV_PYTHON" -u web_dashboard.py &> web_dashboard.log &
     WEB_DASHBOARD_PID=$!
     echo "Web Dashboard process started (PID: $WEB_DASHBOARD_PID)"
@@ -47,13 +51,27 @@ function start_web_dashboard {
     return 1
 }
 
+# --- NEW: Trap for graceful shutdown on CTRL+C or script termination ---
+function cleanup {
+    echo -e "\nCaught exit signal. Shutting down all processes..."
+    # Kill the bot process if it's running
+    if [ -n "$BOT_PID" ] && ps -p $BOT_PID > /dev/null; then
+        kill $BOT_PID
+    fi
+    # Kill the web dashboard process if it's running
+    if [ -n "$WEB_DASHBOARD_PID" ] && ps -p $WEB_DASHBOARD_PID > /dev/null; then
+        kill -9 $WEB_DASHBOARD_PID
+    fi
+    echo "Cleanup complete. Exiting."
+}
+trap cleanup SIGINT SIGTERM EXIT
+
 # --- Start the Web Dashboard for the first time ---
 start_web_dashboard
 if [ $? -ne 0 ]; then
     echo "Failed to start the Web Dashboard. Exiting."
     exit 1
 fi
-
 # --- Main loop ---
 while true; do
     echo "Starting the bot process..."
@@ -81,7 +99,7 @@ while true; do
             fi
             
             echo "Shutdown complete."
-            kill -9 $WEB_DASHBOARD_PID
+            # The trap will handle killing the web dashboard
             exit 0
         fi
 
@@ -89,9 +107,7 @@ while true; do
         if [ -f "stop.flag" ]; then
             echo "Stop signal received. Shutting down..."
             rm -f "stop.flag"
-            kill $BOT_PID
-            # Trigger the shutdown sequence by sending 'q' to ourselves
-            echo "q" | ./maintain_bot.sh &> /dev/null
+            # The exit command will trigger the 'trap cleanup' function
             exit 0
         fi
         if [ -f "restart.flag" ]; then

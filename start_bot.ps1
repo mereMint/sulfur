@@ -96,7 +96,7 @@ if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
 }
 
 # --- Setup and use a Python Virtual Environment ---
-$pythonExecutable = Ensure-Venv -ScriptRoot $PSScriptRoot
+$pythonExecutable = Invoke-VenvSetup -ScriptRoot $PSScriptRoot
 
 # --- REFACTORED: Check if MySQL is already running ---
 $mysqlProcess = Get-Process -Name "mysqld" -ErrorAction SilentlyContinue

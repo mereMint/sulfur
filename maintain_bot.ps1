@@ -12,6 +12,20 @@
 # 2. Navigate to this directory (cd c:\sulfur)
 # 3. Run the script with: .\maintain_bot.ps1
 
+# --- NEW: Initialize process variables ---
+$webDashboardProcess = $null
+$botProcess = $null
+
+# --- NEW: Trap to catch script termination (e.g., closing the window) ---
+trap [System.Management.Automation.PipelineStoppedException] {
+    Write-Host "Watcher window closed or script stopped. Cleaning up child processes..." -ForegroundColor Red
+    # Gracefully stop child processes
+    if ($botProcess) { Stop-Process -Id $botProcess.Id -Force -ErrorAction SilentlyContinue }
+    if ($webDashboardProcess) { Stop-Process -Id $webDashboardProcess.Id -Force -ErrorAction SilentlyContinue }
+    # Exit the script cleanly
+    exit 0
+}
+
 Write-Host "--- Sulfur Bot Maintenance Watcher ---"
 Write-Host "Press 'Q' at any time to gracefully shut down the bot and exit." -ForegroundColor Yellow
 
@@ -20,7 +34,7 @@ Write-Host "Press 'Q' at any time to gracefully shut down the bot and exit." -Fo
 
 # --- NEW: Ensure the Python virtual environment and dependencies are ready ---
 Write-Host "Checking Python virtual environment..."
-$venvPython = Ensure-Venv -ScriptRoot $PSScriptRoot
+$venvPython = Invoke-VenvSetup -ScriptRoot $PSScriptRoot
 Write-Host "Python environment is ready."
 
 # --- NEW: Define the file to watch for database changes ---
@@ -176,22 +190,22 @@ while ($true) {
                     git push
                 }
 
-                # --- NEW: Check if the watcher script itself is being updated ---
-                # We need to do this before 'git pull' changes the files.
+                # --- REFACTORED: Self-update logic ---
+                # Check if the watcher script itself is being updated.
                 git fetch
                 $changed_files = git diff --name-only HEAD...origin/main
                 $watcher_updated = $changed_files -like "*maintain_bot.ps1*"
-                
-                Write-Host "Pulling latest changes from git..."
-                git pull
 
                 if ($watcher_updated) {
                     Write-Host "Watcher script has been updated! Rebooting the entire watcher system..." -ForegroundColor Magenta
-                    Stop-ProcessGracefully -ProcessId $webDashboardProcess.Id
+                    if ($webDashboardProcess) { Stop-ProcessGracefully -ProcessId $webDashboardProcess.Id }
                     # Start the bootstrapper to restart the watcher, then exit this old instance.
                     Start-Process powershell.exe -ArgumentList "-File `"$($PSScriptRoot)\bootstrapper.ps1`""
                     exit 0
                 }
+
+                Write-Host "Pulling latest changes from git..."
+                git pull
 
                 # --- Log the time of the successful update ---
                 (Get-Date).ToUniversalTime().ToString("o") | Out-File -FilePath "last_update.txt" -Encoding utf8
