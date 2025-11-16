@@ -145,10 +145,12 @@ while ($true) {
     Write-Host "Starting the bot process..."
     # --- REFACTORED: Start the bot as a background job for reliable control and output capture ---
     # This is the most reliable way to get the PID in PS 5.1 without race conditions.
+    # --- FIX: Pass the script root path into the job's scope ---
     $script:botJob = Start-Job -ScriptBlock {
+        param($ScriptRoot)
         # Start the bot script in a new window and pass the process object out of the job
-        Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", "& '$PSScriptRoot\start_bot.ps1'" -PassThru
-    }
+        Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", "& '$ScriptRoot\start_bot.ps1'" -PassThru
+    } -ArgumentList $PSScriptRoot
     # Wait for the job to output the process object and receive it.
     $script:botProcess = $script:botJob | Wait-Job | Receive-Job
 
