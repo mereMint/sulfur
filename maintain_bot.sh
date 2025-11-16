@@ -16,9 +16,11 @@ source ./scripts/shared_functions.sh
 LOG_DIR="logs"
 mkdir -p "$LOG_DIR"
 LOG_TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
-LOG_FILE="$LOG_DIR/session_${LOG_TIMESTAMP}.log"
+SESSION_LOG_FILE="$LOG_DIR/session_${LOG_TIMESTAMP}.log"
+BOT_LOG_FILE="$LOG_DIR/bot_session_${LOG_TIMESTAMP}.log"
 
-echo "Logging this session to: $LOG_FILE" | tee -a "$LOG_FILE"
+echo "Watcher log: $SESSION_LOG_FILE" | tee -a "$SESSION_LOG_FILE"
+echo "Bot log: $BOT_LOG_FILE" | tee -a "$SESSION_LOG_FILE"
 # --- Ensure Python environment is ready ---
 echo "Checking Python virtual environment..."
 VENV_PYTHON=$(ensure_venv)
@@ -39,7 +41,7 @@ BOT_PID=""
 function start_web_dashboard {
     echo "Starting the Web Dashboard..."
     # Start in the background, get its PID, and append logs to the central log file.
-    "$VENV_PYTHON" -u web/web_dashboard.py >> "$LOG_FILE" 2>&1 &
+    "$VENV_PYTHON" -u web/web_dashboard.py >> "$SESSION_LOG_FILE" 2>&1 &
     WEB_DASHBOARD_PID=$!
     echo "Web Dashboard process started (PID: $WEB_DASHBOARD_PID)"
 
@@ -100,7 +102,7 @@ while true; do
     echo "Starting the bot process..."
     # --- REFACTORED: Start the script and then find the actual Python child process ---
     # Start the startup script in the background
-    ./scripts/start_bot.sh >> "$LOG_FILE" 2>&1 &
+    ./scripts/start_bot.sh "$BOT_LOG_FILE" >> "$SESSION_LOG_FILE" 2>&1 &
     START_SCRIPT_PID=$!
 
     # Wait for the startup script to launch the python process and then find it.

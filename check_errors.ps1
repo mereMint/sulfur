@@ -13,7 +13,7 @@ $WarningCount = 0
 Write-Host "[1/7] Checking Python syntax..." -ForegroundColor Yellow
 $syntaxErrors = @()
 Get-ChildItem -Recurse -Filter *.py -File | Where-Object { $_.DirectoryName -notlike '*__pycache__*' } | ForEach-Object {
-    python -m py_compile $_.FullName 2>&1 | Out-Null
+    $null = python -m py_compile $_.FullName 2>&1
     if ($LASTEXITCODE -ne 0) {
         $syntaxErrors += $_.Name
         $ErrorCount++
@@ -158,9 +158,9 @@ $antiPatterns = @{
 
 $foundIssues = @()
 foreach ($pattern in $antiPatterns.GetEnumerator()) {
-    $searchMatches = Select-String -Pattern $pattern.Key -Path *.py,modules\*.py,web\*.py -SimpleMatch:$false -ErrorAction SilentlyContinue
-    if ($searchMatches) {
-        foreach ($match in $searchMatches) {
+    $searchResults = Select-String -Pattern $pattern.Key -Path *.py,modules\*.py,web\*.py -SimpleMatch:$false -ErrorAction SilentlyContinue
+    if ($searchResults) {
+        foreach ($match in $searchResults) {
             $foundIssues += @{
                 File = $match.Filename
                 Line = $match.LineNumber

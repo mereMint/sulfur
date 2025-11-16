@@ -6,9 +6,12 @@ param(
 # --- NEW: Import shared functions ---
 . "$PSScriptRoot\shared_functions.ps1"
 
+# Ensure we run all subsequent relative paths from the project root (parent of scripts)
+Push-Location (Join-Path $PSScriptRoot '..')
+
 # --- NEW: Load environment variables from .env file ---
-if (Test-Path -Path "../.env") {
-    Get-Content ../.env | ForEach-Object {
+if (Test-Path -Path ".env") {
+    Get-Content .env | ForEach-Object {
         # Match lines with KEY=VALUE format
         if ($_ -match "^\s*([\w.-]+)\s*=\s*(.*)") {
             $key = $matches[1]
@@ -105,7 +108,7 @@ if (-not $mysqlProcess) {
 Start-Sleep -Seconds 5 # Give the database a moment to initialize before the bot connects.
 
 Write-Host "Backing up the database..."
-$backupDir = Join-Path -Path $PSScriptRoot -ChildPath "backups"
+$backupDir = Join-Path -Path (Get-Location) -ChildPath "backups"
 
 # Create backup directory if it doesn't exist
 if (-not (Test-Path -Path $backupDir -PathType Container)) {
@@ -128,30 +131,47 @@ Get-ChildItem -Path $backupDir -Filter "*.sql" | Where-Object { $_.LastWriteTime
 Write-Host "Cleanup complete."
 
 Write-Host "Starting the bot... (Press CTRL+C to stop)"
-# --- FIX: Use Start-Process for more reliable execution in the same window ---
-# --- REFACTORED: Simply execute the bot. The parent job will capture its output. ---
-# --- FINAL FIX: Use Start-Process with redirection, which is non-blocking and reliable for long-running processes. ---
-# This replaces the problematic Tee-Object pipeline that was causing the script to hang.
-# The -Wait parameter is crucial; it makes this script wait until the python process exits.
+# UTF-8 output settings to avoid mojibake (ä, ö, ü etc.)
+$env:PYTHONUTF8 = '1'
+$env:PYTHONIOENCODING = 'utf-8'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+
 try {
-    cmd.exe /c "`"$pythonExecutable`" -u -X utf8 bot.py >> `"$LogFile`" 2>&1"
+    # Use Start-Process for cleaner exit code capture and proper redirection
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $pythonExecutable
+    $startInfo.Arguments = '-u -X utf8 bot.py'
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError  = $true
+    $startInfo.UseShellExecute = $false
+    $startInfo.WorkingDirectory = (Get-Location).Path
+    $process = [System.Diagnostics.Process]::Start($startInfo)
+    $stdOut = $process.StandardOutput
+    $stdErr = $process.StandardError
+    # Stream output to log file in real time
+    while (-not $process.HasExited) {
+        while (-not $stdOut.EndOfStream) { $line = $stdOut.ReadLine(); if ($line) { Add-Content -Path $LogFile -Value $line -Encoding utf8 } }
+        while (-not $stdErr.EndOfStream) { $line = $stdErr.ReadLine(); if ($line) { Add-Content -Path $LogFile -Value $line -Encoding utf8 } }
+        Start-Sleep -Milliseconds 200
+    }
+    # Flush remaining lines
+    while (-not $stdOut.EndOfStream) { $line = $stdOut.ReadLine(); if ($line) { Add-Content -Path $LogFile -Value $line -Encoding utf8 } }
+    while (-not $stdErr.EndOfStream) { $line = $stdErr.ReadLine(); if ($line) { Add-Content -Path $LogFile -Value $line -Encoding utf8 } }
+    $pythonExitCode = $process.ExitCode
 } catch {
     Write-Host "Error starting bot: $_" -ForegroundColor Red
     Write-Host $_.Exception.Message
+    $pythonExitCode = 1
 }
 
 # --- NEW: Pause on error to allow copying logs ---
 # --- FIX: Use $pipelinestatus to get the correct exit code from the python process, not Tee-Object ---
 # --- REFACTORED: Use the ExitCode property from the process object for clarity ---
-$pythonExitCode = $LASTEXITCODE
-
-# A non-zero exit code indicates an error.
 if ($pythonExitCode -ne 0) {
     Write-Host "--------------------------------------------------------" -ForegroundColor Red
     Write-Host "The bot process exited with an error (Exit Code: $pythonExitCode)." -ForegroundColor Red
     Write-Host "Check the log file for details: $LogFile" -ForegroundColor Yellow
-    if ($IsStandalone) {
-        Write-Host "The script is paused. Press Enter to close this window." -ForegroundColor Yellow
-        Read-Host
-    }
+    if ($IsStandalone) { Write-Host "The script is paused. Press Enter to close this window." -ForegroundColor Yellow; Read-Host }
 }
+
+Pop-Location

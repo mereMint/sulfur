@@ -23,7 +23,10 @@ if (-not (Test-Path -Path $logDir -PathType Container)) {
     New-Item -ItemType Directory -Path $logDir | Out-Null
 }
 $logTimestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+# Main maintenance transcript log (PowerShell Start-Transcript)
 $logFile = Join-Path -Path $logDir -ChildPath "session_${logTimestamp}.log"
+# Separate bot runtime log to avoid locking conflicts with Start-Transcript
+$botLogFile = Join-Path -Path $logDir -ChildPath "bot_session_${logTimestamp}.log"
 
 # Start logging all output from this script to the central log file.
 Start-Transcript -Path $logFile -Append
@@ -154,7 +157,8 @@ while ($true) {
     Write-Host "Starting the bot process..."
     # --- FINAL FIX: Use Start-Process to launch the bot in a new window. ---
     # The start_bot.ps1 script itself will handle logging its output to the file we provide.
-    $botCommand = "& `"$PSScriptRoot\\scripts\\start_bot.ps1`" -LogFile `"$logFile`""
+    # Use separate bot log file, not the transcript file, to prevent Windows file locking errors
+    $botCommand = "& `"$PSScriptRoot\\scripts\\start_bot.ps1`" -LogFile `"$botLogFile`""
     $script:botProcess = Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", $botCommand -PassThru
 
     [System.IO.File]::WriteAllText($statusFile, (@{status = "Running"; pid = $script:botProcess.Id } | ConvertTo-Json -Compress), ([System.Text.UTF8Encoding]::new($false)))

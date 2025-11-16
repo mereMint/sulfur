@@ -3,11 +3,13 @@
 # This script sets the necessary environment variables and starts the Sulfur bot on Linux/Termux.
 # It is intended to be called by maintain_bot.sh.
 
-# --- Set the working directory to the script's location ---
-cd "$(dirname "$0")"
+LOG_FILE="$1"
+# --- Set the working directory to project root (parent of scripts) ---
+SCRIPT_DIR="$(dirname "$0")"
+cd "$SCRIPT_DIR/.."
 
 # --- Import shared functions ---
-source ./shared_functions.sh
+source ./scripts/shared_functions.sh
 
 # --- Database connection details ---
 # These should be set in your .env file, but we provide defaults
@@ -56,5 +58,12 @@ find "$BACKUP_DIR" -name "*.sql" -type f -mtime +7 -print -delete
 echo "Cleanup complete."
 
 echo "Starting the bot... (Press CTRL+C to stop if running manually)"
-# The -u flag forces python's output to be unbuffered.
-"$PYTHON_EXECUTABLE" -u -X utf8 bot.py
+if [ -z "$LOG_FILE" ]; then
+    TS=$(date +"%Y-%m-%d_%H-%M-%S")
+    mkdir -p logs
+    LOG_FILE="logs/bot_session_${TS}.log"
+fi
+echo "Bot output redirected to: $LOG_FILE"
+export PYTHONUTF8=1
+export PYTHONIOENCODING=utf-8
+"$PYTHON_EXECUTABLE" -u -X utf8 bot.py >> "$LOG_FILE" 2>&1
