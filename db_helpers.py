@@ -185,17 +185,21 @@ def initialize_database():
                 INDEX(user_id, guild_id)
             )
         """)
-        # --- NEW: Table for API usage tracking ---
+        # --- REFACTORED: Table for detailed API usage tracking (per model) ---
+        # Drop the old simple table if it exists to replace it with the new one.
+        cursor.execute("DROP TABLE IF EXISTS api_usage;")
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS api_usage (
-                usage_date DATE PRIMARY KEY,
-                gemini_calls INT DEFAULT 0 NOT NULL
+            CREATE TABLE api_usage (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                usage_date DATE NOT NULL,
+                model_name VARCHAR(100) NOT NULL,
+                call_count INT DEFAULT 0 NOT NULL,
+                input_tokens INT DEFAULT 0 NOT NULL,
+                output_tokens INT DEFAULT 0 NOT NULL,
+                UNIQUE KEY `daily_model_usage` (`usage_date`, `model_name`)
             )
         """)
-        # --- NEW: Event to clear the API usage daily ---
-        cursor.execute("SET GLOBAL event_scheduler = ON;")
-        cursor.execute("DROP EVENT IF EXISTS reset_daily_api_usage;")
-        cursor.execute("CREATE EVENT reset_daily_api_usage ON SCHEDULE EVERY 1 DAY STARTS CURRENT_DATE + INTERVAL 1 DAY DO TRUNCATE TABLE api_usage;")
+        cursor.execute("DROP EVENT IF EXISTS reset_daily_api_usage;") # Remove old event
 
         print("Database tables checked/created successfully.")
     except mysql.connector.Error as err:
@@ -206,37 +210,24 @@ def initialize_database():
 
 # --- NEW: API Usage Tracking Functions ---
 
-async def get_gemini_usage():
-    """Gets the current Gemini API call count for today."""
-    cnx = db_pool.get_connection()
-    if not cnx: return 0
-    cursor = cnx.cursor(dictionary=True)
-    try:
-        query = "SELECT gemini_calls FROM api_usage WHERE usage_date = CURDATE()"
-        cursor.execute(query)
-        result = cursor.fetchone()
-        return result['gemini_calls'] if result else 0
-    except mysql.connector.Error as err:
-        print(f"Error in get_gemini_usage: {err}")
-        return 0
-    finally:
-        cursor.close()
-        cnx.close()
-
-async def increment_gemini_usage():
-    """Increments the Gemini API call count for today."""
+async def log_api_usage(model_name, input_tokens, output_tokens):
+    """Logs the usage of an AI model, including token counts."""
     cnx = db_pool.get_connection()
     if not cnx: return
     cursor = cnx.cursor()
     try:
         query = """
-            INSERT INTO api_usage (usage_date, gemini_calls) VALUES (CURDATE(), 1)
-            ON DUPLICATE KEY UPDATE gemini_calls = gemini_calls + 1;
+            INSERT INTO api_usage (usage_date, model_name, call_count, input_tokens, output_tokens)
+            VALUES (CURDATE(), %s, 1, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                call_count = call_count + 1,
+                input_tokens = input_tokens + VALUES(input_tokens),
+                output_tokens = output_tokens + VALUES(output_tokens);
         """
-        cursor.execute(query)
+        cursor.execute(query, (model_name, input_tokens, output_tokens))
         cnx.commit()
     except mysql.connector.Error as err:
-        print(f"Error in increment_gemini_usage: {err}")
+        print(f"Error in log_api_usage: {err}")
     finally:
         cursor.close()
         cnx.close()

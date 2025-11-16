@@ -57,7 +57,7 @@ def follow_log_file():
             if file:
                 file.close()
             if latest_log:
-                socketio.emit('log_update', {'data': f'\n--- Switched to new log file: {os.path.basename(latest_log)} ---\n'})
+                socketio.emit('log_update', {'data': f'\n--- Switched to new log file: {os.path.basename(latest_log)} ---\n'}, namespace='/')
                 file = open(latest_log, 'r', encoding='utf-8')
                 # Go to the end of the file
                 file.seek(0, 2)
@@ -68,7 +68,7 @@ def follow_log_file():
             if not line:
                 time.sleep(0.1)
                 continue
-            socketio.emit('log_update', {'data': line})
+            socketio.emit('log_update', {'data': line}, namespace='/')
         else:
             # No log file found, wait a bit before checking again
             time.sleep(1)
@@ -147,7 +147,7 @@ def ai_usage_viewer():
     try:
         conn = db_helpers.db_pool.get_connection()
         cursor = conn.cursor(dictionary=True)
-        cursor.execute("SELECT * FROM api_usage ORDER BY usage_date DESC")
+        cursor.execute("SELECT usage_date, model_name, call_count, input_tokens, output_tokens FROM api_usage ORDER BY usage_date DESC, model_name ASC")
         usage_data = cursor.fetchall()
     except Exception as e:
         usage_data = [{'error': str(e)}]
@@ -160,6 +160,19 @@ def ai_usage_viewer():
     return render_template('ai_usage.html', usage_data=usage_data)
 
 # --- API Endpoints for Bot Control ---
+
+@app.route('/api/bot-status', methods=['GET'])
+def api_bot_status():
+    """API endpoint to get the current status of the bot."""
+    status_file = 'bot_status.json'
+    try:
+        if os.path.exists(status_file):
+            with open(status_file, 'r') as f:
+                return jsonify(json.load(f))
+        else:
+            return jsonify({'status': 'Unknown', 'message': 'Status file not found.'})
+    except Exception as e:
+        return jsonify({'status': 'Error', 'message': str(e)}), 500
 
 @app.route('/api/sync-db', methods=['POST'])
 def api_sync_db():

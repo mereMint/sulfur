@@ -18,7 +18,7 @@ function ensure_venv {
     fi
 
     echo "Installing/updating Python dependencies from requirements.txt..."
-    "$python_executable" -m pip install -r requirements.txt
+    "$python_executable" -m pip install -r requirements.txt &> /dev/null
     echo "Dependencies are up to date."
 
     echo "$python_executable"

@@ -12,6 +12,16 @@ echo "Press 'Q' at any time to gracefully shut down the bot and exit."
 cd "$(dirname "$0")"
 source ./shared_functions.sh
 
+# --- NEW: Centralized Logging Setup ---
+LOG_DIR="logs"
+mkdir -p "$LOG_DIR"
+LOG_TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
+LOG_FILE="$LOG_DIR/session_${LOG_TIMESTAMP}.log"
+
+# Redirect all stdout and stderr from this script to the log file and the console
+exec &> >(tee -a "$LOG_FILE")
+
+echo "Logging this session to: $LOG_FILE"
 # --- Ensure Python environment is ready ---
 echo "Checking Python virtual environment..."
 VENV_PYTHON=$(ensure_venv)
@@ -24,14 +34,15 @@ echo "Python environment is ready."
 DB_SYNC_FILE="database_sync.sql"
 
 # --- NEW: Declare PIDs globally for the trap ---
+STATUS_FILE="bot_status.json"
 WEB_DASHBOARD_PID=""
 BOT_PID=""
 
 # --- Function to start and verify the Web Dashboard ---
 function start_web_dashboard {
     echo "Starting the Web Dashboard..."
-    # Start in the background, get its PID, and redirect logs
-    "$VENV_PYTHON" -u web_dashboard.py &> web_dashboard.log &
+    # Start in the background, get its PID, and append logs to the central log file
+    "$VENV_PYTHON" -u web_dashboard.py >> "$LOG_FILE" 2>&1 &
     WEB_DASHBOARD_PID=$!
     echo "Web Dashboard process started (PID: $WEB_DASHBOARD_PID)"
 
@@ -39,7 +50,7 @@ function start_web_dashboard {
     for i in {1..15}; do
         # Check if the process is still running
         if ! ps -p $WEB_DASHBOARD_PID > /dev/null; then
-            echo "Web Dashboard process terminated unexpectedly during startup. Check web_dashboard.log for errors."
+            echo "Web Dashboard process terminated unexpectedly during startup. Check log for errors."
             return 1
         fi
         # Check if the port is open
@@ -57,13 +68,15 @@ function start_web_dashboard {
 
 # --- NEW: Trap for graceful shutdown on CTRL+C or script termination ---
 function cleanup {
-    echo -e "\nCaught exit signal. Shutting down all processes..."
+    echo -e "\nCaught exit signal. Shutting down all child processes..."
+    echo '{"status": "Shutdown"}' > "$STATUS_FILE"
     # Kill the bot process if it's running
     if [ -n "$BOT_PID" ] && ps -p $BOT_PID > /dev/null; then
         kill $BOT_PID
     fi
     # Kill the web dashboard process if it's running
     if [ -n "$WEB_DASHBOARD_PID" ] && ps -p $WEB_DASHBOARD_PID > /dev/null; then
+        echo "Stopping Web Dashboard (PID: $WEB_DASHBOARD_PID)..."
         kill -9 $WEB_DASHBOARD_PID
     fi
     echo "Cleanup complete. Exiting."
@@ -78,11 +91,13 @@ if [ $? -ne 0 ]; then
 fi
 # --- Main loop ---
 while true; do
+    echo '{"status": "Starting..."}' > "$STATUS_FILE"
     echo "Starting the bot process..."
-    # Start the main bot script in the background
-    ./start_bot.sh &
+    # Start the main bot script in the background, passing the log file path
+    ./start_bot.sh "$LOG_FILE" &
     BOT_PID=$!
 
+    echo "{\"status\": \"Running\", \"pid\": $BOT_PID}" > "$STATUS_FILE"
     echo "Bot is running (PID: $BOT_PID). Checking for updates every 60 seconds."
 
     # Inner loop to monitor the running bot
@@ -125,6 +140,7 @@ while true; do
         STATUS=$(git status -uno)
 
         if [[ "$STATUS" == *"Your branch is behind"* ]]; then
+            echo '{"status": "Updating..."}' > "$STATUS_FILE"
             echo "New version found! Restarting the bot to apply updates..."
             touch "update_pending.flag"
             kill $BOT_PID
@@ -137,6 +153,7 @@ while true; do
         sleep 59 # Sleep for the rest of the minute
     done
 
+    echo '{"status": "Stopped"}' > "$STATUS_FILE"
     echo "Bot process stopped. It will be restarted shortly..."
     sleep 5
 done

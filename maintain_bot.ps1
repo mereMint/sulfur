@@ -13,8 +13,20 @@
 # 3. Run the script with: .\maintain_bot.ps1
 
 # --- NEW: Initialize process variables ---
+$statusFile = Join-Path -Path $PSScriptRoot -ChildPath "bot_status.json"
 $script:webDashboardProcess = $null
 $script:botProcess = $null
+
+# --- NEW: Centralized Logging Setup ---
+$logDir = Join-Path -Path $PSScriptRoot -ChildPath "logs"
+if (-not (Test-Path -Path $logDir -PathType Container)) {
+    New-Item -ItemType Directory -Path $logDir | Out-Null
+}
+$logTimestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+$logFile = Join-Path -Path $logDir -ChildPath "session_${logTimestamp}.log"
+
+# Start logging all output from this script to the central log file.
+Start-Transcript -Path $logFile -Append
 
 # --- NEW: Trap to catch script termination (e.g., closing the window) ---
 trap [System.Management.Automation.PipelineStoppedException] {
@@ -22,6 +34,8 @@ trap [System.Management.Automation.PipelineStoppedException] {
     # Gracefully stop child processes
     if ($script:botProcess) { Stop-Process -Id $script:botProcess.Id -Force -ErrorAction SilentlyContinue }
     if ($script:webDashboardProcess) { Stop-Process -Id $script:webDashboardProcess.Id -Force -ErrorAction SilentlyContinue }
+    @{status = "Shutdown" } | ConvertTo-Json | Set-Content -Path $statusFile -Encoding utf8
+    Stop-Transcript
     # Exit the script cleanly
     exit 0
 }
@@ -101,11 +115,13 @@ function Stop-ProcessGracefully {
 }
 
 while ($true) {
+    @{status = "Starting..." } | ConvertTo-Json | Set-Content -Path $statusFile -Encoding utf8
     Write-Host "Starting the bot process..."
     # Start the main bot script as a background job.
     # This allows the watcher to continue running while the bot is active.
     $script:botProcess = Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", "& `"$($PSScriptRoot)\start_bot.ps1`"" -PassThru
 
+    @{status = "Running"; pid = $script:botProcess.Id } | ConvertTo-Json | Set-Content -Path $statusFile -Encoding utf8
     Write-Host "Bot is running in a new window (Process ID: $($script:botProcess.Id)). Checking for updates every 60 seconds."
 
     # --- NEW: Counter for periodic checks ---
@@ -131,7 +147,8 @@ while ($true) {
                 }
 
                 Write-Host "Shutdown complete."
-                Stop-ProcessGracefully -ProcessId $script:webDashboardProcess.Id # Stop the web dashboard
+                @{status = "Shutdown" } | ConvertTo-Json | Set-Content -Path $statusFile -Encoding utf8
+                if ($script:webDashboardProcess) { Stop-ProcessGracefully -ProcessId $script:webDashboardProcess.Id } # Stop the web dashboard
                 exit 0
             }
         }
@@ -139,19 +156,22 @@ while ($true) {
         # --- NEW: Check for control flags from web dashboard ---
         if (Test-Path -Path "stop.flag") {
             Write-Host "Stop signal received from web dashboard. Shutting down..." -ForegroundColor Yellow
-            Stop-ProcessGracefully -ProcessId $script:botProcess.Id
+            if ($script:botProcess) { Stop-ProcessGracefully -ProcessId $script:botProcess.Id }
             Start-Sleep -Seconds 2
             Remove-Item "stop.flag" -ErrorAction SilentlyContinue
             # Final DB commit
             if (git status --porcelain | Select-String -Pattern $dbSyncFile) {
                 git add $dbSyncFile; git commit -m "chore: Sync database schema on shutdown"; git push
             }
-            Stop-ProcessGracefully -ProcessId $script:webDashboardProcess.Id # Stop the web dashboard
+            @{status = "Shutdown" } | ConvertTo-Json | Set-Content -Path $statusFile -Encoding utf8
+            if ($script:webDashboardProcess) { Stop-ProcessGracefully -ProcessId $script:webDashboardProcess.Id } # Stop the web dashboard
+            Stop-Transcript
             exit 0
         }
         if (Test-Path -Path "restart.flag") {
             Write-Host "Restart signal received from web dashboard. Restarting bot..." -ForegroundColor Yellow
             Remove-Item "restart.flag" -ErrorAction SilentlyContinue
+            @{status = "Restarting..." } | ConvertTo-Json | Set-Content -Path $statusFile -Encoding utf8
             # Setting status to trigger a restart in the outer loop
             $status = "*Your branch is behind*" 
         }
@@ -176,6 +196,7 @@ while ($true) {
             $status = git status -uno
 
             if ($status -like "*Your branch is behind*") {
+                @{status = "Updating..." } | ConvertTo-Json | Set-Content -Path $statusFile -Encoding utf8
                 Write-Host "New version found in the repository! Restarting the bot to apply updates..."
                 # Create the flag file to signal the bot to go idle
                 New-Item -Path "update_pending.flag" -ItemType File -Force | Out-Null
@@ -201,6 +222,7 @@ while ($true) {
                     if ($script:webDashboardProcess) { Stop-ProcessGracefully -ProcessId $script:webDashboardProcess.Id }
                     # Start the bootstrapper to restart the watcher, then exit this old instance.
                     Start-Process powershell.exe -ArgumentList "-File `"$($PSScriptRoot)\bootstrapper.ps1`""
+                    Stop-Transcript
                     exit 0
                 }
 
@@ -217,6 +239,7 @@ while ($true) {
         }
     }
 
+    @{status = "Stopped" } | ConvertTo-Json | Set-Content -Path $statusFile -Encoding utf8
     Write-Host "Bot process stopped. It will be restarted shortly..."
     Start-Sleep -Seconds 5 # Brief pause before restarting
 }

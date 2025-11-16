@@ -1,12 +1,19 @@
 #!/bin/bash
 
-# This script sets the necessary environment variables and starts the Sulfur bot in Termux.
+# This script sets the necessary environment variables and starts the Sulfur bot on Linux/Termux.
 # To run it:
-# 1. Make sure this script is executable: chmod +x start_bot.sh
-# 2. Run the script with: ./start_bot.sh
+# 1. Make it executable: chmod +x start_bot.sh
+# 2. Run the script with: ./start_bot.sh [LOG_FILE_PATH]
 
+# --- NEW: Accept LogFile path from maintain_bot.sh ---
+LOG_FILE_ARG=$1
+IS_STANDALONE=true
+[ -z "$LOG_FILE_ARG" ] || IS_STANDALONE=false
 # --- Set the working directory to the script's location ---
 cd "$(dirname "$0")"
+
+# --- Import shared functions ---
+source ./shared_functions.sh
 
 # --- Load environment variables from .env file ---
 if [ -f .env ]; then
@@ -17,12 +24,14 @@ if [ -f .env ]; then
 fi
 
 # --- Setup Logging ---
-LOG_DIR="logs"
-mkdir -p "$LOG_DIR"
-
-LOG_TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
-LOG_FILE="${LOG_DIR}/bot_session_${LOG_TIMESTAMP}.log"
-
+if [ "$IS_STANDALONE" = true ]; then
+    LOG_DIR="logs"
+    mkdir -p "$LOG_DIR"
+    LOG_TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
+    LOG_FILE="$LOG_DIR/bot_session_${LOG_TIMESTAMP}.log"
+else
+    LOG_FILE="$LOG_FILE_ARG"
+fi
 echo "Logging this session to: $LOG_FILE"
 
 # --- Database connection details ---
@@ -68,10 +77,8 @@ if ! command -v python &> /dev/null; then
     exit 1
 fi
 
-# --- Install/update Python dependencies ---
-echo "Installing/updating Python dependencies from requirements.txt..."
-pip install -r requirements.txt
-echo "Dependencies are up to date."
+# --- Setup and use a Python Virtual Environment ---
+PYTHON_EXECUTABLE=$(ensure_venv)
 
 # --- Check if MariaDB (MySQL) is running ---
 if ! pgrep -x "mysqld" > /dev/null; then
@@ -100,4 +107,5 @@ echo "Cleanup complete."
 echo "Starting the bot... (Press CTRL+C to stop if running manually)"
 # The -u flag forces python's output to be unbuffered.
 # `tee` splits the output to both the console and the log file.
-python -u -X utf8 bot.py 2>&1 | tee -a "$LOG_FILE"
+
+"$PYTHON_EXECUTABLE" -u -X utf8 bot.py 2>&1 | tee -a "$LOG_FILE"

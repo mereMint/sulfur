@@ -8,6 +8,13 @@
 # This ensures that relative paths for files like .env and bot.py work correctly.
 Set-Location -Path $PSScriptRoot
 
+# --- NEW: Accept LogFile path from maintain_bot.ps1 ---
+param(
+    [string]$LogFile
+)
+# If LogFile is not passed, create a new one (for standalone execution)
+$IsStandalone = [string]::IsNullOrEmpty($LogFile)
+
 # --- NEW: Import shared functions ---
 . "$PSScriptRoot\shared_functions.ps1"
 
@@ -29,14 +36,14 @@ if (Test-Path -Path ".env") {
 
 # --- NEW: Setup Logging ---
 # --- REFACTORED: Use relative paths for portability ---
-$logDir = Join-Path -Path $PSScriptRoot -ChildPath "logs"
-if (-not (Test-Path -Path $logDir -PathType Container)) {
-    New-Item -ItemType Directory -Path $logDir | Out-Null
-    Write-Host "Created logs directory at $logDir"
+if ($IsStandalone) {
+    $logDir = Join-Path -Path $PSScriptRoot -ChildPath "logs"
+    if (-not (Test-Path -Path $logDir -PathType Container)) {
+        New-Item -ItemType Directory -Path $logDir | Out-Null
+    }
+    $logTimestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+    $LogFile = Join-Path -Path $logDir -ChildPath "bot_session_${logTimestamp}.log"
 }
-
-$logTimestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
-$logFile = Join-Path -Path $logDir -ChildPath "bot_session_${logTimestamp}.log"
 
 Write-Host "Logging this session to: $logFile"
 
@@ -137,7 +144,7 @@ Write-Host "Starting the bot... (Press CTRL+C to stop)"
 
 # --- REFACTORED: Call python directly and use Tee-Object to capture all output to the log file ---
 # This is the PowerShell equivalent of `2>&1 | tee -a` in bash.
-& $pythonExecutable -u -X utf8 bot.py *>&1 | Tee-Object -FilePath $logFile -Append
+& $pythonExecutable -u -X utf8 bot.py *>&1 | Tee-Object -FilePath $LogFile -Append
 
 # --- NEW: Pause on error to allow copying logs ---
 # --- FIX: Use $pipelinestatus to get the correct exit code from the python process, not Tee-Object ---

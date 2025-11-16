@@ -4,6 +4,10 @@
 {% block content %}
 <div class="row">
     <div class="col-md-12">
+        <div class="d-flex align-items-center mb-3">
+            <h3 class="me-3">Controls</h3>
+            <span id="bot-status-badge" class="badge bg-secondary">Status: Unknown</span>
+        </div>
         <h3>Controls</h3>
         <div class="btn-toolbar" role="toolbar">
             <div class="btn-group me-2" role="group">
@@ -43,6 +47,37 @@
             // Auto-scroll to the bottom
             consoleDiv.scrollTop = consoleDiv.scrollHeight;
         });
+
+        // --- NEW: Bot Status Polling ---
+        const statusBadge = document.getElementById('bot-status-badge');
+
+        function updateBotStatus() {
+            fetch('/api/bot-status')
+                .then(response => response.json())
+                .then(data => {
+                    let status = data.status || 'Unknown';
+                    let badgeClass = 'bg-secondary'; // Default for Unknown
+
+                    if (status.toLowerCase() === 'running') {
+                        badgeClass = 'bg-success';
+                    } else if (status.toLowerCase() === 'stopped' || status.toLowerCase() === 'shutdown') {
+                        badgeClass = 'bg-danger';
+                    } else if (status.toLowerCase().includes('updating') || status.toLowerCase().includes('restarting')) {
+                        badgeClass = 'bg-warning text-dark';
+                    } else if (status.toLowerCase() === 'error') {
+                        badgeClass = 'bg-danger';
+                    }
+
+                    statusBadge.textContent = `Status: ${status}`;
+                    statusBadge.className = `badge ${badgeClass}`;
+                })
+                .catch(error => {
+                    statusBadge.textContent = 'Status: Error';
+                    statusBadge.className = 'badge bg-danger';
+                });
+        }
+        setInterval(updateBotStatus, 5000); // Update every 5 seconds
+        updateBotStatus(); // Initial call
     });
 
     function runAction(endpoint) {
