@@ -1,17 +1,14 @@
+# --- NEW: Accept LogFile path from maintain_bot.ps1 ---
+param(
+    [string]$LogFile
+)
+
 # This script sets the necessary environment variables and starts the Sulfur bot.
 # To run it:
 # 1. Open PowerShell
 # 2. Navigate to this directory (cd c:\sulfur)
 # 3. Run the script with: .\start_bot.ps1
 
-# --- FIX: Set the working directory to the script's location ---
-# This ensures that relative paths for files like .env and bot.py work correctly.
-Set-Location -Path $PSScriptRoot
-
-# --- NEW: Accept LogFile path from maintain_bot.ps1 ---
-param(
-    [string]$LogFile
-)
 # If LogFile is not passed, create a new one (for standalone execution)
 $IsStandalone = [string]::IsNullOrEmpty($LogFile)
 
@@ -144,16 +141,19 @@ Write-Host "Starting the bot... (Press CTRL+C to stop)"
 
 # --- REFACTORED: Call python directly and use Tee-Object to capture all output to the log file ---
 # This is the PowerShell equivalent of `2>&1 | tee -a` in bash.
-# --- FIX: Use a method compatible with PowerShell 5.1 for BOM-less UTF8 logging ---
-$process = Start-Process -FilePath $pythonExecutable -ArgumentList "-u", "-X", "utf8", "bot.py" -NoNewWindow -PassThru -RedirectStandardOutput $LogFile -RedirectStandardError $LogFile -Wait
-
-# Old method that caused issues on PS 5.1
-# & $pythonExecutable -u -X utf8 bot.py *>&1 | Tee-Object -FilePath $LogFile -Append -Encoding utf8NoBOM
+# --- FIX: Use a method compatible with PowerShell 5.1 that also handles encoding correctly ---
+# Start the process and wait for it to complete. Redirect all output streams (*>) to a temporary file.
+$tempLog = [System.IO.Path]::GetTempFileName()
+& $pythonExecutable -u -X utf8 bot.py *> $tempLog
+# Now, read the content of the temp file and append it to the main log file with the correct encoding.
+Get-Content $tempLog | Add-Content -Path $LogFile -Encoding utf8
+# Clean up the temporary file.
+Remove-Item $tempLog
 
 # --- NEW: Pause on error to allow copying logs ---
 # --- FIX: Use $pipelinestatus to get the correct exit code from the python process, not Tee-Object ---
 # --- REFACTORED: Use the ExitCode property from the process object for clarity ---
-$pythonExitCode = $process.ExitCode
+$pythonExitCode = $LASTEXITCODE
 
 # A non-zero exit code indicates an error.
 if ($pythonExitCode -ne 0) {
