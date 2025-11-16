@@ -130,18 +130,10 @@ Write-Host "Cleanup complete."
 Write-Host "Starting the bot... (Press CTRL+C to stop)"
 # --- FIX: Use Start-Process for more reliable execution in the same window ---
 # --- REFACTORED: Simply execute the bot. The parent job will capture its output. ---
-# The -u flag forces python's output to be unbuffered.
-if ($IsStandalone) {
-    # When run by itself, create a new log file and show output on console.
-    & $pythonExecutable -u -X utf8 bot.py *>&1 | Tee-Object -FilePath $LogFile -Append
-} else {
-    # When called by maintain_bot.ps1, redirect all output to the provided log file.
-    # This is the key to making the live console work.
-    $tempLog = [System.IO.Path]::GetTempFileName()
-    & $pythonExecutable -u -X utf8 bot.py *> $tempLog
-    Get-Content $tempLog | Add-Content -Path $LogFile -Encoding utf8
-    Remove-Item $tempLog
-}
+# --- FINAL FIX: Use Start-Process with redirection, which is non-blocking and reliable for long-running processes. ---
+# This replaces the problematic Tee-Object pipeline that was causing the script to hang.
+# The -Wait parameter is crucial; it makes this script wait until the python process exits.
+Start-Process -FilePath $pythonExecutable -ArgumentList "-u", "-X", "utf8", "bot.py" -NoNewWindow -RedirectStandardOutput $LogFile -Append -RedirectStandardError $LogFile -Append -Wait
 
 # --- NEW: Pause on error to allow copying logs ---
 # --- FIX: Use $pipelinestatus to get the correct exit code from the python process, not Tee-Object ---
