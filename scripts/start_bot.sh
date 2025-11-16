@@ -29,14 +29,20 @@ fi
 PYTHON_EXECUTABLE=$(ensure_venv)
 
 # --- Check if MariaDB (MySQL) is running ---
-if ! pgrep -x "mysqld" > /dev/null; then
+if ! pgrep -x "mysqld\|mariadbd" > /dev/null; then
     echo "MariaDB not running. Starting it now..."
-    # This is the standard command to start the MariaDB server in Termux
-    if command -v mysqld_safe &> /dev/null; then
+    # Prefer mariadb commands in Termux, fall back to mysql commands
+    if command -v mariadbd-safe &> /dev/null; then
+        mariadbd-safe --datadir=$PREFIX/var/lib/mysql &
+    elif command -v mysqld_safe &> /dev/null; then
         mysqld_safe -u root &
     else
-        echo "WARNING: mysqld_safe not found. Attempting to start MySQL..."
-        mysqld -u root &
+        echo "WARNING: Neither mariadbd-safe nor mysqld_safe found. Attempting to start MariaDB..."
+        if command -v mariadbd &> /dev/null; then
+            mariadbd -u root &
+        else
+            mysqld -u root &
+        fi
     fi
 else
     echo "MariaDB server is already running."
@@ -49,7 +55,13 @@ mkdir -p "$BACKUP_DIR"
 
 TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 BACKUP_FILE="${BACKUP_DIR}/${DB_NAME}_backup_${TIMESTAMP}.sql"
-mysqldump --user="$DB_USER" --host=localhost --default-character-set=utf8mb4 "$DB_NAME" > "$BACKUP_FILE"
+
+# Use mariadb-dump if available (Termux), otherwise mysqldump
+if command -v mariadb-dump &> /dev/null; then
+    mariadb-dump --user="$DB_USER" --host=localhost --default-character-set=utf8mb4 "$DB_NAME" > "$BACKUP_FILE"
+else
+    mysqldump --user="$DB_USER" --host=localhost --default-character-set=utf8mb4 "$DB_NAME" > "$BACKUP_FILE"
+fi
 echo "Backup created successfully at $BACKUP_FILE"
 
 # --- Clean up old backups (older than 7 days) ---
