@@ -125,7 +125,7 @@ tree = app_commands.CommandTree(client)
 active_werwolf_games = {}
 
 # --- NEW: Import and initialize DB helpers ---
-from db_helpers import init_db_pool, initialize_database, get_leaderboard, add_xp, get_player_rank, get_level_leaderboard, save_message_to_history, get_chat_history, get_relationship_summary, update_relationship_summary, save_bulk_history, clear_channel_history, update_user_presence, add_balance, update_spotify_history, get_all_managed_channels, remove_managed_channel, get_managed_channel_config, update_managed_channel_config, log_message_stat, log_vc_minutes, get_wrapped_stats_for_period, get_user_wrapped_stats, log_stat_increment, get_spotify_history, get_player_profile, cleanup_custom_status_entries, log_mention_reply, log_vc_session, get_wrapped_extra_stats, get_gemini_usage, increment_gemini_usage, get_xp_for_level
+from db_helpers import init_db_pool, initialize_database, get_leaderboard, add_xp, get_player_rank, get_level_leaderboard, save_message_to_history, get_chat_history, get_relationship_summary, update_relationship_summary, save_bulk_history, clear_channel_history, update_user_presence, add_balance, update_spotify_history, get_all_managed_channels, remove_managed_channel, get_managed_channel_config, update_managed_channel_config, log_message_stat, log_vc_minutes, get_wrapped_stats_for_period, get_user_wrapped_stats, log_stat_increment, get_spotify_history, get_player_profile, cleanup_custom_status_entries, log_mention_reply, log_vc_session, get_wrapped_extra_stats, get_xp_for_level
 import db_helpers
 db_helpers.init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
 from level_system import grant_xp
@@ -147,8 +147,20 @@ async def get_current_provider(config_obj):
     """
     provider = config_obj['api']['provider']
     # --- FIX: Only check Gemini usage if the provider is set to 'gemini' ---
+    # --- REFACTORED: Use the new detailed api_usage table ---
     if provider == 'gemini':
-        usage = await db_helpers.get_gemini_usage()
+        cnx = db_helpers.db_pool.get_connection()
+        if not cnx: return 'openai' # Fallback if DB is down
+        cursor = cnx.cursor(dictionary=True)
+        usage = 0
+        try:
+            # Sum up all calls for models starting with 'gemini' for today
+            cursor.execute("SELECT SUM(call_count) as total_calls FROM api_usage WHERE usage_date = CURDATE() AND model_name LIKE 'gemini%%'")
+            result = cursor.fetchone()
+            usage = result['total_calls'] if result and result['total_calls'] else 0
+        finally:
+            cursor.close()
+            cnx.close()
         # If the limit is reached, switch to openai for this call.
         return 'openai' if usage >= GEMINI_DAILY_LIMIT else 'gemini'
     # If the provider is 'openai' or anything else, just use that.
@@ -2152,9 +2164,6 @@ async def on_message(message):
         # --- NEW: Add detailed logging for AI calls ---
         provider_to_use = await get_current_provider(config)
         print(f"  -> [AI] Calling provider '{provider_to_use}' for user '{message.author.display_name}'...")
-        if provider_to_use == 'gemini':
-            await increment_gemini_usage()
-            
         temp_config = config.copy()
         temp_config['api']['provider'] = provider_to_use
         
