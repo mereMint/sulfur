@@ -186,3 +186,7 @@ To keep the bot running 24/7 even after you close the terminal, we will use **`t
 ## ⚙️ Configuration
 
 Most of the bot's behavior can be customized by editing the `config.json` file. For a detailed explanation of every setting, please refer to the **CONFIG_DOCUMENTATION.md** file.
+
+Notes:
+- The maintenance script writes status to `config/bot_status.json` for the web dashboard.
+- The web dashboard is served by Waitress on port 5000; change the port in `web_dashboard.py` by editing the `serve(..., port=5000)` call if needed.

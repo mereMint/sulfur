@@ -195,11 +195,11 @@ chmod +x *.sh
 
 Check in this order:
 1. Review error message in terminal
-2. Check `logs/session_*.log` file
+2. Check `logs/maintenance_*.log`, `logs/bot_*.log`, or `logs/*_web.log`
 3. Verify MySQL is actually running
 4. Verify `.env` file format (no quotes around values)
 5. Check Discord token validity
-6. Verify port 5000 is free: `netstat -ano | findstr 5000`
+6. Verify port 5000 is free: `netstat -ano | findstr :5000`
 
 ---
 

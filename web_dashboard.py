@@ -32,9 +32,9 @@ else:
 
 # --- Flask App Setup ---
 
-# --- FIX: Specify the template folder to be the current directory ---
-# By default, Flask looks for a 'templates' subfolder. Since the HTML files are in the root, we point it here.
-app = Flask(__name__, template_folder='.')
+# --- FIX: Point Flask to the 'web' folder where HTML templates live ---
+# The project stores dashboard HTML in the web/ directory.
+app = Flask(__name__, template_folder='web')
 app.secret_key = os.urandom(24)  # Needed for flashing messages
 socketio = SocketIO(app, async_mode='threading')
 

@@ -86,29 +86,33 @@ The Sulfur Bot system consists of three main components that work together:
 - Connection pool ready for use
 
 ### Phase 3: Web Dashboard Startup
-- Flask app initialization
+### Phase 3: Web Dashboard Startup
+- Waitress + Flask-SocketIO initialization
 - Database pool connection for web dashboard
-- Port 5000 binding
+- Port 5000 binding (Waitress)
 - Log streaming thread startup
-- Validation: Checking for HTTP 200 response on http://localhost:5000
+- Validation: Maintenance script tests TCP connectivity on http://localhost:5000
 
 ### Phase 4: Bot Startup
-- Discord token validation
-- API provider (Gemini/OpenAI) validation
-- Config loading from `config.json`
+### Log Files
+- Location pattern:
+   - `logs/maintenance_YYYY-MM-DD_HH-MM-SS.log` (maintenance)
+   - `logs/maintenance_YYYY-MM-DD_HH-MM-SS_web.log` (web dashboard)
+   - `logs/bot_YYYY-MM-DD_HH-MM-SS.log` (bot)
+- Live log stream is visible on the dashboard home page
 - Bot event listeners registration
 - Discord connection establishment
-- Background tasks initialization
-
-### Phase 5: Monitoring Loop
+### Status File
+- Location: `config/bot_status.json`
+- Fields: `status`, `timestamp` (UTC ISO8601), `pid` (when running)
 - Checking for git repository updates every 60 seconds
 - Web dashboard health checks
 - Database synchronization
-- Log streaming to dashboard
-
-## Common Issues and Fixes
+### Issue: "Web Dashboard did not become available"
 
 ### Issue: "Python virtual environment not found"
+- Kill process using port 5000 or change port in `web_dashboard.py` Waitress `serve(..., port=5001)`
+- Verify packages installed: `pip install -r requirements.txt`
 **Solution:**
 - Ensure Python is installed and in PATH
 - Run from the sulfur directory

@@ -69,6 +69,38 @@ A feature-rich Discord bot with AI capabilities, mini-games, and comprehensive m
 
 ## 💿 Installation
 
+## ⚡ Quick Start
+
+### Windows (PowerShell)
+
+```powershell
+# 1) Clone and enter the repo
+git clone https://github.com/yourusername/sulfur.git; cd sulfur
+
+# 2) Create venv + install deps
+python -m venv venv; .\venv\Scripts\Activate.ps1; pip install -r requirements.txt
+
+# 3) Run the maintenance system (starts bot + web dashboard)
+./maintain_bot.ps1
+```
+
+Open http://localhost:5000 for the dashboard. Press Q in the maintenance window to shut down cleanly.
+
+### Termux/Linux (bash)
+
+```bash
+# 1) Clone and enter the repo
+git clone https://github.com/yourusername/sulfur.git && cd sulfur
+
+# 2) Create venv + install deps
+python -m venv venv && source venv/bin/activate && pip install -r requirements.txt
+
+# 3) Start (wrapper runs the maintenance script)
+chmod +x start.sh maintain_bot.sh && ./start.sh
+```
+
+Dashboard: http://localhost:5000 (served by Waitress). Stop with Ctrl+C or create `stop.flag`.
+
 ### Windows Installation
 
 #### Step 1: Install Prerequisites
@@ -112,13 +144,14 @@ GRANT ALL PRIVILEGES ON sulfur_bot.* TO 'sulfur_bot_user'@'localhost';
 FLUSH PRIVILEGES;
 ```
 
-3. **Import Database Schema**
+3. **Initialize Database Schema**
 ```powershell
-# If using MySQL command line:
-mysql -u sulfur_bot_user -p sulfur_bot < config\sulfur_bot_schema.sql
-
-# Or if you have a backup:
+# No manual schema file needed — tables are created automatically on first run.
+# Optional: if you have an existing backup, you can import it:
 mysql -u sulfur_bot_user -p sulfur_bot < backups\latest_backup.sql
+
+# Optional: apply specific migrations later if needed:
+# mysql -u sulfur_bot_user -p sulfur_bot < scripts\db_migrations\002_medium_priority_features.sql
 ```
 
 #### Step 4: Configure Environment
@@ -167,7 +200,7 @@ pip install -r requirements.txt
 python bot.py
 ```
 
-If you see "Bot is ready!" in the console, press Ctrl+C and proceed to start the maintenance script.
+If you see "Bot is ready!" in the console, press Ctrl+C and proceed to start the maintenance script (it will handle 24/7 operation).
 
 #### Step 7: Start Maintenance System
 
@@ -202,7 +235,7 @@ Press **Q** to gracefully shutdown.
 pkg update && pkg upgrade
 
 # Install required packages
-pkg install python git mariadb
+pkg install python git mariadb tmux
 
 # Verify installations
 python --version
@@ -218,6 +251,9 @@ mysql_install_db
 
 # Start MySQL server
 mysqld_safe &
+
+# If mysqld_safe isn't available, try:
+# mysqld --datadir=$PREFIX/var/lib/mysql &
 
 # Wait a few seconds, then press Enter to get prompt back
 
@@ -253,8 +289,10 @@ FLUSH PRIVILEGES;
 
 EXIT;
 
-# Import schema
-mysql -u sulfur_bot_user -p sulfur_bot < config/sulfur_bot_schema.sql
+# Initialize schema (auto-created on first run)
+# No manual schema import required.
+# Optional: import an existing backup instead:
+# mysql -u sulfur_bot_user -p sulfur_bot < backups/latest_backup.sql
 ```
 
 #### Step 6: Configure Environment
@@ -308,7 +346,11 @@ That's it! The bot is now running on your Android device.
 - Keep Termux running in the background (use Termux:Boot for auto-start)
 - Use Termux:Widget to add start/stop shortcuts to home screen
 - Press **Ctrl+C** to stop the bot gracefully
-- To run in background: Install `screen` with `pkg install screen`, then `screen ./start.sh`
+- To run in background (tmux): `pkg install tmux`, then:
+   - `tmux new -s sulfur`
+   - `./start.sh`
+   - Detach: `Ctrl+B`, then `D`; Reattach: `tmux attach -t sulfur`
+- Alternative (screen): Install `screen` with `pkg install screen`, then `screen ./start.sh`
 
 ---
 
@@ -352,8 +394,10 @@ FLUSH PRIVILEGES;
 
 EXIT;
 
-# Import schema
-mysql -u sulfur_bot_user -p sulfur_bot < config/sulfur_bot_schema.sql
+# Initialize schema (auto-created on first run)
+# No manual schema import required.
+# Optional: import an existing backup instead:
+# mysql -u sulfur_bot_user -p sulfur_bot < backups/latest_backup.sql
 ```
 
 #### Step 3: Clone and Configure
@@ -500,7 +544,7 @@ screen -S sulfur ./start.sh
 
 The web dashboard provides real-time monitoring and control.
 
-**Access:** http://localhost:5000
+**Access:** http://localhost:5000 (served by Waitress on port 5000)
 
 ### Features:
 - 📊 **Live Statistics**: Server count, uptime, command usage
@@ -510,9 +554,11 @@ The web dashboard provides real-time monitoring and control.
 - 💰 **Cost Monitoring**: Estimated API costs
 
 ### Dashboard Pages:
-- `/` - Main dashboard with live stats
-- `/ai_dashboard` - AI usage analytics
-- `/logs` - Full log viewer
+- `/` - Main dashboard with live log stream
+- `/config` - Edit `config.json` safely
+- `/database` - Quick database viewer (read-only)
+- `/ai_usage` - JSON API for usage data
+- `/ai_dashboard` - AI usage analytics view
 
 ---
 
@@ -657,8 +703,9 @@ Solution:
    Windows: netstat -ano | findstr :5000
    Linux: lsof -i :5000
 
-2. Change port in web_dashboard.py if needed:
-   app.run(host='0.0.0.0', port=5001)
+2. Change port in `web_dashboard.py` (Waitress):
+   from waitress import serve
+   serve(socketio.WSGIApp(app), host='0.0.0.0', port=5001)
 ```
 
 **Problem:** "Logs not showing"
@@ -746,50 +793,51 @@ A: Yes! Add them to `modules/` and import in `bot.py`
 
 ```
 sulfur/
-├── bot.py                    # Main bot file
-├── requirements.txt          # Python dependencies
-├── .env                      # Environment variables (create this)
+├── bot.py                     # Main bot file
+├── web_dashboard.py           # Web dashboard server (Waitress + Flask-SocketIO)
+├── requirements.txt           # Python dependencies
+├── .env                       # Environment variables (create this)
 │
-├── config/                   # Configuration files
-│   ├── bot_status.json      # Real-time bot status
-│   ├── database_sync.sql    # Auto-generated DB sync
-│   └── sulfur_bot_schema.sql # Database schema
+├── config/                    # Configuration files
+│   ├── bot_status.json        # Real-time bot status (written by maintenance script)
+│   └── database_sync.sql      # Auto-generated DB sync (if used)
 │
-├── modules/                  # Bot modules
-│   ├── api_helpers.py       # AI API integration
-│   ├── bot_enhancements.py  # Helper functions
-│   ├── db_helpers.py        # Database functions
-│   ├── emoji_manager.py     # Emoji analysis system
-│   ├── werwolf.py           # Werwolf game
+├── web/                       # Web dashboard templates
+│   ├── index.html             # Main dashboard
+│   ├── layout.html            # Shared layout
+│   ├── config.html            # Config editor
+│   ├── database.html          # Database viewer
+│   ├── ai_dashboard.html      # AI stats page
 │   └── ...
 │
-├── web/                      # Web dashboard
-│   ├── web_dashboard.py     # Flask server
-│   ├── layout.html          # Dashboard template
-│   ├── ai_dashboard.html    # AI stats page
+├── modules/                   # Bot modules
+│   ├── api_helpers.py         # AI API integration
+│   ├── db_helpers.py          # Database functions
+│   ├── emoji_manager.py       # Emoji analysis system
+│   ├── werwolf.py             # Werwolf game
 │   └── ...
 │
-├── scripts/                  # Utility scripts
-│   ├── db_migrations/       # Database migrations
-│   ├── check_errors.ps1     # Pre-flight checks
+├── scripts/                   # Utility scripts
+│   ├── db_migrations/         # Database migrations
+│   ├── check_errors.ps1       # Pre-flight checks
 │   └── ...
 │
-├── logs/                     # Log files (auto-generated)
-│   ├── maintenance_*.log    # Maintenance script logs
-│   ├── bot_*.log           # Bot runtime logs
-│   └── web_*.log           # Web dashboard logs
+├── logs/                      # Log files (auto-generated)
+│   ├── maintenance_*.log      # Maintenance script logs
+│   ├── bot_*.log              # Bot runtime logs
+│   └── maintenance_*_web.log  # Web dashboard logs
 │
-├── backups/                  # Database backups (auto-generated)
+├── backups/                   # Database backups (auto-generated)
 │   └── sulfur_bot_backup_*.sql
 │
-├── docs/                     # Documentation
+├── docs/                      # Documentation
 │   ├── IMPLEMENTATION_SUMMARY.md
 │   └── MEDIUM_PRIORITY_FEATURES.md
 │
-└── maintain_bot.ps1 / .sh   # Maintenance scripts
-    start.sh                  # Simple startup script
-    TODO.md                   # Feature roadmap
-    README.md                 # This file
+└── maintain_bot.ps1 / .sh     # Maintenance scripts
+   start.sh                   # Simple startup script
+   TODO.md                    # Feature roadmap
+   README.md                  # This file
 ```
 
 ---
@@ -801,7 +849,7 @@ After installation:
 1. **Test Commands**: Join your server and try `!help`
 2. **Configure Permissions**: Set up role-based access
 3. **Enable Features**: Check TODO.md for available features
-4. **Monitor Dashboard**: Visit http://localhost:5000
+4. **Monitor Dashboard**: Visit http://localhost:5000 (status from `config/bot_status.json`)
 5. **Join Support Server**: (Add your Discord server invite)
 
 ---
