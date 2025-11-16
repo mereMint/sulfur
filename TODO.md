@@ -59,7 +59,6 @@
     - [x] Gemini 1.5 Pro  
     - [x] GPT-4o
     - [x] GPT-4 Turbo
-    - [ ] Claude (planned - requires Anthropic SDK)
   - API helpers updated for multiple providers
 
 ### Conversation Follow-up System
@@ -74,21 +73,14 @@
 ## 🟢 Low Priority - Admin Features
 
 ### AI Dashboard (Admin Command)
-- [ ] **Create `/admin ai-dashboard` command**
-  - Database tracking functions ready (`track_ai_model_usage`, `get_ai_usage_stats`)
-  - Display current AI model in use
-  - Show token usage statistics:
-    - Today's usage
-    - This week's usage
-    - This month's usage
-    - Total usage
-  - Show API call counts per model
-  - Display cost estimates (if applicable)
-  - Add graphs/visualizations (if using embeds)
+- [x] **`/admin ai_dashboard` implemented**
+  - Shows active provider/model and Gemini limit status
+  - Model switcher selector added
+  - Usage tables available in Web Dashboard
 
 ### Web Dashboard Expansion
 - [ ] **Enhance web dashboard functionality**
-  - [ ] Display AI token usage by model
+  - [x] Display AI token usage by model (AI Dashboard page)
   - [ ] Show different bot outputs (chat, werwolf, etc.)
   - [ ] Show maintenance script activity
   - [ ] Make all buttons functional (sync DB, update, restart, stop)
@@ -98,7 +90,6 @@
   - [x] Database viewer/editor (already exists)
   - [x] System logs viewer (already exists)
   - [x] Bot restart/stop controls (already exists)
-  - [ ] Admin authentication system
   - [ ] Improve mobile responsiveness
 
 ---
@@ -110,6 +101,17 @@
   - Let users earn money through activities
   - Track balance in database
   - Economy rewards for participation
+
+- [ ] **Games**
+  - a dnd story for players where the ai makes a story and the player  can follow it
+  - Who's the murder?
+    - you get an ai generated case with suspects and a rundown of what happend and how you can click a button for every person to get an more detailed report on them and the player can decide in the end who the murder was the bot tells them after that who it really was 
+    - give away rewards if right (currency)
+  - Gambling 
+    - Russian Roulette 
+    - Mines
+    - Blackjack
+    - roultte 
 
 - [ ] **Color Shop**
   - Buy custom role colors with currency
@@ -128,7 +130,8 @@
   - Play game for X minutes
   - Write X messages in chat
   - React to X messages
-  - Daily quest rewards
+  - Daily quest rewards 
+  - and other quest types...of the same sort
 
 - [ ] **Quest Tracking**
   - Database table for user progress
@@ -228,7 +231,14 @@
 7. **AI Usage Tracking** - Database logging for analytics
 
 ### 🔄 Integration Required
-Most features are implemented but need to be integrated into `bot.py`. See `docs/MEDIUM_PRIORITY_FEATURES.md` for detailed integration examples.
+Most features were integrated into `bot.py`:
+- [x] Image detection in `on_message` (vision context)
+- [x] Conversation context enrichment (2-minute window)
+- [x] Conversation saving after AI reply
+- [x] AI usage tracking after replies
+- [x] Periodic cleanup task for old contexts
+- [x] Emoji system initialization on startup (optional/configurable)
+See `docs/MEDIUM_PRIORITY_FEATURES.md` for remaining integration ideas.
 
 ### 📝 Next Actions
 1. Run database migration: `scripts/db_migrations/002_medium_priority_features.sql`

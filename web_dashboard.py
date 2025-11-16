@@ -232,7 +232,7 @@ def ai_dashboard():
 @app.route('/api/bot-status', methods=['GET'])
 def api_bot_status():
     """API endpoint to get the current status of the bot."""
-    status_file = 'bot_status.json'
+    status_file = 'config/bot_status.json'
     try:
         if os.path.exists(status_file):
             # --- FIX: Use utf-8-sig to handle potential BOM from PowerShell ---

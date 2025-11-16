@@ -29,6 +29,14 @@ from discord import app_commands
 from discord.ext import tasks
 from modules.werwolf import WerwolfGame
 from modules.api_helpers import get_chat_response, get_relationship_summary_from_api, get_wrapped_summary_from_api, get_game_details_from_api
+from modules.bot_enhancements import (
+    handle_image_attachment,
+    enhance_prompt_with_context,
+    save_ai_conversation,
+    track_api_call,
+    initialize_emoji_system,
+)
+from discord.ext import tasks as _tasks  # separate alias for new periodic cleanup
 
 # --- CONFIGURATION ---
 
@@ -396,6 +404,19 @@ async def on_ready():
     print(f'Ayo, the bot is logged in and ready, fam! ({client.user})')
     print('Let\'s chat.')
 
+    # --- NEW: Initialize Emoji System and enrich system prompt (optional) ---
+    try:
+        emoji_context = await initialize_emoji_system(client, config, GEMINI_API_KEY, OPENAI_API_KEY)
+        if emoji_context:
+            # Append emoji context to system prompt for richer replies
+            config['bot']['system_prompt'] = (config['bot']['system_prompt'] or '') + "\n\n" + emoji_context
+    except Exception as e:
+        print(f"[Startup] Emoji system init failed: {e}")
+
+    # --- NEW: Start periodic cleanup for old conversation contexts ---
+    if not periodic_cleanup.is_running():
+        periodic_cleanup.start()
+
 @tasks.loop(minutes=15)
 async def update_presence_task():
     """A background task that periodically updates the bot's presence to watch a random user."""
@@ -438,6 +459,15 @@ async def update_presence_task():
         status=discord.Status.online,
         activity=discord.Activity(type=discord.ActivityType.watching, name=fallback_activity)
     )
+
+# --- NEW: Periodic cleanup of old conversation contexts ---
+@_tasks.loop(minutes=10)
+async def periodic_cleanup():
+    try:
+        from modules.bot_enhancements import cleanup_task as _cleanup
+        await _cleanup(client)
+    except Exception as e:
+        print(f"[Periodic Cleanup] Error: {e}")
 
 @update_presence_task.before_loop
 async def before_update_presence_task():
@@ -2233,6 +2263,20 @@ async def on_message(message):
             stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
             await log_stat_increment(message.author.id, stat_period, 'sulf_interactions')
         user_prompt = message.content.replace(f"<@{client.user.id}>", "").strip()
+
+        # --- NEW: Vision/image attachment handling ---
+        try:
+            image_context = await handle_image_attachment(message, config, GEMINI_API_KEY, OPENAI_API_KEY)
+            if image_context:
+                user_prompt = f"{image_context}\n{user_prompt}".strip()
+        except Exception as _e:
+            print(f"[Vision] Skipping image analysis due to error: {_e}")
+
+        # --- NEW: Add short-term conversation context (2-minute window) ---
+        try:
+            user_prompt, _ = await enhance_prompt_with_context(message.author.id, message.channel.id, user_prompt)
+        except Exception as _e:
+            print(f"[Context] Could not enhance prompt: {_e}")
         if not user_prompt:
             await message.channel.send(config['bot']['chat']['empty_ping_response'])
             return
@@ -2264,6 +2308,12 @@ async def on_message(message):
                 await save_message_to_history(message.channel.id, "user", user_message_content)
             await save_message_to_history(message.channel.id, "model", response_text)
 
+            # --- NEW: Persist conversation snippet for quick follow-up ---
+            try:
+                await save_ai_conversation(message.author.id, message.channel.id, message.content, response_text)
+            except Exception as _e:
+                print(f"[Conversation] Save failed: {_e}")
+
             update_interval = config['bot']['chat']['relationship_update_interval'] * 2
             if len(updated_history) > 0 and len(updated_history) % update_interval == 0:
                 print(f"Updating relationship summary for {message.author.name}.")
@@ -2279,6 +2329,17 @@ async def on_message(message):
             final_response = await replace_emoji_tags(response_text, client)
             for chunk in await split_message(final_response):
                 if chunk: await message.channel.send(chunk)
+
+            # --- NEW: Track AI usage (model + feature) ---
+            try:
+                provider_used = await get_current_provider(config)
+                if provider_used == 'gemini':
+                    model_name = config.get('api', {}).get('gemini', {}).get('model', 'gemini')
+                else:
+                    model_name = config.get('api', {}).get('openai', {}).get('chat_model', 'openai')
+                await track_api_call(model_name, feature="chat", input_tokens=0, output_tokens=0)
+            except Exception as _e:
+                print(f"[AI Usage] Tracking failed: {_e}")
 
     async def _get_ai_response(history, message, user_prompt):
         """Helper function to encapsulate the API call logic."""

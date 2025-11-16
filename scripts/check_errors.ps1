@@ -13,7 +13,7 @@ $WarningCount = 0
 Write-Host "[1/7] Checking Python syntax..." -ForegroundColor Yellow
 $syntaxErrors = @()
 Get-ChildItem -Filter *.py -File | ForEach-Object {
-    $output = python -m py_compile $_.FullName 2>&1
+    $null = python -m py_compile $_.FullName 2>&1
     if ($LASTEXITCODE -ne 0) {
         $syntaxErrors += $_.Name
         $ErrorCount++
@@ -133,7 +133,7 @@ $importTests = @(
 
 $missingModules = @()
 foreach ($test in $importTests) {
-    $result = python -c "import $($test.Module)" 2>&1
+    $null = python -c "import $($test.Module)" 2>&1
     if ($LASTEXITCODE -ne 0) {
         $missingModules += $test.Name
         $ErrorCount++
@@ -158,9 +158,9 @@ $antiPatterns = @{
 
 $foundIssues = @()
 foreach ($pattern in $antiPatterns.GetEnumerator()) {
-    $matches = Select-String -Pattern $pattern.Key -Path *.py -SimpleMatch:$false
-    if ($matches) {
-        foreach ($match in $matches) {
+    $searchMatches = Select-String -Pattern $pattern.Key -Path *.py -SimpleMatch:$false
+    if ($searchMatches) {
+        foreach ($match in $searchMatches) {
             $foundIssues += @{
                 File = $match.Filename
                 Line = $match.LineNumber

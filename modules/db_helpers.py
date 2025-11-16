@@ -391,6 +391,137 @@ async def cleanup_custom_status_entries():
     finally:
         cursor.close()
         cnx.close()
+        logger.error(traceback.format_exc())
+
+# --- NEW: Conversation Context + AI Usage (Medium Priority Features) ---
+
+@db_operation("save_conversation_context")
+async def save_conversation_context(user_id: int, channel_id: int, last_user_message: str, last_bot_response: str):
+    """Upserts the latest conversation context for a user/channel pair."""
+    if not db_pool:
+        return
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return
+    cursor = cnx.cursor()
+    try:
+        query = (
+            """
+            INSERT INTO conversation_context (user_id, channel_id, last_bot_message_at, last_user_message, last_bot_response)
+            VALUES (%s, %s, NOW(), %s, %s)
+            ON DUPLICATE KEY UPDATE
+                last_bot_message_at = VALUES(last_bot_message_at),
+                last_user_message = VALUES(last_user_message),
+                last_bot_response = VALUES(last_bot_response)
+            """
+        )
+        cursor.execute(query, (user_id, channel_id, last_user_message, last_bot_response))
+        cnx.commit()
+    finally:
+        cursor.close()
+        cnx.close()
+
+@db_operation("get_conversation_context")
+async def get_conversation_context(user_id: int, channel_id: int):
+    """Returns the most recent conversation context and seconds since last bot message."""
+    if not db_pool:
+        return None
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return None
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        query = (
+            """
+            SELECT last_user_message, last_bot_response,
+                   TIMESTAMPDIFF(SECOND, last_bot_message_at, NOW()) AS seconds_ago
+            FROM conversation_context
+            WHERE user_id = %s AND channel_id = %s
+            """
+        )
+        cursor.execute(query, (user_id, channel_id))
+        row = cursor.fetchone()
+        return row
+    finally:
+        cursor.close()
+        cnx.close()
+
+@db_operation("clear_old_conversation_contexts")
+async def clear_old_conversation_contexts(retention_minutes: int = 1440):
+    """Deletes conversation contexts older than the given retention window (default: 24h)."""
+    if not db_pool:
+        return 0
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return 0
+    cursor = cnx.cursor()
+    try:
+        query = "DELETE FROM conversation_context WHERE last_bot_message_at < (NOW() - INTERVAL %s MINUTE)"
+        cursor.execute(query, (retention_minutes,))
+        deleted = cursor.rowcount
+        cnx.commit()
+        return deleted
+    finally:
+        cursor.close()
+        cnx.close()
+
+@db_operation("track_ai_model_usage")
+async def track_ai_model_usage(model_name: str, feature: str, input_tokens: int = 0, output_tokens: int = 0, total_cost: float = 0.0):
+    """Tracks AI usage per model/feature/day in ai_model_usage table."""
+    if not db_pool:
+        return
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return
+    cursor = cnx.cursor()
+    try:
+        query = (
+            """
+            INSERT INTO ai_model_usage (model_name, feature, call_count, input_tokens, output_tokens, total_cost, usage_date)
+            VALUES (%s, %s, 1, %s, %s, %s, CURDATE())
+            ON DUPLICATE KEY UPDATE
+                call_count = call_count + 1,
+                input_tokens = input_tokens + VALUES(input_tokens),
+                output_tokens = output_tokens + VALUES(output_tokens),
+                total_cost = total_cost + VALUES(total_cost)
+            """
+        )
+        cursor.execute(query, (model_name, feature, input_tokens, output_tokens, total_cost))
+        cnx.commit()
+    finally:
+        cursor.close()
+        cnx.close()
+
+@db_operation("get_ai_usage_stats")
+async def get_ai_usage_stats(days: int = 30):
+    """Aggregates AI usage over the last N days by model and feature."""
+    if not db_pool:
+        return []
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return []
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        query = (
+            """
+            SELECT model_name,
+                   feature,
+                   SUM(call_count) AS total_calls,
+                   SUM(input_tokens) AS total_input_tokens,
+                   SUM(output_tokens) AS total_output_tokens,
+                   SUM(total_cost) AS total_cost
+            FROM ai_model_usage
+            WHERE usage_date >= (CURDATE() - INTERVAL %s DAY)
+            GROUP BY model_name, feature
+            ORDER BY total_calls DESC
+            """
+        )
+        cursor.execute(query, (days,))
+        rows = cursor.fetchall() or []
+        return rows
+    finally:
+        cursor.close()
+        cnx.close()
 
 # --- NEW: Voice Channel Management DB Functions ---
 
