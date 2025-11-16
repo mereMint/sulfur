@@ -61,9 +61,13 @@ function Start-WebDashboard {
         [string]$LogFilePath
     )
     Write-Host "Starting the Web Dashboard as a background process..."
-    # --- REFACTORED: Start python directly, not in a new window. Redirect output to the main log file. ---
-    # This gives us the correct process ID to kill later and keeps all logs in one place.
-    $webDashboardProcess = Start-Process -FilePath $PythonExecutable -ArgumentList "-u", "web_dashboard.py" -NoNewWindow -PassThru -RedirectStandardOutput $LogFilePath -Append -RedirectStandardError $LogFilePath -Append
+    # --- REFACTORED: Use Start-Job for PS 5.1 compatibility and robust background processing. ---
+    # Start-Process in PS 5.1 doesn't support -Append, so we use a job to handle output redirection.
+    $job = Start-Job -ScriptBlock {
+        param($py, $log)
+        & $py -u "web_dashboard.py" *>> $log
+    } -ArgumentList $PythonExecutable, $LogFilePath
+    $webDashboardProcess = Get-Process -Id ($job.ChildJobs[0].ProcessId)
     Write-Host "Web Dashboard process started (Process ID: $($webDashboardProcess.Id))"
 
     Write-Host "Waiting for the Web Dashboard to become available on http://localhost:5000..." -ForegroundColor Gray
