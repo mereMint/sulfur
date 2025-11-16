@@ -859,8 +859,12 @@ class WerwolfGame:
                     for channel in fresh_category.channels:
                         print(f"    - Queuing deletion for channel: {channel.name}")
                         deletion_tasks.append(channel.delete(reason="Spielende"))
-                    # Wait for all channel deletions to complete
-                    await asyncio.gather(*deletion_tasks, return_exceptions=True)
+                    # Wait for all channel deletions to complete, catching exceptions
+                    results = await asyncio.gather(*deletion_tasks, return_exceptions=True)
+                    # Log any errors that occurred during deletion
+                    for i, result in enumerate(results):
+                        if isinstance(result, Exception):
+                            print(f"    - Error deleting channel {fresh_category.channels[i].name if i < len(fresh_category.channels) else 'unknown'}: {result}")
                 
                 # Now, delete the category itself
                 await fresh_category.delete(reason="Spielende")
@@ -871,6 +875,8 @@ class WerwolfGame:
                 print(f"  [WW] Missing permissions to delete category.")
             except Exception as e:
                 print(f"  [WW] Error during category cleanup: {e}")
+                import traceback
+                traceback.print_exc()
 
         # The game object will be deleted from the main bot file.
 

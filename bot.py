@@ -166,20 +166,32 @@ async def get_current_provider(config_obj):
     # --- FIX: Only check Gemini usage if the provider is set to 'gemini' ---
     # --- REFACTORED: Use the new detailed api_usage table ---
     if provider == 'gemini':
-        cnx = db_helpers.db_pool.get_connection()
-        if not cnx: return 'openai' # Fallback if DB is down
-        cursor = cnx.cursor(dictionary=True)
-        usage = 0
+        # --- FIX: Properly handle DB pool being None ---
+        if not db_helpers.db_pool:
+            logger.warning("Database pool not available, returning configured provider")
+            return provider
+        
         try:
-            # Sum up all calls for models starting with 'gemini' for today
-            cursor.execute("SELECT SUM(call_count) as total_calls FROM api_usage WHERE usage_date = CURDATE() AND model_name LIKE 'gemini%%'")
-            result = cursor.fetchone()
-            usage = result['total_calls'] if result and result['total_calls'] else 0
-        finally:
-            cursor.close()
-            cnx.close()
-        # If the limit is reached, switch to openai for this call.
-        return 'openai' if usage >= GEMINI_DAILY_LIMIT else 'gemini'
+            cnx = db_helpers.db_pool.get_connection()
+            if not cnx: 
+                logger.warning("Could not get DB connection, returning configured provider")
+                return provider
+            
+            cursor = cnx.cursor(dictionary=True)
+            usage = 0
+            try:
+                # Sum up all calls for models starting with 'gemini' for today
+                cursor.execute("SELECT SUM(call_count) as total_calls FROM api_usage WHERE usage_date = CURDATE() AND model_name LIKE 'gemini%%'")
+                result = cursor.fetchone()
+                usage = result['total_calls'] if result and result['total_calls'] else 0
+            finally:
+                cursor.close()
+                cnx.close()
+            # If the limit is reached, switch to openai for this call.
+            return 'openai' if usage >= GEMINI_DAILY_LIMIT else 'gemini'
+        except Exception as e:
+            logger.error(f"Error checking Gemini usage: {e}")
+            return provider
     # If the provider is 'openai' or anything else, just use that.
     return provider
 
@@ -420,45 +432,49 @@ async def on_ready():
 @tasks.loop(minutes=15)
 async def update_presence_task():
     """A background task that periodically updates the bot's presence to watch a random user."""
-    update_presence_task.change_interval(minutes=config['bot']['presence']['update_interval_minutes'])
+    try:
+        update_presence_task.change_interval(minutes=config['bot']['presence']['update_interval_minutes'])
 
-    if not client.guilds:
-        return
+        if not client.guilds:
+            return
 
-    # --- NEW: Check if an update is pending ---
-    if os.path.exists("update_pending.flag"):
+        # --- NEW: Check if an update is pending ---
+        if os.path.exists("update_pending.flag"):
+            await client.change_presence(
+                status=discord.Status.idle, # Set status to Idle
+                activity=discord.Activity(type=discord.ActivityType.watching, name="auf ein Update...")
+            )
+            return # Skip the normal presence update
+
+        # --- REFACTORED: More efficient way to find a random user ---
+        # 1. Get all non-bot members from all guilds the bot is in.
+        all_online_members = []
+        for guild in client.guilds:
+            all_online_members.extend([m for m in guild.members if not m.bot and m.status != discord.Status.offline])
+
+        # 2. If we found any online members, pick one at random.
+        if all_online_members:
+            member_to_watch = random.choice(all_online_members)
+            templates = config['bot']['presence']['activity_templates']
+            template = random.choice(templates)
+            activity_name = template.format(user=member_to_watch.display_name)
+
+            logger.debug(f"Presence update: {activity_name}")
+            print(f"  -> Presence update: {activity_name}")
+            await client.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=activity_name))
+            return # Success, exit the task for this run
+
+        # Fallback if no human members were found at all.
+        logger.debug("Presence update: No human members found. Using fallback.")
+        print("  -> Presence update: No human members found. Using fallback.")
+        fallback_activity = config.get('bot', {}).get('presence', {}).get('fallback_activity', "euch beim AFK sein zu")
         await client.change_presence(
-            status=discord.Status.idle, # Set status to Idle
-            activity=discord.Activity(type=discord.ActivityType.watching, name="auf ein Update...")
+            status=discord.Status.online,
+            activity=discord.Activity(type=discord.ActivityType.watching, name=fallback_activity)
         )
-        return # Skip the normal presence update
-
-    # --- REFACTORED: More efficient way to find a random user ---
-    # 1. Get all non-bot members from all guilds the bot is in.
-    all_online_members = []
-    for guild in client.guilds:
-        all_online_members.extend([m for m in guild.members if not m.bot and m.status != discord.Status.offline])
-
-    # 2. If we found any online members, pick one at random.
-    if all_online_members:
-        member_to_watch = random.choice(all_online_members)
-        templates = config['bot']['presence']['activity_templates']
-        template = random.choice(templates)
-        activity_name = template.format(user=member_to_watch.display_name)
-
-        logger.debug(f"Presence update: {activity_name}")
-        print(f"  -> Presence update: {activity_name}")
-        await client.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=activity_name))
-        return # Success, exit the task for this run
-
-    # Fallback if no human members were found at all.
-    logger.debug("Presence update: No human members found. Using fallback.")
-    print("  -> Presence update: No human members found. Using fallback.")
-    fallback_activity = config.get('bot', {}).get('presence', {}).get('fallback_activity', "euch beim AFK sein zu")
-    await client.change_presence(
-        status=discord.Status.online,
-        activity=discord.Activity(type=discord.ActivityType.watching, name=fallback_activity)
-    )
+    except Exception as e:
+        logger.error(f"Error in presence update task: {e}", exc_info=True)
+        print(f"  -> Error updating presence: {e}")
 
 # --- NEW: Periodic cleanup of old conversation contexts ---
 @_tasks.loop(minutes=10)
@@ -467,6 +483,7 @@ async def periodic_cleanup():
         from modules.bot_enhancements import cleanup_task as _cleanup
         await _cleanup(client)
     except Exception as e:
+        logger.error(f"Error in periodic cleanup: {e}", exc_info=True)
         print(f"[Periodic Cleanup] Error: {e}")
 
 @update_presence_task.before_loop
@@ -2292,7 +2309,8 @@ async def on_message(message):
                     timeout=config.get('api', {}).get('timeout', 30)
                 )
         except asyncio.TimeoutError:
-            print(f"  -> [AI] Response for channel {message.channel.id} timed out after {config['api']['request_timeout_seconds']} seconds.")
+            timeout_val = config.get('api', {}).get('timeout', 30)
+            print(f"  -> [AI] Response for channel {message.channel.id} timed out after {timeout_val} seconds.")
             error_message = "Die Anfrage hat zu lange gedauert. Versuche es später erneut."
             response_text, updated_history = None, None
 
