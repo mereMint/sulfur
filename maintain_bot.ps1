@@ -64,11 +64,14 @@ function Start-WebDashboard {
         [string]$LogFilePath
     )
     Write-Host "Starting the Web Dashboard as a background process..."
-    # --- FINAL FIX: Use Start-Process with cmd.exe for robust, PS 5.1-compatible redirection. ---
-    # This avoids all race conditions and compatibility issues with Start-Job and -Append.
-    $command = "cmd.exe /c `"$PythonExecutable`" -u web_dashboard.py >> `"$LogFilePath`" 2>&1"
-    # We start a hidden powershell process that runs the cmd command. This gives us a process object to manage.
-    $webDashboardProcess = Start-Process powershell.exe -ArgumentList "-NoNewWindow", "-Command", $command -PassThru
+    # --- FINAL, ROBUST FIX for PS 5.1 ---
+    # 1. Create a temporary file for the output.
+    $tempLog = [System.IO.Path]::GetTempFileName()
+    # 2. Start the python process directly, redirecting its output to the temp file.
+    #    This gives us the correct, long-running process object.
+    $webDashboardProcess = Start-Process -FilePath $PythonExecutable -ArgumentList "-u", "web_dashboard.py" -NoNewWindow -PassThru -RedirectStandardOutput $tempLog -RedirectStandardError $tempLog
+    # 3. Start a background job to continuously pipe the temp file's content to the main log file.
+    Start-Job -ScriptBlock { param($tmp, $main) Get-Content -Path $tmp -Wait | Add-Content -Path $main } -ArgumentList $tempLog, $LogFilePath | Out-Null
     Write-Host "Web Dashboard process started (Process ID: $($webDashboardProcess.Id))"
 
     Write-Host "Waiting for the Web Dashboard to become available on http://localhost:5000..." -ForegroundColor Gray

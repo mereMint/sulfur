@@ -133,7 +133,7 @@ Write-Host "Starting the bot... (Press CTRL+C to stop)"
 # --- FINAL FIX: Use Start-Process with redirection, which is non-blocking and reliable for long-running processes. ---
 # This replaces the problematic Tee-Object pipeline that was causing the script to hang.
 # The -Wait parameter is crucial; it makes this script wait until the python process exits.
-Start-Process -FilePath $pythonExecutable -ArgumentList "-u", "-X", "utf8", "bot.py" -NoNewWindow -RedirectStandardOutput $LogFile -Append -RedirectStandardError $LogFile -Append -Wait
+cmd.exe /c "`"$pythonExecutable`" -u -X utf8 bot.py >> `"$LogFile`" 2>&1"
 
 # --- NEW: Pause on error to allow copying logs ---
 # --- FIX: Use $pipelinestatus to get the correct exit code from the python process, not Tee-Object ---
