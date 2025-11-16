@@ -26,7 +26,7 @@ function Invoke-VenvSetup {
     }
 
     Write-Host "Installing/updating Python dependencies from requirements.txt..."
-    & $pythonExecutable -m pip install -r requirements.txt | Out-Host
+    & $pythonExecutable -m pip install -r requirements.txt --quiet | Out-Host
     Write-Host "Dependencies are up to date."
 
     return $pythonExecutable

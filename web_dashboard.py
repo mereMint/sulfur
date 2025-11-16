@@ -246,8 +246,9 @@ if __name__ == '__main__':
     log_thread = threading.Thread(target=follow_log_file, daemon=True)
     log_thread.start()
     
-    # Run the Flask app with SocketIO
-    # Host 0.0.0.0 makes it accessible on your local network
+    # --- REFACTORED: Use a production-ready WSGI server (waitress) instead of Flask's dev server ---
+    # This is more stable and reliable for network access.
+    from waitress import serve
     print("--- Starting Sulfur Bot Web Dashboard ---")
     print("--- Access it at http://localhost:5000 ---")
-    socketio.run(app, host='0.0.0.0', port=5000, debug=False)
+    serve(socketio.run(app), host='0.0.0.0', port=5000)
