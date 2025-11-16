@@ -47,10 +47,14 @@ while ($true) {
 
     Write-Host "Bot is running in a new window (Process ID: $($botProcess.Id)). Checking for updates every 60 seconds."
 
+    # --- NEW: Counter for periodic checks ---
+    $checkCounter = 0
+    $checkIntervalSeconds = 15
+
     while (Test-ProcessRunning -ProcessId $botProcess.Id) {
         # --- Check for shutdown key press ---
         if ([System.Console]::KeyAvailable) {
-            $key = [System.Console]::ReadKey($true)
+            $key = [System.Console]::ReadKey($true) # $true hides the key press from the console
             if ($key.Key -eq 'Q') {
                 Write-Host "Shutdown key ('Q') pressed. Stopping bot and exiting..." -ForegroundColor Yellow
                 Stop-ProcessGracefully -ProcessId $botProcess.Id
@@ -91,51 +95,58 @@ while ($true) {
             $status = "*Your branch is behind*" 
         }
 
-        Start-Sleep -Seconds 15
+        # --- REFACTORED: Use a short sleep and a counter for responsiveness ---
+        Start-Sleep -Seconds 1
+        $checkCounter++
 
-        # --- Log the time of the update check ---
-        (Get-Date).ToUniversalTime().ToString("o") | Out-File -FilePath "last_check.txt" -Encoding utf8
+        # Only run the expensive update check every $checkIntervalSeconds
+        if ($checkCounter -ge $checkIntervalSeconds) {
+            # --- Log the time of the update check ---
+            (Get-Date).ToUniversalTime().ToString("o") | Out-File -FilePath "last_check.txt" -Encoding utf8
 
-        # Fetch the latest changes from the remote repository
-        git remote update
-        $status = git status -uno
+            # Fetch the latest changes from the remote repository
+            git remote update
+            $status = git status -uno
 
-        if ($status -like "*Your branch is behind*") {
-            Write-Host "New version found in the repository! Restarting the bot to apply updates..."
-            # Create the flag file to signal the bot to go idle
-            New-Item -Path "update_pending.flag" -ItemType File -Force | Out-Null
-            Stop-ProcessGracefully -ProcessId $botProcess.Id # Stop the bot
-            Start-Sleep -Seconds 2 # Give it a moment for the exit trap to run
-            
-            # --- NEW: Commit database changes before pulling ---
-            if (git status --porcelain | Select-String -Pattern $dbSyncFile) {
-                Write-Host "Database changes detected. Committing and pushing before update..." -ForegroundColor Cyan
-                git add $dbSyncFile
-                git commit -m "chore: Sync database schema before update"
-                git push
+            if ($status -like "*Your branch is behind*") {
+                Write-Host "New version found in the repository! Restarting the bot to apply updates..."
+                # Create the flag file to signal the bot to go idle
+                New-Item -Path "update_pending.flag" -ItemType File -Force | Out-Null
+                Stop-ProcessGracefully -ProcessId $botProcess.Id # Stop the bot
+                Start-Sleep -Seconds 2 # Give it a moment for the exit trap to run
+                
+                # --- NEW: Commit database changes before pulling ---
+                if (git status --porcelain | Select-String -Pattern $dbSyncFile) {
+                    Write-Host "Database changes detected. Committing and pushing before update..." -ForegroundColor Cyan
+                    git add $dbSyncFile
+                    git commit -m "chore: Sync database schema before update"
+                    git push
+                }
+
+                # --- NEW: Check if the watcher script itself is being updated ---
+                # We need to do this before 'git pull' changes the files.
+                git fetch
+                $changed_files = git diff --name-only HEAD...origin/main
+                $watcher_updated = $changed_files -like "*maintain_bot.ps1*"
+                
+                Write-Host "Pulling latest changes from git..."
+                git pull
+
+                if ($watcher_updated) {
+                    Write-Host "Watcher script has been updated! Rebooting the entire watcher system..." -ForegroundColor Magenta
+                    Stop-ProcessGracefully -ProcessId $webDashboardProcess.Id
+                    # Start the bootstrapper to restart the watcher, then exit this old instance.
+                    Start-Process powershell.exe -ArgumentList "-File `"$($PSScriptRoot)\bootstrapper.ps1`""
+                    exit 0
+                }
+
+                # --- Log the time of the successful update ---
+                (Get-Date).ToUniversalTime().ToString("o") | Out-File -FilePath "last_update.txt" -Encoding utf8
+                Remove-Item -Path "update_pending.flag" -ErrorAction SilentlyContinue # Clean up the flag
+                break # Exit the inner loop to allow the outer loop to restart it
             }
-
-            # --- NEW: Check if the watcher script itself is being updated ---
-            # We need to do this before 'git pull' changes the files.
-            git fetch
-            $changed_files = git diff --name-only HEAD...origin/main
-            $watcher_updated = $changed_files -like "*maintain_bot.ps1*"
-            
-            Write-Host "Pulling latest changes from git..."
-            git pull
-
-            if ($watcher_updated) {
-                Write-Host "Watcher script has been updated! Rebooting the entire watcher system..." -ForegroundColor Magenta
-                Stop-ProcessGracefully -ProcessId $webDashboardProcess.Id
-                # Start the bootstrapper to restart the watcher, then exit this old instance.
-                Start-Process powershell.exe -ArgumentList "-File `"$($PSScriptRoot)\bootstrapper.ps1`""
-                exit 0
-            }
-
-            # --- Log the time of the successful update ---
-            (Get-Date).ToUniversalTime().ToString("o") | Out-File -FilePath "last_update.txt" -Encoding utf8
-            Remove-Item -Path "update_pending.flag" -ErrorAction SilentlyContinue # Clean up the flag
-            break # Exit the inner loop to allow the outer loop to restart it
+            # Reset the counter after a check
+            $checkCounter = 0
         }
     }
 
