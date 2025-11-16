@@ -2,3 +2,5 @@ discord.py
 mysql-connector-python
 aiohttp
 python-dotenv
+Flask
+Flask-SocketIO

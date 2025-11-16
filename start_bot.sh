@@ -1,125 +1,103 @@
 #!/bin/bash
 
-# This script sets the necessary environment variables and starts the Sulfur bot on Linux/macOS.
+# This script sets the necessary environment variables and starts the Sulfur bot in Termux.
 # To run it:
-# 1. Make it executable: chmod +x ./start_bot.sh
+# 1. Make sure this script is executable: chmod +x start_bot.sh
 # 2. Run the script with: ./start_bot.sh
 
-# --- FIX: Set the working directory to the script's location ---
-# This ensures that relative paths for files like .env and bot.py work correctly.
+# --- Set the working directory to the script's location ---
 cd "$(dirname "$0")"
 
-# --- NEW: Load environment variables from .env file ---
-# This makes the script runnable on its own, without relying on the parent.
+# --- Load environment variables from .env file ---
 if [ -f .env ]; then
-    echo "Loading environment variables from .env file..."
-    set -a # automatically export all variables
-    source .env
-    set +a # stop automatically exporting
+  # A safer way to load .env files in bash
+  set -o allexport
+  source .env
+  set +o allexport
 fi
 
-# --- NEW: Setup Logging ---
+# --- Setup Logging ---
 LOG_DIR="logs"
-if [ ! -d "$LOG_DIR" ]; then
-    mkdir -p "$LOG_DIR"
-    echo "Created logs directory at $LOG_DIR"
-fi
+mkdir -p "$LOG_DIR"
 
 LOG_TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
-LOG_FILE="${LOG_DIR}/startup_log_${LOG_TIMESTAMP}.log"
-
-# --- NEW: Define database connection details at the top ---
-SYNC_FILE="database_sync.sql"
-DB_NAME="sulfur_bot"
-DB_USER="sulfur_bot_user"
-
-# This function will be executed when the script is stopped (e.g., with CTRL+C)
-cleanup() {
-    echo "Script stopped. Log file is at: $LOG_FILE"
-    # --- NEW: Export database on exit for synchronization ---
-    echo "Exporting database to $SYNC_FILE for synchronization..."
-    mariadb-dump --user=$DB_USER --host=localhost --default-character-set=utf8mb4 $DB_NAME > "$SYNC_FILE"
-    echo "Database export complete. Remember to commit and push '$SYNC_FILE' if you want to sync this state." | tee -a "$LOG_FILE"
-}
-trap cleanup EXIT
+LOG_FILE="${LOG_DIR}/bot_session_${LOG_TIMESTAMP}.log"
 
 echo "Logging this session to: $LOG_FILE"
 
+# --- Database connection details ---
+# These should be set in your .env file, but we provide defaults
+DB_NAME=${DB_NAME:-"sulfur_bot"}
+DB_USER=${DB_USER:-"sulfur_bot_user"}
+
+# --- Register an action to export the database on script exit ---
+SYNC_FILE="database_sync.sql"
+
+cleanup() {
+    echo "Exporting database to $SYNC_FILE for synchronization..."
+    # In Termux, mysqldump is directly available if mariadb is installed
+    mysqldump --user="$DB_USER" --host=localhost --default-character-set=utf8mb4 "$DB_NAME" > "$SYNC_FILE"
+    echo "Database export complete."
+}
+trap cleanup EXIT
+
 echo "Checking for updates from the repository..."
 echo "  -> Stashing local changes to avoid conflicts..."
-git stash > /dev/null 2>&1
-# --- NEW: Get the commit hash before pulling ---
-OLD_HEAD=$(git rev-parse HEAD)
+git stash > /dev/null
+
 echo "  -> Pulling latest version from the repository..."
-git pull > /dev/null 2>&1
-# --- NEW: Get the commit hash after pulling ---
-NEW_HEAD=$(git rev-parse HEAD)
+git pull
+if [ $? -ne 0 ]; then
+    echo -e "\033[0;31m--------------------------------------------------------\033[0m"
+    echo -e "\033[0;31mError: 'git pull' failed. The script cannot continue.\033[0m"
+    echo -e "\033[0;33mPlease check your internet connection and git status, then try again.\033[0m"
+    read -p "Press Enter to exit."
+    exit 1
+fi
+
 echo "  -> Re-applying stashed local changes..."
-git stash pop > /dev/null 2>&1
+git stash pop > /dev/null
 echo "Update check complete."
 
-# --- NEW: Install/update Python dependencies ---
+# --- Check for Python executable before proceeding ---
+if ! command -v python &> /dev/null; then
+    echo -e "\033[0;31m--------------------------------------------------------\033[0m"
+    echo -e "\03f[0;31mError: 'python' command not found.\033[0m"
+    echo -e "\033[0;33mPlease ensure Python is installed in Termux (pkg install python).\033[0m"
+    read -p "Press Enter to exit."
+    exit 1
+fi
+
+# --- Install/update Python dependencies ---
 echo "Installing/updating Python dependencies from requirements.txt..."
-python3 -m pip install -r requirements.txt
+pip install -r requirements.txt
 echo "Dependencies are up to date."
 
-# --- NEW: Check if the sync file was updated and import it ---
-# --- DISABLED: The automatic database import is disabled to prevent accidental data loss. ---
-# The database_sync.sql file will still be pulled, but must be imported manually if needed.
-# if [ "$OLD_HEAD" != "$NEW_HEAD" ] && git diff --name-only "$OLD_HEAD" "$NEW_HEAD" | grep -q "$SYNC_FILE"; then
-#     echo "Database sync file has been updated. Importing new data..."
-#     mariadb --user="$DB_USER" --host=localhost --default-character-set=utf8mb4 "$DB_NAME" < "$SYNC_FILE"
-#     echo "Database import complete."
-# fi
-
-# --- NEW: Ensure maintenance scripts are always executable after a pull ---
-echo "Ensuring core scripts are executable..."
-chmod +x ./maintain_bot.sh
-chmod +x ./maintain_bot.ps1
-
-# --- REFACTORED: Check if MariaDB/MySQL is running and start if necessary ---
+# --- Check if MariaDB (MySQL) is running ---
 if ! pgrep -x "mysqld" > /dev/null; then
-    echo "MariaDB/MySQL server not detected."
-    # Check if we are in Termux by looking for its specific directory structure
-    if [[ -d "/data/data/com.termux/files/usr" ]]; then
-        echo "Termux environment detected. Starting server with 'mysqld_safe'..."
-        mysqld_safe --user=root --datadir=/data/data/com.termux/files/usr/var/lib/mysql &
-        sleep 5 # Give it a moment to start
-    fi
+    echo "MariaDB not running. Starting it now..."
+    # This is the standard command to start the MariaDB server in Termux
+    mysqld_safe -u root &
+else
+    echo "MariaDB server is already running."
 fi
+sleep 5 # Give the database a moment to initialize
 
 echo "Backing up the database..."
 BACKUP_DIR="backups"
-
-# Create backup directory if it doesn't exist
-if [ ! -d "$BACKUP_DIR" ]; then
-    mkdir -p "$BACKUP_DIR"
-fi
+mkdir -p "$BACKUP_DIR"
 
 TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 BACKUP_FILE="${BACKUP_DIR}/${DB_NAME}_backup_${TIMESTAMP}.sql"
-
-# Use mariadb-dump on Termux/Linux systems
-mariadb-dump --user="$DB_USER" --host=localhost --default-character-set=utf8mb4 "$DB_NAME" > "$BACKUP_FILE"
+mysqldump --user="$DB_USER" --host=localhost --default-character-set=utf8mb4 "$DB_NAME" > "$BACKUP_FILE"
 echo "Backup created successfully at $BACKUP_FILE"
 
-# --- NEW: Clean up old backups ---
+# --- Clean up old backups (older than 7 days) ---
 echo "Cleaning up old backups (older than 7 days)..."
-# The 'find' command searches for .sql files older than 7 days and deletes them.
-find "$BACKUP_DIR" -type f -name "*.sql" -mtime +7 -print -delete
+find "$BACKUP_DIR" -name "*.sql" -type f -mtime +7 -print -delete
 echo "Cleanup complete."
 
-echo "Starting the bot... (Press CTRL+C to stop)"
-# --- FIX: Pipe the bot's output to tee for reliable logging in tmux ---
-# This sends all output (stdout and stderr) from the Python script to the tee command,
-# which then writes it to both the console (the tmux pane) and the log file.
-python3 -u bot.py 2>&1 | tee -a "$LOG_FILE"
-
-# --- NEW: Pause on error to allow copying logs ---
-exit_code=${PIPESTATUS[0]} # Get the exit code of the python script, not tee
-if [ $exit_code -ne 0 ]; then
-    echo "--------------------------------------------------------"
-    echo "The bot process exited with an error (Exit Code: $exit_code)."
-    echo "The script is paused. Press Enter to close this window."
-    read
-fi
+echo "Starting the bot... (Press CTRL+C to stop if running manually)"
+# The -u flag forces python's output to be unbuffered.
+# `tee` splits the output to both the console and the log file.
+python -u -X utf8 bot.py 2>&1 | tee -a "$LOG_FILE"

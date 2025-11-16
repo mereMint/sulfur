@@ -4,6 +4,7 @@ import discord
 import random
 import os
 import subprocess
+import socket
 from collections import deque
 import re
 from datetime import datetime, timedelta, timezone
@@ -1637,6 +1638,31 @@ class AdminGroup(app_commands.Group):
         except Exception as e:
             await interaction.followup.send(f"❌ Fehler beim Löschen des Gedächtnisses: `{e}`")
             print(f"--- Error in /admin deletememory for user {user.id}: {e} ---")
+
+    @app_commands.command(name="dashboard", description="Zeigt den Link zum Web-Dashboard an.")
+    async def dashboard(self, interaction: discord.Interaction):
+        """Sends the link to the web dashboard, making it accessible on the local network."""
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            # Get the local IP address of the machine running the bot
+            hostname = socket.gethostname()
+            # This gets the primary local IP address
+            local_ip = socket.gethostbyname(hostname)
+            dashboard_url = f"http://{local_ip}:5000"
+            
+            message = (
+                f"Du kannst das Web-Dashboard hier aufrufen:\n"
+                f"**{dashboard_url}**\n\n"
+                f"*Hinweis: Dies funktioniert nur, wenn du dich im selben Netzwerk wie der Bot befindest.*"
+            )
+            await interaction.followup.send(message)
+
+        except Exception as e:
+            # Fallback to localhost if IP detection fails for any reason
+            dashboard_url = "http://localhost:5000"
+            message = f"Konnte die lokale IP-Adresse nicht automatisch ermitteln. Versuche, das Dashboard über den Host-PC hier aufzurufen:\n**{dashboard_url}**\n\n*Fehler: {e}*"
+            await interaction.followup.send(message)
 
 
 # --- NEW: View for the AI Dashboard ---

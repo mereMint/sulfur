@@ -1,97 +1,128 @@
 #!/bin/bash
-# This script acts as a watcher to maintain the Sulfur bot on Linux/Termux.
+
+# This script acts as a watcher to maintain the Sulfur bot in a Termux environment.
 # It starts the bot and then checks for updates from the Git repository.
-# If updates are found, it automatically pulls them and restarts the bot.
+# If updates are found, it automatically restarts the bot.
+#
+# --- How to Stop ---
+# To gracefully shut down the bot and this script, press the 'Q' key.
+# The script will stop the bot, perform a final database commit if needed, and then exit.
+#
 
-# To run it:
-# 1. Make it executable: chmod +x maintain_bot.sh
-# 2. Run the script: ./maintain_bot.sh
+# --- How to run it ---
+# 1. Make sure this script is executable: chmod +x maintain_bot.sh
+# 2. Run the script with: ./maintain_bot.sh
 
-echo "--- Sulfur Bot Maintenance Watcher (Linux/Termux) ---"
+echo "--- Sulfur Bot Maintenance Watcher (Termux Version) ---"
+echo -e "\033[0;33mPress 'Q' at any time to gracefully shut down the bot and exit.\033[0m"
 
-# --- NEW: Lock file to prevent multiple instances ---
-LOCKFILE="/tmp/sulfur_maintainer.lock"
+# Define the file to watch for database changes
+DB_SYNC_FILE="database_sync.sql"
 
-if [ -e "$LOCKFILE" ]; then
-    # Lockfile exists, check if the process is still running
-    PID=$(cat "$LOCKFILE")
-    if kill -0 "$PID" > /dev/null 2>&1; then
-        echo "Maintainer script is already running with PID $PID. Exiting."
-        exit 1
-    else
-        # The process is not running, so the lock file is stale. Remove it.
-        echo "Found stale lock file. Removing it."
-        rm -f "$LOCKFILE"
+# --- NEW: Start the Web Dashboard in the background ---
+echo "Starting the Web Dashboard..."
+pip install -r requirements.txt &>/dev/null
+python -u web_dashboard.py &
+WEB_PID=$!
+echo "Web Dashboard is running at http://localhost:5000 (PID: $WEB_PID)"
+
+
+# Function to check for and commit database changes
+commit_db_changes() {
+    # Check if the sync file has any changes staged or unstaged
+    if git status --porcelain | grep -q "$DB_SYNC_FILE"; then
+        echo -e "\033[0;36mDatabase changes detected. Committing and pushing...\033[0m"
+        git add "$DB_SYNC_FILE"
+        git commit -m "chore: Sync database schema"
+        git push
     fi
-fi
-
-echo $$ > "$LOCKFILE"
-trap 'rm -f "$LOCKFILE"' EXIT INT TERM
-
-# --- FIX: Load environment variables from .env file ---
-# This is crucial for the cleanup trap in start_bot.sh to have DB credentials
-# when this maintenance script kills the child process for a restart.
-if [ -f .env ]; then
-    set -a # automatically export all variables
-    source .env
-    set +a # stop automatically exporting
-fi
-
-# Ensure we are in the script's directory
-cd "$(dirname "$0")"
+}
 
 while true; do
     echo "Starting the bot process..."
-    # --- FIX: Ensure the startup script is executable before running it ---
-    echo "Ensuring startup script is executable..."
-    chmod +x ./start_bot.sh
-
-    # --- FIX: Use setsid to run the bot in a new process group ---
-    # This allows us to reliably kill the entire process tree (start_bot.sh and python)
-    # without affecting the maintainer script itself.
-    setsid ./start_bot.sh &
-    # Get the Process Group ID (PGID), which is the same as the PID of the setsid process leader.
-    # We will use this to kill the entire group later.
+    # Start the main bot script in the background
+    ./start_bot.sh &
+    
+    # Get the Process ID (PID) of the background job
     BOT_PID=$!
 
-    echo "Bot is running in the background (PID: $BOT_PID). Checking for updates every 60 seconds."
+    echo "Bot is running in the background (PID: $BOT_PID). Checking for updates..."
 
-    # Loop to check for updates as long as the bot process is running
-    while kill -0 $BOT_PID 2>/dev/null; do
-        sleep 60
-        
-        # --- NEW: Log the time of the update check ---
-        date -u --iso-8601=seconds > last_check.txt
+    # Loop while the bot process is still running
+    # `kill -0` checks if a process with the given PID exists
+    while kill -0 "$BOT_PID" 2>/dev/null; do
+        # Check for shutdown key press without blocking
+        # -t 0.1: timeout of 0.1s, -N 1: read 1 char
+        if read -t 0.1 -N 1 key; then
+            if [[ "$key" == "q" || "$key" == "Q" ]]; then
+                echo -e "\033[0;33mShutdown key ('Q') pressed. Stopping bot and exiting...\033[0m"
+                kill "$BOT_PID"
+                wait "$BOT_PID" 2>/dev/null # Wait for the process to terminate
 
-        # --- NEW: Check for local changes, commit, and push them ---
-        # Stash any untracked files to not interfere with git status
-        git stash push -u -q
-        # --- FIX: Only commit changes to the database sync file ---
-        if ! git diff --quiet --exit-code HEAD -- database_sync.sql; then
-            echo "Local changes to database_sync.sql detected. Committing and pushing..."
-            git add database_sync.sql
-            git commit -m "Auto-commit: Update database sync or other tracked files"
-            git push
+                echo "Performing final database check..."
+                commit_db_changes
+
+                echo "Shutdown complete."
+                kill "$WEB_PID" # Stop the web dashboard
+                exit 0
+            fi
         fi
-        git stash pop -q # Unstash the untracked files
+
+        # --- NEW: Check for control flags from web dashboard ---
+        if [ -f "stop.flag" ]; then
+            echo -e "\033[0;33mStop signal received from web dashboard. Shutting down...\033[0m"
+            kill "$BOT_PID"
+            wait "$BOT_PID" 2>/dev/null
+            rm -f "stop.flag"
+            commit_db_changes
+            kill "$WEB_PID" # Stop the web dashboard
+            exit 0
+        fi
+        if [ -f "restart.flag" ]; then
+            echo -e "\033[0;33mRestart signal received from web dashboard. Restarting bot...\033[0m"
+            rm -f "restart.flag"
+            # Force the update check to succeed, triggering a restart
+            git remote update &>/dev/null
+            break # Break inner loop to force restart
+        fi
+
+        sleep 15
+
+        # Log the time of the update check
+        date -u +"%Y-%m-%dT%H:%M:%SZ" > last_check.txt
 
         # Fetch the latest changes from the remote repository
-        git remote update > /dev/null 2>&1
-        STATUS=$(git status -uno)
-
-        if [[ "$STATUS" == *"Your branch is behind"* ]]; then
+        git remote update &>/dev/null
+        
+        # Check if the local branch is behind the remote
+        if git status -uno | grep -q "Your branch is behind"; then
             echo "New version found in the repository! Restarting the bot to apply updates..."
             # Create the flag file to signal the bot to go idle
             touch update_pending.flag
-            # --- FIX: Kill the entire process group to prevent orphaned python processes ---
-            # The negative sign before $BOT_PID is crucial. It tells `kill` to target the
-            # entire process group, not just the single parent process.
-            kill -- -$BOT_PID
-            wait $BOT_PID 2>/dev/null # Wait for the process to terminate
+            kill "$BOT_PID" # Stop the bot
+            wait "$BOT_PID" 2>/dev/null # Wait for the process to terminate
+
+            commit_db_changes
+
+            # --- NEW: Check if the watcher script itself is being updated ---
+            git fetch &>/dev/null
+            watcher_updated=false
+            if git diff --name-only HEAD...origin/main | grep -q "maintain_bot.sh"; then
+                watcher_updated=true
+            fi
+
             echo "Pulling latest changes from git..."
             git pull
-            # --- NEW: Log the time of the successful update ---
-            date -u --iso-8601=seconds > last_update.txt
+            
+            if [ "$watcher_updated" = true ]; then
+                echo -e "\033[0;35mWatcher script has been updated! Rebooting the entire watcher system...\033[0m"
+                kill "$WEB_PID"
+                # Execute the bootstrapper, which will then start the new watcher.
+                exec ./bootstrapper.sh
+            fi
+
+            # Log the time of the successful update
+            date -u +"%Y-%m-%dT%H:%M:%SZ" > last_update.txt
             rm -f update_pending.flag # Clean up the flag
             break # Exit the inner loop to allow the outer loop to restart it
         fi

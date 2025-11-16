@@ -1,6 +1,11 @@
 # This script acts as a watcher to maintain the Sulfur bot.
 # It starts the bot and then checks for updates from the Git repository every minute.
 # If updates are found, it automatically restarts the bot.
+#
+# --- NEW: How to Stop ---
+# To gracefully shut down the bot and this script, press the 'Q' key.
+# The script will stop the bot, perform a final database commit if needed, and then exit.
+#
 
 # To run it:
 # 1. Open PowerShell
@@ -8,21 +13,87 @@
 # 3. Run the script with: .\maintain_bot.ps1
 
 Write-Host "--- Sulfur Bot Maintenance Watcher ---"
+Write-Host "Press 'Q' at any time to gracefully shut down the bot and exit." -ForegroundColor Yellow
+
+# --- NEW: Define the file to watch for database changes ---
+$dbSyncFile = "database_sync.sql"
+
+# --- NEW: Start the Web Dashboard in a new window ---
+Write-Host "Starting the Web Dashboard in a new window..."
+$webDashboardProcess = Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", "python -m pip install -r requirements.txt; python -u web_dashboard.py" -PassThru
+Write-Host "Web Dashboard is running at http://localhost:5000 (Process ID: $($webDashboardProcess.Id))"
+
+# --- Function to check if a process is running ---
+function Test-ProcessRunning {
+    param(
+        [int]$ProcessId
+    )
+    return (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) -ne $null
+}
+
+# --- Function to gracefully stop a process ---
+function Stop-ProcessGracefully {
+    param([int]$ProcessId)
+    if (Test-ProcessRunning -ProcessId $ProcessId) {
+        Stop-Process -Id $ProcessId -Force
+    }
+}
 
 while ($true) {
     Write-Host "Starting the bot process..."
     # Start the main bot script as a background job.
     # This allows the watcher to continue running while the bot is active.
-    $botJob = Start-Job -ScriptBlock { 
-        & .\start_bot.ps1 
-    }
+    $botProcess = Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", "& `"$($PSScriptRoot)\start_bot.ps1`"" -PassThru
 
-    Write-Host "Bot is running in the background (Job ID: $($botJob.Id)). Checking for updates every 60 seconds."
+    Write-Host "Bot is running in a new window (Process ID: $($botProcess.Id)). Checking for updates every 60 seconds."
 
-    while ($botJob.State -eq 'Running') {
+    while (Test-ProcessRunning -ProcessId $botProcess.Id) {
+        # --- Check for shutdown key press ---
+        if ([System.Console]::KeyAvailable) {
+            $key = [System.Console]::ReadKey($true)
+            if ($key.Key -eq 'Q') {
+                Write-Host "Shutdown key ('Q') pressed. Stopping bot and exiting..." -ForegroundColor Yellow
+                Stop-ProcessGracefully -ProcessId $botProcess.Id
+                # The start_bot script's exit trap handles the DB dump. Give it a moment.
+                Start-Sleep -Seconds 2
+
+                # Check for and commit any final database changes
+                if (git status --porcelain | Select-String -Pattern $dbSyncFile) {
+                    Write-Host "Final database changes detected. Committing and pushing..." -ForegroundColor Cyan
+                    git add $dbSyncFile
+                    git commit -m "chore: Sync database schema on shutdown"
+                    git push
+                }
+
+                Write-Host "Shutdown complete."
+                Stop-ProcessGracefully -ProcessId $webDashboardProcess.Id # Stop the web dashboard
+                exit 0
+            }
+        }
+
+        # --- NEW: Check for control flags from web dashboard ---
+        if (Test-Path -Path "stop.flag") {
+            Write-Host "Stop signal received from web dashboard. Shutting down..." -ForegroundColor Yellow
+            Stop-ProcessGracefully -ProcessId $botProcess.Id
+            Start-Sleep -Seconds 2
+            Remove-Item "stop.flag" -ErrorAction SilentlyContinue
+            # Final DB commit
+            if (git status --porcelain | Select-String -Pattern $dbSyncFile) {
+                git add $dbSyncFile; git commit -m "chore: Sync database schema on shutdown"; git push
+            }
+            Stop-ProcessGracefully -ProcessId $webDashboardProcess.Id # Stop the web dashboard
+            exit 0
+        }
+        if (Test-Path -Path "restart.flag") {
+            Write-Host "Restart signal received from web dashboard. Restarting bot..." -ForegroundColor Yellow
+            Remove-Item "restart.flag" -ErrorAction SilentlyContinue
+            # Setting status to trigger a restart in the outer loop
+            $status = "*Your branch is behind*" 
+        }
+
         Start-Sleep -Seconds 15
 
-        # --- NEW: Log the time of the update check ---
+        # --- Log the time of the update check ---
         (Get-Date).ToUniversalTime().ToString("o") | Out-File -FilePath "last_check.txt" -Encoding utf8
 
         # Fetch the latest changes from the remote repository
@@ -33,10 +104,35 @@ while ($true) {
             Write-Host "New version found in the repository! Restarting the bot to apply updates..."
             # Create the flag file to signal the bot to go idle
             New-Item -Path "update_pending.flag" -ItemType File -Force | Out-Null
-            Stop-Job -Job $botJob # Stop the bot
+            Stop-ProcessGracefully -ProcessId $botProcess.Id # Stop the bot
+            Start-Sleep -Seconds 2 # Give it a moment for the exit trap to run
+            
+            # --- NEW: Commit database changes before pulling ---
+            if (git status --porcelain | Select-String -Pattern $dbSyncFile) {
+                Write-Host "Database changes detected. Committing and pushing before update..." -ForegroundColor Cyan
+                git add $dbSyncFile
+                git commit -m "chore: Sync database schema before update"
+                git push
+            }
+
+            # --- NEW: Check if the watcher script itself is being updated ---
+            # We need to do this before 'git pull' changes the files.
+            git fetch
+            $changed_files = git diff --name-only HEAD...origin/main
+            $watcher_updated = $changed_files -like "*maintain_bot.ps1*"
+            
             Write-Host "Pulling latest changes from git..."
             git pull
-            # --- NEW: Log the time of the successful update ---
+
+            if ($watcher_updated) {
+                Write-Host "Watcher script has been updated! Rebooting the entire watcher system..." -ForegroundColor Magenta
+                Stop-ProcessGracefully -ProcessId $webDashboardProcess.Id
+                # Start the bootstrapper to restart the watcher, then exit this old instance.
+                Start-Process powershell.exe -ArgumentList "-File `"$($PSScriptRoot)\bootstrapper.ps1`""
+                exit 0
+            }
+
+            # --- Log the time of the successful update ---
             (Get-Date).ToUniversalTime().ToString("o") | Out-File -FilePath "last_update.txt" -Encoding utf8
             Remove-Item -Path "update_pending.flag" -ErrorAction SilentlyContinue # Clean up the flag
             break # Exit the inner loop to allow the outer loop to restart it

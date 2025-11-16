@@ -1,0 +1,23 @@
+{% extends "layout.html" %}
+{% block title %}Config Editor{% endblock %}
+
+{% block content %}
+<h3>Configuration Editor (config.json)</h3>
+<p class="text-muted">Edit the bot's configuration below. Be careful with syntax, as invalid JSON will cause errors.</p>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="alert alert-{{ category }}">{{ message }}</div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<form method="POST">
+    <div class="mb-3">
+        <textarea class="form-control" name="config_text" rows="25" style="font-family: 'Courier New', Courier, monospace;">{{ config_content }}</textarea>
+    </div>
+    <button type="submit" class="btn btn-primary">Save Configuration</button>
+</form>
+
+{% endblock %}
