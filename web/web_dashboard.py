@@ -8,14 +8,16 @@ from flask import Flask, render_template, jsonify, request, flash, redirect, url
 from flask_socketio import SocketIO, emit
 
 # --- Local Imports ---
-import db_helpers
-from controls import stop_bot_processes, restart_bot, sync_database_changes, update_bot_from_git
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+import modules.db_helpers as db_helpers
+from modules.controls import stop_bot_processes, restart_bot, sync_database_changes, update_bot_from_git
 
 # --- Configuration ---
 
 # Load environment variables for database connection
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 DB_HOST = os.environ.get("DB_HOST", "localhost")
 DB_USER = os.environ.get("DB_USER", "sulfur_bot_user")
@@ -38,7 +40,7 @@ app = Flask(__name__, template_folder='.')
 app.secret_key = os.urandom(24)  # Needed for flashing messages
 socketio = SocketIO(app, async_mode='threading')
 
-LOG_DIR = "logs"
+LOG_DIR = os.path.join(os.path.dirname(__file__), "..", "logs")
 
 def get_latest_log_file():
     """Finds the most recently created log file."""
@@ -274,13 +276,15 @@ if __name__ == '__main__':
     log_thread.start()
     print("[Web Dashboard] Log streaming thread started.")
     
-    # --- REFACTORED: Use a production-ready WSGI server (waitress) instead of Flask's dev server ---
-    # This is more stable and reliable for network access.
-    from waitress import serve
+    # --- REFACTORED: Use Flask-SocketIO's run method ---
+    # Note: For production, consider using gunicorn or eventlet
     print("[Web Dashboard] --- Starting Sulfur Bot Web Dashboard ---")
     print("[Web Dashboard] --- Access it at http://localhost:5000 ---")
     try:
-        serve(socketio.WSGIApp(app), host='0.0.0.0', port=5000)
+        # Use socketio.run() with allow_unsafe_werkzeug for development
+        # For production, install eventlet: pip install eventlet
+        socketio.run(app, host='0.0.0.0', port=5000, debug=False, use_reloader=False, 
+                     allow_unsafe_werkzeug=True, log_output=False)
     except Exception as e:
         print(f"[Web Dashboard] FATAL: Failed to start web server: {e}")
         exit(1)

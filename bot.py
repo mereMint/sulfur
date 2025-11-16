@@ -9,9 +9,13 @@ from collections import deque
 import re
 from datetime import datetime, timedelta, timezone
 
+# --- NEW: Import structured logging ---
+from modules.logger_utils import bot_logger as logger
+
 # --- NEW: Library Version Check ---
 # This code requires discord.py version 2.0 or higher for slash commands.
 if discord.__version__.split('.')[0] < '2':
+    logger.error(f"discord.py version {discord.__version__} is too old. Requires 2.0.0+")
     print("Error: Your discord.py version is too old.")
     print(f"You have version {discord.__version__}, but this bot requires version 2.0.0 or higher.")
     print("Please update it by running: pip install -U discord.py")
@@ -23,8 +27,8 @@ load_dotenv()
 
 from discord import app_commands
 from discord.ext import tasks
-from werwolf import WerwolfGame
-from api_helpers import get_chat_response, get_relationship_summary_from_api, get_wrapped_summary_from_api, get_game_details_from_api
+from modules.werwolf import WerwolfGame
+from modules.api_helpers import get_chat_response, get_relationship_summary_from_api, get_wrapped_summary_from_api, get_game_details_from_api
 
 # --- CONFIGURATION ---
 
@@ -46,6 +50,7 @@ DB_NAME = os.environ.get("DB_NAME", "sulfur_bot")
 
 # --- REFACTORED: Add a more robust token check with diagnostics ---
 if not DISCORD_BOT_TOKEN:
+    logger.critical("DISCORD_BOT_TOKEN environment variable is not set")
     print("Error: DISCORD_BOT_TOKEN environment variable is not set.")
     print("Please ensure your '.env' file exists in the same directory as the bot and contains the line:")
     print('DISCORD_BOT_TOKEN="YOUR_BOT_TOKEN_HERE"')
@@ -54,6 +59,7 @@ if not DISCORD_BOT_TOKEN:
 # --- NEW: Diagnostic check to ensure the token looks valid ---
 token_parts = DISCORD_BOT_TOKEN.split('.')
 if len(token_parts) != 3:
+    logger.critical(f"DISCORD_BOT_TOKEN appears malformed (parts: {len(token_parts)})")
     print("Error: The DISCORD_BOT_TOKEN appears to be malformed.")
     print(f"  -> Sanitized Token Preview: {DISCORD_BOT_TOKEN[:5]}...{DISCORD_BOT_TOKEN[-5:]}")
     print("A valid token should have three parts separated by dots. Please get a new token from the Discord Developer Portal.")
@@ -73,18 +79,20 @@ def check_api_keys(cfg):
 def load_config():
     """Loads settings from config.json and the system prompt."""
     try:
-        with open("config.json", "r", encoding="utf-8") as f:
+        with open("config/config.json", "r", encoding="utf-8") as f:
             config = json.load(f)
 
-        prompt_file = config.get("bot", {}).get("system_prompt_file", "system_prompt.txt")
+        prompt_file = config.get("bot", {}).get("system_prompt_file", "config/system_prompt.txt")
         with open(prompt_file, "r", encoding="utf-8") as f:
             config["bot"]["system_prompt"] = f.read()
             
         return config
     except FileNotFoundError as e:
+        logger.critical(f"Configuration file not found: {e.filename}")
         print(f"FATAL: Configuration file not found: {e.filename}. Please ensure 'config.json' and the prompt file exist.")
         exit()
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        logger.critical(f"Malformed config.json: {e}")
         print("FATAL: 'config.json' is malformed. Please check the JSON syntax.")
         exit()
 
@@ -95,7 +103,7 @@ def save_config(new_config):
     if 'bot' in config_to_save and 'system_prompt' in config_to_save['bot']:
         del config_to_save['bot']['system_prompt']
         
-    with open("config.json", "w", encoding="utf-8") as f:
+    with open("config/config.json", "w", encoding="utf-8") as f:
         json.dump(config_to_save, f, indent=2)
 
 config = load_config()
@@ -103,6 +111,7 @@ config = load_config()
 # --- REFACTORED: Validate API keys after loading config ---
 key_error = check_api_keys(config)
 if key_error:
+    logger.critical(f"API key validation failed: {key_error}")
     print(key_error)
     exit()
 
@@ -125,14 +134,14 @@ tree = app_commands.CommandTree(client)
 active_werwolf_games = {}
 
 # --- NEW: Import and initialize DB helpers ---
-from db_helpers import init_db_pool, initialize_database, get_leaderboard, add_xp, get_player_rank, get_level_leaderboard, save_message_to_history, get_chat_history, get_relationship_summary, update_relationship_summary, save_bulk_history, clear_channel_history, update_user_presence, add_balance, update_spotify_history, get_all_managed_channels, remove_managed_channel, get_managed_channel_config, update_managed_channel_config, log_message_stat, log_vc_minutes, get_wrapped_stats_for_period, get_user_wrapped_stats, log_stat_increment, get_spotify_history, get_player_profile, cleanup_custom_status_entries, log_mention_reply, log_vc_session, get_wrapped_extra_stats, get_xp_for_level
-import db_helpers
+from modules.db_helpers import init_db_pool, initialize_database, get_leaderboard, add_xp, get_player_rank, get_level_leaderboard, save_message_to_history, get_chat_history, get_relationship_summary, update_relationship_summary, save_bulk_history, clear_channel_history, update_user_presence, add_balance, update_spotify_history, get_all_managed_channels, remove_managed_channel, get_managed_channel_config, update_managed_channel_config, log_message_stat, log_vc_minutes, get_wrapped_stats_for_period, get_user_wrapped_stats, log_stat_increment, get_spotify_history, get_player_profile, cleanup_custom_status_entries, log_mention_reply, log_vc_session, get_wrapped_extra_stats, get_xp_for_level
+import modules.db_helpers as db_helpers
 db_helpers.init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
-from level_system import grant_xp
+from modules.level_system import grant_xp
 # --- NEW: Import Voice Manager ---
-import voice_manager
+import modules.voice_manager as voice_manager
 # --- NEW: Import Economy ---
-from economy import calculate_level_up_bonus
+from modules.economy import calculate_level_up_bonus
 
 # --- MODIFIED: Pass client to DB initialization ---
 db_helpers.initialize_database()
@@ -211,6 +220,7 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
         message = f"Chill mal, du kannst diesen Befehl erst in **{error.retry_after:.1f} Sekunden** wieder benutzen."
     else:
         # For other errors, log them to the console.
+        logger.error(f"Unhandled exception in command tree: {error}", exc_info=error)
         print(f"Unhandled exception in command tree: {error}")
         message = "Ups, da ist etwas schiefgelaufen. Wahrscheinlich deine Schuld. :dono:"
         # --- NEW: Set status to idle on unhandled command error ---
@@ -227,6 +237,7 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
             await interaction.response.send_message(message, ephemeral=True)
     except discord.errors.HTTPException as e:
         # This can happen if the original interaction token expires or is invalid.
+        logger.warning(f"Failed to send error message for interaction {interaction.id}: {e}")
         print(f"Failed to send error message for interaction {interaction.id}: {e}")
 
 async def split_message(text, limit=2000):
@@ -379,6 +390,9 @@ async def on_ready():
 
     print(f"Synced {len(synced)} global commands.")
 
+    logger.info(f"Bot logged in as {client.user} - Ready to serve!")
+    logger.info(f"Synced {len(synced)} global commands")
+    logger.info(f"Connected to {len(client.guilds)} guild(s)")
     print(f'Ayo, the bot is logged in and ready, fam! ({client.user})')
     print('Let\'s chat.')
 
@@ -411,11 +425,13 @@ async def update_presence_task():
         template = random.choice(templates)
         activity_name = template.format(user=member_to_watch.display_name)
 
+        logger.debug(f"Presence update: {activity_name}")
         print(f"  -> Presence update: {activity_name}")
         await client.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=activity_name))
         return # Success, exit the task for this run
 
     # Fallback if no human members were found at all.
+    logger.debug("Presence update: No human members found. Using fallback.")
     print("  -> Presence update: No human members found. Using fallback.")
     fallback_activity = config.get('bot', {}).get('presence', {}).get('fallback_activity', "euch beim AFK sein zu")
     await client.change_presence(

@@ -3,11 +3,11 @@ import discord
 from datetime import datetime, timezone
 from collections import deque
 from discord.ui import View, Button
-from api_helpers import get_werwolf_tts_message, get_random_names
+from modules.api_helpers import get_werwolf_tts_message, get_random_names
 import re
-from fake_user import FakeUser
+from modules.fake_user import FakeUser
 import random
-from db_helpers import update_player_stats
+from modules.db_helpers import update_player_stats
 
 
 # --- Roles ---

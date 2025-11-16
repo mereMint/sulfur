@@ -3,6 +3,9 @@ import json
 from collections import deque
 from datetime import datetime, timezone
 
+# --- NEW: Import structured logging ---
+from modules.logger_utils import api_logger as logger
+
 # --- Constants ---
 GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 OPENAI_API_BASE_URL = "https://api.openai.com/v1/chat/completions"
@@ -27,6 +30,8 @@ async def _call_gemini_api(payload, model_name, api_key, timeout):
                         error_reason = data.get('promptFeedback', {}).get('blockReason', 'UNKNOWN')
                         if not error_reason:
                              error_reason = data.get('candidates', [{}])[0].get('finishReason', 'UNKNOWN')
+                        logger.warning(f"Gemini API: No content in response. Finish Reason: {error_reason}")
+                        logger.debug(f"Full API response: {data}")
                         print(f"Gemini API Error: No content in response. Finish Reason: {error_reason}")
                         print(f"Full API response: {data}")
                         return None, f"Meine Antwort wurde blockiert (Grund: {error_reason}). Versuchs mal anders zu formulieren."
@@ -40,6 +45,7 @@ async def _call_gemini_api(payload, model_name, api_key, timeout):
                     print(f"Gemini API Error (Status {response.status}): {error_text}")
                     return None, f"Ich habe einen Fehler vom Server erhalten (Status: {response.status}). Wahrscheinlich ist die API down oder dein Key ist ungültig."
     except Exception as e:
+        logger.error(f"Exception calling Gemini API: {e}", exc_info=True)
         print(f"An exception occurred while calling Gemini API: {e}")
         return None, "Ich konnte die AI nicht erreichen. Überprüfe die Internetverbindung oder die API-Keys."
 
@@ -137,6 +143,7 @@ async def get_chat_response(history, user_prompt, user_display_name, system_prom
                         print(f"OpenAI API Error (Status {response.status}): {error_text}")
                         return None, f"Ich habe einen Fehler vom OpenAI-Server erhalten (Status: {response.status}).", final_history_for_api
         except Exception as e:
+            logger.error(f"Exception calling OpenAI API: {e}", exc_info=True)
             print(f"An exception occurred while calling OpenAI API: {e}")
             return None, "Ich konnte die OpenAI-AI nicht erreichen. Überprüfe die Internetverbindung oder die API-Keys.", final_history_for_api
 

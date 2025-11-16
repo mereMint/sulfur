@@ -1,6 +1,9 @@
 import asyncio
 import discord
-from db_helpers import get_owned_channel, add_managed_channel, remove_managed_channel, get_managed_channel_config, update_managed_channel_config, log_temp_vc_creation
+from modules.db_helpers import get_owned_channel, add_managed_channel, remove_managed_channel, get_managed_channel_config, update_managed_channel_config, log_temp_vc_creation
+
+# --- NEW: Import structured logging ---
+from modules.logger_utils import voice_logger as logger
 
 # --- NEW: Anti-race-condition lock ---
 creating_channel_for = set()
@@ -65,6 +68,7 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
             # --- NEW: Log the creation for Wrapped stats ---
             await log_temp_vc_creation(member.id, guild.id, discord.utils.utcnow())
 
+            logger.info(f"Created managed voice channel: {new_channel.name} ({new_channel.id}) for {member.display_name}")
             print(f"Created managed voice channel: {new_channel.name} ({new_channel.id})")
 
             # --- FIX: Wait a moment before moving the user to avoid race conditions ---
@@ -84,8 +88,10 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
                 print(f"Cleaned up orphaned channel '{new_channel.name}' immediately.")
 
         except discord.Forbidden:
+            logger.error(f"Bot lacks permissions to create channels or move members in '{guild.name}'")
             print(f"Error: Bot lacks permissions to create channels or move members in '{guild.name}'.")
         except Exception as e:
+            logger.error(f"Error during channel creation: {e}", exc_info=True)
             print(f"An error occurred during channel creation: {e}")
         finally:
             # --- NEW: Release lock ---
@@ -133,8 +139,10 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
                     await fresh_channel.delete(reason="Channel is empty")
                     # We keep the record in the DB for the user's settings by setting channel_id to NULL
                     await remove_managed_channel(before.channel.id, keep_owner_record=True)
+                    logger.info(f"Deleted empty managed voice channel: {fresh_channel.name} ({fresh_channel.id})")
                     print(f"Deleted empty managed voice channel: {fresh_channel.name} ({fresh_channel.id})")
                 except (discord.NotFound, discord.Forbidden) as e:
+                    logger.warning(f"Error deleting channel {fresh_channel.name}: {e}")
                     print(f"Error deleting channel {fresh_channel.name}: {e}")
                     # Still remove from DB to prevent orphans
                     await remove_managed_channel(before.channel.id, keep_owner_record=True)

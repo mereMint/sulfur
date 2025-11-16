@@ -7,8 +7,8 @@ param(
 . "$PSScriptRoot\shared_functions.ps1"
 
 # --- NEW: Load environment variables from .env file ---
-if (Test-Path -Path ".env") {
-    Get-Content .\.env | ForEach-Object {
+if (Test-Path -Path "../.env") {
+    Get-Content ../.env | ForEach-Object {
         # Match lines with KEY=VALUE format
         if ($_ -match "^\s*([\w.-]+)\s*=\s*(.*)") {
             $key = $matches[1]
@@ -28,7 +28,7 @@ $IsStandalone = [string]::IsNullOrEmpty($LogFile)
 # --- NEW: Setup Logging ---
 # Logging is now handled by the parent maintain_bot.ps1 script via job output redirection.
 if ($IsStandalone) {
-    $logDir = Join-Path -Path $PSScriptRoot -ChildPath "logs"
+    $logDir = Join-Path -Path $PSScriptRoot -ChildPath "..\logs"
     if (-not (Test-Path -Path $logDir -PathType Container)) {
         New-Item -ItemType Directory -Path $logDir | Out-Null
     }
@@ -42,7 +42,7 @@ $mysqlBinPath = Join-Path -Path $xamppPath -ChildPath "mysql\bin"
 $mysqlStartScript = Join-Path -Path $xamppPath -ChildPath "mysql_start.bat"
 $mysqldumpPath = Join-Path -Path $mysqlBinPath -ChildPath "mysqldump.exe"
 
-$syncFile = Join-Path -Path $PSScriptRoot -ChildPath "database_sync.sql"
+$syncFile = Join-Path -Path $PSScriptRoot -ChildPath "..\config\database_sync.sql"
 $dbName = "sulfur_bot"
 $dbUser = "sulfur_bot_user"
 

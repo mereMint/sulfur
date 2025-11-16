@@ -13,11 +13,9 @@
 # 3. Run the script with: .\maintain_bot.ps1
 
 # --- NEW: Initialize process variables ---
-$statusFile = Join-Path -Path $PSScriptRoot -ChildPath "bot_status.json"
-$script:webDashboardProcess = $null
-$script:botProcess = $null
+$statusFile = Join-Path -Path $PSScriptRoot -ChildPath "config\bot_status.json"
 $script:webDashboardJob = $null
-$script:botJob = $null
+$script:botProcess = $null
 
 # --- NEW: Centralized Logging Setup ---
 $logDir = Join-Path -Path $PSScriptRoot -ChildPath "logs"
@@ -34,12 +32,13 @@ Start-Transcript -Path $logFile -Append
 trap [System.Management.Automation.PipelineStoppedException] {
     Write-Host "Watcher window closed or script stopped. Cleaning up child processes..." -ForegroundColor Red
     # Gracefully stop child processes
-    # --- FIX: Use Stop-Process on the correct variables ---
-    if ($script:botProcess) { Stop-Process -Id $script:botProcess.Id -Force -ErrorAction SilentlyContinue } # Fallback
-    if ($script:webDashboardProcess) { Stop-Process -Id $script:webDashboardProcess.Id -Force -ErrorAction SilentlyContinue } # Fallback
+    if ($script:botProcess) { Stop-Process -Id $script:botProcess.Id -Force -ErrorAction SilentlyContinue }
+    if ($script:webDashboardJob) { 
+        Stop-Job -Job $script:webDashboardJob -ErrorAction SilentlyContinue
+        Remove-Job -Job $script:webDashboardJob -Force -ErrorAction SilentlyContinue
+    }
     [System.IO.File]::WriteAllText($statusFile, (@{status = "Shutdown" } | ConvertTo-Json -Compress), ([System.Text.UTF8Encoding]::new($false)))
     Stop-Transcript
-    # Exit the script cleanly
     exit 0
 }
 
@@ -47,7 +46,7 @@ Write-Host "--- Sulfur Bot Maintenance Watcher ---"
 Write-Host "Press 'Q' at any time to gracefully shut down the bot and exit." -ForegroundColor Yellow
 
 # --- NEW: Import shared functions ---
-. "$PSScriptRoot\shared_functions.ps1"
+. "$PSScriptRoot\scripts\shared_functions.ps1"
 
 # --- NEW: Ensure the Python virtual environment and dependencies are ready ---
 Write-Host "Checking Python virtual environment..."
@@ -55,7 +54,7 @@ $venvPython = Invoke-VenvSetup -ScriptRoot $PSScriptRoot
 Write-Host "Python environment is ready."
 
 # --- NEW: Define the file to watch for database changes ---
-$dbSyncFile = "database_sync.sql"
+$dbSyncFile = "config\database_sync.sql"
 
 # --- NEW: Function to start and verify the Web Dashboard ---
 function Start-WebDashboard {
@@ -64,47 +63,61 @@ function Start-WebDashboard {
         [string]$LogFilePath
     )
     Write-Host "Starting the Web Dashboard as a background process..."
-    # --- FINAL, ROBUST FIX for PS 5.1 ---
-    # 1. Create a temporary file for the output.
-    $tempLog = [System.IO.Path]::GetTempFileName()
-    # 2. Start the python process directly, redirecting its output to the temp file.
-    #    This gives us the correct, long-running process object.
-    $webDashboardProcess = Start-Process -FilePath $PythonExecutable -ArgumentList "-u", "web_dashboard.py" -NoNewWindow -PassThru -RedirectStandardOutput $tempLog -RedirectStandardError $tempLog
-    # 3. Start a background job to continuously pipe the temp file's content to the main log file.
-    Start-Job -ScriptBlock { param($tmp, $main) Get-Content -Path $tmp -Wait | Add-Content -Path $main } -ArgumentList $tempLog, $LogFilePath | Out-Null
-    Write-Host "Web Dashboard process started (Process ID: $($webDashboardProcess.Id))"
-
-    Write-Host "Waiting for the Web Dashboard to become available on http://localhost:5000..." -ForegroundColor Gray
-    $timeoutSeconds = 15
-    $startTime = Get-Date
-    $serverReady = $false
-
-    while (((Get-Date) - $startTime).TotalSeconds -lt $timeoutSeconds) { # Check if the process is still running
-        if ($null -eq (Get-Process -Id $webDashboardProcess.Id -ErrorAction SilentlyContinue)) {
-            Write-Host "Web Dashboard process terminated unexpectedly during startup. Check the new window for error messages." -ForegroundColor Red
+    
+    # Create separate log file for web dashboard to avoid file locking issues
+    $webLogFile = $LogFilePath -replace '\.log$', '_web.log'
+    
+    # --- FIX: Use background job with separate log file ---
+    $webDashboardJob = Start-Job -ScriptBlock {
+        param($PythonPath, $ScriptDir, $LogFile)
+        Set-Location $ScriptDir
+        & $PythonPath -u web\web_dashboard.py 2>&1 | Tee-Object -FilePath $LogFile -Append
+    } -ArgumentList $PythonExecutable, $PSScriptRoot, $webLogFile
+    
+    Write-Host "Web Dashboard job started (Job ID: $($webDashboardJob.Id))"
+    
+    # Wait for the Web Dashboard to become available
+    $maxRetries = 15
+    $retryCount = 0
+    $dashboardUrl = "http://localhost:5000"
+    
+    Write-Host "Waiting for the Web Dashboard to become available on $dashboardUrl..."
+    while ($retryCount -lt $maxRetries) {
+        Start-Sleep -Seconds 2
+        
+        # Check if port 5000 is open (more reliable than HTTP check)
+        $connection = Test-NetConnection -ComputerName localhost -Port 5000 -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
+        if ($connection -and $connection.TcpTestSucceeded) {
+            Write-Host "Web Dashboard is now accessible at $dashboardUrl" -ForegroundColor Green
+            return $webDashboardJob
+        }
+        
+        # Check if job failed
+        if ($webDashboardJob.State -eq 'Failed' -or $webDashboardJob.State -eq 'Stopped') {
+            Write-Host "Web Dashboard job failed during startup. Check logs for error messages." -ForegroundColor Red
+            Write-Host "Log file: $webLogFile" -ForegroundColor Yellow
+            $jobOutput = Receive-Job -Job $webDashboardJob -ErrorAction SilentlyContinue
+            if ($jobOutput) {
+                Write-Host "Job output:" -ForegroundColor Yellow
+                Write-Host $jobOutput -ForegroundColor Gray
+            }
+            Remove-Job -Job $webDashboardJob -Force
             return $null
         }
-        if (Test-NetConnection -ComputerName localhost -Port 5000 -WarningAction SilentlyContinue -ErrorAction SilentlyContinue) {
-            $serverReady = $true
-            break
-        }
-        Start-Sleep -Seconds 1
+        
+        $retryCount++
     }
-
-    if (-not $serverReady) {
-        Write-Host "Error: Web Dashboard did not become available within $timeoutSeconds seconds. Shutting down." -ForegroundColor Red
-        Stop-Process -Id $webDashboardProcess.Id -Force -ErrorAction SilentlyContinue
-        return $null
-    }
-
-    Write-Host "Web Dashboard is online and ready." -ForegroundColor Green
-    return $webDashboardProcess
+    
+    Write-Host "Web Dashboard did not start within the expected time." -ForegroundColor Yellow
+    Write-Host "Continuing without web dashboard. Check log: $webLogFile" -ForegroundColor Yellow
+    return $webDashboardJob
 }
 
 # --- Start the Web Dashboard for the first time ---
-$script:webDashboardProcess = Start-WebDashboard -PythonExecutable $venvPython -LogFilePath $logFile
-if (-not $script:webDashboardProcess) {
+$script:webDashboardJob = Start-WebDashboard -PythonExecutable $venvPython -LogFilePath $logFile
+if (-not $script:webDashboardJob) {
     Write-Host "Failed to start the Web Dashboard. Exiting." -ForegroundColor Red
+    Stop-Transcript
     exit 1
 }
 
@@ -141,7 +154,7 @@ while ($true) {
     Write-Host "Starting the bot process..."
     # --- FINAL FIX: Use Start-Process to launch the bot in a new window. ---
     # The start_bot.ps1 script itself will handle logging its output to the file we provide.
-    $botCommand = "& `"$PSScriptRoot\start_bot.ps1`" -LogFile `"$logFile`""
+    $botCommand = "& `"$PSScriptRoot\\scripts\\start_bot.ps1`" -LogFile `"$logFile`""
     $script:botProcess = Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", $botCommand -PassThru
 
     [System.IO.File]::WriteAllText($statusFile, (@{status = "Running"; pid = $script:botProcess.Id } | ConvertTo-Json -Compress), ([System.Text.UTF8Encoding]::new($false)))
@@ -152,7 +165,11 @@ while ($true) {
     $checkIntervalSeconds = 15
 
     while (Test-ProcessRunning -ProcessId $script:botProcess.Id) {
-        # --- NEW: Continuously capture and log output from the bot job ---
+        # --- Receive any output from the web dashboard job ---
+        if ($script:webDashboardJob -and $script:webDashboardJob.HasMoreData) {
+            Receive-Job -Job $script:webDashboardJob | Out-Null
+        }
+        
         # --- Check for shutdown key press ---
         if ([System.Console]::KeyAvailable) {
             $key = [System.Console]::ReadKey($true) # $true hides the key press from the console
@@ -173,7 +190,11 @@ while ($true) {
 
                 Write-Host "Shutdown complete."
                 [System.IO.File]::WriteAllText($statusFile, (@{status = "Shutdown" } | ConvertTo-Json -Compress), ([System.Text.UTF8Encoding]::new($false)))
-                if ($script:webDashboardProcess) { Stop-Process -Id $script:webDashboardProcess.Id -Force -ErrorAction SilentlyContinue }
+                if ($script:webDashboardJob) { 
+                    Stop-Job -Job $script:webDashboardJob -ErrorAction SilentlyContinue
+                    Remove-Job -Job $script:webDashboardJob -Force -ErrorAction SilentlyContinue
+                }
+                Stop-Transcript
                 exit 0
             }
         }
@@ -189,7 +210,10 @@ while ($true) {
                 git add $dbSyncFile; git commit -m "chore: Sync database schema on shutdown"; git push
             }
             [System.IO.File]::WriteAllText($statusFile, (@{status = "Shutdown" } | ConvertTo-Json -Compress), ([System.Text.UTF8Encoding]::new($false)))
-            if ($script:webDashboardProcess) { Stop-Process -Id $script:webDashboardProcess.Id -Force -ErrorAction SilentlyContinue }
+            if ($script:webDashboardJob) {
+                Stop-Job -Job $script:webDashboardJob -ErrorAction SilentlyContinue
+                Remove-Job -Job $script:webDashboardJob -Force -ErrorAction SilentlyContinue
+            }
             Stop-Transcript
             exit 0
         }
@@ -209,9 +233,9 @@ while ($true) {
         if ($checkCounter -ge $checkIntervalSeconds) {
             # --- Log the time of the update check ---
             # --- NEW: Check if the web dashboard is still running, restart if not ---
-            if ($null -eq (Get-Process -Id $script:webDashboardProcess.Id -ErrorAction SilentlyContinue)) {
-                Write-Host "Web Dashboard process is not running. Attempting to restart..." -ForegroundColor Yellow
-                $script:webDashboardProcess = Start-WebDashboard -PythonExecutable $venvPython -LogFilePath $logFile
+            if ($script:webDashboardJob.State -ne 'Running') {
+                Write-Host "Web Dashboard job is not running. Attempting to restart..." -ForegroundColor Yellow
+                $script:webDashboardJob = Start-WebDashboard -PythonExecutable $venvPython -LogFilePath $logFile
             }
 
             (Get-Date).ToUniversalTime().ToString("o") | Out-File -FilePath "last_check.txt" -Encoding utf8

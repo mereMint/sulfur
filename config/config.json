@@ -6,7 +6,7 @@
     ],
     "authorised_role": "authorised",
     "embed_color": "#7289DA",
-    "system_prompt_file": "system_prompt.txt",
+    "system_prompt_file": "config/system_prompt.txt",
     "description": "Big brother is helpful but always watching",
     "presence": {
       "update_interval_minutes": 15,

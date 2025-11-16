@@ -2,10 +2,42 @@ import mysql.connector
 import json
 from mysql.connector import errorcode, pooling
 import time
+import logging
+import functools
+
+# Setup logging
+logger = logging.getLogger('Database')
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter('[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s'))
+    logger.addHandler(handler)
 
 # This file handles all database interactions for the bot.
 
 db_pool = None
+
+def db_operation(operation_name):
+    """Decorator for database operations with automatic error handling and logging"""
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            try:
+                logger.debug(f"[DB Operation] {operation_name} - Starting")
+                result = await func(*args, **kwargs)
+                logger.debug(f"[DB Operation] {operation_name} - Completed successfully")
+                return result
+            except mysql.connector.Error as err:
+                logger.error(f"[DB Operation] {operation_name} - MySQL Error: {err}")
+                logger.error(f"Error code: {err.errno}, SQLState: {err.sqlstate if hasattr(err, 'sqlstate') else 'N/A'}")
+                return None
+            except Exception as e:
+                logger.error(f"[DB Operation] {operation_name} - Unexpected error: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                return None
+        return wrapper
+    return decorator
 
 def get_xp_for_level(level):
     """Calculates the total XP needed to reach the next level."""
@@ -17,18 +49,29 @@ def init_db_pool(host, user, password, database):
     """Initializes the database connection pool."""
     global db_pool
     try:
-        print(f"[DB] Attempting to initialize connection pool: {user}@{host}/{database}")
+        logger.info(f"Initializing connection pool: {user}@{host}/{database}")
         db_config = {
-            'host': host, 'user': user, 'password': password, 'database': database
+            'host': host, 
+            'user': user, 
+            'password': password, 
+            'database': database,
+            'autocommit': False,
+            'pool_reset_session': True
         }
-        db_pool = pooling.MySQLConnectionPool(pool_name="sulfur_pool", pool_size=5, **db_config)
-        print("[DB] Database connection pool initialized successfully.")
+        db_pool = pooling.MySQLConnectionPool(
+            pool_name="sulfur_pool", 
+            pool_size=5, 
+            **db_config
+        )
+        logger.info("Database connection pool initialized successfully")
     except mysql.connector.Error as err:
-        print(f"[DB] FATAL: Could not initialize database pool: {err}")
-        print(f"[DB] Details: {err.errno} - {err.msg}")
+        logger.error(f"FATAL: Could not initialize database pool: {err}")
+        logger.error(f"Error code: {err.errno}, Message: {err.msg}")
         db_pool = None
     except Exception as err:
-        print(f"[DB] FATAL: Unexpected error during database pool initialization: {err}")
+        logger.error(f"FATAL: Unexpected error during database pool initialization: {err}")
+        import traceback
+        logger.error(traceback.format_exc())
         db_pool = None
 
 def get_db_connection():
@@ -36,16 +79,24 @@ def get_db_connection():
     # This function is now only used for the initial table creation.
     # All other functions get a connection directly from the pool.
     if db_pool:
-        return db_pool.get_connection()
+        try:
+            return db_pool.get_connection()
+        except mysql.connector.Error as err:
+            logger.error(f"Failed to get connection from pool: {err}")
+            return None
+    else:
+        logger.warning("Database pool not initialized, cannot get connection")
+        return None
 
 def initialize_database():
     """Creates the necessary tables if they don't exist."""
     cnx = get_db_connection()
     if not cnx:
-        print("[DB] ERROR: Could not connect to DB for initialization. Database tables will not be created.")
+        logger.error("Could not connect to DB for initialization. Database tables will not be created.")
         return
 
     cursor = cnx.cursor()
+    logger.info("Starting database initialization...")
     try:
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS players (
@@ -206,19 +257,28 @@ def initialize_database():
         """)
         cursor.execute("DROP EVENT IF EXISTS reset_daily_api_usage;") # Remove old event
 
-        print("Database tables checked/created successfully.")
+        logger.info("Database tables checked/created successfully")
     except mysql.connector.Error as err:
-        print(f"Failed creating table: {err}")
+        logger.error(f"Failed creating/modifying tables: {err}")
+        logger.error(f"Error code: {err.errno}")
+        import traceback
+        logger.error(traceback.format_exc())
     finally:
         cursor.close()
         cnx.close()
 
 # --- NEW: API Usage Tracking Functions ---
 
+@db_operation("log_api_usage")
 async def log_api_usage(model_name, input_tokens, output_tokens):
     """Logs the usage of an AI model, including token counts."""
+    if not db_pool:
+        logger.warning("Database pool not available, skipping API usage logging")
+        return
+        
     cnx = db_pool.get_connection()
-    if not cnx: return
+    if not cnx: 
+        return
     cursor = cnx.cursor()
     try:
         query = """
@@ -231,18 +291,21 @@ async def log_api_usage(model_name, input_tokens, output_tokens):
         """
         cursor.execute(query, (model_name, input_tokens, output_tokens))
         cnx.commit()
-    except mysql.connector.Error as err:
-        print(f"Error in log_api_usage: {err}")
+        logger.debug(f"Logged API usage: {model_name} - IN:{input_tokens} OUT:{output_tokens}")
     finally:
         cursor.close()
         cnx.close()
 
 # --- NEW: DB functions for enhanced Wrapped stats ---
 
+@db_operation("log_mention_reply")
 async def log_mention_reply(user_id, guild_id, mentioned_id, replied_id, timestamp):
     """Logs a mention or reply for Server Bestie stats."""
     if not mentioned_id and not replied_id:
         return
+    if not db_pool:
+        return
+        
     cnx = db_pool.get_connection()
     if not cnx: return
     cursor = cnx.cursor()
@@ -250,14 +313,17 @@ async def log_mention_reply(user_id, guild_id, mentioned_id, replied_id, timesta
         query = "INSERT INTO message_activity (user_id, guild_id, mentioned_user_id, replied_to_user_id, message_timestamp) VALUES (%s, %s, %s, %s, %s)"
         cursor.execute(query, (user_id, guild_id, mentioned_id, replied_id, timestamp))
         cnx.commit()
-    except mysql.connector.Error as err:
-        print(f"Error in log_mention_reply: {err}")
+        logger.debug(f"Logged mention/reply: user {user_id} -> mentioned:{mentioned_id} replied:{replied_id}")
     finally:
         cursor.close()
         cnx.close()
 
+@db_operation("log_temp_vc_creation")
 async def log_temp_vc_creation(user_id, guild_id, timestamp):
     """Logs when a user creates a temporary voice channel."""
+    if not db_pool:
+        return
+        
     cnx = db_pool.get_connection()
     if not cnx: return
     cursor = cnx.cursor()
@@ -265,14 +331,17 @@ async def log_temp_vc_creation(user_id, guild_id, timestamp):
         query = "INSERT INTO temp_vc_creations (user_id, guild_id, creation_timestamp) VALUES (%s, %s, %s)"
         cursor.execute(query, (user_id, guild_id, timestamp))
         cnx.commit()
-    except mysql.connector.Error as err:
-        print(f"Error in log_temp_vc_creation: {err}")
+        logger.debug(f"Logged temp VC creation for user {user_id}")
     finally:
         cursor.close()
         cnx.close()
 
+@db_operation("log_vc_session")
 async def log_vc_session(user_id, guild_id, duration_seconds, timestamp):
     """Logs a completed voice channel session duration."""
+    if not db_pool:
+        return
+        
     cnx = db_pool.get_connection()
     if not cnx: return
     cursor = cnx.cursor()
@@ -280,8 +349,7 @@ async def log_vc_session(user_id, guild_id, duration_seconds, timestamp):
         query = "INSERT INTO voice_sessions (user_id, guild_id, duration_seconds, session_end_timestamp) VALUES (%s, %s, %s, %s)"
         cursor.execute(query, (user_id, guild_id, duration_seconds, timestamp))
         cnx.commit()
-    except mysql.connector.Error as err:
-        print(f"Error in log_vc_session: {err}")
+        logger.debug(f"Logged VC session: user {user_id}, duration {duration_seconds}s")
     finally:
         cursor.close()
         cnx.close()
@@ -671,8 +739,13 @@ async def update_user_presence(user_id, display_name, status, activity_name):
         cursor.close()
         cnx.close()
 
+@db_operation("add_balance")
 async def add_balance(user_id, display_name, amount_to_add, config, stat_period=None):
     """Adds an amount to a user's balance, creating the user if they don't exist."""
+    if not db_pool:
+        logger.warning("Database pool not available, skipping balance addition")
+        return
+        
     cnx = db_pool.get_connection()
     if not cnx:
         return
@@ -697,8 +770,8 @@ async def add_balance(user_id, display_name, amount_to_add, config, stat_period=
             """
             cursor.execute(stat_query, (user_id, stat_period, amount_to_add))
             cnx.commit()
-    except mysql.connector.Error as err:
-        print(f"Error adding balance: {err}")
+            
+        logger.debug(f"Added {amount_to_add} balance to user {user_id}")
     finally:
         cursor.close()
         cnx.close()
@@ -905,8 +978,13 @@ async def get_spotify_history(user_id):
         cursor.close()
         cnx.close()
 
+@db_operation("add_xp")
 async def add_xp(user_id, display_name, xp_to_add):
     """Adds XP to a user and handles level ups."""
+    if not db_pool:
+        logger.warning("Database pool not available, skipping XP addition")
+        return None
+        
     cnx = db_pool.get_connection()
     if not cnx:
         return None
@@ -941,16 +1019,18 @@ async def add_xp(user_id, display_name, xp_to_add):
                 )
 
         cnx.commit()
+        logger.debug(f"Added {xp_to_add} XP to user {user_id}. New level: {new_level}" if new_level else f"Added {xp_to_add} XP to user {user_id}")
         return new_level
-    except mysql.connector.Error as err:
-        print(f"Error adding XP: {err}")
-        return None
     finally:
         cursor.close()
         cnx.close()
 
+@db_operation("get_player_rank")
 async def get_player_rank(user_id):
     """Fetches a player's level, xp, and global rank."""
+    if not db_pool:
+        return None, "Konnte keine Verbindung zur Datenbank herstellen."
+        
     cnx = db_pool.get_connection()
     if not cnx:
         return None, "Konnte keine Verbindung zur Datenbank herstellen."
@@ -967,16 +1047,19 @@ async def get_player_rank(user_id):
         """
         cursor.execute(query, (user_id,))
         result = cursor.fetchone()
+        logger.debug(f"Fetched rank for user {user_id}: {result['rank'] if result else 'Not found'}")
         return result, None
-    except mysql.connector.Error as err:
-        print(f"Error fetching player rank: {err}")
-        return None, "Fehler beim Abrufen des Rangs."
     finally:
         cursor.close()
         cnx.close()
 
+@db_operation("get_level_leaderboard")
 async def get_level_leaderboard():
     """Fetches the top 10 players by level and XP."""
+    if not db_pool:
+        logger.warning("Database pool not available")
+        return []
+        
     cnx = db_pool.get_connection()
     if not cnx:
         return None, "Konnte keine Verbindung zur Datenbank herstellen."

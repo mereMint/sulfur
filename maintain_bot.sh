@@ -10,7 +10,7 @@ echo "Press 'Q' at any time to gracefully shut down the bot and exit."
 
 # --- Import shared functions ---
 cd "$(dirname "$0")"
-source ./shared_functions.sh
+source ./scripts/shared_functions.sh
 
 # --- NEW: Centralized Logging Setup ---
 LOG_DIR="logs"
@@ -28,10 +28,10 @@ if [ $? -ne 0 ]; then
 fi
 echo "Python environment is ready."
 
-DB_SYNC_FILE="database_sync.sql"
+DB_SYNC_FILE="config/database_sync.sql"
 
 # --- NEW: Declare PIDs globally for the trap ---
-STATUS_FILE="bot_status.json"
+STATUS_FILE="config/bot_status.json"
 WEB_DASHBOARD_PID=""
 BOT_PID=""
 
@@ -39,7 +39,7 @@ BOT_PID=""
 function start_web_dashboard {
     echo "Starting the Web Dashboard..."
     # Start in the background, get its PID, and append logs to the central log file.
-    "$VENV_PYTHON" -u web_dashboard.py >> "$LOG_FILE" 2>&1 &
+    "$VENV_PYTHON" -u web/web_dashboard.py >> "$LOG_FILE" 2>&1 &
     WEB_DASHBOARD_PID=$!
     echo "Web Dashboard process started (PID: $WEB_DASHBOARD_PID)"
 
@@ -100,7 +100,7 @@ while true; do
     echo "Starting the bot process..."
     # --- REFACTORED: Start the script and then find the actual Python child process ---
     # Start the startup script in the background
-    ./start_bot.sh >> "$LOG_FILE" 2>&1 &
+    ./scripts/start_bot.sh >> "$LOG_FILE" 2>&1 &
     START_SCRIPT_PID=$!
 
     # Wait for the startup script to launch the python process and then find it.
