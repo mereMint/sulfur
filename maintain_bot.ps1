@@ -68,14 +68,15 @@ function Start-WebDashboard {
     # --- REFACTORED: Use Start-Job and have it return the process object directly. ---
     # This is the most reliable way to get the PID in PS 5.1 without race conditions.
     $script:webDashboardJob = Start-Job -ScriptBlock {
-        param($py, $ScriptRoot, $log)
-        # Start the process and pass its object out of the job.
-        # All output is redirected to the main log file.
+        param($py, $ScriptRoot)
+        # Set the working directory and run the python script.
+        # The job will automatically capture all stdout and stderr.
         Set-Location -Path $ScriptRoot
-        Start-Process -FilePath $py -ArgumentList "-u web_dashboard.py" -NoNewWindow -PassThru -RedirectStandardOutput $log -Append -RedirectStandardError $log -Append
-    } -ArgumentList $PythonExecutable, $PSScriptRoot, $LogFilePath
+        & $py -u "web_dashboard.py"
+    } -ArgumentList $PythonExecutable, $PSScriptRoot
     # Wait for the job to output the process object and receive it.
-    $webDashboardProcess = $script:webDashboardJob | Wait-Job | Receive-Job
+    # In PS 5.1, the process started by the job is a child of the job's powershell.exe process.
+    $webDashboardProcess = Get-Process -Id ($script:webDashboardJob.ChildJobs[0].ProcessId)
     Write-Host "Web Dashboard process started (Process ID: $($webDashboardProcess.Id))"
 
     Write-Host "Waiting for the Web Dashboard to become available on http://localhost:5000..." -ForegroundColor Gray
