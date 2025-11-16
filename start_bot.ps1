@@ -152,9 +152,8 @@ $process = Start-Process -FilePath $pythonExecutable -ArgumentList "-u", "-X", "
 
 # --- NEW: Pause on error to allow copying logs ---
 # --- FIX: Use $pipelinestatus to get the correct exit code from the python process, not Tee-Object ---
-# $LASTEXITCODE is automatically populated with the exit code of the last native command (python.exe).
-# A non-zero exit code indicates an error.
-$pythonExitCode = $LASTEXITCODE
+# --- REFACTORED: Use the ExitCode property from the process object for clarity ---
+$pythonExitCode = $process.ExitCode
 
 # A non-zero exit code indicates an error.
 if ($pythonExitCode -ne 0) {
