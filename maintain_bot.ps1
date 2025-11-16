@@ -65,12 +65,16 @@ function Start-WebDashboard {
         [string]$LogFilePath
     )
     Write-Host "Starting the Web Dashboard as a background process..."
-    # --- REFACTORED: Use Start-Job for reliable background execution and output capture ---
+    # --- REFACTORED: Use Start-Job and have it return the process object directly. ---
+    # This is the most reliable way to get the PID in PS 5.1 without race conditions.
     $script:webDashboardJob = Start-Job -ScriptBlock {
-        param($py)
-        & $py -u "web_dashboard.py"
-    } -ArgumentList $PythonExecutable
-    $webDashboardProcess = Get-Process -Id ($script:webDashboardJob.ChildJobs[0].ProcessId)
+        param($py, $log)
+        # Start the process and pass its object out of the job.
+        # All output (stdout/stderr) is redirected to the main log file.
+        Start-Process -FilePath $py -ArgumentList "-u", "web_dashboard.py" -NoNewWindow -PassThru -RedirectStandardOutput $log -Append -RedirectStandardError $log -Append
+    } -ArgumentList $PythonExecutable, $LogFilePath
+    # Wait for the job to output the process object and receive it.
+    $webDashboardProcess = $script:webDashboardJob | Wait-Job | Receive-Job
     Write-Host "Web Dashboard process started (Process ID: $($webDashboardProcess.Id))"
 
     Write-Host "Waiting for the Web Dashboard to become available on http://localhost:5000..." -ForegroundColor Gray
