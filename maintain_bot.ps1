@@ -69,7 +69,7 @@ function Start-WebDashboard {
     # This avoids all race conditions and compatibility issues with Start-Job and -Append.
     $command = "cmd.exe /c `"$PythonExecutable`" -u web_dashboard.py >> `"$LogFilePath`" 2>&1"
     # We start a hidden powershell process that runs the cmd command. This gives us a process object to manage.
-    $webDashboardProcess = Start-Process powershell.exe -ArgumentList "-WindowStyle Hidden", "-Command", $command -PassThru
+    $webDashboardProcess = Start-Process powershell.exe -ArgumentList "-NoNewWindow", "-Command", $command -PassThru
     Write-Host "Web Dashboard process started (Process ID: $($webDashboardProcess.Id))"
 
     Write-Host "Waiting for the Web Dashboard to become available on http://localhost:5000..." -ForegroundColor Gray

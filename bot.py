@@ -1545,8 +1545,18 @@ class AdminGroup(app_commands.Group):
         # Determine the current provider
         current_provider = await get_current_provider(config)
         
-        # Get Gemini usage from the database
-        gemini_usage = await db_helpers.get_gemini_usage()
+        # --- FIX: Get Gemini usage from the new detailed table ---
+        cnx = db_helpers.db_pool.get_connection()
+        gemini_usage = 0
+        if cnx:
+            cursor = cnx.cursor(dictionary=True)
+            try:
+                cursor.execute("SELECT SUM(call_count) as total_calls FROM api_usage WHERE usage_date = CURDATE() AND model_name LIKE 'gemini%%'")
+                result = cursor.fetchone()
+                gemini_usage = result['total_calls'] if result and result['total_calls'] else 0
+            finally:
+                cursor.close()
+                cnx.close()
 
         # Create the progress bar
         progress = int((gemini_usage / GEMINI_DAILY_LIMIT) * 20) # 20 characters for the bar
