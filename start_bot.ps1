@@ -1,7 +1,3 @@
-# --- FIX: Set the working directory to the script's location AFTER the param block ---
-# This ensures that relative paths for files like .env and bot.py work correctly.
-Set-Location -Path $PSScriptRoot
-
 # --- NEW: Import shared functions ---
 . "$PSScriptRoot\shared_functions.ps1"
 

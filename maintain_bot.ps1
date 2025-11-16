@@ -68,14 +68,14 @@ function Start-WebDashboard {
     # --- REFACTORED: Use Start-Job and have it return the process object directly. ---
     # This is the most reliable way to get the PID in PS 5.1 without race conditions.
     $script:webDashboardJob = Start-Job -ScriptBlock {
-        param($py)
+        param($py, $ScriptRoot)
         # Start the process and pass its object out of the job.
         # The job's output stream will capture the stdout/stderr of the python process.
-        Start-Process -FilePath $py -ArgumentList "-u", "web_dashboard.py" -NoNewWindow -PassThru
-    } -ArgumentList $PythonExecutable
+        Set-Location -Path $ScriptRoot
+        & $py -u "web_dashboard.py"
+    } -ArgumentList $PythonExecutable, $PSScriptRoot
     # Wait for the job to output the process object and receive it.
-    # We add a small delay to ensure the job has time to start the process.
-    $webDashboardProcess = Receive-Job -Job $script:webDashboardJob -Wait -AutoRemoveJob
+    $webDashboardProcess = Get-Process -Id ($script:webDashboardJob.ChildJobs[0].ProcessId)
     Write-Host "Web Dashboard process started (Process ID: $($webDashboardProcess.Id))"
 
     Write-Host "Waiting for the Web Dashboard to become available on http://localhost:5000..." -ForegroundColor Gray
@@ -147,15 +147,16 @@ while ($true) {
     # This is the most reliable way to get the PID in PS 5.1 without race conditions.
     # --- FIX: Pass the script root path into the job's scope ---
     # --- REFACTORED: Run the bot script directly inside the job, don't create a new window. ---
+    # --- FIX: Get the correct process ID from the job ---
     $script:botJob = Start-Job -ScriptBlock {
         param($ScriptRoot)
         # Set the location and execute the start script. All output will be captured by the job.
         Set-Location -Path $ScriptRoot
         . "$PSScriptRoot\start_bot.ps1"
     } -ArgumentList $PSScriptRoot
-
+    $script:botProcess = Get-Process -Id ($script:botJob.ChildJobs[0].ProcessId)
     [System.IO.File]::WriteAllText($statusFile, (@{status = "Running"; pid = $script:botProcess.Id } | ConvertTo-Json -Compress), ([System.Text.UTF8Encoding]::new($false)))
-    Write-Host "Bot is running in a new window (Process ID: $($script:botProcess.Id)). Checking for updates every 60 seconds."
+    Write-Host "Bot is running as a background job (Process ID: $($script:botProcess.Id)). Checking for updates every 60 seconds."
 
     # --- NEW: Counter for periodic checks ---
     $checkCounter = 0
@@ -221,7 +222,7 @@ while ($true) {
         if ($checkCounter -ge $checkIntervalSeconds) {
             # --- Log the time of the update check ---
             # --- NEW: Check if the web dashboard is still running, restart if not ---
-            if ($script:webDashboardJob.State -ne 'Running') {
+            if ($script:webDashboardJob -and $script:webDashboardJob.State -ne 'Running') {
                 Write-Host "Web Dashboard process is not running. Attempting to restart..." -ForegroundColor Yellow
                 $script:webDashboardProcess = Start-WebDashboard -PythonExecutable $venvPython -LogFilePath $logFile
             }
