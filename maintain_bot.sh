@@ -154,14 +154,20 @@ trap cleanup SIGINT SIGTERM
 backup_database() {
     log_db "Creating database backup..."
     
-    if ! command -v mysqldump &> /dev/null; then
-        log_warning "mysqldump not found, skipping backup"
+    # Check for mariadb-dump (Termux/newer MariaDB) or mysqldump
+    local dump_cmd=""
+    if command -v mariadb-dump &> /dev/null; then
+        dump_cmd="mariadb-dump"
+    elif command -v mysqldump &> /dev/null; then
+        dump_cmd="mysqldump"
+    else
+        log_warning "Neither mariadb-dump nor mysqldump found, skipping backup"
         return 1
     fi
     
     local backup_file="$BACKUP_DIR/sulfur_bot_backup_$(date +"%Y-%m-%d_%H-%M-%S").sql"
     
-    if mysqldump -u "$DB_USER" "$DB_NAME" > "$backup_file" 2>>"$MAIN_LOG"; then
+    if $dump_cmd -u "$DB_USER" "$DB_NAME" > "$backup_file" 2>>"$MAIN_LOG"; then
         log_success "Database backup created: $(basename "$backup_file")"
         
         # Keep only last 10 backups

@@ -60,8 +60,8 @@ A feature-rich Discord bot with AI capabilities, mini-games, and comprehensive m
 
 ### Termux/Android Specific
 - Android 7.0 or higher
-- Termux app from F-Droid
-- Termux packages: `python`, `git`, `mariadb` (or remote MySQL access)
+- Termux app from F-Droid (NOT Google Play - the Play Store version is outdated)
+- Termux packages: `python`, `git`, `mariadb`, `openssh` (or remote MySQL access)
 
 ### Linux Specific
 - Ubuntu 20.04+ / Debian 10+ / Other modern Linux distribution
@@ -235,50 +235,75 @@ Press **Q** to gracefully shutdown.
 pkg update && pkg upgrade
 
 # Install required packages
-pkg install python git mariadb tmux
+pkg install python git mariadb tmux openssh
 
 # Verify installations
 python --version
 git --version
-mysql --version
+mariadb --version
 ```
 
-#### Step 3: Setup MySQL
+#### Step 3: Setup Git SSH Keys (for pushing to GitHub)
 
 ```bash
-# Initialize MySQL
-mysql_install_db
+# Generate SSH key (press Enter to accept defaults)
+ssh-keygen -t ed25519 -C "your_email@example.com"
 
-# Start MySQL server
-mysqld_safe &
+# Start SSH agent
+eval "$(ssh-agent -s)"
 
-# If mysqld_safe isn't available, try:
-# mysqld --datadir=$PREFIX/var/lib/mysql &
+# Add your SSH key
+ssh-add ~/.ssh/id_ed25519
+
+# Display your public key
+cat ~/.ssh/id_ed25519.pub
+
+# Copy the output and add it to GitHub:
+# Go to GitHub → Settings → SSH and GPG keys → New SSH key
+# Paste the key and save
+
+# Test SSH connection
+ssh -T git@github.com
+```
+
+#### Step 4: Setup MariaDB
+
+```bash
+# Initialize MariaDB
+mariadb-install-db
+
+# Start MariaDB server
+mariadbd-safe --datadir=$PREFIX/var/lib/mysql &
 
 # Wait a few seconds, then press Enter to get prompt back
 
-# Secure MySQL (optional but recommended)
-mysql_secure_installation
+# IMPORTANT: Check if MariaDB socket is running
+ls -la $PREFIX/var/run/mysqld.sock 2>/dev/null || echo "Socket not found - MariaDB may still be starting"
+
+# Wait for MariaDB to fully start (usually takes 10-15 seconds)
+sleep 10
 ```
 
-#### Step 4: Clone Repository
+#### Step 5: Clone Repository
 
 ```bash
 # Navigate to home directory
 cd ~
 
-# Clone repository
-git clone https://github.com/yourusername/sulfur.git
+# Clone repository (use SSH if you added SSH keys, or HTTPS)
+git clone git@github.com:yourusername/sulfur.git
+# Or use HTTPS: git clone https://github.com/yourusername/sulfur.git
 cd sulfur
 ```
 
-#### Step 5: Setup Database
+#### Step 6: Setup Database
 
 ```bash
-# Login to MySQL
-mysql -u root -p
+# Login to MariaDB (use 'mariadb' command, not 'mysql')
+# Note: On first login, there may be no password set (just press Enter)
+mariadb -u root -p
 
-# In MySQL prompt:
+# In MariaDB prompt:
 CREATE DATABASE sulfur_bot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE USER 'sulfur_bot_user'@'localhost' IDENTIFIED BY 'your_secure_password';
@@ -289,13 +314,17 @@ FLUSH PRIVILEGES;
 
 EXIT;
 
+# Note: If you prefer no password for local development:
+# CREATE USER 'sulfur_bot_user'@'localhost' IDENTIFIED BY '';
+# Then set DB_PASSWORD='' in your .env file
+
 # Initialize schema (auto-created on first run)
 # No manual schema import required.
 # Optional: import an existing backup instead:
-# mysql -u sulfur_bot_user -p sulfur_bot < backups/latest_backup.sql
+# mariadb -u sulfur_bot_user -p sulfur_bot < backups/latest_backup.sql
 ```
 
-#### Step 6: Configure Environment
+#### Step 7: Configure Environment
 
 ```bash
 # Create .env file
@@ -315,9 +344,11 @@ BOT_PREFIX=!
 OWNER_ID=your_discord_user_id
 ```
 
+**Important:** Set `DB_PASSWORD` to match what you used in Step 6. If you chose no password, use `DB_PASSWORD=`
+
 Save with **Ctrl+O**, **Enter**, then **Ctrl+X**
 
-#### Step 7: Install Python Dependencies
+#### Step 8: Install Python Dependencies
 
 ```bash
 # Create virtual environment
@@ -330,7 +361,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-#### Step 8: Start Bot (Simple Method)
+#### Step 9: Start Bot and Web Dashboard
 
 ```bash
 # Make scripts executable
@@ -342,11 +373,28 @@ chmod +x start.sh maintain_bot.sh
 
 That's it! The bot is now running on your Android device.
 
+#### Step 10: Access Web Dashboard
+
+The web dashboard runs on port 5000. To access it:
+
+**From the same Android device:**
+- Open a browser on your Android device
+- Navigate to: `http://localhost:5000` or `http://127.0.0.1:5000`
+
+**From another device on the same network:**
+- Find your Android device's IP address: `ifconfig` or `ip addr show`
+- On the other device, navigate to: `http://YOUR_ANDROID_IP:5000`
+- Example: `http://192.168.1.100:5000`
+
+**Troubleshooting Dashboard Access:**
+- If the dashboard doesn't load, ensure the web_dashboard.py is binding to `0.0.0.0` instead of `localhost`
+- Check that port 5000 is not blocked by any firewall
+
 **Tips for Termux:**
 - Keep Termux running in the background (use Termux:Boot for auto-start)
 - Use Termux:Widget to add start/stop shortcuts to home screen
 - Press **Ctrl+C** to stop the bot gracefully
-- To run in background (tmux): `pkg install tmux`, then:
+- To run in background (tmux): Already installed in Step 2, use:
    - `tmux new -s sulfur`
    - `./start.sh`
    - Detach: `Ctrl+B`, then `D`; Reattach: `tmux attach -t sulfur`
@@ -499,13 +547,13 @@ Get Client ID from: Discord Developer Portal > Your App > General Information
 
 | Variable | Required | Description | Example |
 |----------|----------|-------------|---------|
-| `DISCORD_TOKEN` | ✅ Yes | Bot token from Discord | `MTIzNDU2Nzg5MDEyMzQ1Njc4OQ.GhIjKl.MnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWx` |
+| `DISCORD_TOKEN` | ✅ Yes | Bot token from Discord | `YOUR_BOT_TOKEN_HERE` |
 | `DB_HOST` | ✅ Yes | MySQL host | `localhost` |
 | `DB_USER` | ✅ Yes | MySQL username | `sulfur_bot_user` |
 | `DB_PASSWORD` | ✅ Yes | MySQL password | `your_secure_password` |
 | `DB_NAME` | ✅ Yes | Database name | `sulfur_bot` |
-| `GEMINI_API_KEY` | ✅ Yes | Google Gemini API key | `AIzaSyA...` |
-| `OPENAI_API_KEY` | ⚠️ Optional | OpenAI API key | `sk-proj-...` |
+| `GEMINI_API_KEY` | ✅ Yes | Google Gemini API key | `YOUR_GEMINI_KEY_HERE` |
+| `OPENAI_API_KEY` | ⚠️ Optional | OpenAI API key | `YOUR_OPENAI_KEY_HERE` |
 | `BOT_PREFIX` | ⚠️ Optional | Command prefix | `!` (default) |
 | `OWNER_ID` | ⚠️ Optional | Your Discord user ID | `123456789012345678` |
 
@@ -615,7 +663,7 @@ Every 30 minutes:
 mysqldump -u sulfur_bot_user -p sulfur_bot > backups\manual_backup.sql
 
 # Termux/Linux
-mysqldump -u sulfur_bot_user -p sulfur_bot > backups/manual_backup.sql
+mariadb-dump -u sulfur_bot_user -p sulfur_bot > backups/manual_backup.sql
 ```
 
 ### Control Flags
@@ -644,11 +692,13 @@ touch restart.flag
 Solution:
 1. Check if MySQL is running:
    Windows: Services > MySQL
-   Linux: sudo systemctl status mysql
-   Termux: ps aux | grep mysql
+   Linux: sudo systemctl status mysql/mariadb
+   Termux: ps aux | grep mariadb
 
 2. Verify credentials in .env file
-3. Test connection: mysql -u sulfur_bot_user -p
+3. Test connection: 
+   Windows/Linux: mysql -u sulfur_bot_user -p
+   Termux: mariadb -u sulfur_bot_user -p
 ```
 
 **Problem:** "Invalid Discord token"
@@ -734,12 +784,45 @@ screen -S sulfur ./start.sh
 # Detach with Ctrl+A, D
 ```
 
-**Problem:** "Cannot connect to localhost MySQL"
+**Problem:** "Cannot connect to localhost MySQL" or "Can't connect to local server through socket"
 ```
 Solution:
-1. Start MySQL: mysqld_safe &
-2. Wait 10 seconds
-3. Check: mysql -u root -p
+1. The error message mentioning 'mysql' is because it's deprecated. Use 'mariadb' instead.
+2. Start MariaDB: mariadbd-safe --datadir=$PREFIX/var/lib/mysql &
+3. Wait 10-15 seconds for it to fully start
+4. Check if running: ps aux | grep mariadb
+5. Test connection: mariadb -u root -p
+6. If socket error persists, check: ls -la $PREFIX/var/run/mysqld.sock
+```
+
+**Problem:** "mysql: Deprecated program name"
+```
+Solution:
+Replace all 'mysql' commands with 'mariadb':
+- Instead of: mysql -u root -p
+- Use: mariadb -u root -p
+- Instead of: mysqldump
+- Use: mariadb-dump
+```
+
+**Problem:** "ERROR 2002 (HY000): Can't connect to local server through socket"
+```
+Solution:
+1. This usually means MariaDB isn't running or hasn't finished starting
+2. Start MariaDB: mariadbd-safe --datadir=$PREFIX/var/lib/mysql &
+3. Wait 15 seconds: sleep 15
+4. Check if socket exists: ls -la $PREFIX/var/run/mysqld.sock
+5. If no socket, check logs: cat $PREFIX/var/lib/mysql/*.err
+6. Try connecting: mariadb -u root
+```
+
+**Problem:** Web dashboard not accessible from browser
+```
+Solution:
+1. Check if the dashboard is running: ps aux | grep web_dashboard
+2. Find your device IP: ifconfig or ip addr show
+3. Access via: http://YOUR_IP:5000
+4. If still not working, ensure web_dashboard.py uses host='0.0.0.0' not 'localhost'
 ```
 
 ---
@@ -771,7 +854,9 @@ A: Not without modifications. The bot uses MySQL-specific syntax.
 A: Yes, just start with `python bot.py` instead of the maintenance script.
 
 **Q: How do I backup my data?**
-A: Automatic backups run every 30 minutes. Manual: `mysqldump -u sulfur_bot_user -p sulfur_bot > backup.sql`
+A: Automatic backups run every 30 minutes. Manual: 
+- Windows: `mysqldump -u sulfur_bot_user -p sulfur_bot > backup.sql`
+- Termux/Linux: `mariadb-dump -u sulfur_bot_user -p sulfur_bot > backup.sql`
 
 **Q: Can I use only Gemini or only OpenAI?**
 A: Yes, just don't set the API key for the one you don't want to use.

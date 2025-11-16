@@ -53,8 +53,24 @@ Open Termux and run the following commands to install everything you need:
 # Update package lists
 pkg update && pkg upgrade
 
-# Install required packages
-pkg install git python mariadb tmux
+# Install required packages (including openssh for git SSH)
+pkg install git python mariadb tmux openssh
+```
+
+**Setup SSH for Git (Optional but recommended):**
+```sh
+# Generate SSH key
+ssh-keygen -t ed25519 -C "your_email@example.com"
+
+# Start SSH agent
+eval "$(ssh-agent -s)"
+
+# Add your SSH key
+ssh-add ~/.ssh/id_ed25519
+
+# Display your public key to add to GitHub
+cat ~/.ssh/id_ed25519.pub
+# Copy this and add it to GitHub: Settings → SSH and GPG keys → New SSH key
 ```
 
 </details>
@@ -97,7 +113,9 @@ Now, let's get the code and configure it.
 1.  **Clone the Repository**
     Open your terminal (Git Bash on Windows, Termux on Android) and run:
     ```sh
-    git clone https://github.com/mereMint/sulfur.git
+    # Use SSH if you set up SSH keys, otherwise use HTTPS
+    git clone git@github.com:mereMint/sulfur.git
+    # Or: git clone https://github.com/mereMint/sulfur.git
     cd sulfur
     ```
 
@@ -119,9 +137,24 @@ Now, let's get the code and configure it.
     You need to create a database and a dedicated user for the bot.
 
     *   **On Windows**: Open the XAMPP Control Panel and click the "Shell" button.
-    *   **On Termux/Linux**: Start the MySQL server by running `mysqld_safe --user=root &` (Termux) or `sudo systemctl start mariadb` (Linux).
+    *   **On Termux**: Start MariaDB server:
+        ```sh
+        # Initialize MariaDB (first time only)
+        mariadb-install-db
+        
+        # Start MariaDB
+        mariadbd-safe --datadir=$PREFIX/var/lib/mysql &
+        
+        # Wait for it to start (10-15 seconds)
+        sleep 15
+        ```
+    *   **On Linux**: Start MariaDB: `sudo systemctl start mariadb`
 
-    Then, access the MySQL command line by typing `mysql -u root`. Once inside, run the following SQL commands:
+    Then, access the MariaDB command line:
+    *   **Windows**: `mysql -u root`
+    *   **Termux/Linux**: `mariadb -u root` (or `mariadb -u root -p` if password is set)
+    
+    Once inside, run the following SQL commands:
 
     ```sql
     -- Create the database with the correct character set
