@@ -1,188 +1,425 @@
 #!/bin/bash
-#
-# This script acts as a watcher to maintain the Sulfur bot on Linux/Termux.
-# To run it:
-# 1. Make it executable: chmod +x maintain_bot.sh
-# 2. Run the script with: ./maintain_bot.sh
+# ==============================================================================
+# Sulfur Bot - Enhanced Maintenance Script for Termux/Linux
+# ==============================================================================
+# Features:
+# - Auto-start bot and web dashboard
+# - Check for updates every minute
+# - Auto-commit database changes every 5 minutes
+# - Auto-backup database every 30 minutes
+# - Auto-restart on updates
+# - Self-update capability
+# - Graceful shutdown with Ctrl+C
+# ==============================================================================
 
-echo "--- Sulfur Bot Maintenance Watcher ---"
-echo "Press 'Q' at any time to gracefully shut down the bot and exit."
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+GRAY='\033[0;37m'
+MAGENTA='\033[0;35m'
+NC='\033[0;m' # No Color
 
-# --- Import shared functions ---
-cd "$(dirname "$0")"
-source ./scripts/shared_functions.sh
+# Configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR" || exit 1
 
-# --- NEW: Centralized Logging Setup ---
-LOG_DIR="logs"
-mkdir -p "$LOG_DIR"
+LOG_DIR="$SCRIPT_DIR/logs"
+CONFIG_DIR="$SCRIPT_DIR/config"
+BACKUP_DIR="$SCRIPT_DIR/backups"
+STATUS_FILE="$CONFIG_DIR/bot_status.json"
+
+# Create directories
+mkdir -p "$LOG_DIR" "$CONFIG_DIR" "$BACKUP_DIR"
+
+# Log files
 LOG_TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
-SESSION_LOG_FILE="$LOG_DIR/session_${LOG_TIMESTAMP}.log"
-BOT_LOG_FILE="$LOG_DIR/bot_session_${LOG_TIMESTAMP}.log"
+MAIN_LOG="$LOG_DIR/maintenance_${LOG_TIMESTAMP}.log"
+BOT_LOG="$LOG_DIR/bot_${LOG_TIMESTAMP}.log"
+WEB_LOG="$LOG_DIR/web_${LOG_TIMESTAMP}.log"
 
-echo "Watcher log: $SESSION_LOG_FILE" | tee -a "$SESSION_LOG_FILE"
-echo "Bot log: $BOT_LOG_FILE" | tee -a "$SESSION_LOG_FILE"
-# --- Ensure Python environment is ready ---
-echo "Checking Python virtual environment..."
-VENV_PYTHON=$(ensure_venv)
-if [ $? -ne 0 ]; then
-    echo "Failed to set up Python environment. Exiting."
-    exit 1
+# PID files
+BOT_PID_FILE="$CONFIG_DIR/bot.pid"
+WEB_PID_FILE="$CONFIG_DIR/web.pid"
+
+# Intervals (in seconds)
+CHECK_INTERVAL=60      # Check for updates every 60 seconds
+COMMIT_INTERVAL=300    # Auto-commit every 5 minutes
+BACKUP_INTERVAL=1800   # Backup every 30 minutes
+
+# Counters
+CHECK_COUNTER=0
+
+# Detect environment
+if [ -n "$TERMUX_VERSION" ]; then
+    IS_TERMUX=true
+    PYTHON_CMD="python"
+else
+    IS_TERMUX=false
+    PYTHON_CMD="${PYTHON_CMD:-python3}"
 fi
-echo "Python environment is ready."
 
-DB_SYNC_FILE="config/database_sync.sql"
+# Database credentials
+DB_USER="${DB_USER:-sulfur_bot_user}"
+DB_NAME="${DB_NAME:-sulfur_bot}"
 
-# --- NEW: Declare PIDs globally for the trap ---
-STATUS_FILE="config/bot_status.json"
-WEB_DASHBOARD_PID=""
-BOT_PID=""
+# ==============================================================================
+# Logging Functions
+# ==============================================================================
 
-# --- Function to start and verify the Web Dashboard ---
-function start_web_dashboard {
-    echo "Starting the Web Dashboard..."
-    # Start in the background, get its PID, and append logs to the central log file.
-    "$VENV_PYTHON" -u web/web_dashboard.py >> "$SESSION_LOG_FILE" 2>&1 &
-    WEB_DASHBOARD_PID=$!
-    echo "Web Dashboard process started (PID: $WEB_DASHBOARD_PID)"
+log_message() {
+    local color=$1
+    local prefix=$2
+    local message=$3
+    local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
+    
+    echo -e "${color}[${timestamp}] ${prefix}${message}${NC}" | tee -a "$MAIN_LOG"
+}
 
-    echo "Waiting for the Web Dashboard to become available on http://localhost:5000..."
-    for i in {1..15}; do
-        # Check if the process is still running
-        if ! ps -p $WEB_DASHBOARD_PID > /dev/null; then
-            echo "ERROR: Web Dashboard process terminated unexpectedly during startup. Check log for errors."
+log_info() { log_message "$NC" "" "$1"; }
+log_success() { log_message "$GREEN" "[✓] " "$1"; }
+log_warning() { log_message "$YELLOW" "[!] " "$1"; }
+log_error() { log_message "$RED" "[✗] " "$1"; }
+log_git() { log_message "$CYAN" "[GIT] " "$1"; }
+log_db() { log_message "$CYAN" "[DB] " "$1"; }
+log_bot() { log_message "$GREEN" "[BOT] " "$1"; }
+log_web() { log_message "$CYAN" "[WEB] " "$1"; }
+log_update() { log_message "$YELLOW" "[UPDATE] " "$1"; }
+
+# ==============================================================================
+# Status Functions
+# ==============================================================================
+
+update_status() {
+    local status=$1
+    local pid=${2:-0}
+    
+    cat > "$STATUS_FILE" <<EOF
+{
+  "status": "$status",
+  "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+  "pid": $pid
+}
+EOF
+}
+
+# ==============================================================================
+# Cleanup Functions
+# ==============================================================================
+
+cleanup() {
+    log_warning "Cleaning up..."
+    
+    # Stop bot
+    if [ -f "$BOT_PID_FILE" ]; then
+        BOT_PID=$(cat "$BOT_PID_FILE")
+        if kill -0 "$BOT_PID" 2>/dev/null; then
+            log_bot "Stopping bot (PID: $BOT_PID)..."
+            kill "$BOT_PID" 2>/dev/null
+            sleep 2
+            kill -9 "$BOT_PID" 2>/dev/null
+        fi
+        rm -f "$BOT_PID_FILE"
+    fi
+    
+    # Stop web dashboard
+    if [ -f "$WEB_PID_FILE" ]; then
+        WEB_PID=$(cat "$WEB_PID_FILE")
+        if kill -0 "$WEB_PID" 2>/dev/null; then
+            log_web "Stopping web dashboard (PID: $WEB_PID)..."
+            kill "$WEB_PID" 2>/dev/null
+            sleep 2
+            kill -9 "$WEB_PID" 2>/dev/null
+        fi
+        rm -f "$WEB_PID_FILE"
+    fi
+    
+    # Final backup and commit
+    backup_database
+    git_commit "chore: Auto-commit on shutdown"
+    
+    update_status "Shutdown"
+    log_success "Cleanup complete"
+    exit 0
+}
+
+# Set trap for Ctrl+C
+trap cleanup SIGINT SIGTERM
+
+# ==============================================================================
+# Database Functions
+# ==============================================================================
+
+backup_database() {
+    log_db "Creating database backup..."
+    
+    if ! command -v mysqldump &> /dev/null; then
+        log_warning "mysqldump not found, skipping backup"
+        return 1
+    fi
+    
+    local backup_file="$BACKUP_DIR/sulfur_bot_backup_$(date +"%Y-%m-%d_%H-%M-%S").sql"
+    
+    if mysqldump -u "$DB_USER" "$DB_NAME" > "$backup_file" 2>>"$MAIN_LOG"; then
+        log_success "Database backup created: $(basename "$backup_file")"
+        
+        # Keep only last 10 backups
+        local backup_count=$(ls -1 "$BACKUP_DIR"/*.sql 2>/dev/null | wc -l)
+        if [ "$backup_count" -gt 10 ]; then
+            ls -1t "$BACKUP_DIR"/*.sql | tail -n +11 | xargs rm -f
+            log_warning "Cleaned up old backups (kept last 10)"
+        fi
+        
+        return 0
+    else
+        log_error "Database backup failed"
+        return 1
+    fi
+}
+
+# ==============================================================================
+# Git Functions
+# ==============================================================================
+
+git_commit() {
+    local message=${1:-"chore: Auto-commit from maintenance script"}
+    
+    log_git "Checking for changes to commit..."
+    
+    # Check if there are any changes
+    if [ -z "$(git status --porcelain)" ]; then
+        log_git "No changes to commit"
+        return 1
+    fi
+    
+    log_warning "Changes detected, committing..."
+    
+    git add -A 2>>"$MAIN_LOG"
+    if git commit -m "$message" >>"$MAIN_LOG" 2>&1; then
+        if git push >>"$MAIN_LOG" 2>&1; then
+            log_success "Changes committed and pushed"
+            return 0
+        else
+            log_error "Git push failed"
             return 1
         fi
-        # Check if the port is open
-        if curl --output /dev/null --silent --head --fail http://localhost:5000 2>/dev/null; then
-            echo "Web Dashboard is online and ready."
+    else
+        log_error "Git commit failed"
+        return 1
+    fi
+}
+
+check_for_updates() {
+    log_update "Checking for updates..."
+    
+    git remote update &>>"$MAIN_LOG"
+    
+    LOCAL=$(git rev-parse @)
+    REMOTE=$(git rev-parse @{u})
+    
+    if [ "$LOCAL" != "$REMOTE" ]; then
+        log_warning "Updates available!"
+        return 0
+    else
+        return 1
+    fi
+}
+
+apply_updates() {
+    log_update "Applying updates..."
+    
+    update_status "Updating..."
+    
+    # Commit any pending changes first
+    git_commit "chore: Auto-commit before update"
+    
+    # Check if this script is being updated
+    git fetch &>>"$MAIN_LOG"
+    CHANGED_FILES=$(git diff --name-only HEAD...origin/main)
+    
+    if echo "$CHANGED_FILES" | grep -q "maintain_bot.sh"; then
+        log_update "Maintenance script will be updated - restarting..."
+        
+        git pull >>"$MAIN_LOG" 2>&1
+        
+        # Restart this script
+        exec "$0" "$@"
+    fi
+    
+    # Normal update
+    git pull >>"$MAIN_LOG" 2>&1
+    
+    log_success "Update complete"
+    date -u +"%Y-%m-%dT%H:%M:%SZ" > "last_update.txt"
+}
+
+# ==============================================================================
+# Process Management
+# ==============================================================================
+
+start_web_dashboard() {
+    log_web "Starting Web Dashboard..."
+    
+    # Find Python
+    local python_exe="$PYTHON_CMD"
+    if [ -f "venv/bin/python" ]; then
+        python_exe="venv/bin/python"
+    fi
+    
+    # Start web dashboard in background
+    nohup "$python_exe" -u web_dashboard.py >> "$WEB_LOG" 2>&1 &
+    local web_pid=$!
+    echo "$web_pid" > "$WEB_PID_FILE"
+    
+    # Wait for it to start
+    local retries=0
+    local max_retries=15
+    
+    while [ $retries -lt $max_retries ]; do
+        sleep 2
+        
+        if nc -z localhost 5000 2>/dev/null || curl -s http://localhost:5000 &>/dev/null; then
+            log_success "Web Dashboard running at http://localhost:5000 (PID: $web_pid)"
             return 0
         fi
-        sleep 1
+        
+        if ! kill -0 "$web_pid" 2>/dev/null; then
+            log_error "Web Dashboard failed to start"
+            rm -f "$WEB_PID_FILE"
+            return 1
+        fi
+        
+        retries=$((retries + 1))
     done
-
-    echo "ERROR: Web Dashboard did not become available. Shutting down."
-    kill -9 $WEB_DASHBOARD_PID 2>/dev/null
+    
+    log_warning "Web Dashboard start timeout"
     return 1
 }
 
-# --- NEW: Trap for graceful shutdown on CTRL+C or script termination ---
-function cleanup {
-    echo -e "\nCaught exit signal. Shutting down all child processes..."
-    # --- NEW: Perform final DB export on shutdown ---
-    if [ ! -z "$DB_NAME" ] && [ ! -z "$DB_USER" ]; then
-        echo "Exporting database to $DB_SYNC_FILE for synchronization..."
-        mysqldump --user="$DB_USER" --host=localhost --default-character-set=utf8mb4 "$DB_NAME" > "$DB_SYNC_FILE" 2>/dev/null
-        echo "Database export complete."
+start_bot() {
+    log_bot "Starting bot..."
+    
+    update_status "Starting..."
+    
+    # Find Python
+    local python_exe="$PYTHON_CMD"
+    if [ -f "venv/bin/python" ]; then
+        python_exe="venv/bin/python"
     fi
-
-    echo '{"status": "Shutdown"}' > "$STATUS_FILE"
-    # Kill the bot process if it's running
-    if [ -n "$BOT_PID" ] && ps -p $BOT_PID > /dev/null; then
-        echo "Stopping Bot (PID: $BOT_PID)..."
-        kill -9 $BOT_PID
-    fi
-    # Kill the web dashboard process if it's running
-    if [ -n "$WEB_DASHBOARD_PID" ] && ps -p $WEB_DASHBOARD_PID > /dev/null; then
-        echo "Stopping Web Dashboard (PID: $WEB_DASHBOARD_PID)..."
-        kill -9 $WEB_DASHBOARD_PID
-    fi
-    echo "Cleanup complete. Exiting."
+    
+    # Start bot in background
+    nohup "$python_exe" -u bot.py >> "$BOT_LOG" 2>&1 &
+    local bot_pid=$!
+    echo "$bot_pid" > "$BOT_PID_FILE"
+    
+    update_status "Running" "$bot_pid"
+    log_success "Bot started (PID: $bot_pid)"
 }
-trap cleanup SIGINT SIGTERM EXIT
 
-# --- Start the Web Dashboard for the first time ---
-start_web_dashboard
-if [ $? -ne 0 ]; then
-    echo "Failed to start the Web Dashboard. Exiting."
-    exit 1
+stop_bot() {
+    if [ -f "$BOT_PID_FILE" ]; then
+        local bot_pid=$(cat "$BOT_PID_FILE")
+        if kill -0 "$bot_pid" 2>/dev/null; then
+            log_bot "Stopping bot..."
+            kill "$bot_pid" 2>/dev/null
+            sleep 2
+            kill -9 "$bot_pid" 2>/dev/null
+        fi
+        rm -f "$BOT_PID_FILE"
+    fi
+}
+
+# ==============================================================================
+# Main Loop
+# ==============================================================================
+
+echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${CYAN}║       Sulfur Discord Bot - Maintenance System v2.0        ║${NC}"
+echo -e "${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
+echo ""
+log_warning "Press Ctrl+C at any time to gracefully shutdown"
+echo ""
+
+# Environment info
+if [ "$IS_TERMUX" = true ]; then
+    log_info "Running on Termux"
+else
+    log_info "Running on Linux"
 fi
-# --- Main loop ---
-while true; do
-    echo '{"status": "Starting..."}' > "$STATUS_FILE"
-    echo "Starting the bot process..."
-    # --- REFACTORED: Start the script and then find the actual Python child process ---
-    # Start the startup script in the background
-    ./scripts/start_bot.sh "$BOT_LOG_FILE" >> "$SESSION_LOG_FILE" 2>&1 &
-    START_SCRIPT_PID=$!
 
-    # Wait for the startup script to launch the python process and then find it.
-    BOT_PID=""
-    for i in {1..10}; do
-        # Find a python process that is a child of our startup script
-        BOT_PID=$(pgrep -P $START_SCRIPT_PID -f "python -u -X utf8 bot.py")
-        if [ -n "$BOT_PID" ]; then
+# Initial backup
+backup_database
+
+# Start web dashboard
+start_web_dashboard || log_warning "Web Dashboard failed to start, continuing anyway..."
+
+# Main loop
+while true; do
+    # Start bot
+    start_bot
+    
+    # Monitor bot
+    while true; do
+        sleep 1
+        CHECK_COUNTER=$((CHECK_COUNTER + 1))
+        
+        # Check if bot is still running
+        if [ -f "$BOT_PID_FILE" ]; then
+            BOT_PID=$(cat "$BOT_PID_FILE")
+            if ! kill -0 "$BOT_PID" 2>/dev/null; then
+                log_warning "Bot stopped unexpectedly"
+                break
+            fi
+        else
             break
         fi
-        sleep 1
-    done
-
-    # Now that we have the real bot PID, we can monitor it.
-    echo "{\"status\": \"Running\", \"pid\": \"$BOT_PID\"}" > "$STATUS_FILE"
-    echo "Bot is running (PID: $BOT_PID). Checking for updates every 60 seconds."
-
-    # Inner loop to monitor the running bot
-    while ps -p $BOT_PID > /dev/null; do
-        # Check for shutdown key press (non-blocking read)
-        read -t 1 -n 1 key
-        if [[ $key == "q" || $key == "Q" ]]; then
-            echo "Shutdown key ('Q') pressed. Stopping bot and exiting..."
-            kill -9 $BOT_PID
-            sleep 2 # Give it a moment for the exit trap to run
-
-            # Final DB commit
-            if [[ -n $(git status --porcelain "$DB_SYNC_FILE") ]]; then
-                echo "Final database changes detected. Committing and pushing..."
-                git add "$DB_SYNC_FILE"
-                git commit -m "chore: Sync database schema on shutdown"
-                git push
-            fi
-            
-            echo "Shutdown complete."
-            # The trap will handle killing the web dashboard
-            exit 0
-        fi
-
+        
         # Check for control flags
         if [ -f "stop.flag" ]; then
-            echo "Stop signal received. Shutting down..."
+            log_warning "Stop flag detected"
             rm -f "stop.flag"
-            # The exit command will trigger the 'trap cleanup' function
-            exit 0
+            cleanup
         fi
+        
         if [ -f "restart.flag" ]; then
-            echo "Restart signal received. Restarting bot..."
+            log_warning "Restart flag detected"
             rm -f "restart.flag"
-            kill $BOT_PID # This will break the inner loop and trigger a restart
+            stop_bot
+            break
         fi
-
-        # Check for git updates every 60 seconds
-        # --- NEW: Perform git operations here, not in start_bot.sh ---
-        git remote update
-        STATUS=$(git status -uno)
-
-        if [[ "$STATUS" == *"Your branch is behind"* ]]; then
-            echo '{"status": "Updating..."}' > "$STATUS_FILE"
-            echo "New version found! Restarting the bot to apply updates..."
+        
+        # Periodic tasks
+        if [ $((CHECK_COUNTER % COMMIT_INTERVAL)) -eq 0 ]; then
+            git_commit "chore: Auto-commit database changes"
+        fi
+        
+        if [ $((CHECK_COUNTER % BACKUP_INTERVAL)) -eq 0 ]; then
+            backup_database
+        fi
+        
+        if [ $((CHECK_COUNTER % CHECK_INTERVAL)) -eq 0 ]; then
+            date -u +"%Y-%m-%dT%H:%M:%SZ" > "last_check.txt"
             
-            # Commit DB changes before pulling
-            echo "Exporting database before update..."
-            mysqldump --user="$DB_USER" --host=localhost --default-character-set=utf8mb4 "$DB_NAME" > "$DB_SYNC_FILE"
-            if [[ -n $(git status --porcelain "$DB_SYNC_FILE") ]]; then
-                git add "$DB_SYNC_FILE"
-                git commit -m "chore: Sync database schema before update"
-                git push
+            if check_for_updates; then
+                log_warning "Stopping bot for update..."
+                stop_bot
+                apply_updates
+                break
             fi
-
-            git pull
-            kill -9 $BOT_PID
-            sleep 2
-            break # Exit inner loop to restart
         fi
-
-        sleep 59 # Sleep for the rest of the minute
+        
+        # Check web dashboard
+        if [ -f "$WEB_PID_FILE" ]; then
+            WEB_PID=$(cat "$WEB_PID_FILE")
+            if ! kill -0 "$WEB_PID" 2>/dev/null; then
+                log_warning "Web Dashboard stopped, restarting..."
+                start_web_dashboard
+            fi
+        fi
     done
-
-    echo '{"status": "Stopped"}' > "$STATUS_FILE"
-    echo "Bot process stopped. It will be restarted shortly..."
+    
+    update_status "Stopped"
+    log_warning "Bot stopped, restarting in 5 seconds..."
     sleep 5
 done

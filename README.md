@@ -1,0 +1,842 @@
+# 🤖 Sulfur Discord Bot
+
+A feature-rich Discord bot with AI capabilities, mini-games, and comprehensive management tools.
+
+## 📋 Table of Contents
+
+- [Features](#-features)
+- [Prerequisites](#-prerequisites)
+- [Installation](#-installation)
+  - [Windows Installation](#windows-installation)
+  - [Termux/Android Installation](#termuxandroid-installation)
+  - [Linux Installation](#linux-installation)
+- [Configuration](#-configuration)
+- [Running the Bot](#-running-the-bot)
+- [Web Dashboard](#-web-dashboard)
+- [Maintenance Features](#-maintenance-features)
+- [Troubleshooting](#-troubleshooting)
+- [FAQ](#-faq)
+- [Project Structure](#-project-structure)
+
+## 🌟 Features
+
+### 🎮 Games & Entertainment
+- **Werwolf Game**: Multiplayer werewolf game with dynamic voice channels
+- **Mini-games**: Various interactive games for server engagement
+
+### 🤖 AI Capabilities
+- **Multi-Model Support**: Gemini (2.0-flash-exp, 1.5-pro, 2.5-flash) and OpenAI (GPT-4o, GPT-4-turbo)
+- **AI Vision**: Image analysis and understanding
+- **Conversation Follow-up**: Remembers context within 2-minute windows
+- **Smart Emoji Analysis**: AI-powered custom emoji descriptions
+
+### 📊 Management & Analytics
+- **Web Dashboard**: Real-time bot monitoring at http://localhost:5000
+- **AI Usage Tracking**: Monitor token usage and costs across all models
+- **Wrapped Statistics**: Discord Wrapped-style yearly summaries
+- **Auto-backup**: Database backups every 30 minutes
+
+### 🔧 Automation
+- **Auto-update**: Checks for updates every minute
+- **Auto-commit**: Commits database changes every 5 minutes
+- **Auto-restart**: Gracefully restarts on updates
+- **24/7 Operation**: Self-healing maintenance scripts
+
+## 📦 Prerequisites
+
+### All Platforms
+- **Python**: 3.8 or higher
+- **MySQL/MariaDB**: Latest stable version
+- **Git**: For version control and auto-updates
+- **Discord Bot Token**: From [Discord Developer Portal](https://discord.com/developers/applications)
+- **API Keys**: 
+  - Google Gemini API key (from [Google AI Studio](https://aistudio.google.com/))
+  - OpenAI API key (optional, from [OpenAI Platform](https://platform.openai.com/))
+
+### Windows Specific
+- Windows 10 or 11
+- PowerShell 5.1 or later (comes with Windows)
+- MySQL Server or XAMPP/WAMP
+
+### Termux/Android Specific
+- Android 7.0 or higher
+- Termux app from F-Droid
+- Termux packages: `python`, `git`, `mariadb` (or remote MySQL access)
+
+### Linux Specific
+- Ubuntu 20.04+ / Debian 10+ / Other modern Linux distribution
+- Bash shell
+
+## 💿 Installation
+
+### Windows Installation
+
+#### Step 1: Install Prerequisites
+
+1. **Install Python**
+   - Download from [python.org](https://www.python.org/downloads/)
+   - ✅ Check "Add Python to PATH" during installation
+   - Verify: Open PowerShell and run `python --version`
+
+2. **Install MySQL**
+   - Option A: [MySQL Server](https://dev.mysql.com/downloads/installer/)
+   - Option B: [XAMPP](https://www.apachefriends.org/) (easier for beginners)
+   - During setup, remember your root password
+
+3. **Install Git**
+   - Download from [git-scm.com](https://git-scm.com/download/win)
+   - Use default settings during installation
+   - Verify: `git --version`
+
+#### Step 2: Clone Repository
+
+```powershell
+cd C:\
+git clone https://github.com/yourusername/sulfur.git
+cd sulfur
+```
+
+#### Step 3: Setup Database
+
+1. **Start MySQL** (if using XAMPP, start from control panel)
+
+2. **Create Database User**
+```sql
+-- Open MySQL command line or phpMyAdmin
+CREATE DATABASE sulfur_bot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE USER 'sulfur_bot_user'@'localhost' IDENTIFIED BY 'your_secure_password';
+
+GRANT ALL PRIVILEGES ON sulfur_bot.* TO 'sulfur_bot_user'@'localhost';
+
+FLUSH PRIVILEGES;
+```
+
+3. **Import Database Schema**
+```powershell
+# If using MySQL command line:
+mysql -u sulfur_bot_user -p sulfur_bot < config\sulfur_bot_schema.sql
+
+# Or if you have a backup:
+mysql -u sulfur_bot_user -p sulfur_bot < backups\latest_backup.sql
+```
+
+#### Step 4: Configure Environment
+
+1. **Create `.env` file** in the project root:
+```env
+# Discord Bot Token (from https://discord.com/developers/applications)
+DISCORD_TOKEN=your_discord_bot_token_here
+
+# Database Configuration
+DB_HOST=localhost
+DB_USER=sulfur_bot_user
+DB_PASSWORD=your_secure_password
+DB_NAME=sulfur_bot
+
+# AI API Keys
+GEMINI_API_KEY=your_gemini_api_key_here
+OPENAI_API_KEY=your_openai_api_key_here
+
+# Bot Configuration
+BOT_PREFIX=!
+OWNER_ID=your_discord_user_id
+```
+
+2. **Get Your Discord User ID**
+   - Enable Developer Mode in Discord (Settings > Advanced > Developer Mode)
+   - Right-click your username > Copy ID
+
+#### Step 5: Install Python Dependencies
+
+```powershell
+# Create virtual environment
+python -m venv venv
+
+# Activate virtual environment
+.\venv\Scripts\Activate.ps1
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+#### Step 6: First Run Test
+
+```powershell
+# Test bot startup
+python bot.py
+```
+
+If you see "Bot is ready!" in the console, press Ctrl+C and proceed to start the maintenance script.
+
+#### Step 7: Start Maintenance System
+
+```powershell
+# Run the maintenance script (handles auto-restart, updates, backups)
+.\maintain_bot.ps1
+```
+
+The script will:
+- ✅ Start the web dashboard at http://localhost:5000
+- ✅ Start the bot
+- ✅ Check for updates every minute
+- ✅ Auto-commit changes every 5 minutes
+- ✅ Backup database every 30 minutes
+- ✅ Auto-restart on updates
+
+Press **Q** to gracefully shutdown.
+
+---
+
+### Termux/Android Installation
+
+#### Step 1: Install Termux
+
+1. **Download Termux** from [F-Droid](https://f-droid.org/en/packages/com.termux/) (NOT Google Play)
+2. Open Termux
+
+#### Step 2: Install Prerequisites
+
+```bash
+# Update package list
+pkg update && pkg upgrade
+
+# Install required packages
+pkg install python git mariadb
+
+# Verify installations
+python --version
+git --version
+mysql --version
+```
+
+#### Step 3: Setup MySQL
+
+```bash
+# Initialize MySQL
+mysql_install_db
+
+# Start MySQL server
+mysqld_safe &
+
+# Wait a few seconds, then press Enter to get prompt back
+
+# Secure MySQL (optional but recommended)
+mysql_secure_installation
+```
+
+#### Step 4: Clone Repository
+
+```bash
+# Navigate to home directory
+cd ~
+
+# Clone repository
+git clone https://github.com/yourusername/sulfur.git
+cd sulfur
+```
+
+#### Step 5: Setup Database
+
+```bash
+# Login to MySQL
+mysql -u root -p
+
+# In MySQL prompt:
+CREATE DATABASE sulfur_bot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE USER 'sulfur_bot_user'@'localhost' IDENTIFIED BY 'your_secure_password';
+
+GRANT ALL PRIVILEGES ON sulfur_bot.* TO 'sulfur_bot_user'@'localhost';
+
+FLUSH PRIVILEGES;
+
+EXIT;
+
+# Import schema
+mysql -u sulfur_bot_user -p sulfur_bot < config/sulfur_bot_schema.sql
+```
+
+#### Step 6: Configure Environment
+
+```bash
+# Create .env file
+nano .env
+```
+
+Add the following (paste by long-pressing):
+```env
+DISCORD_TOKEN=your_discord_bot_token_here
+DB_HOST=localhost
+DB_USER=sulfur_bot_user
+DB_PASSWORD=your_secure_password
+DB_NAME=sulfur_bot
+GEMINI_API_KEY=your_gemini_api_key_here
+OPENAI_API_KEY=your_openai_api_key_here
+BOT_PREFIX=!
+OWNER_ID=your_discord_user_id
+```
+
+Save with **Ctrl+O**, **Enter**, then **Ctrl+X**
+
+#### Step 7: Install Python Dependencies
+
+```bash
+# Create virtual environment
+python -m venv venv
+
+# Activate virtual environment
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+#### Step 8: Start Bot (Simple Method)
+
+```bash
+# Make scripts executable
+chmod +x start.sh maintain_bot.sh
+
+# Start the bot
+./start.sh
+```
+
+That's it! The bot is now running on your Android device.
+
+**Tips for Termux:**
+- Keep Termux running in the background (use Termux:Boot for auto-start)
+- Use Termux:Widget to add start/stop shortcuts to home screen
+- Press **Ctrl+C** to stop the bot gracefully
+- To run in background: Install `screen` with `pkg install screen`, then `screen ./start.sh`
+
+---
+
+### Linux Installation
+
+#### Step 1: Install Prerequisites
+
+```bash
+# Ubuntu/Debian
+sudo apt update
+sudo apt install python3 python3-pip python3-venv git mysql-server
+
+# Fedora/RHEL
+sudo dnf install python3 python3-pip git mariadb-server
+
+# Arch Linux
+sudo pacman -S python python-pip git mariadb
+
+# Start MySQL
+sudo systemctl start mysql
+sudo systemctl enable mysql
+```
+
+#### Step 2: Setup Database
+
+```bash
+# Secure MySQL installation
+sudo mysql_secure_installation
+
+# Login to MySQL
+sudo mysql
+
+# Create database and user
+CREATE DATABASE sulfur_bot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE USER 'sulfur_bot_user'@'localhost' IDENTIFIED BY 'your_secure_password';
+
+GRANT ALL PRIVILEGES ON sulfur_bot.* TO 'sulfur_bot_user'@'localhost';
+
+FLUSH PRIVILEGES;
+
+EXIT;
+
+# Import schema
+mysql -u sulfur_bot_user -p sulfur_bot < config/sulfur_bot_schema.sql
+```
+
+#### Step 3: Clone and Configure
+
+```bash
+# Clone repository
+cd /opt  # or wherever you want to install
+sudo git clone https://github.com/yourusername/sulfur.git
+cd sulfur
+
+# Create .env file
+sudo nano .env
+```
+
+Add configuration (same as Termux section above)
+
+#### Step 4: Install Dependencies
+
+```bash
+# Create virtual environment
+python3 -m venv venv
+
+# Activate
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+#### Step 5: Start Bot
+
+```bash
+# Make scripts executable
+chmod +x start.sh maintain_bot.sh
+
+# Start
+./start.sh
+```
+
+**Optional: Create systemd service for auto-start**
+
+```bash
+sudo nano /etc/systemd/system/sulfur-bot.service
+```
+
+Add:
+```ini
+[Unit]
+Description=Sulfur Discord Bot
+After=network.target mysql.service
+
+[Service]
+Type=simple
+User=your_username
+WorkingDirectory=/opt/sulfur
+ExecStart=/opt/sulfur/start.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start:
+```bash
+sudo systemctl enable sulfur-bot
+sudo systemctl start sulfur-bot
+
+# Check status
+sudo systemctl status sulfur-bot
+```
+
+---
+
+## ⚙️ Configuration
+
+### Discord Bot Setup
+
+1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
+2. Click "New Application"
+3. Go to "Bot" section
+4. Click "Add Bot"
+5. **Enable these Privileged Gateway Intents:**
+   - ✅ Presence Intent
+   - ✅ Server Members Intent
+   - ✅ Message Content Intent
+6. Copy the bot token and add to `.env`
+
+### Invite Bot to Server
+
+Use this URL (replace YOUR_CLIENT_ID):
+```
+https://discord.com/api/oauth2/authorize?client_id=YOUR_CLIENT_ID&permissions=8&scope=bot%20applications.commands
+```
+
+Get Client ID from: Discord Developer Portal > Your App > General Information
+
+### Environment Variables Reference
+
+| Variable | Required | Description | Example |
+|----------|----------|-------------|---------|
+| `DISCORD_TOKEN` | ✅ Yes | Bot token from Discord | `MTIzNDU2Nzg5MDEyMzQ1Njc4OQ.GhIjKl.MnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWx` |
+| `DB_HOST` | ✅ Yes | MySQL host | `localhost` |
+| `DB_USER` | ✅ Yes | MySQL username | `sulfur_bot_user` |
+| `DB_PASSWORD` | ✅ Yes | MySQL password | `your_secure_password` |
+| `DB_NAME` | ✅ Yes | Database name | `sulfur_bot` |
+| `GEMINI_API_KEY` | ✅ Yes | Google Gemini API key | `AIzaSyA...` |
+| `OPENAI_API_KEY` | ⚠️ Optional | OpenAI API key | `sk-proj-...` |
+| `BOT_PREFIX` | ⚠️ Optional | Command prefix | `!` (default) |
+| `OWNER_ID` | ⚠️ Optional | Your Discord user ID | `123456789012345678` |
+
+---
+
+## 🚀 Running the Bot
+
+### Windows
+
+```powershell
+# Start with maintenance system (recommended)
+.\maintain_bot.ps1
+
+# Or start manually (for testing)
+python bot.py
+```
+
+### Termux/Linux
+
+```bash
+# Simple start (recommended)
+./start.sh
+
+# Or use maintenance script directly
+./maintain_bot.sh
+
+# Run in background with screen
+screen -S sulfur ./start.sh
+# Detach: Ctrl+A, then D
+# Reattach: screen -r sulfur
+```
+
+---
+
+## 🌐 Web Dashboard
+
+The web dashboard provides real-time monitoring and control.
+
+**Access:** http://localhost:5000
+
+### Features:
+- 📊 **Live Statistics**: Server count, uptime, command usage
+- 📝 **Real-time Logs**: Color-coded console output
+- 🎮 **Bot Controls**: Start, stop, restart buttons
+- 🤖 **AI Dashboard**: Token usage tracking across all models (7-day, 30-day, all-time)
+- 💰 **Cost Monitoring**: Estimated API costs
+
+### Dashboard Pages:
+- `/` - Main dashboard with live stats
+- `/ai_dashboard` - AI usage analytics
+- `/logs` - Full log viewer
+
+---
+
+## 🔧 Maintenance Features
+
+### Auto-Update System
+
+The maintenance scripts check for updates every 60 seconds:
+
+1. Commits any local changes
+2. Pulls latest code from repository
+3. Restarts bot automatically
+4. If maintenance script itself updates, entire system restarts
+
+**Manual Update:**
+```powershell
+# Windows
+git pull
+
+# Termux/Linux
+git pull
+```
+
+### Auto-Commit System
+
+Every 5 minutes, the script:
+1. Checks for uncommitted changes
+2. Commits changes with timestamp
+3. Pushes to remote repository
+
+**Manual Commit:**
+```powershell
+# Windows
+git add -A
+git commit -m "Manual commit"
+git push
+
+# Termux/Linux
+git add -A
+git commit -m "Manual commit"
+git push
+```
+
+### Auto-Backup System
+
+Every 30 minutes:
+1. Creates MySQL dump
+2. Saves to `backups/` folder
+3. Keeps only last 10 backups
+
+**Manual Backup:**
+```powershell
+# Windows
+mysqldump -u sulfur_bot_user -p sulfur_bot > backups\manual_backup.sql
+
+# Termux/Linux
+mysqldump -u sulfur_bot_user -p sulfur_bot > backups/manual_backup.sql
+```
+
+### Control Flags
+
+Create these files in the root directory to control the bot:
+
+- `restart.flag` - Gracefully restart bot
+- `stop.flag` - Gracefully stop bot and maintenance script
+
+```powershell
+# Windows - Restart bot
+New-Item -ItemType File -Name "restart.flag"
+
+# Termux/Linux - Restart bot
+touch restart.flag
+```
+
+---
+
+## 🔍 Troubleshooting
+
+### Bot Won't Start
+
+**Problem:** "Could not connect to database"
+```
+Solution:
+1. Check if MySQL is running:
+   Windows: Services > MySQL
+   Linux: sudo systemctl status mysql
+   Termux: ps aux | grep mysql
+
+2. Verify credentials in .env file
+3. Test connection: mysql -u sulfur_bot_user -p
+```
+
+**Problem:** "Invalid Discord token"
+```
+Solution:
+1. Regenerate token in Discord Developer Portal
+2. Update DISCORD_TOKEN in .env
+3. Ensure no extra spaces or quotes
+```
+
+**Problem:** "Module not found"
+```
+Solution:
+1. Activate virtual environment:
+   Windows: .\venv\Scripts\Activate.ps1
+   Termux/Linux: source venv/bin/activate
+
+2. Reinstall dependencies:
+   pip install -r requirements.txt
+```
+
+### Database Issues
+
+**Problem:** "Table doesn't exist"
+```
+Solution:
+Run the database migration:
+mysql -u sulfur_bot_user -p sulfur_bot < scripts/db_migrations/002_medium_priority_features.sql
+```
+
+**Problem:** "Too many connections"
+```
+Solution:
+Edit MySQL config to increase max_connections:
+
+Windows: C:\ProgramData\MySQL\MySQL Server X.X\my.ini
+Linux: /etc/mysql/my.cnf
+
+Add:
+[mysqld]
+max_connections = 200
+
+Restart MySQL
+```
+
+### Web Dashboard Issues
+
+**Problem:** "Dashboard won't load"
+```
+Solution:
+1. Check if port 5000 is available:
+   Windows: netstat -ano | findstr :5000
+   Linux: lsof -i :5000
+
+2. Change port in web_dashboard.py if needed:
+   app.run(host='0.0.0.0', port=5001)
+```
+
+**Problem:** "Logs not showing"
+```
+Solution:
+1. Check logs directory exists
+2. Verify web_dashboard has write permissions
+3. Restart web dashboard
+```
+
+### Termux Specific Issues
+
+**Problem:** "Permission denied" when starting bot
+```
+Solution:
+chmod +x start.sh maintain_bot.sh
+```
+
+**Problem:** Bot stops when Termux closes
+```
+Solution:
+Install Termux:Boot app or use screen:
+
+pkg install screen
+screen -S sulfur ./start.sh
+# Detach with Ctrl+A, D
+```
+
+**Problem:** "Cannot connect to localhost MySQL"
+```
+Solution:
+1. Start MySQL: mysqld_safe &
+2. Wait 10 seconds
+3. Check: mysql -u root -p
+```
+
+---
+
+## ❓ FAQ
+
+### General Questions
+
+**Q: Can I run this bot 24/7?**
+A: Yes! The maintenance scripts are designed for 24/7 operation with auto-restart on crashes.
+
+**Q: How much does it cost to run?**
+A: Free for hosting (if you run it yourself). API costs vary:
+- Gemini: Free tier available, then $0.00025/1K tokens
+- OpenAI GPT-4: $0.03/1K input tokens, $0.06/1K output tokens
+
+**Q: Can I use this bot in multiple servers?**
+A: Yes, one bot instance can serve unlimited servers.
+
+**Q: Is this bot open source?**
+A: Yes, you can modify and customize it as needed.
+
+### Technical Questions
+
+**Q: Can I use PostgreSQL instead of MySQL?**
+A: Not without modifications. The bot uses MySQL-specific syntax.
+
+**Q: Can I run the bot without the web dashboard?**
+A: Yes, just start with `python bot.py` instead of the maintenance script.
+
+**Q: How do I backup my data?**
+A: Automatic backups run every 30 minutes. Manual: `mysqldump -u sulfur_bot_user -p sulfur_bot > backup.sql`
+
+**Q: Can I use only Gemini or only OpenAI?**
+A: Yes, just don't set the API key for the one you don't want to use.
+
+### Feature Questions
+
+**Q: How do I disable auto-updates?**
+A: Comment out the update check in maintain_bot.ps1/sh (lines with `Test-ForUpdates` or `check_for_updates`)
+
+**Q: How do I change auto-commit frequency?**
+A: Edit `$commitInterval` (PowerShell) or `COMMIT_INTERVAL` (bash) in the maintenance script
+
+**Q: Can I add custom commands?**
+A: Yes! Add them to `modules/` and import in `bot.py`
+
+---
+
+## 📁 Project Structure
+
+```
+sulfur/
+├── bot.py                    # Main bot file
+├── requirements.txt          # Python dependencies
+├── .env                      # Environment variables (create this)
+│
+├── config/                   # Configuration files
+│   ├── bot_status.json      # Real-time bot status
+│   ├── database_sync.sql    # Auto-generated DB sync
+│   └── sulfur_bot_schema.sql # Database schema
+│
+├── modules/                  # Bot modules
+│   ├── api_helpers.py       # AI API integration
+│   ├── bot_enhancements.py  # Helper functions
+│   ├── db_helpers.py        # Database functions
+│   ├── emoji_manager.py     # Emoji analysis system
+│   ├── werwolf.py           # Werwolf game
+│   └── ...
+│
+├── web/                      # Web dashboard
+│   ├── web_dashboard.py     # Flask server
+│   ├── layout.html          # Dashboard template
+│   ├── ai_dashboard.html    # AI stats page
+│   └── ...
+│
+├── scripts/                  # Utility scripts
+│   ├── db_migrations/       # Database migrations
+│   ├── check_errors.ps1     # Pre-flight checks
+│   └── ...
+│
+├── logs/                     # Log files (auto-generated)
+│   ├── maintenance_*.log    # Maintenance script logs
+│   ├── bot_*.log           # Bot runtime logs
+│   └── web_*.log           # Web dashboard logs
+│
+├── backups/                  # Database backups (auto-generated)
+│   └── sulfur_bot_backup_*.sql
+│
+├── docs/                     # Documentation
+│   ├── IMPLEMENTATION_SUMMARY.md
+│   └── MEDIUM_PRIORITY_FEATURES.md
+│
+└── maintain_bot.ps1 / .sh   # Maintenance scripts
+    start.sh                  # Simple startup script
+    TODO.md                   # Feature roadmap
+    README.md                 # This file
+```
+
+---
+
+## 🎯 Next Steps
+
+After installation:
+
+1. **Test Commands**: Join your server and try `!help`
+2. **Configure Permissions**: Set up role-based access
+3. **Enable Features**: Check TODO.md for available features
+4. **Monitor Dashboard**: Visit http://localhost:5000
+5. **Join Support Server**: (Add your Discord server invite)
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Submit a pull request
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License.
+
+---
+
+## 🆘 Support
+
+- **Issues**: GitHub Issues
+- **Discord**: (Add your Discord server link)
+- **Email**: (Add your contact email)
+
+---
+
+## 🎉 Credits
+
+- **Discord.py**: Amazing Discord library
+- **Google Gemini**: AI capabilities
+- **OpenAI**: GPT models
+- **All Contributors**: Thank you!
+
+---
+
+**Made with ❤️ for the Discord community**
