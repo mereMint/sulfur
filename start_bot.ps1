@@ -1,3 +1,8 @@
+# --- NEW: Accept LogFile path from maintain_bot.ps1 ---
+param(
+    [string]$LogFile
+)
+
 # --- NEW: Import shared functions ---
 . "$PSScriptRoot\shared_functions.ps1"
 
@@ -17,8 +22,19 @@ if (Test-Path -Path ".env") {
     }
 }
 
+# If LogFile is not passed, create a new one (for standalone execution)
+$IsStandalone = [string]::IsNullOrEmpty($LogFile)
+
 # --- NEW: Setup Logging ---
 # Logging is now handled by the parent maintain_bot.ps1 script via job output redirection.
+if ($IsStandalone) {
+    $logDir = Join-Path -Path $PSScriptRoot -ChildPath "logs"
+    if (-not (Test-Path -Path $logDir -PathType Container)) {
+        New-Item -ItemType Directory -Path $logDir | Out-Null
+    }
+    $logTimestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+    $LogFile = Join-Path -Path $logDir -ChildPath "bot_session_${logTimestamp}.log"
+}
 
 # --- REFACTORED: Define paths and database connection details at the top ---
 $xamppPath = "C:\xampp" # Centralize the XAMPP path for easy configuration
@@ -115,7 +131,11 @@ Write-Host "Starting the bot... (Press CTRL+C to stop)"
 # --- FIX: Use Start-Process for more reliable execution in the same window ---
 # --- REFACTORED: Simply execute the bot. The parent job will capture its output. ---
 # The -u flag forces python's output to be unbuffered.
-& $pythonExecutable -u -X utf8 bot.py
+if ($IsStandalone) {
+    & $pythonExecutable -u -X utf8 bot.py *>&1 | Tee-Object -FilePath $LogFile -Append
+} else {
+    & $pythonExecutable -u -X utf8 bot.py
+}
 
 # --- NEW: Pause on error to allow copying logs ---
 # --- FIX: Use $pipelinestatus to get the correct exit code from the python process, not Tee-Object ---

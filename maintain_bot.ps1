@@ -68,14 +68,14 @@ function Start-WebDashboard {
     # --- REFACTORED: Use Start-Job and have it return the process object directly. ---
     # This is the most reliable way to get the PID in PS 5.1 without race conditions.
     $script:webDashboardJob = Start-Job -ScriptBlock {
-        param($py, $ScriptRoot)
+        param($py, $ScriptRoot, $log)
         # Start the process and pass its object out of the job.
-        # The job's output stream will capture the stdout/stderr of the python process.
+        # All output is redirected to the main log file.
         Set-Location -Path $ScriptRoot
-        & $py -u "web_dashboard.py"
-    } -ArgumentList $PythonExecutable, $PSScriptRoot
+        Start-Process -FilePath $py -ArgumentList "-u web_dashboard.py" -NoNewWindow -PassThru -RedirectStandardOutput $log -Append -RedirectStandardError $log -Append
+    } -ArgumentList $PythonExecutable, $PSScriptRoot, $LogFilePath
     # Wait for the job to output the process object and receive it.
-    $webDashboardProcess = Get-Process -Id ($script:webDashboardJob.ChildJobs[0].ProcessId)
+    $webDashboardProcess = $script:webDashboardJob | Wait-Job | Receive-Job
     Write-Host "Web Dashboard process started (Process ID: $($webDashboardProcess.Id))"
 
     Write-Host "Waiting for the Web Dashboard to become available on http://localhost:5000..." -ForegroundColor Gray
@@ -149,12 +149,14 @@ while ($true) {
     # --- REFACTORED: Run the bot script directly inside the job, don't create a new window. ---
     # --- FIX: Get the correct process ID from the job ---
     $script:botJob = Start-Job -ScriptBlock {
-        param($ScriptRoot)
+        param($ScriptRoot, $log)
         # Set the location and execute the start script. All output will be captured by the job.
         Set-Location -Path $ScriptRoot
-        . "$PSScriptRoot\start_bot.ps1"
-    } -ArgumentList $PSScriptRoot
-    $script:botProcess = Get-Process -Id ($script:botJob.ChildJobs[0].ProcessId)
+        # Start the bot script in a new window and pass the process object out of the job
+        Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", "& '$ScriptRoot\start_bot.ps1' -LogFile '$log'" -PassThru
+    } -ArgumentList $PSScriptRoot, $logFile
+    $script:botProcess = $script:botJob | Wait-Job | Receive-Job
+
     [System.IO.File]::WriteAllText($statusFile, (@{status = "Running"; pid = $script:botProcess.Id } | ConvertTo-Json -Compress), ([System.Text.UTF8Encoding]::new($false)))
     Write-Host "Bot is running as a background job (Process ID: $($script:botProcess.Id)). Checking for updates every 60 seconds."
 
@@ -162,7 +164,7 @@ while ($true) {
     $checkCounter = 0
     $checkIntervalSeconds = 15
 
-    while ($script:botJob.State -eq 'Running') {
+    while (Test-ProcessRunning -ProcessId $script:botProcess.Id) {
         # --- NEW: Continuously capture and log output from the bot job ---
         Receive-JobOutput -Job $script:botJob -LogFilePath $logFile
         Receive-JobOutput -Job $script:webDashboardJob -LogFilePath $logFile
