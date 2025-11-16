@@ -58,7 +58,8 @@ def follow_log_file():
                 file.close()
             if latest_log:
                 socketio.emit('log_update', {'data': f'\n--- Switched to new log file: {os.path.basename(latest_log)} ---\n'}, namespace='/')
-                file = open(latest_log, 'r', encoding='utf-8')
+                # --- FIX: Open with error handling for encoding issues ---
+                file = open(latest_log, 'r', encoding='utf-8', errors='ignore')
                 # Go to the end of the file
                 file.seek(0, 2)
             last_known_file = latest_log
@@ -167,7 +168,8 @@ def api_bot_status():
     status_file = 'bot_status.json'
     try:
         if os.path.exists(status_file):
-            with open(status_file, 'r') as f:
+            # --- FIX: Use utf-8-sig to handle potential BOM from PowerShell ---
+            with open(status_file, 'r', encoding='utf-8-sig') as f:
                 return jsonify(json.load(f))
         else:
             return jsonify({'status': 'Unknown', 'message': 'Status file not found.'})

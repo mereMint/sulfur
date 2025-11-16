@@ -106,6 +106,4 @@ echo "Cleanup complete."
 
 echo "Starting the bot... (Press CTRL+C to stop if running manually)"
 # The -u flag forces python's output to be unbuffered.
-# `tee` splits the output to both the console and the log file.
-
-"$PYTHON_EXECUTABLE" -u -X utf8 bot.py 2>&1 | tee -a "$LOG_FILE"
+"$PYTHON_EXECUTABLE" -u -X utf8 bot.py

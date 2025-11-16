@@ -144,7 +144,7 @@ Write-Host "Starting the bot... (Press CTRL+C to stop)"
 
 # --- REFACTORED: Call python directly and use Tee-Object to capture all output to the log file ---
 # This is the PowerShell equivalent of `2>&1 | tee -a` in bash.
-& $pythonExecutable -u -X utf8 bot.py *>&1 | Tee-Object -FilePath $LogFile -Append
+& $pythonExecutable -u -X utf8 bot.py *>&1 | Tee-Object -FilePath $LogFile -Append -Encoding utf8NoBOM
 
 # --- NEW: Pause on error to allow copying logs ---
 # --- FIX: Use $pipelinestatus to get the correct exit code from the python process, not Tee-Object ---

@@ -18,10 +18,7 @@ mkdir -p "$LOG_DIR"
 LOG_TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 LOG_FILE="$LOG_DIR/session_${LOG_TIMESTAMP}.log"
 
-# Redirect all stdout and stderr from this script to the log file and the console
-exec &> >(tee -a "$LOG_FILE")
-
-echo "Logging this session to: $LOG_FILE"
+echo "Logging this session to: $LOG_FILE" | tee -a "$LOG_FILE"
 # --- Ensure Python environment is ready ---
 echo "Checking Python virtual environment..."
 VENV_PYTHON=$(ensure_venv)
@@ -41,7 +38,7 @@ BOT_PID=""
 # --- Function to start and verify the Web Dashboard ---
 function start_web_dashboard {
     echo "Starting the Web Dashboard..."
-    # Start in the background, get its PID, and append logs to the central log file
+    # Start in the background, get its PID, and append logs to the central log file.
     "$VENV_PYTHON" -u web_dashboard.py >> "$LOG_FILE" 2>&1 &
     WEB_DASHBOARD_PID=$!
     echo "Web Dashboard process started (PID: $WEB_DASHBOARD_PID)"
@@ -94,7 +91,7 @@ while true; do
     echo '{"status": "Starting..."}' > "$STATUS_FILE"
     echo "Starting the bot process..."
     # Start the main bot script in the background, passing the log file path
-    ./start_bot.sh "$LOG_FILE" &
+    ./start_bot.sh "$LOG_FILE" >> "$LOG_FILE" 2>&1 &
     BOT_PID=$!
 
     echo "{\"status\": \"Running\", \"pid\": $BOT_PID}" > "$STATUS_FILE"
