@@ -179,7 +179,8 @@ The Sulfur Bot system consists of three main components that work together:
 
 ### Manual Database Export
 - Stop the maintenance watcher (press 'Q')
-- Manually run: `mysqldump --user=sulfur_bot_user --host=localhost sulfur_bot > backup.sql`
+- Windows: `mysqldump --user=sulfur_bot_user --host=localhost sulfur_bot > backup.sql`
+- Linux/Termux: `mariadb-dump --user=sulfur_bot_user --host=localhost sulfur_bot > backup.sql`
 
 ## Environment Variables (.env)
 
@@ -222,7 +223,7 @@ python3 --version
 pip3 list
 ```
 
-### Check MySQL Status
+### Check MySQL/MariaDB Status
 ```powershell
 # Windows
 Get-Process mysqld
@@ -231,6 +232,9 @@ Get-Process mysqld
 ```bash
 # Linux
 pgrep mysqld
+
+# Termux (use mariadbd)
+pgrep mariadbd
 ```
 
 ### Check Port Usage

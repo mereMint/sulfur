@@ -20,7 +20,8 @@ Use this checklist before starting the bot system.
   - Test: Check system services or processes
   - Windows: `tasklist | findstr mysqld`
   - Linux: `pgrep mysqld`
-  - Should show at least one mysqld process
+  - Termux: `pgrep mariadbd`
+  - Should show at least one mysqld/mariadbd process
 
 ## Configuration Files
 
@@ -47,12 +48,14 @@ Use this checklist before starting the bot system.
 
 ## Database Setup
 
-- [ ] MySQL user `sulfur_bot_user` exists
-  - Test: `mysql -u sulfur_bot_user -h localhost`
+- [ ] MySQL/MariaDB user `sulfur_bot_user` exists
+  - Windows/Linux: `mysql -u sulfur_bot_user -h localhost`
+  - Termux: `mariadb -u sulfur_bot_user -h localhost`
   - Should connect (may not have permissions yet)
 
 - [ ] Database `sulfur_bot` exists
-  - Test: `mysql -u root -p` then `SHOW DATABASES;`
+  - Windows/Linux: `mysql -u root -p` then `SHOW DATABASES;`
+  - Termux: `mariadb -u root` then `SHOW DATABASES;`
   - Should list "sulfur_bot"
 
 - [ ] User has proper permissions
@@ -158,9 +161,13 @@ Use this checklist before starting the bot system.
 4. [ ] Discord bot token is valid and has required permissions
 5. [ ] No other services using ports 5000, 3306
 6. [ ] Git repository is initialized (`.git/` folder exists)
-7. [ ] Test MySQL connection:
+7. [ ] Test MySQL/MariaDB connection:
    ```
+   # Windows/Linux
    mysql -u sulfur_bot_user -h localhost -e "SELECT 1;"
+   
+   # Termux
+   mariadb -u sulfur_bot_user -h localhost -e "SELECT 1;"
    ```
    Should return "1" without errors
 

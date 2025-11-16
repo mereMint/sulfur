@@ -12,7 +12,7 @@ All startup and maintenance tools have been reviewed, debugged, and enhanced. Th
 3. **start_bot.ps1** - Fixed MySQL validation, improved git error handling
 4. **maintain_bot.ps1** - Fixed UTF8 encoding typo, added dashboard health checks
 5. **maintain_bot.sh** - Improved error handling, fixed database export
-6. **start_bot.sh** - Added fallback for mysqld_safe, better error messages
+6. **start_bot.sh** - Added fallback for mariadbd-safe and mariadb-dump (Termux compatibility), better error messages
 7. **voice_manager.py** - Removed duplicate import
 
 ### Documentation Created
@@ -103,7 +103,10 @@ chmod +x *.sh
 
 Before running the maintenance watcher:
 
-- [ ] MySQL running: `pgrep mysqld` (Linux) or Task Manager (Windows)
+- [ ] MySQL/MariaDB running:
+  - Windows: Task Manager
+  - Linux: `pgrep mysqld`
+  - Termux: `pgrep mariadbd`
 - [ ] `.env` file exists with Discord bot token
 - [ ] `config.json` valid JSON
 - [ ] Python 3.10+ installed

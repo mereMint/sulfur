@@ -341,9 +341,11 @@ if __name__ == '__main__':
     
     # --- REFACTORED: Use a production-ready WSGI server (waitress) instead of Flask's dev server ---
     # This is more stable and reliable for network access.
+    # Note: host='0.0.0.0' allows access from network (required for Termux/Android access from other devices)
     from waitress import serve
     print("[Web Dashboard] --- Starting Sulfur Bot Web Dashboard ---")
     print("[Web Dashboard] --- Access it at http://localhost:5000 ---")
+    print("[Web Dashboard] --- Or from network: http://YOUR_IP:5000 ---")
     try:
         serve(socketio.WSGIApp(app), host='0.0.0.0', port=5000)
     except Exception as e:
