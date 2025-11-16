@@ -71,7 +71,7 @@ function Start-WebDashboard {
         param($py)
         # Start the process and pass its object out of the job.
         # The job's output stream will capture the stdout/stderr of the python process.
-        Start-Process -FilePath $py -ArgumentList "-u", "web_dashboard.py" -NoNewWindow -PassThru -Wait
+        Start-Process -FilePath $py -ArgumentList "-u", "web_dashboard.py" -NoNewWindow -PassThru
     } -ArgumentList $PythonExecutable
     # Wait for the job to output the process object and receive it.
     # We add a small delay to ensure the job has time to start the process.
