@@ -16,6 +16,8 @@
 $statusFile = Join-Path -Path $PSScriptRoot -ChildPath "bot_status.json"
 $script:webDashboardProcess = $null
 $script:botProcess = $null
+$script:webDashboardJob = $null
+$script:botJob = $null
 
 # --- NEW: Centralized Logging Setup ---
 $logDir = Join-Path -Path $PSScriptRoot -ChildPath "logs"
@@ -32,8 +34,10 @@ Start-Transcript -Path $logFile -Append
 trap [System.Management.Automation.PipelineStoppedException] {
     Write-Host "Watcher window closed or script stopped. Cleaning up child processes..." -ForegroundColor Red
     # Gracefully stop child processes
-    if ($script:botProcess) { Stop-Process -Id $script:botProcess.Id -Force -ErrorAction SilentlyContinue }
-    if ($script:webDashboardProcess) { Stop-Process -Id $script:webDashboardProcess.Id -Force -ErrorAction SilentlyContinue }
+    if ($script:botJob) { Stop-Job -Job $script:botJob -Force; Remove-Job -Job $script:botJob -Force }
+    if ($script:webDashboardJob) { Stop-Job -Job $script:webDashboardJob -Force; Remove-Job -Job $script:webDashboardJob -Force }
+    if ($script:botProcess) { Stop-Process -Id $script:botProcess.Id -Force -ErrorAction SilentlyContinue } # Fallback
+    if ($script:webDashboardProcess) { Stop-Process -Id $script:webDashboardProcess.Id -Force -ErrorAction SilentlyContinue } # Fallback
     [System.IO.File]::WriteAllText($statusFile, (@{status = "Shutdown" } | ConvertTo-Json -Compress), ([System.Text.UTF8Encoding]::new($false)))
     Stop-Transcript
     # Exit the script cleanly
@@ -61,12 +65,12 @@ function Start-WebDashboard {
         [string]$LogFilePath
     )
     Write-Host "Starting the Web Dashboard as a background process..."
-    # --- REFACTORED: Use cmd.exe for robust output redirection compatible with PowerShell 5.1 ---
-    # This avoids issues with Start-Job and the missing -Append parameter in Start-Process.
-    # --- FIX: Remove explicit redirection to the log file to avoid conflicts with Start-Transcript. ---
-    # Start-Transcript will automatically capture the output of this command.
-    $command = "cmd /c `"$PythonExecutable`" -u web_dashboard.py 2>&1"
-    $webDashboardProcess = Start-Process powershell.exe -ArgumentList "-Command", $command -NoNewWindow -PassThru
+    # --- REFACTORED: Use Start-Job for reliable background execution and output capture ---
+    $script:webDashboardJob = Start-Job -ScriptBlock {
+        param($py)
+        & $py -u "web_dashboard.py"
+    } -ArgumentList $PythonExecutable
+    $webDashboardProcess = Get-Process -Id ($script:webDashboardJob.ChildJobs[0].ProcessId)
     Write-Host "Web Dashboard process started (Process ID: $($webDashboardProcess.Id))"
 
     Write-Host "Waiting for the Web Dashboard to become available on http://localhost:5000..." -ForegroundColor Gray
@@ -74,7 +78,7 @@ function Start-WebDashboard {
     $startTime = Get-Date
     $serverReady = $false
 
-    while (((Get-Date) - $startTime).TotalSeconds -lt $timeoutSeconds) {
+    while (((Get-Date) - $startTime).TotalSeconds -lt $timeoutSeconds) { # Check if the process is still running
         if ($null -eq (Get-Process -Id $webDashboardProcess.Id -ErrorAction SilentlyContinue)) {
             Write-Host "Web Dashboard process terminated unexpectedly during startup. Check the new window for error messages." -ForegroundColor Red
             return $null
@@ -119,13 +123,27 @@ function Stop-ProcessGracefully {
     }
 }
 
+# --- NEW: Function to receive and log job output ---
+function Receive-JobOutput {
+    param(
+        [System.Management.Automation.Job]$Job,
+        [string]$LogFilePath
+    )
+    while ($Job.HasMoreData) {
+        $output = Receive-Job -Job $Job -Keep
+        $output | Add-Content -Path $LogFilePath -Encoding utf8
+    }
+}
+
 while ($true) {
     [System.IO.File]::WriteAllText($statusFile, (@{status = "Starting..." } | ConvertTo-Json -Compress), ([System.Text.UTF8Encoding]::new($false)))
     Write-Host "Starting the bot process..."
-    # Start the main bot script as a background job.
-    # This allows the watcher to continue running while the bot is active.
-    # --- FIX: Pass the central log file path to the bot script ---
-    $script:botProcess = Start-Process powershell.exe -ArgumentList "-NoExit", "-Command", "& `"$($PSScriptRoot)\start_bot.ps1`" -LogFile `"$logFile`"" -PassThru
+    # --- REFACTORED: Start the bot as a background job for reliable control and output capture ---
+    $script:botJob = Start-Job -ScriptBlock {
+        # We need to re-import functions inside the job's scope
+        . "$PSScriptRoot\start_bot.ps1"
+    }
+    $script:botProcess = Get-Process -Id ($script:botJob.ChildJobs[0].ProcessId)
 
     [System.IO.File]::WriteAllText($statusFile, (@{status = "Running"; pid = $script:botProcess.Id } | ConvertTo-Json -Compress), ([System.Text.UTF8Encoding]::new($false)))
     Write-Host "Bot is running in a new window (Process ID: $($script:botProcess.Id)). Checking for updates every 60 seconds."
@@ -134,13 +152,17 @@ while ($true) {
     $checkCounter = 0
     $checkIntervalSeconds = 15
 
-    while (Test-ProcessRunning -ProcessId $script:botProcess.Id) {
+    while ($script:botJob.State -eq 'Running') {
+        # --- NEW: Continuously capture and log output from the bot job ---
+        Receive-JobOutput -Job $script:botJob -LogFilePath $logFile
+        Receive-JobOutput -Job $script:webDashboardJob -LogFilePath $logFile
+
         # --- Check for shutdown key press ---
         if ([System.Console]::KeyAvailable) {
             $key = [System.Console]::ReadKey($true) # $true hides the key press from the console
             if ($key.Key -eq 'Q') {
                 Write-Host "Shutdown key ('Q') pressed. Stopping bot and exiting..." -ForegroundColor Yellow
-                Stop-ProcessGracefully -ProcessId $script:botProcess.Id
+                Stop-Job -Job $script:botJob -Force
                 # The start_bot script's exit trap handles the DB dump. Give it a moment.
                 Start-Sleep -Seconds 2
 
@@ -154,7 +176,7 @@ while ($true) {
 
                 Write-Host "Shutdown complete."
                 [System.IO.File]::WriteAllText($statusFile, (@{status = "Shutdown" } | ConvertTo-Json -Compress), ([System.Text.UTF8Encoding]::new($false)))
-                if ($script:webDashboardProcess) { Stop-ProcessGracefully -ProcessId $script:webDashboardProcess.Id }
+                if ($script:webDashboardJob) { Stop-Job -Job $script:webDashboardJob -Force; Remove-Job -Job $script:webDashboardJob -Force }
                 exit 0
             }
         }
@@ -162,7 +184,7 @@ while ($true) {
         # --- NEW: Check for control flags from web dashboard ---
         if (Test-Path -Path "stop.flag") {
             Write-Host "Stop signal received from web dashboard. Shutting down..." -ForegroundColor Yellow
-            if ($script:botProcess) { Stop-ProcessGracefully -ProcessId $script:botProcess.Id }
+            if ($script:botJob) { Stop-Job -Job $script:botJob -Force }
             Start-Sleep -Seconds 2
             Remove-Item "stop.flag" -ErrorAction SilentlyContinue
             # Final DB commit
@@ -170,7 +192,7 @@ while ($true) {
                 git add $dbSyncFile; git commit -m "chore: Sync database schema on shutdown"; git push
             }
             [System.IO.File]::WriteAllText($statusFile, (@{status = "Shutdown" } | ConvertTo-Json -Compress), ([System.Text.UTF8Encoding]::new($false)))
-            if ($script:webDashboardProcess) { Stop-ProcessGracefully -ProcessId $script:webDashboardProcess.Id } # Stop the web dashboard
+            if ($script:webDashboardJob) { Stop-Job -Job $script:webDashboardJob -Force; Remove-Job -Job $script:webDashboardJob -Force }
             Stop-Transcript
             exit 0
         }
@@ -178,8 +200,8 @@ while ($true) {
             Write-Host "Restart signal received from web dashboard. Restarting bot..." -ForegroundColor Yellow
             Remove-Item "restart.flag" -ErrorAction SilentlyContinue
             [System.IO.File]::WriteAllText($statusFile, (@{status = "Restarting..." } | ConvertTo-Json -Compress), ([System.Text.UTF8Encoding]::new($false)))
-            # Setting status to trigger a restart in the outer loop
-            $status = "*Your branch is behind*" 
+            Stop-Job -Job $script:botJob -Force
+            break # Break inner loop to trigger restart
         }
 
         # --- REFACTORED: Use a short sleep and a counter for responsiveness ---
@@ -190,7 +212,7 @@ while ($true) {
         if ($checkCounter -ge $checkIntervalSeconds) {
             # --- Log the time of the update check ---
             # --- NEW: Check if the web dashboard is still running, restart if not ---
-            if ($null -eq (Get-Process -Id $script:webDashboardProcess.Id -ErrorAction SilentlyContinue)) {
+            if ($script:webDashboardJob.State -ne 'Running') {
                 Write-Host "Web Dashboard process is not running. Attempting to restart..." -ForegroundColor Yellow
                 $script:webDashboardProcess = Start-WebDashboard -PythonExecutable $venvPython -LogFilePath $logFile
             }
@@ -206,7 +228,7 @@ while ($true) {
                 Write-Host "New version found in the repository! Restarting the bot to apply updates..."
                 # Create the flag file to signal the bot to go idle
                 New-Item -Path "update_pending.flag" -ItemType File -Force | Out-Null
-                Stop-ProcessGracefully -ProcessId $script:botProcess.Id # Stop the bot
+                Stop-Job -Job $script:botJob -Force # Stop the bot
                 Start-Sleep -Seconds 2 # Give it a moment for the exit trap to run
                 
                 # --- NEW: Commit database changes before pulling ---
@@ -225,7 +247,7 @@ while ($true) {
 
                 if ($watcher_updated) {
                     Write-Host "Watcher script has been updated! Rebooting the entire watcher system..." -ForegroundColor Magenta
-                    if ($script:webDashboardProcess) { Stop-ProcessGracefully -ProcessId $script:webDashboardProcess.Id }
+                    if ($script:webDashboardJob) { Stop-Job -Job $script:webDashboardJob -Force; Remove-Job -Job $script:webDashboardJob -Force }
                     # Start the bootstrapper to restart the watcher, then exit this old instance.
                     Start-Process powershell.exe -ArgumentList "-File `"$($PSScriptRoot)\bootstrapper.ps1`""
                     Stop-Transcript
@@ -244,6 +266,9 @@ while ($true) {
             $checkCounter = 0
         }
     }
+
+    # --- NEW: Clean up the finished job before restarting ---
+    Remove-Job -Job $script:botJob -Force
 
     [System.IO.File]::WriteAllText($statusFile, (@{status = "Stopped" } | ConvertTo-Json -Compress), ([System.Text.UTF8Encoding]::new($false)))
     Write-Host "Bot process stopped. It will be restarted shortly..."

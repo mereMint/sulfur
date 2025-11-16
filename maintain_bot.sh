@@ -66,10 +66,18 @@ function start_web_dashboard {
 # --- NEW: Trap for graceful shutdown on CTRL+C or script termination ---
 function cleanup {
     echo -e "\nCaught exit signal. Shutting down all child processes..."
+    # --- NEW: Perform final DB export on shutdown ---
+    if [ -f "$DB_SYNC_FILE" ]; then
+        echo "Exporting database to $DB_SYNC_FILE for synchronization..."
+        mysqldump --user="$DB_USER" --host=localhost --default-character-set=utf8mb4 "$DB_NAME" > "$DB_SYNC_FILE"
+        echo "Database export complete."
+    fi
+
     echo '{"status": "Shutdown"}' > "$STATUS_FILE"
     # Kill the bot process if it's running
     if [ -n "$BOT_PID" ] && ps -p $BOT_PID > /dev/null; then
-        kill $BOT_PID
+        echo "Stopping Bot (PID: $BOT_PID)..."
+        kill -9 $BOT_PID # Use SIGKILL to ensure it stops
     fi
     # Kill the web dashboard process if it's running
     if [ -n "$WEB_DASHBOARD_PID" ] && ps -p $WEB_DASHBOARD_PID > /dev/null; then
@@ -90,11 +98,24 @@ fi
 while true; do
     echo '{"status": "Starting..."}' > "$STATUS_FILE"
     echo "Starting the bot process..."
-    # Start the main bot script in the background, passing the log file path
-    ./start_bot.sh "$LOG_FILE" >> "$LOG_FILE" 2>&1 &
-    BOT_PID=$!
+    # --- REFACTORED: Start the script and then find the actual Python child process ---
+    # Start the startup script in the background
+    ./start_bot.sh >> "$LOG_FILE" 2>&1 &
+    START_SCRIPT_PID=$!
 
-    echo "{\"status\": \"Running\", \"pid\": $BOT_PID}" > "$STATUS_FILE"
+    # Wait for the startup script to launch the python process and then find it.
+    BOT_PID=""
+    for i in {1..10}; do
+        # Find a python process that is a child of our startup script
+        BOT_PID=$(pgrep -P $START_SCRIPT_PID -f "python -u -X utf8 bot.py")
+        if [ -n "$BOT_PID" ]; then
+            break
+        fi
+        sleep 1
+    done
+
+    # Now that we have the real bot PID, we can monitor it.
+    echo "{\"status\": \"Running\", \"pid\": \"$BOT_PID\"}" > "$STATUS_FILE"
     echo "Bot is running (PID: $BOT_PID). Checking for updates every 60 seconds."
 
     # Inner loop to monitor the running bot
@@ -103,7 +124,7 @@ while true; do
         read -t 1 -n 1 key
         if [[ $key == "q" || $key == "Q" ]]; then
             echo "Shutdown key ('Q') pressed. Stopping bot and exiting..."
-            kill $BOT_PID
+            kill -9 $BOT_PID
             sleep 2 # Give it a moment for the exit trap to run
 
             # Final DB commit
@@ -133,17 +154,26 @@ while true; do
         fi
 
         # Check for git updates every 60 seconds
+        # --- NEW: Perform git operations here, not in start_bot.sh ---
         git remote update
         STATUS=$(git status -uno)
 
         if [[ "$STATUS" == *"Your branch is behind"* ]]; then
             echo '{"status": "Updating..."}' > "$STATUS_FILE"
             echo "New version found! Restarting the bot to apply updates..."
-            touch "update_pending.flag"
-            kill $BOT_PID
+            
+            # Commit DB changes before pulling
+            echo "Exporting database before update..."
+            mysqldump --user="$DB_USER" --host=localhost --default-character-set=utf8mb4 "$DB_NAME" > "$DB_SYNC_FILE"
+            if [[ -n $(git status --porcelain "$DB_SYNC_FILE") ]]; then
+                git add "$DB_SYNC_FILE"
+                git commit -m "chore: Sync database schema before update"
+                git push
+            fi
+
+            git pull
+            kill -9 $BOT_PID
             sleep 2
-            # The start_bot.sh script handles the pre-pull commit via its exit trap
-            rm -f "update_pending.flag"
             break # Exit inner loop to restart
         fi
 

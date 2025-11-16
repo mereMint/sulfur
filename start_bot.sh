@@ -1,72 +1,18 @@
 #!/bin/bash
 
 # This script sets the necessary environment variables and starts the Sulfur bot on Linux/Termux.
-# To run it:
-# 1. Make it executable: chmod +x start_bot.sh
-# 2. Run the script with: ./start_bot.sh [LOG_FILE_PATH]
+# It is intended to be called by maintain_bot.sh.
 
-# --- NEW: Accept LogFile path from maintain_bot.sh ---
-LOG_FILE_ARG=$1
-IS_STANDALONE=true
-[ -z "$LOG_FILE_ARG" ] || IS_STANDALONE=false
 # --- Set the working directory to the script's location ---
 cd "$(dirname "$0")"
 
 # --- Import shared functions ---
 source ./shared_functions.sh
 
-# --- Load environment variables from .env file ---
-if [ -f .env ]; then
-  # A safer way to load .env files in bash
-  set -o allexport
-  source .env
-  set +o allexport
-fi
-
-# --- Setup Logging ---
-if [ "$IS_STANDALONE" = true ]; then
-    LOG_DIR="logs"
-    mkdir -p "$LOG_DIR"
-    LOG_TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
-    LOG_FILE="$LOG_DIR/bot_session_${LOG_TIMESTAMP}.log"
-else
-    LOG_FILE="$LOG_FILE_ARG"
-fi
-echo "Logging this session to: $LOG_FILE"
-
 # --- Database connection details ---
 # These should be set in your .env file, but we provide defaults
 DB_NAME=${DB_NAME:-"sulfur_bot"}
 DB_USER=${DB_USER:-"sulfur_bot_user"}
-
-# --- Register an action to export the database on script exit ---
-SYNC_FILE="database_sync.sql"
-
-cleanup() {
-    echo "Exporting database to $SYNC_FILE for synchronization..."
-    # In Termux, mysqldump is directly available if mariadb is installed
-    mysqldump --user="$DB_USER" --host=localhost --default-character-set=utf8mb4 "$DB_NAME" > "$SYNC_FILE"
-    echo "Database export complete."
-}
-trap cleanup EXIT
-
-echo "Checking for updates from the repository..."
-echo "  -> Stashing local changes to avoid conflicts..."
-git stash > /dev/null
-
-echo "  -> Pulling latest version from the repository..."
-git pull
-if [ $? -ne 0 ]; then
-    echo -e "\033[0;31m--------------------------------------------------------\033[0m"
-    echo -e "\033[0;31mError: 'git pull' failed. The script cannot continue.\033[0m"
-    echo -e "\033[0;33mPlease check your internet connection and git status, then try again.\033[0m"
-    read -p "Press Enter to exit."
-    exit 1
-fi
-
-echo "  -> Re-applying stashed local changes..."
-git stash pop > /dev/null
-echo "Update check complete."
 
 # --- Check for Python executable before proceeding ---
 if ! command -v python &> /dev/null; then

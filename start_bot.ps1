@@ -1,14 +1,6 @@
-# --- NEW: Accept LogFile path from maintain_bot.ps1 ---
-param(
-    [string]$LogFile
-)
-
 # --- FIX: Set the working directory to the script's location AFTER the param block ---
 # This ensures that relative paths for files like .env and bot.py work correctly.
 Set-Location -Path $PSScriptRoot
-
-# If LogFile is not passed, create a new one (for standalone execution)
-$IsStandalone = [string]::IsNullOrEmpty($LogFile)
 
 # --- NEW: Import shared functions ---
 . "$PSScriptRoot\shared_functions.ps1"
@@ -30,17 +22,7 @@ if (Test-Path -Path ".env") {
 }
 
 # --- NEW: Setup Logging ---
-# --- REFACTORED: Use relative paths for portability ---
-if ($IsStandalone) {
-    $logDir = Join-Path -Path $PSScriptRoot -ChildPath "logs"
-    if (-not (Test-Path -Path $logDir -PathType Container)) {
-        New-Item -ItemType Directory -Path $logDir | Out-Null
-    }
-    $logTimestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
-    $LogFile = Join-Path -Path $logDir -ChildPath "bot_session_${logTimestamp}.log"
-}
-
-Write-Host "Logging this session to: $logFile"
+# Logging is now handled by the parent maintain_bot.ps1 script via job output redirection.
 
 # --- REFACTORED: Define paths and database connection details at the top ---
 $xamppPath = "C:\xampp" # Centralize the XAMPP path for easy configuration
@@ -135,18 +117,9 @@ Write-Host "Cleanup complete."
 
 Write-Host "Starting the bot... (Press CTRL+C to stop)"
 # --- FIX: Use Start-Process for more reliable execution in the same window ---
-# The -u flag forces python's output to be unbuffered, ensuring logs appear immediately.
-
-# --- REFACTORED: Call python directly and use Tee-Object to capture all output to the log file ---
-# This is the PowerShell equivalent of `2>&1 | tee -a` in bash.
-# --- FIX: Use a method compatible with PowerShell 5.1 that also handles encoding correctly ---
-# Start the process and wait for it to complete. Redirect all output streams (*>) to a temporary file.
-$tempLog = [System.IO.Path]::GetTempFileName()
-& $pythonExecutable -u -X utf8 bot.py *> $tempLog
-# Now, read the content of the temp file and append it to the main log file with the correct encoding.
-Get-Content $tempLog | Add-Content -Path $LogFile -Encoding utf8
-# Clean up the temporary file.
-Remove-Item $tempLog
+# --- REFACTORED: Simply execute the bot. The parent job will capture its output. ---
+# The -u flag forces python's output to be unbuffered.
+& $pythonExecutable -u -X utf8 bot.py
 
 # --- NEW: Pause on error to allow copying logs ---
 # --- FIX: Use $pipelinestatus to get the correct exit code from the python process, not Tee-Object ---
