@@ -2565,12 +2565,18 @@ class WerwolfJoinView(discord.ui.View):
 @client.event
 async def on_message(message):
     """Fires on every message in any channel the bot can see."""
+    # --- DEBUG: Log incoming messages (remove in production) ---
+    if not message.author.bot and message.content:
+        logger.debug(f"Message from {message.author.name} in {message.channel}: {message.content[:50]}")
+    
     # --- MULTI-INSTANCE GUARD ---
     if SECONDARY_INSTANCE:
+        logger.debug("SECONDARY_INSTANCE=True, ignoring message")
         return  # Secondary instance does not process messages to avoid duplicate replies
 
     # --- HARD DEDUPLICATION BY MESSAGE ID ---
     if message.id in last_processed_message_ids:
+        logger.debug(f"Duplicate message ID {message.id}, ignoring")
         return
     last_processed_message_ids.append(message.id)
 
@@ -2585,6 +2591,7 @@ async def on_message(message):
     async def run_chatbot(message):
         """Handles the core logic of fetching and sending an AI response."""
         channel_name = f"DM with {message.author.name}" if isinstance(message.channel, discord.DMChannel) else f"#{message.channel.name}"
+        logger.info(f"Chatbot triggered by {message.author.name} in {channel_name}")
         print(f"Chatbot triggered by {message.author.name} in channel {channel_name}.")
         if not isinstance(message.channel, discord.DMChannel):
             stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
@@ -2713,6 +2720,8 @@ async def on_message(message):
         message_lower = message.content.lower()
         is_name_used = any(name in message.content.lower().split() for name in config['bot']['names'])
         is_chatbot_trigger = is_pinged or is_name_used
+        
+        logger.debug(f"Chatbot trigger check: is_pinged={is_pinged}, is_name_used={is_name_used}, trigger={is_chatbot_trigger}")
 
         # --- CRITICAL FIX: Prioritize the chatbot trigger. ---
         # If the message is a chatbot trigger, run the chatbot logic and IMMEDIATELY stop.
