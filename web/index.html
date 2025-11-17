@@ -32,20 +32,202 @@
             </div>
         </div>
 
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">Live Console</h5>
-                <div>
-                    <button class="btn btn-sm btn-outline-secondary" onclick="clearConsole()" title="Clear console">
-                        <i class="bi bi-x-circle"></i> Clear
-                    </button>
-                    <button class="btn btn-sm btn-outline-secondary" id="auto-scroll-toggle" onclick="toggleAutoScroll()" title="Toggle auto-scroll">
-                        <i class="bi bi-arrow-down-circle"></i> Auto-scroll: ON
-                    </button>
-                </div>
+        <div class="card mb-4">
+            <div class="card-header">
+                <ul class="nav nav-tabs card-header-tabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="console-tab" data-bs-toggle="tab" data-bs-target="#console-pane" type="button" role="tab">
+                            <i class="bi bi-terminal"></i> Live Console
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="ai-tab" data-bs-toggle="tab" data-bs-target="#ai-pane" type="button" role="tab">
+                            <i class="bi bi-cpu"></i> AI Analytics
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="wrapped-tab" data-bs-toggle="tab" data-bs-target="#wrapped-pane" type="button" role="tab">
+                            <i class="bi bi-gift"></i> Wrapped
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="leaderboard-tab" data-bs-toggle="tab" data-bs-target="#leaderboard-pane" type="button" role="tab">
+                            <i class="bi bi-trophy"></i> Leaderboard
+                        </button>
+                    </li>
+                </ul>
             </div>
             <div class="card-body p-0">
-                <div id="console" class="console"></div>
+                <div class="tab-content">
+                    <div class="tab-pane fade show active" id="console-pane" role="tabpanel">
+                        <div class="p-3 d-flex justify-content-end border-bottom">
+                            <button class="btn btn-sm btn-outline-secondary me-2" onclick="clearConsole()" title="Clear console">
+                                <i class="bi bi-x-circle"></i> Clear
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" id="auto-scroll-toggle" onclick="toggleAutoScroll()" title="Toggle auto-scroll">
+                                <i class="bi bi-arrow-down-circle"></i> Auto-scroll: ON
+                            </button>
+                        </div>
+                        <div id="console" class="console"></div>
+                    </div>
+                    
+                    <div class="tab-pane fade p-4" id="ai-pane" role="tabpanel">
+                        <h5 class="mb-3">AI Usage Statistics</h5>
+                        <div id="ai-stats-loading" class="text-center">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                        <div id="ai-stats-content" style="display: none;">
+                            <div class="row mb-4">
+                                <div class="col-md-6">
+                                    <div class="card">
+                                        <div class="card-body">
+                                            <h6 class="card-subtitle mb-2 text-muted">Total API Calls</h6>
+                                            <h3 id="total-calls">0</h3>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="card">
+                                        <div class="card-body">
+                                            <h6 class="card-subtitle mb-2 text-muted">Total Tokens</h6>
+                                            <h3 id="total-tokens">0</h3>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-dark table-striped">
+                                    <thead>
+                                        <tr>
+                                            <th>Model</th>
+                                            <th>Feature</th>
+                                            <th>Calls</th>
+                                            <th>Tokens</th>
+                                            <th>Last Used</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="ai-usage-table">
+                                        <tr><td colspan="5" class="text-center">No data available</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="tab-pane fade p-4" id="wrapped-pane" role="tabpanel">
+                        <h5 class="mb-3">Monthly Wrapped Statistics</h5>
+                        <div id="wrapped-stats-loading" class="text-center">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                        <div id="wrapped-stats-content" style="display: none;">
+                            <div class="row mb-3">
+                                <div class="col-md-4">
+                                    <div class="card">
+                                        <div class="card-body text-center">
+                                            <h6 class="text-muted">Registered Users</h6>
+                                            <h3 id="wrapped-users">0</h3>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="card">
+                                        <div class="card-body text-center">
+                                            <h6 class="text-muted">Total Messages</h6>
+                                            <h3 id="wrapped-messages">0</h3>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="card">
+                                        <div class="card-body text-center">
+                                            <h6 class="text-muted">VC Hours</h6>
+                                            <h3 id="wrapped-vc-hours">0</h3>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table table-dark table-striped">
+                                    <thead>
+                                        <tr>
+                                            <th>User</th>
+                                            <th>Messages</th>
+                                            <th>VC Minutes</th>
+                                            <th>Registered</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="wrapped-users-table">
+                                        <tr><td colspan="4" class="text-center">No data available</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="tab-pane fade p-4" id="leaderboard-pane" role="tabpanel">
+                        <h5 class="mb-3">Server Leaderboards</h5>
+                        <div id="leaderboard-loading" class="text-center">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                        <div id="leaderboard-content" style="display: none;">
+                            <ul class="nav nav-pills mb-3" role="tablist">
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link active" id="level-board-tab" data-bs-toggle="pill" data-bs-target="#level-board" type="button" role="tab">
+                                        Level Leaderboard
+                                    </button>
+                                </li>
+                                <li class="nav-item" role="presentation">
+                                    <button class="nav-link" id="ww-board-tab" data-bs-toggle="pill" data-bs-target="#ww-board" type="button" role="tab">
+                                        Werwolf Wins
+                                    </button>
+                                </li>
+                            </ul>
+                            <div class="tab-content">
+                                <div class="tab-pane fade show active" id="level-board" role="tabpanel">
+                                    <div class="table-responsive">
+                                        <table class="table table-dark table-striped">
+                                            <thead>
+                                                <tr>
+                                                    <th>Rank</th>
+                                                    <th>User</th>
+                                                    <th>Level</th>
+                                                    <th>XP</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="level-leaderboard-table">
+                                                <tr><td colspan="4" class="text-center">No data available</td></tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                <div class="tab-pane fade" id="ww-board" role="tabpanel">
+                                    <div class="table-responsive">
+                                        <table class="table table-dark table-striped">
+                                            <thead>
+                                                <tr>
+                                                    <th>Rank</th>
+                                                    <th>User</th>
+                                                    <th>Wins</th>
+                                                    <th>Losses</th>
+                                                    <th>Win Rate</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="ww-leaderboard-table">
+                                                <tr><td colspan="5" class="text-center">No data available</td></tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -364,5 +546,167 @@
                 alertPlaceholder.innerHTML = alertHTML;
             });
     }
+
+    // Load AI Statistics
+    function loadAIStats() {
+        const loading = document.getElementById('ai-stats-loading');
+        const content = document.getElementById('ai-stats-content');
+        
+        loading.style.display = 'block';
+        content.style.display = 'none';
+        
+        fetch('/api/ai_usage')
+            .then(response => response.json())
+            .then(data => {
+                loading.style.display = 'none';
+                content.style.display = 'block';
+                
+                if (data.usage_data && data.usage_data.length > 0) {
+                    let totalCalls = 0;
+                    let totalTokens = 0;
+                    let tableHTML = '';
+                    
+                    data.usage_data.forEach(row => {
+                        totalCalls += row.total_calls || 0;
+                        totalTokens += (row.input_tokens || 0) + (row.output_tokens || 0);
+                        
+                        const date = row.usage_date ? new Date(row.usage_date).toLocaleDateString() : 'N/A';
+                        tableHTML += `<tr>
+                            <td>${row.model_name || 'Unknown'}</td>
+                            <td>${row.feature_name || 'chat'}</td>
+                            <td>${row.total_calls || 0}</td>
+                            <td>${(row.input_tokens || 0) + (row.output_tokens || 0)}</td>
+                            <td>${date}</td>
+                        </tr>`;
+                    });
+                    
+                    document.getElementById('total-calls').textContent = totalCalls.toLocaleString();
+                    document.getElementById('total-tokens').textContent = totalTokens.toLocaleString();
+                    document.getElementById('ai-usage-table').innerHTML = tableHTML;
+                } else {
+                    document.getElementById('ai-usage-table').innerHTML = '<tr><td colspan="5" class="text-center">No data available</td></tr>';
+                }
+            })
+            .catch(error => {
+                loading.style.display = 'none';
+                content.style.display = 'block';
+                console.error('Error loading AI stats:', error);
+            });
+    }
+
+    // Load Wrapped Statistics
+    function loadWrappedStats() {
+        const loading = document.getElementById('wrapped-stats-loading');
+        const content = document.getElementById('wrapped-stats-content');
+        
+        loading.style.display = 'block';
+        content.style.display = 'none';
+        
+        fetch('/api/wrapped_stats')
+            .then(response => response.json())
+            .then(data => {
+                loading.style.display = 'none';
+                content.style.display = 'block';
+                
+                if (data.registrations && data.registrations.length > 0) {
+                    let totalMessages = 0;
+                    let totalVCMinutes = 0;
+                    let tableHTML = '';
+                    
+                    data.registrations.forEach(user => {
+                        const messages = user.message_count || 0;
+                        const vcMinutes = user.vc_minutes || 0;
+                        totalMessages += messages;
+                        totalVCMinutes += vcMinutes;
+                        
+                        tableHTML += `<tr>
+                            <td>${user.username || 'Unknown'}</td>
+                            <td>${messages}</td>
+                            <td>${vcMinutes}</td>
+                            <td>${user.registered ? 'Yes' : 'No'}</td>
+                        </tr>`;
+                    });
+                    
+                    document.getElementById('wrapped-users').textContent = data.registrations.length;
+                    document.getElementById('wrapped-messages').textContent = totalMessages.toLocaleString();
+                    document.getElementById('wrapped-vc-hours').textContent = (totalVCMinutes / 60).toFixed(1);
+                    document.getElementById('wrapped-users-table').innerHTML = tableHTML;
+                } else {
+                    document.getElementById('wrapped-users-table').innerHTML = '<tr><td colspan="4" class="text-center">No registered users</td></tr>';
+                }
+            })
+            .catch(error => {
+                loading.style.display = 'none';
+                content.style.display = 'block';
+                console.error('Error loading wrapped stats:', error);
+            });
+    }
+
+    // Load Leaderboards
+    function loadLeaderboards() {
+        const loading = document.getElementById('leaderboard-loading');
+        const content = document.getElementById('leaderboard-content');
+        
+        loading.style.display = 'block';
+        content.style.display = 'none';
+        
+        // Load Level Leaderboard
+        fetch('/api/level_leaderboard')
+            .then(response => response.json())
+            .then(data => {
+                if (data.leaderboard && data.leaderboard.length > 0) {
+                    let tableHTML = '';
+                    data.leaderboard.forEach((player, index) => {
+                        const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '';
+                        tableHTML += `<tr>
+                            <td>${medal} #${index + 1}</td>
+                            <td>${player.username || 'Unknown'}</td>
+                            <td>${player.level || 1}</td>
+                            <td>${player.xp || 0}</td>
+                        </tr>`;
+                    });
+                    document.getElementById('level-leaderboard-table').innerHTML = tableHTML;
+                }
+            })
+            .catch(error => console.error('Error loading level leaderboard:', error));
+        
+        // Load Werwolf Leaderboard
+        fetch('/api/ww_leaderboard')
+            .then(response => response.json())
+            .then(data => {
+                loading.style.display = 'none';
+                content.style.display = 'block';
+                
+                if (data.leaderboard && data.leaderboard.length > 0) {
+                    let tableHTML = '';
+                    data.leaderboard.forEach((player, index) => {
+                        const wins = player.wins || 0;
+                        const losses = player.losses || 0;
+                        const total = wins + losses;
+                        const winRate = total > 0 ? ((wins / total) * 100).toFixed(1) : '0.0';
+                        const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '';
+                        
+                        tableHTML += `<tr>
+                            <td>${medal} #${index + 1}</td>
+                            <td>${player.username || 'Unknown'}</td>
+                            <td>${wins}</td>
+                            <td>${losses}</td>
+                            <td>${winRate}%</td>
+                        </tr>`;
+                    });
+                    document.getElementById('ww-leaderboard-table').innerHTML = tableHTML;
+                }
+            })
+            .catch(error => {
+                loading.style.display = 'none';
+                content.style.display = 'block';
+                console.error('Error loading werwolf leaderboard:', error);
+            });
+    }
+
+    // Tab change listeners to load data when tabs are opened
+    document.getElementById('ai-tab').addEventListener('shown.bs.tab', loadAIStats);
+    document.getElementById('wrapped-tab').addEventListener('shown.bs.tab', loadWrappedStats);
+    document.getElementById('leaderboard-tab').addEventListener('shown.bs.tab', loadLeaderboards);
 </script>
 {% endblock %}

@@ -54,16 +54,27 @@ def follow_log_file():
     latest_log = None
     last_known_file = None
     file = None
+    flag_check_interval = 2  # Check for flags every 2 seconds
+    last_flag_check = time.time()
 
     while True:
         try:
+            # Check for restart/stop flags and emit messages
+            current_time = time.time()
+            if current_time - last_flag_check >= flag_check_interval:
+                if os.path.exists('restart.flag'):
+                    socketio.emit('log_update', {'data': '\n<span style="color: #ffc107;">⚠️ RESTART SIGNAL DETECTED - Bot is restarting...</span>\n'}, namespace='/')
+                if os.path.exists('stop.flag'):
+                    socketio.emit('log_update', {'data': '\n<span style="color: #dc3545;">🛑 STOP SIGNAL DETECTED - Bot is shutting down...</span>\n'}, namespace='/')
+                last_flag_check = current_time
+            
             latest_log = get_latest_log_file()
 
             if latest_log != last_known_file:
                 if file:
                     file.close()
                 if latest_log:
-                    socketio.emit('log_update', {'data': f'\n--- Switched to new log file: {os.path.basename(latest_log)} ---\n'}, namespace='/')
+                    socketio.emit('log_update', {'data': f'\n<span style="color: #0dcaf0;">--- Switched to new log file: {os.path.basename(latest_log)} ---</span>\n'}, namespace='/')
                     # --- FIX: Open with error handling for encoding issues ---
                     try:
                         file = open(latest_log, 'r', encoding='utf-8', errors='ignore')
@@ -386,6 +397,79 @@ def api_update_setting():
         })
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/wrapped_stats', methods=['GET'])
+def api_wrapped_stats():
+    """API endpoint to get wrapped registration statistics."""
+    try:
+        import asyncio
+        from modules.db_helpers import get_wrapped_registrations, get_user_wrapped_stats
+        from datetime import datetime
+        
+        async def fetch_stats():
+            registrations = await get_wrapped_registrations()
+            stat_period = datetime.now().strftime('%Y-%m')
+            
+            # Add stats for each registered user
+            for user in registrations:
+                stats = await get_user_wrapped_stats(user['user_id'], stat_period)
+                user['message_count'] = stats.get('message_count', 0) if stats else 0
+                user['vc_minutes'] = stats.get('minutes_in_vc', 0) if stats else 0
+            
+            return registrations
+        
+        # Run async function
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        registrations = loop.run_until_complete(fetch_stats())
+        loop.close()
+        
+        return jsonify({'registrations': registrations})
+    except Exception as e:
+        print(f"[API] Error fetching wrapped stats: {e}")
+        return jsonify({'error': str(e), 'registrations': []}), 500
+
+@app.route('/api/level_leaderboard', methods=['GET'])
+def api_level_leaderboard():
+    """API endpoint to get level leaderboard."""
+    try:
+        import asyncio
+        from modules.db_helpers import get_level_leaderboard
+        
+        async def fetch_leaderboard():
+            leaderboard, error = await get_level_leaderboard()
+            return leaderboard if not error else []
+        
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        leaderboard = loop.run_until_complete(fetch_leaderboard())
+        loop.close()
+        
+        return jsonify({'leaderboard': leaderboard})
+    except Exception as e:
+        print(f"[API] Error fetching level leaderboard: {e}")
+        return jsonify({'error': str(e), 'leaderboard': []}), 500
+
+@app.route('/api/ww_leaderboard', methods=['GET'])
+def api_ww_leaderboard():
+    """API endpoint to get Werwolf leaderboard."""
+    try:
+        import asyncio
+        from modules.db_helpers import get_leaderboard
+        
+        async def fetch_leaderboard():
+            leaderboard, error = await get_leaderboard()
+            return leaderboard if not error else []
+        
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        leaderboard = loop.run_until_complete(fetch_leaderboard())
+        loop.close()
+        
+        return jsonify({'leaderboard': leaderboard})
+    except Exception as e:
+        print(f"[API] Error fetching werwolf leaderboard: {e}")
+        return jsonify({'error': str(e), 'leaderboard': []}), 500
 
 def restart_bot():
     """Creates a flag file to signal the maintenance script to restart the bot."""
