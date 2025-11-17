@@ -71,20 +71,45 @@ echo -e "${CYAN}You will be prompted for the MySQL root password.${NC}"
 echo -e "${CYAN}(In Termux, the default is usually empty - just press Enter)${NC}"
 echo ""
 
-if mysql -u root -p < setup_database.sql; then
-    echo ""
-    echo -e "${GREEN}✓ Database setup complete!${NC}"
-    echo ""
-    echo -e "${CYAN}Database credentials:${NC}"
-    echo -e "  Host: localhost"
-    echo -e "  User: sulfur_bot_user"
-    echo -e "  Password: (empty)"
-    echo -e "  Database: sulfur_bot"
-    echo ""
-    echo -e "${YELLOW}These are already configured in your .env file.${NC}"
+# Detect which MySQL client to use
+MYSQL_CLIENT=""
+if command -v mariadb &> /dev/null; then
+    MYSQL_CLIENT="mariadb"
+    echo -e "${CYAN}Using mariadb client${NC}"
+elif command -v mysql &> /dev/null; then
+    MYSQL_CLIENT="mysql"
+    echo -e "${CYAN}Using mysql client${NC}"
 else
-    echo ""
-    echo -e "${RED}✗ Setup failed. Please check the error messages above.${NC}"
+    echo -e "${RED}✗ Neither mysql nor mariadb client found!${NC}"
+    echo -e "${YELLOW}Please install MariaDB/MySQL first:${NC}"
+    if [ "$IS_TERMUX" = true ]; then
+        echo -e "  pkg install mariadb"
+    else
+        echo -e "  sudo apt install mariadb-client mariadb-server"
+    fi
+    exit 1
+fi
+
+# Execute SQL file
+if [ -f "setup_database.sql" ]; then
+    if $MYSQL_CLIENT -u root -p < setup_database.sql; then
+        echo ""
+        echo -e "${GREEN}✓ Database setup complete!${NC}"
+        echo ""
+        echo -e "${CYAN}Database credentials:${NC}"
+        echo -e "  Host: localhost"
+        echo -e "  User: sulfur_bot_user"
+        echo -e "  Password: (empty)"
+        echo -e "  Database: sulfur_bot"
+        echo ""
+        echo -e "${YELLOW}These are already configured in your .env file.${NC}"
+    else
+        echo ""
+        echo -e "${RED}✗ Setup failed. Please check the error messages above.${NC}"
+        exit 1
+    fi
+else
+    echo -e "${RED}✗ setup_database.sql not found!${NC}"
     exit 1
 fi
 
@@ -92,13 +117,19 @@ fi
 echo ""
 echo -e "${YELLOW}Testing connection...${NC}"
 
-if mysql -u sulfur_bot_user sulfur_bot -e "SELECT 'Connection successful!' AS status;" 2>/dev/null; then
+if $MYSQL_CLIENT -u sulfur_bot_user sulfur_bot -e "SELECT 'Connection successful!' AS status;" 2>/dev/null; then
     echo -e "${GREEN}✓ Connection test passed!${NC}"
     echo ""
     echo -e "${CYAN}Next steps:${NC}"
-    echo -e "1. Install dependencies: pip install -r requirements.txt"
-    echo -e "2. Run setup test: python test_setup.py"
-    echo -e "3. Start the bot: ./start.sh"
+    if [ "$IS_TERMUX" = true ]; then
+        echo -e "1. Install dependencies: pip install -r requirements.txt"
+        echo -e "2. Run setup test: python test_setup.py"
+        echo -e "3. Start the bot: bash start.sh"
+    else
+        echo -e "1. Install dependencies: pip install -r requirements.txt"
+        echo -e "2. Run setup test: python3 test_setup.py"
+        echo -e "3. Start the bot: ./start.sh"
+    fi
 else
     echo -e "${RED}✗ Connection test failed${NC}"
     exit 1

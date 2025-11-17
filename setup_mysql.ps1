@@ -72,7 +72,19 @@ Write-Host "You will be prompted for the MySQL root password." -ForegroundColor 
 Write-Host ""
 
 try {
-    & $mysqlExe -u root -p < setup_database.sql
+    # Get the SQL file path
+    $sqlFile = Join-Path $PSScriptRoot "setup_database.sql"
+    
+    if (-not (Test-Path $sqlFile)) {
+        Write-Host "✗ SQL file not found: $sqlFile" -ForegroundColor Red
+        exit 1
+    }
+    
+    # Read SQL content and execute
+    $sqlContent = Get-Content $sqlFile -Raw
+    
+    Write-Host "Executing SQL commands..." -ForegroundColor Yellow
+    $result = $sqlContent | & $mysqlExe -u root -p 2>&1
     
     if ($LASTEXITCODE -eq 0) {
         Write-Host ""
@@ -87,7 +99,8 @@ try {
         Write-Host "These are already configured in your .env file." -ForegroundColor Gray
     } else {
         Write-Host ""
-        Write-Host "✗ Setup failed. Please check the error messages above." -ForegroundColor Red
+        Write-Host "✗ Setup failed. Error output:" -ForegroundColor Red
+        Write-Host $result -ForegroundColor Red
         exit 1
     }
 } catch {
