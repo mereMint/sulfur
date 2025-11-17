@@ -55,6 +55,37 @@ function Write-ColorLog {
     Write-Host "[$t] $Prefix$Message" -ForegroundColor $Color
 }
 
+function Test-Preflight {
+    # Basic checks to avoid restart loops
+    $envPath = Join-Path $PSScriptRoot '.env'
+    if(-not (Test-Path $envPath)){
+        Write-ColorLog "Missing .env file. Create one or copy .env.example" 'Red'
+        return $false
+    }
+    try{
+        $envLines = Get-Content -Path $envPath -ErrorAction Stop
+        $tokenLine = $envLines | Where-Object { $_ -match '^\s*DISCORD_BOT_TOKEN\s*=\s*' } | Select-Object -First 1
+        if(-not $tokenLine){
+            Write-ColorLog "DISCORD_BOT_TOKEN not found in .env" 'Red'
+            return $false
+        }
+        $token = ($tokenLine -replace '^[^=]*=','').Trim().Trim('"','\'')
+        if([string]::IsNullOrWhiteSpace($token)){
+            Write-ColorLog "DISCORD_BOT_TOKEN is empty in .env" 'Red'
+            return $false
+        }
+        $parts = $token.Split('.')
+        if($parts.Count -ne 3){
+            Write-ColorLog "DISCORD_BOT_TOKEN appears malformed (expected 3 parts)" 'Red'
+            return $false
+        }
+    } catch {
+        Write-ColorLog "Preflight check failed: $_" 'Red'
+        return $false
+    }
+    return $true
+}
+
 function Update-BotStatus {
     param([string]$Status,[int]$BotProcessId=0)
     $statusData=@{status=$Status;timestamp=(Get-Date).ToUniversalTime().ToString('o')}
@@ -186,9 +217,9 @@ function Start-Bot {
     if(Test-Path 'venv\Scripts\python.exe'){
         $pythonExe='venv\Scripts\python.exe'
     }
-    # Use Start-Process without output redirection to avoid process detachment issues
-    # The bot will write to its own log files via the logger_utils module
-    $proc=Start-Process -FilePath $pythonExe -ArgumentList @('-u','bot.py') -PassThru -WindowStyle Hidden
+    $botErrFile = $botLogFile -replace '\.log$','_errors.log'
+    # Start process and capture stdout/stderr to logs for diagnostics
+    $proc=Start-Process -FilePath $pythonExe -ArgumentList @('-u','bot.py') -RedirectStandardOutput $botLogFile -RedirectStandardError $botErrFile -PassThru -WindowStyle Hidden
     Start-Sleep -Seconds 2 # Give the process time to start
     Update-BotStatus 'Running' $proc.Id
     Write-ColorLog "Bot started (PID: $($proc.Id))" 'Green' '[BOT] '
@@ -254,9 +285,19 @@ $check=0
 $updateEvery=60
 $backupEvery=1800
 $commitEvery=300
+$consecutiveQuickCrashes=0
+$quickCrashSeconds=10
+$quickCrashThreshold=5
 
 while($true){
+    if(-not (Test-Preflight)){
+        Write-ColorLog "Preflight failed. Fix issues above, then press Enter to retry..." 'Yellow'
+        Read-Host | Out-Null
+        continue
+    }
+
     $script:botProcess=Start-Bot
+    $botStartTime = Get-Date
     while($script:botProcess -and (Get-Process -Id $script:botProcess.Id -ErrorAction SilentlyContinue)){
         Start-Sleep 1
         $check++
@@ -365,6 +406,33 @@ while($true){
     }
     
     Update-BotStatus 'Stopped'
+    $botStopTime = Get-Date
+    $runSeconds = [int]($botStopTime - $botStartTime).TotalSeconds
+    if($runSeconds -lt $quickCrashSeconds){
+        $consecutiveQuickCrashes++
+    } else {
+        $consecutiveQuickCrashes=0
+    }
+
+    if($consecutiveQuickCrashes -ge $quickCrashThreshold){
+        Write-ColorLog "Bot is crashing quickly ($consecutiveQuickCrashes times). Pausing restarts." 'Red'
+        Write-ColorLog "Showing last 50 lines of bot log to help debug:" 'Yellow'
+        try{
+            if(Test-Path $botLogFile){
+                Get-Content $botLogFile -Tail 50 | ForEach-Object { Write-Host $_ }
+            }
+            $errFile = $botLogFile -replace '\.log$','_errors.log'
+            if(Test-Path $errFile){
+                Write-ColorLog "--- stderr (last 50) ---" 'Gray'
+                Get-Content $errFile -Tail 50 | ForEach-Object { Write-Host $_ }
+            }
+        } catch {}
+        Write-ColorLog "Fix the configuration (e.g., token in .env), then press Enter to retry." 'Yellow'
+        Read-Host | Out-Null
+        $consecutiveQuickCrashes=0
+        continue
+    }
+
     Write-ColorLog 'Bot stopped; restarting in 5s...' 'Yellow'
     Start-Sleep 5
 }

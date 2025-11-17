@@ -50,6 +50,9 @@ BACKUP_INTERVAL=1800   # Backup every 30 minutes
 
 # Counters
 CHECK_COUNTER=0
+CRASH_COUNT=0
+QUICK_CRASH_SECONDS=10
+CRASH_THRESHOLD=5
 
 # Detect environment
 if [ -n "$TERMUX_VERSION" ]; then
@@ -404,6 +407,41 @@ fi
 # Initial backup
 backup_database
 
+# Preflight check for token to avoid restart loops
+preflight_check() {
+    if [ ! -f ".env" ]; then
+        log_error ".env file not found in project root"
+        return 1
+    fi
+    # Extract token (handles quoted/unquoted)
+    local raw_line
+    raw_line=$(grep -E '^\s*DISCORD_BOT_TOKEN\s*=' .env | head -n1)
+    if [ -z "$raw_line" ]; then
+        log_error "DISCORD_BOT_TOKEN not found in .env"
+        return 1
+    fi
+    local token
+    token=$(echo "$raw_line" | sed -E 's/^[^=]*=\s*//; s/^"//; s/"$//; s/^\'\''//; s/\'\'$//;')
+    if [ -z "$token" ]; then
+        log_error "DISCORD_BOT_TOKEN is empty"
+        return 1
+    fi
+    # Validate dot parts (expect 3)
+    local part_count
+    part_count=$(echo "$token" | awk -F'.' '{print NF}')
+    if [ "$part_count" -ne 3 ]; then
+        log_error "DISCORD_BOT_TOKEN appears malformed (expected 3 parts)"
+        return 1
+    fi
+    return 0
+}
+
+# Ensure preflight passes before starting
+until preflight_check; do
+    log_warning "Fix the issues above (edit .env), then press Enter to retry..."
+    read -r _
+done
+
 # Start web dashboard
 start_web_dashboard || log_warning "Web Dashboard failed to start, continuing anyway..."
 
@@ -473,6 +511,40 @@ while true; do
     done
     
     update_status "Stopped"
+
+    # Crash-loop detection: if bot exits within QUICK_CRASH_SECONDS, increment; else reset
+    if [ -f "$BOT_LOG" ]; then
+        # If the log file's last modified time is recent, we can approximate runtime
+        : # placeholder; we track time implicitly by sleeping 1s in loop
+    fi
+
+    # Use a timestamp file to measure run duration
+    : "${BOT_START_TIME:=$(date +%s)}"
+    BOT_STOP_TIME=$(date +%s)
+    RUN_SECONDS=$((BOT_STOP_TIME - BOT_START_TIME))
+    if [ "$RUN_SECONDS" -lt "$QUICK_CRASH_SECONDS" ]; then
+        CRASH_COUNT=$((CRASH_COUNT + 1))
+    else
+        CRASH_COUNT=0
+    fi
+
+    if [ "$CRASH_COUNT" -ge "$CRASH_THRESHOLD" ]; then
+        log_error "Bot is crashing quickly ($CRASH_COUNT times). Pausing restarts."
+        if [ -f "$BOT_LOG" ]; then
+            log_warning "Last 50 lines from bot log:"
+            tail -n 50 "$BOT_LOG" || true
+        fi
+        log_warning "Fix configuration (e.g., token in .env), then press Enter to retry."
+        read -r _
+        CRASH_COUNT=0
+        # Re-run preflight before restarting
+        until preflight_check; do
+            log_warning "Fix the issues above (edit .env), then press Enter to retry..."
+            read -r _
+        done
+    fi
+
     log_warning "Bot stopped, restarting in 5 seconds..."
     sleep 5
+    BOT_START_TIME=$(date +%s)
 done
