@@ -15,13 +15,17 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
     join_to_create_channel_name = config['modules']['voice_manager']['join_to_create_channel_name']
     # --- Handle channel creation ---
     if after.channel and after.channel.name == join_to_create_channel_name:
-        # --- NEW: Check lock to prevent race conditions ---
+        # --- CRITICAL: Acquire lock IMMEDIATELY to prevent race conditions ---
         if member.id in creating_channel_for:
             logger.debug(f"Ignoring duplicate join event for {member.display_name} - creation already in progress")
-            return # Creation is already in progress for this user, ignore this event.
-
-        # --- REFACTORED: Prevent creating multiple channels by checking the database ---
-        owned_channel_id = await get_owned_channel(member.id, member.guild.id)
+            return
+        
+        # Acquire lock before ANY async operations
+        creating_channel_for.add(member.id)
+        
+        try:
+            # --- REFACTORED: Prevent creating multiple channels by checking the database ---
+            owned_channel_id = await get_owned_channel(member.id, member.guild.id)
         if owned_channel_id:
             try:
                 owned_channel = member.guild.get_channel(owned_channel_id)
@@ -35,17 +39,12 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
                 pass # Ignore if we can't move them
             return
 
-        guild = member.guild
-        # --- NEW: Use configured category name, fallback to current category ---
-        category = discord.utils.get(guild.categories, name=config['modules']['voice_manager']['dynamic_channel_category_name'])
-        if not category:
-            # Fallback to the category of the "Join to Create" channel if the configured one doesn't exist
-            category = after.channel.category
-
-        # --- NEW: Acquire lock ---
-        creating_channel_for.add(member.id)
-
-        try:
+            guild = member.guild
+            # --- NEW: Use configured category name, fallback to current category ---
+            category = discord.utils.get(guild.categories, name=config['modules']['voice_manager']['dynamic_channel_category_name'])
+            if not category:
+                # Fallback to the category of the "Join to Create" channel if the configured one doesn't exist
+                category = after.channel.category
             # --- NEW: Fetch last used config for the user ---
             last_config = await get_managed_channel_config((member.id, member.guild.id), by_owner=True)
             if last_config and last_config.get('channel_name'):
@@ -55,7 +54,7 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
                 new_channel_name = f"🔊 {member.display_name}'s Channel"
                 user_limit = 0
 
-            # Mute the user temporarily while we create the channel
+            # Create the voice channel
             new_channel = await guild.create_voice_channel(
                 name=new_channel_name,
                 category=category,
@@ -79,13 +78,17 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
                 await member.move_to(new_channel, reason="Join to Create")
                 # --- NEW: Unmute and undeafen the user after moving them ---
                 await member.edit(mute=False, deafen=False, reason="User moved to their new channel")
-            except discord.HTTPException:
+            except discord.HTTPException as move_error:
                 # This can happen if the user disconnects while the channel is being created.
+                logger.warning(f"Failed to move {member.display_name}: {move_error}")
                 print(f"Failed to move {member.display_name} to their new channel (they may have disconnected).")
                 # --- FIX: Clean up the orphaned channel immediately ---
-                await new_channel.delete(reason="User disconnected before being moved.")
-                await remove_managed_channel(new_channel.id, keep_owner_record=True)
-                print(f"Cleaned up orphaned channel '{new_channel.name}' immediately.")
+                try:
+                    await new_channel.delete(reason="User disconnected before being moved.")
+                    await remove_managed_channel(new_channel.id, keep_owner_record=True)
+                    print(f"Cleaned up orphaned channel '{new_channel.name}' immediately.")
+                except Exception as cleanup_error:
+                    logger.error(f"Failed to cleanup orphaned channel: {cleanup_error}")
 
         except discord.Forbidden:
             logger.error(f"Bot lacks permissions to create channels or move members in '{guild.name}'")
@@ -94,8 +97,10 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
             logger.error(f"Error during channel creation: {e}", exc_info=True)
             print(f"An error occurred during channel creation: {e}")
         finally:
-            # --- NEW: Release lock ---
-            creating_channel_for.remove(member.id)
+            # --- CRITICAL: Always release lock ---
+            if member.id in creating_channel_for:
+                creating_channel_for.discard(member.id)
+            return  # Exit early to prevent further processing
 
     # --- Handle joining a private channel ---
     if after.channel:

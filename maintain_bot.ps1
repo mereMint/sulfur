@@ -10,18 +10,43 @@ $ts=Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'
 $logFile=Join-Path $logDir "maintenance_$ts.log"
 $botLogFile=Join-Path $logDir "bot_$ts.log"
 Start-Transcript -Path $logFile -Append | Out-Null
+
+# Register cleanup handler for Ctrl+C and script termination
 trap {
     Write-Host 'Script terminated. Cleaning up...' -ForegroundColor Red
-    if($script:botProcess){
+    if($script:botProcess -and -not $script:botProcess.HasExited){
+        Write-Host "Stopping bot process (PID: $($script:botProcess.Id))..." -ForegroundColor Yellow
+        Stop-Process -Id $script:botProcess.Id -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+    }
+    if($script:webDashboardJob){
+        Write-Host 'Stopping Web Dashboard...' -ForegroundColor Yellow
+        Stop-Job $script:webDashboardJob -ErrorAction SilentlyContinue
+        Remove-Job $script:webDashboardJob -Force -ErrorAction SilentlyContinue
+    }
+    # Kill any orphaned Python processes
+    $orphans = Get-Process -Name python* -ErrorAction SilentlyContinue | Where-Object {
+        $_.Path -like "*$PSScriptRoot*"
+    }
+    if($orphans){
+        Write-Host "Cleaning up $($orphans.Count) orphaned Python processes..." -ForegroundColor Yellow
+        $orphans | Stop-Process -Force -ErrorAction SilentlyContinue
+    }
+    Update-BotStatus 'Shutdown'
+    Write-Host 'Cleanup complete.' -ForegroundColor Green
+    Stop-Transcript
+    exit 0
+}
+
+# Also register an exit handler
+$null = Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action {
+    if($script:botProcess -and -not $script:botProcess.HasExited){
         Stop-Process -Id $script:botProcess.Id -Force -ErrorAction SilentlyContinue
     }
     if($script:webDashboardJob){
         Stop-Job $script:webDashboardJob -ErrorAction SilentlyContinue
         Remove-Job $script:webDashboardJob -Force -ErrorAction SilentlyContinue
     }
-    Update-BotStatus 'Shutdown'
-    Stop-Transcript
-    exit 0
 }
 
 function Write-ColorLog {

@@ -493,6 +493,132 @@ def sync_database_changes():
     return "Database synchronization is handled automatically by the start/maintenance scripts. Trigger a restart to sync."
 
 
+# ========== Admin API Endpoints ==========
+
+@app.route('/api/admin/reload_config', methods=['POST'])
+def admin_reload_config():
+    """Reload bot configuration."""
+    try:
+        # Reload config in the dashboard process
+        global config_data
+        with open('config/config.json', 'r', encoding='utf-8') as f:
+            config_data = json.load(f)
+        
+        # Signal bot to reload config (if running)
+        try:
+            with open('config/reload_config.flag', 'w') as f:
+                f.write(str(time.time()))
+        except:
+            pass
+        
+        return jsonify({'success': True, 'message': 'Config reloaded successfully'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+
+@app.route('/api/admin/save_history', methods=['POST'])
+def admin_save_history():
+    """Save chat history - requires bot to be running."""
+    return jsonify({
+        'success': False, 
+        'message': 'This feature requires direct bot access. Use the Discord slash command /admin save_history instead.'
+    }), 501
+
+@app.route('/api/admin/clear_history', methods=['POST'])
+def admin_clear_history():
+    """Clear chat history for a channel."""
+    try:
+        import asyncio
+        from modules.db_helpers import clear_channel_history
+        
+        data = request.json
+        channel_id = int(data.get('channel_id'))
+        
+        async def clear_history():
+            deleted_count, error = await clear_channel_history(channel_id)
+            if error:
+                return {'success': False, 'message': f'Error: {error}'}
+            return {'success': True, 'message': f'Deleted {deleted_count} messages'}
+        
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(clear_history())
+        loop.close()
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+
+@app.route('/api/admin/delete_memory', methods=['POST'])
+def admin_delete_memory():
+    """Delete bot memory for a user."""
+    try:
+        import asyncio
+        from modules.db_helpers import update_relationship_summary
+        
+        data = request.json
+        user_id = int(data.get('user_id'))
+        
+        async def delete_user_memory():
+            await update_relationship_summary(user_id, None)
+            return {'success': True, 'message': f'Memory deleted for user {user_id}'}
+        
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(delete_user_memory())
+        loop.close()
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+
+@app.route('/api/admin/wrapped_dates', methods=['GET'])
+def admin_wrapped_dates():
+    """Get next wrapped event dates."""
+    try:
+        from datetime import datetime, timezone, timedelta
+        
+        # Load config
+        with open('config/config.json', 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        
+        # Calculate dates
+        now = datetime.now(timezone.utc)
+        first_day_of_current_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        last_month_first_day = (first_day_of_current_month - timedelta(days=1)).replace(day=1)
+        stat_period = last_month_first_day.strftime('%Y-%m')
+        
+        event_creation_offset = config.get('wrapped', {}).get('event_creation_offset', 1)
+        release_offset = config.get('wrapped', {}).get('release_offset', 3)
+        
+        event_creation_date = first_day_of_current_month + timedelta(days=event_creation_offset)
+        release_date = first_day_of_current_month + timedelta(days=release_offset)
+        
+        return jsonify({
+            'success': True,
+            'stat_period': stat_period,
+            'event_creation_date': event_creation_date.isoformat(),
+            'release_date': release_date.isoformat()
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
+
+@app.route('/api/admin/create_test_event', methods=['POST'])
+def admin_create_test_event():
+    """Create test event - requires bot access."""
+    return jsonify({
+        'success': False,
+        'message': 'This feature requires direct bot access. Use the Discord slash command /admin view_event instead.'
+    }), 501
+
+@app.route('/api/admin/preview_wrapped', methods=['POST'])
+def admin_preview_wrapped():
+    """Send wrapped preview - requires bot access."""
+    return jsonify({
+        'success': False,
+        'message': 'This feature requires direct bot access. Use the Discord slash command /admin view_wrapped instead.'
+    }), 501
+
+
 if __name__ == '__main__':
     # Start the log following thread
     log_thread = threading.Thread(target=follow_log_file, daemon=True)

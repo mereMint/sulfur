@@ -55,18 +55,34 @@
                             <i class="bi bi-trophy"></i> Leaderboard
                         </button>
                     </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="admin-tab" data-bs-toggle="tab" data-bs-target="#admin-pane" type="button" role="tab">
+                            <i class="bi bi-gear"></i> Admin
+                        </button>
+                    </li>
                 </ul>
             </div>
             <div class="card-body p-0">
                 <div class="tab-content">
                     <div class="tab-pane fade show active" id="console-pane" role="tabpanel">
-                        <div class="p-3 d-flex justify-content-end border-bottom">
-                            <button class="btn btn-sm btn-outline-secondary me-2" onclick="clearConsole()" title="Clear console">
-                                <i class="bi bi-x-circle"></i> Clear
-                            </button>
-                            <button class="btn btn-sm btn-outline-secondary" id="auto-scroll-toggle" onclick="toggleAutoScroll()" title="Toggle auto-scroll">
-                                <i class="bi bi-arrow-down-circle"></i> Auto-scroll: ON
-                            </button>
+                        <div class="p-3 d-flex justify-content-between border-bottom">
+                            <div class="btn-group" role="group">
+                                <button type="button" class="btn btn-sm btn-outline-secondary active" onclick="filterLogs('all')">All</button>
+                                <button type="button" class="btn btn-sm btn-outline-info" onclick="filterLogs('info')">Info</button>
+                                <button type="button" class="btn btn-sm btn-outline-warning" onclick="filterLogs('warning')">Warnings</button>
+                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="filterLogs('error')">Errors</button>
+                            </div>
+                            <div>
+                                <button class="btn btn-sm btn-outline-secondary me-2" onclick="pauseConsole()" title="Pause console updates">
+                                    <i class="bi bi-pause-circle" id="pause-icon"></i> <span id="pause-text">Pause</span>
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary me-2" onclick="clearConsole()" title="Clear console">
+                                    <i class="bi bi-x-circle"></i> Clear
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary" id="auto-scroll-toggle" onclick="toggleAutoScroll()" title="Toggle auto-scroll">
+                                    <i class="bi bi-arrow-down-circle"></i> Auto-scroll: ON
+                                </button>
+                            </div>
                         </div>
                         <div id="console" class="console"></div>
                     </div>
@@ -227,6 +243,78 @@
                             </div>
                         </div>
                     </div>
+                    
+                    <div class="tab-pane fade p-4" id="admin-pane" role="tabpanel">
+                        <h5 class="mb-4">Admin Controls</h5>
+                        
+                        <!-- Config Management -->
+                        <div class="card mb-3">
+                            <div class="card-header">
+                                <h6 class="mb-0"><i class="bi bi-file-earmark-code"></i> Configuration</h6>
+                            </div>
+                            <div class="card-body">
+                                <button class="btn btn-primary" onclick="reloadConfig()">
+                                    <i class="bi bi-arrow-clockwise"></i> Reload Config
+                                </button>
+                                <small class="text-muted d-block mt-2">Reload config.json and system_prompt.txt without restarting</small>
+                            </div>
+                        </div>
+                        
+                        <!-- Chat History Management -->
+                        <div class="card mb-3">
+                            <div class="card-header">
+                                <h6 class="mb-0"><i class="bi bi-chat-dots"></i> Chat History</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="alert alert-warning" role="alert">
+                                    <small><i class="bi bi-info-circle"></i> Saving history requires bot access. Use Discord command <code>/admin save_history</code> instead.</small>
+                                </div>
+                                <label for="channel-id-clear" class="form-label">Clear History for Channel</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="channel-id-clear" placeholder="1234567890">
+                                    <button class="btn btn-danger" onclick="clearHistory()">
+                                        <i class="bi bi-trash"></i> Clear
+                                    </button>
+                                </div>
+                                <small class="text-muted d-block mt-2">Clear all chat history for a specific channel</small>
+                            </div>
+                        </div>
+                        
+                        <!-- Memory Management -->
+                        <div class="card mb-3">
+                            <div class="card-header">
+                                <h6 class="mb-0"><i class="bi bi-brain"></i> Bot Memory</h6>
+                            </div>
+                            <div class="card-body">
+                                <label for="user-id-memory" class="form-label">User ID</label>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="user-id-memory" placeholder="1234567890">
+                                    <button class="btn btn-warning" onclick="deleteMemory()">
+                                        <i class="bi bi-eraser"></i> Delete Memory
+                                    </button>
+                                </div>
+                                <small class="text-muted d-block mt-2">Delete the bot's relationship summary for a user</small>
+                            </div>
+                        </div>
+                        
+                        <!-- Wrapped Management -->
+                        <div class="card mb-3">
+                            <div class="card-header">
+                                <h6 class="mb-0"><i class="bi bi-gift"></i> Wrapped Management</h6>
+                            </div>
+                            <div class="card-body">
+                                <button class="btn btn-info mb-2 w-100" onclick="viewWrappedDates()">
+                                    <i class="bi bi-calendar"></i> View Next Wrapped Dates
+                                </button>
+                                <div class="alert alert-warning mt-2" role="alert">
+                                    <small><i class="bi bi-info-circle"></i> Event creation and previews require bot access. Use Discord commands <code>/admin view_event</code> and <code>/admin view_wrapped</code>.</small>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Results Display -->
+                        <div id="admin-result" class="alert" style="display: none;" role="alert"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -323,10 +411,7 @@
         });
 
         socket.on('log_update', function(msg) {
-            consoleDiv.innerHTML += msg.data;
-            if (autoScroll) {
-                consoleDiv.scrollTop = consoleDiv.scrollHeight;
-            }
+            appendToConsole(msg.data);
         });
 
         // Bot Status Polling
@@ -423,6 +508,95 @@
             ? '<i class="bi bi-arrow-down-circle"></i> Auto-scroll: ON'
             : '<i class="bi bi-arrow-down-circle"></i> Auto-scroll: OFF';
         btn.className = autoScroll ? 'btn btn-sm btn-outline-secondary' : 'btn btn-sm btn-secondary';
+    }
+    
+    let consolePaused = false;
+    let consoleFilter = 'all';
+    let pausedMessages = [];
+    
+    function pauseConsole() {
+        consolePaused = !consolePaused;
+        const btn = document.querySelector('[onclick="pauseConsole()"]');
+        const icon = document.getElementById('pause-icon');
+        const text = document.getElementById('pause-text');
+        
+        if (consolePaused) {
+            icon.className = 'bi bi-play-circle';
+            text.textContent = 'Resume';
+            btn.className = 'btn btn-sm btn-warning me-2';
+            pausedMessages = [];
+        } else {
+            icon.className = 'bi bi-pause-circle';
+            text.textContent = 'Pause';
+            btn.className = 'btn btn-sm btn-outline-secondary me-2';
+            // Flush paused messages
+            pausedMessages.forEach(msg => appendToConsole(msg, true));
+            pausedMessages = [];
+        }
+    }
+    
+    function filterLogs(level) {
+        consoleFilter = level;
+        
+        // Update button states
+        document.querySelectorAll('[onclick^="filterLogs"]').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        event.target.classList.add('active');
+        
+        // Re-filter existing messages
+        const console = document.getElementById('console');
+        const lines = console.querySelectorAll('.console-line');
+        
+        lines.forEach(line => {
+            if (level === 'all') {
+                line.style.display = '';
+            } else {
+                const text = line.textContent.toLowerCase();
+                const shouldShow = 
+                    (level === 'info' && (text.includes('[info]') || text.includes('[94m'))) ||
+                    (level === 'warning' && (text.includes('[warning]') || text.includes('[93m'))) ||
+                    (level === 'error' && (text.includes('[error]') || text.includes('[91m') || text.includes('error')));
+                
+                line.style.display = shouldShow ? '' : 'none';
+            }
+        });
+    }
+    
+    function appendToConsole(message, skipPauseCheck = false) {
+        if (!skipPauseCheck && consolePaused) {
+            pausedMessages.push(message);
+            return;
+        }
+        
+        const console = document.getElementById('console');
+        const div = document.createElement('div');
+        div.className = 'console-line';
+        div.innerHTML = message;
+        console.appendChild(div);
+        
+        // Apply current filter
+        if (consoleFilter !== 'all') {
+            const text = message.toLowerCase();
+            const shouldShow = 
+                (consoleFilter === 'info' && (text.includes('[info]') || text.includes('[94m'))) ||
+                (consoleFilter === 'warning' && (text.includes('[warning]') || text.includes('[93m'))) ||
+                (consoleFilter === 'error' && (text.includes('[error]') || text.includes('[91m') || text.includes('error')));
+            
+            if (!shouldShow) {
+                div.style.display = 'none';
+            }
+        }
+        
+        // Limit console to last 500 lines for performance
+        const maxLines = 500;
+        while (console.children.length > maxLines) {
+            console.removeChild(console.firstChild);
+        }
+        
+        if (autoScroll) {
+            console.scrollTop = console.scrollHeight;
+        }
     }
 
     function updateModelOptions() {
@@ -620,7 +794,7 @@
                         totalVCMinutes += vcMinutes;
                         
                         tableHTML += `<tr>
-                            <td>${user.username || 'Unknown'}</td>
+                            <td>${user.display_name || user.username || 'Unknown'}</td>
                             <td>${messages}</td>
                             <td>${vcMinutes}</td>
                             <td>${user.registered ? 'Yes' : 'No'}</td>
@@ -660,7 +834,7 @@
                         const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '';
                         tableHTML += `<tr>
                             <td>${medal} #${index + 1}</td>
-                            <td>${player.username || 'Unknown'}</td>
+                            <td>${player.display_name || player.username || 'Unknown'}</td>
                             <td>${player.level || 1}</td>
                             <td>${player.xp || 0}</td>
                         </tr>`;
@@ -688,7 +862,7 @@
                         
                         tableHTML += `<tr>
                             <td>${medal} #${index + 1}</td>
-                            <td>${player.username || 'Unknown'}</td>
+                            <td>${player.display_name || player.username || 'Unknown'}</td>
                             <td>${wins}</td>
                             <td>${losses}</td>
                             <td>${winRate}%</td>
@@ -708,5 +882,90 @@
     document.getElementById('ai-tab').addEventListener('shown.bs.tab', loadAIStats);
     document.getElementById('wrapped-tab').addEventListener('shown.bs.tab', loadWrappedStats);
     document.getElementById('leaderboard-tab').addEventListener('shown.bs.tab', loadLeaderboards);
+    
+    // ========== Admin Functions ==========
+    
+    function showAdminResult(message, type = 'success') {
+        const result = document.getElementById('admin-result');
+        result.className = `alert alert-${type}`;
+        result.textContent = message;
+        result.style.display = 'block';
+        setTimeout(() => { result.style.display = 'none'; }, 5000);
+    }
+    
+    function reloadConfig() {
+        fetch('/api/admin/reload_config', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                showAdminResult(data.message || 'Config reloaded successfully', data.success ? 'success' : 'danger');
+            })
+            .catch(error => {
+                showAdminResult('Error: ' + error.message, 'danger');
+            });
+    }
+    
+    function clearHistory() {
+        const channelId = document.getElementById('channel-id-clear').value;
+        
+        if (!channelId) {
+            showAdminResult('Please enter a channel ID', 'warning');
+            return;
+        }
+        
+        if (!confirm(`Are you sure you want to clear all history for channel ${channelId}?`)) {
+            return;
+        }
+        
+        fetch('/api/admin/clear_history', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ channel_id: channelId })
+        })
+        .then(response => response.json())
+        .then(data => {
+            showAdminResult(data.message || 'History cleared', data.success ? 'success' : 'danger');
+        })
+        .catch(error => showAdminResult('Error: ' + error.message, 'danger'));
+    }
+    
+    function deleteMemory() {
+        const userId = document.getElementById('user-id-memory').value;
+        
+        if (!userId) {
+            showAdminResult('Please enter a user ID', 'warning');
+            return;
+        }
+        
+        if (!confirm(`Are you sure you want to delete memory for user ${userId}?`)) {
+            return;
+        }
+        
+        fetch('/api/admin/delete_memory', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: userId })
+        })
+        .then(response => response.json())
+        .then(data => {
+            showAdminResult(data.message || 'Memory deleted', data.success ? 'success' : 'danger');
+        })
+        .catch(error => showAdminResult('Error: ' + error.message, 'danger'));
+    }
+    
+    function viewWrappedDates() {
+        fetch('/api/admin/wrapped_dates')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const eventDate = new Date(data.event_creation_date).toLocaleString();
+                    const releaseDate = new Date(data.release_date).toLocaleString();
+                    const message = `Stat Period: ${data.stat_period} | Event: ${eventDate} | Release: ${releaseDate}`;
+                    showAdminResult(message, 'info');
+                } else {
+                    showAdminResult(data.message || 'Error fetching dates', 'danger');
+                }
+            })
+            .catch(error => showAdminResult('Error: ' + error.message, 'danger'));
+    }
 </script>
 {% endblock %}
