@@ -49,7 +49,14 @@
       "chat_temperature": 0.7,
       "chat_max_tokens": 2048,
       "utility_temperature": 0.8,
-      "utility_max_tokens": 800
+      "utility_max_tokens": 800,
+      "available_models": [
+        "gpt-5",
+        "gpt-5-mini",
+        "gpt-4o",
+        "gpt-4o-mini",
+        "gpt-4-turbo"
+      ]
     }
   },
   "modules": {
@@ -61,7 +68,61 @@
     },
     "economy": {
       "starting_balance": 1000,
-      "level_up_bonus_multiplier": 100
+      "level_up_bonus_multiplier": 100,
+      "currency_name": "Coins",
+      "currency_symbol": "🪙",
+      "daily_reward": 100,
+      "message_reward": 5,
+      "vc_reward_per_minute": 2,
+      "shop": {
+        "color_roles": {
+          "enabled": true,
+          "prices": {
+            "basic": 500,
+            "premium": 1000,
+            "legendary": 2500
+          },
+          "basic_colors": ["#FF0000", "#00FF00", "#0000FF", "#FFFF00", "#FF00FF", "#00FFFF"],
+          "premium_colors": ["#FF69B4", "#FFD700", "#9370DB", "#20B2AA", "#FF6347"],
+          "legendary_colors": ["#FF1493", "#8A2BE2", "#00CED1", "#FF4500", "#32CD32"]
+        },
+        "features": {
+          "dm_access": 2000,
+          "games_access": 1500,
+          "werwolf_special_roles": 3000,
+          "custom_status": 1000
+        }
+      },
+      "games": {
+        "blackjack": {
+          "min_bet": 10,
+          "max_bet": 1000
+        },
+        "roulette": {
+          "min_bet": 10,
+          "max_bet": 500
+        },
+        "russian_roulette": {
+          "entry_fee": 100,
+          "reward_multiplier": 6
+        },
+        "mines": {
+          "min_bet": 10,
+          "max_bet": 500,
+          "grid_size": 5,
+          "mine_count": 5
+        }
+      },
+      "quests": {
+        "enabled": true,
+        "daily_reset_hour": 0,
+        "quest_types": {
+          "messages": {"target": 50, "reward": 200},
+          "vc_minutes": {"target": 30, "reward": 250},
+          "reactions": {"target": 20, "reward": 150},
+          "game_minutes": {"target": 15, "reward": 300}
+        }
+      }
     },
     "voice_manager": {
       "join_to_create_channel_name": "\u2795 Join to Create",

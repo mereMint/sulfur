@@ -1686,3 +1686,208 @@ async def get_ai_usage_stats(days=30):
     finally:
         cursor.close()
         cnx.close()
+
+
+# ============================================================================
+# Economy & Shop Functions
+# ============================================================================
+
+@db_operation("Has Feature Unlock")
+async def has_feature_unlock(user_id, feature_name):
+    """Checks if a user has unlocked a specific feature."""
+    if not db_pool:
+        return False
+    
+    async with get_db_connection() as (conn, cursor):
+        await cursor.execute(
+            "SELECT 1 FROM feature_unlocks WHERE user_id = %s AND feature_name = %s",
+            (user_id, feature_name)
+        )
+        result = await cursor.fetchone()
+        return result is not None
+
+
+@db_operation("Add Feature Unlock")
+async def add_feature_unlock(user_id, feature_name):
+    """Adds a feature unlock for a user."""
+    if not db_pool:
+        return False
+    
+    async with get_db_connection() as (conn, cursor):
+        await cursor.execute(
+            """
+            INSERT INTO feature_unlocks (user_id, feature_name)
+            VALUES (%s, %s)
+            ON DUPLICATE KEY UPDATE purchased_at = CURRENT_TIMESTAMP
+            """,
+            (user_id, feature_name)
+        )
+        await conn.commit()
+        return True
+
+
+@db_operation("Get User Features")
+async def get_user_features(user_id):
+    """Gets all unlocked features for a user."""
+    if not db_pool:
+        return []
+    
+    async with get_db_connection() as (conn, cursor):
+        await cursor.execute(
+            "SELECT feature_name, purchased_at FROM feature_unlocks WHERE user_id = %s",
+            (user_id,)
+        )
+        results = await cursor.fetchall()
+        return [r['feature_name'] for r in results]
+
+
+@db_operation("Log Shop Purchase")
+async def log_shop_purchase(user_id, item_type, item_name, price):
+    """Logs a shop purchase."""
+    if not db_pool:
+        return False
+    
+    async with get_db_connection() as (conn, cursor):
+        await cursor.execute(
+            """
+            INSERT INTO shop_purchases (user_id, item_type, item_name, price)
+            VALUES (%s, %s, %s, %s)
+            """,
+            (user_id, item_type, item_name, price)
+        )
+        
+        # Update total spent
+        await cursor.execute(
+            """
+            INSERT INTO user_economy (user_id, total_spent)
+            VALUES (%s, %s)
+            ON DUPLICATE KEY UPDATE total_spent = total_spent + %s
+            """,
+            (user_id, price, price)
+        )
+        
+        await conn.commit()
+        return True
+
+
+@db_operation("Get Purchase History")
+async def get_purchase_history(user_id, limit=10):
+    """Gets purchase history for a user."""
+    if not db_pool:
+        return []
+    
+    async with get_db_connection() as (conn, cursor):
+        await cursor.execute(
+            """
+            SELECT item_type, item_name, price, purchased_at
+            FROM shop_purchases
+            WHERE user_id = %s
+            ORDER BY purchased_at DESC
+            LIMIT %s
+            """,
+            (user_id, limit)
+        )
+        return await cursor.fetchall()
+
+
+@db_operation("Update Gambling Stats")
+async def update_gambling_stats(user_id, game_type, wagered, won_amount):
+    """Updates gambling statistics for a user."""
+    if not db_pool:
+        return False
+    
+    profit = won_amount - wagered
+    
+    async with get_db_connection() as (conn, cursor):
+        await cursor.execute(
+            """
+            INSERT INTO gambling_stats (user_id, game_type, total_games, total_wagered, total_won, total_lost, biggest_win, biggest_loss, last_played)
+            VALUES (%s, %s, 1, %s, %s, %s, %s, %s, NOW())
+            ON DUPLICATE KEY UPDATE
+                total_games = total_games + 1,
+                total_wagered = total_wagered + %s,
+                total_won = total_won + %s,
+                total_lost = total_lost + %s,
+                biggest_win = GREATEST(biggest_win, %s),
+                biggest_loss = GREATEST(biggest_loss, %s),
+                last_played = NOW()
+            """,
+            (user_id, game_type, wagered, 
+             won_amount if profit > 0 else 0, 
+             abs(profit) if profit < 0 else 0,
+             profit if profit > 0 else 0,
+             abs(profit) if profit < 0 else 0,
+             wagered, 
+             won_amount if profit > 0 else 0,
+             abs(profit) if profit < 0 else 0,
+             profit if profit > 0 else 0,
+             abs(profit) if profit < 0 else 0)
+        )
+        await conn.commit()
+        return True
+
+
+@db_operation("Get Gambling Stats")
+async def get_gambling_stats(user_id, game_type=None):
+    """Gets gambling statistics for a user."""
+    if not db_pool:
+        return None
+    
+    async with get_db_connection() as (conn, cursor):
+        if game_type:
+            await cursor.execute(
+                """
+                SELECT * FROM gambling_stats
+                WHERE user_id = %s AND game_type = %s
+                """,
+                (user_id, game_type)
+            )
+        else:
+            await cursor.execute(
+                """
+                SELECT * FROM gambling_stats
+                WHERE user_id = %s
+                """,
+                (user_id,)
+            )
+        
+        results = await cursor.fetchall()
+        return results if results else None
+
+
+@db_operation("Log Transaction")
+async def log_transaction(user_id, transaction_type, amount, balance_after, description=None):
+    """Logs a transaction to history."""
+    if not db_pool:
+        return False
+    
+    async with get_db_connection() as (conn, cursor):
+        await cursor.execute(
+            """
+            INSERT INTO transaction_history (user_id, transaction_type, amount, balance_after, description)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (user_id, transaction_type, amount, balance_after, description)
+        )
+        await conn.commit()
+        return True
+
+
+@db_operation("Get Transaction History")
+async def get_transaction_history(user_id, limit=20):
+    """Gets transaction history for a user."""
+    if not db_pool:
+        return []
+    
+    async with get_db_connection() as (conn, cursor):
+        await cursor.execute(
+            """
+            SELECT transaction_type, amount, balance_after, description, created_at
+            FROM transaction_history
+            WHERE user_id = %s
+            ORDER BY created_at DESC
+            LIMIT %s
+            """,
+            (user_id, limit)
+        )
+        return await cursor.fetchall()

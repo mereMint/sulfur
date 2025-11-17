@@ -1,13 +1,70 @@
 # Sulfur Discord Bot - TODO List
-*Last Updated: November 16, 2025*
+*Last Updated: November 17, 2025*
 
-## 🔴 High Priority - Bug Fixes
+## 🔴 High Priority - In Progress
 
-- maintain_bot can't talk to the web dashboard and the bot 
+### AI Model Support
+- [x] **GPT-5 Support** - COMPLETED
+  - Added GPT-5 and GPT-5-mini to available models
+  - Updated config.json with new model options
+  - API helpers already support dynamic model selection
 
 ---
 
 ## 🟡 Medium Priority - Features
+
+### Economy & Shop System - IN PROGRESS
+- [x] **Virtual Currency System** - COMPLETED
+  - Economy module with balance tracking
+  - Daily rewards system
+  - Transfer functionality
+  - Leaderboard support
+  
+- [x] **Shop System** - COMPLETED  
+  - Color role purchases (basic/premium/legendary tiers)
+  - Feature unlocks (DM access, games, Werwolf roles, custom status)
+  - Purchase tracking and history
+  - Module: `modules/shop.py`
+  
+- [x] **Gambling Games** - COMPLETED
+  - **Blackjack** - Full game with hit/stand mechanics
+  - **Roulette** - Number, color, odd/even, high/low bets
+  - **Russian Roulette** - 6-shot risk/reward system
+  - **Mines** - Grid-based multiplier game
+  - Module: `modules/games.py`
+  
+- [x] **Database Schema** - COMPLETED
+  - Migration file: `scripts/db_migrations/003_economy_and_shop.sql`
+  - Tables: user_economy, feature_unlocks, shop_purchases, gambling_stats, transaction_history, color_roles, chat_bounties
+  - Views for economy summary and gambling stats
+  
+- [ ] **Integration Required**
+  - Add slash commands for shop (/shop, /shop buy, /balance, /daily)
+  - Add game commands (/blackjack, /roulette, /mines, /rr)
+  - Create UI views and buttons for shop
+  - Add transaction logging
+  - Test all purchase flows
+
+### Daily Quests System - ✅ COMPLETED
+- [x] **Database Schema** - COMPLETED
+  - Tables: daily_quests, daily_quest_completions, monthly_milestones
+  - Quest types configured in config.json
+  
+- [x] **Implementation Complete** - COMPLETED
+  - Quest generation system (3 random quests daily)
+  - Progress tracking for: messages, vc_minutes, reactions, game_minutes
+  - Reward claiming with duplicate prevention
+  - Daily completion bonus (500 coins for all 3)
+  - Monthly milestone tracking (7/14/21/30 days)
+  - Monthly rewards: 1000/2500/5000/10000 coins
+  - Module: `modules/quests.py`
+  - UI helpers for embeds
+  
+- [ ] **Integration Required**
+  - Add slash commands: `/quests`, `/questclaim`, `/monthly`
+  - Hook progress tracking to events (messages, VC, reactions, games)
+  - Add quest completion notifications
+  - Test daily reset and monthly milestones
 
 ### Wrapped Feature Enhancement
 - [x] **Opt-in system for Wrapped** - COMPLETED
