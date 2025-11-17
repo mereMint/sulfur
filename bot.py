@@ -178,6 +178,8 @@ from modules.level_system import grant_xp
 import modules.voice_manager as voice_manager
 # --- NEW: Import Economy ---
 from modules.economy import calculate_level_up_bonus
+# --- NEW: Import Quest System ---
+import modules.quests as quests
 
 # --- MODIFIED: Pass client to DB initialization ---
 db_helpers.initialize_database()
@@ -673,6 +675,14 @@ async def on_presence_update(before, after):
                     duration_minutes = duration_seconds / 60.0
                     stat_period = now.strftime('%Y-%m')
                     await db_helpers.log_game_session(user_id, stat_period, before_game.name, duration_minutes)
+                    
+                    # --- NEW: Track game minutes for quest progress ---
+                    try:
+                        quest_completed, _ = await quests.update_quest_progress(db_helpers, user_id, 'game_minutes', int(duration_minutes))
+                        # Quest completion notifications will be sent when user checks /quests or uses /questclaim
+                    except Exception as e:
+                        logger.error(f"Error updating game quest progress for user {user_id}: {e}", exc_info=True)
+                
                 print(f"  -> [Game] Session ended for {after.display_name}: '{before_game.name}' after {duration_seconds/60.0:.1f} minutes.")
 
         # Case 2: A new game has started
@@ -758,6 +768,14 @@ async def grant_voice_xp():
                 stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
                 new_level = await db_helpers.add_xp(member.id, member.display_name, config['modules']['leveling']['xp_per_minute_in_vc'])
                 await db_helpers.log_vc_minutes(member.id, 1, stat_period) # Log 1 minute for Wrapped
+                
+                # --- NEW: Track VC minutes for quest progress ---
+                try:
+                    quest_completed, _ = await quests.update_quest_progress(db_helpers, member.id, 'vc_minutes', 1)
+                    # Quest completion notifications will be sent when user checks /quests or uses /questclaim
+                except Exception as e:
+                    logger.error(f"Error updating VC quest progress for user {user_id}: {e}", exc_info=True)
+                
                 if new_level:
                     bonus = calculate_level_up_bonus(new_level, config)
                     await db_helpers.add_balance(member.id, member.display_name, bonus, config, stat_period)
@@ -2687,6 +2705,172 @@ async def view_transactions(interaction: discord.Interaction, limit: int = 10):
 tree.add_command(shop_group)
 
 
+# ============================================================================
+# QUEST SYSTEM SLASH COMMANDS
+# ============================================================================
+
+@tree.command(name="quests", description="Zeigt deine täglichen Quests an.")
+async def view_quests(interaction: discord.Interaction):
+    """Display the user's daily quests."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        # Generate quests for today if they don't exist
+        quest_list = await quests.generate_daily_quests(db_helpers, interaction.user.id, config)
+        
+        if not quest_list:
+            # If generation failed, try to fetch existing quests
+            quest_list = await quests.get_user_quests(db_helpers, interaction.user.id, config)
+        
+        if not quest_list:
+            await interaction.followup.send("❌ Fehler beim Laden der Quests.", ephemeral=True)
+            return
+        
+        # Create embed showing quests
+        embed = quests.create_quests_embed(quest_list, interaction.user.display_name, config)
+        
+        # Check if all quests are completed
+        all_completed, completed_count, total_count = await quests.check_all_quests_completed(db_helpers, interaction.user.id)
+        
+        if all_completed:
+            embed.set_footer(text="✅ Alle Quests abgeschlossen! Nutze /questclaim um deine Belohnungen einzusammeln.")
+        else:
+            embed.set_footer(text=f"Quest-Fortschritt: {completed_count}/{total_count} abgeschlossen")
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error in /quests command: {e}", exc_info=True)
+        await interaction.followup.send(f"❌ Fehler beim Laden der Quests: {str(e)}", ephemeral=True)
+
+
+@tree.command(name="questclaim", description="Sammle die Belohnung für abgeschlossene Quests ein.")
+async def claim_quest(interaction: discord.Interaction):
+    """Claim rewards for completed quests."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        # Get user's quests
+        quest_list = await quests.get_user_quests(db_helpers, interaction.user.id, config)
+        
+        if not quest_list:
+            await interaction.followup.send("❌ Du hast heute noch keine Quests.", ephemeral=True)
+            return
+        
+        # Find completed but unclaimed quests
+        unclaimed_quests = [q for q in quest_list if q['completed'] and not q.get('reward_claimed', False)]
+        
+        if not unclaimed_quests:
+            await interaction.followup.send("❌ Du hast keine abgeschlossenen Quests zum Einsammeln.", ephemeral=True)
+            return
+        
+        # Claim all unclaimed quests
+        total_reward = 0
+        claimed_count = 0
+        
+        for quest in unclaimed_quests:
+            success, reward, message = await quests.claim_quest_reward(
+                db_helpers,
+                interaction.user.id,
+                interaction.user.display_name,
+                quest['id'],
+                config
+            )
+            
+            if success:
+                total_reward += reward
+                claimed_count += 1
+        
+        currency = config['modules']['economy']['currency_symbol']
+        
+        if claimed_count > 0:
+            embed = discord.Embed(
+                title="✅ Quest-Belohnungen eingesammelt!",
+                description=f"Du hast {claimed_count} Quest(s) abgeschlossen!",
+                color=discord.Color.green()
+            )
+            embed.add_field(
+                name="Belohnung",
+                value=f"**+{total_reward} {currency}**",
+                inline=False
+            )
+            
+            # Check if all quests are now completed and claimed
+            all_completed, completed_count, total_count = await quests.check_all_quests_completed(db_helpers, interaction.user.id)
+            
+            if all_completed:
+                # Grant daily completion bonus
+                bonus_success, bonus_amount = await quests.grant_daily_completion_bonus(
+                    db_helpers,
+                    interaction.user.id,
+                    interaction.user.display_name,
+                    config
+                )
+                
+                if bonus_success:
+                    embed.add_field(
+                        name="🎉 Tagesbonus!",
+                        value=f"Alle Quests abgeschlossen! **+{bonus_amount} {currency}** Bonus!",
+                        inline=False
+                    )
+                    total_reward += bonus_amount
+                    
+                    # Check for monthly milestone
+                    completion_days, total_days = await quests.get_monthly_completion_count(db_helpers, interaction.user.id)
+                    milestone_reached, milestone_reward, milestone_name = await quests.grant_monthly_milestone_reward(
+                        db_helpers,
+                        interaction.user.id,
+                        interaction.user.display_name,
+                        completion_days,
+                        config
+                    )
+                    
+                    if milestone_reached:
+                        embed.add_field(
+                            name=f"🏆 Monatlicher Meilenstein erreicht!",
+                            value=f"**{milestone_name}** ({completion_days} Tage)\n**+{milestone_reward} {currency}**",
+                            inline=False
+                        )
+            
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        else:
+            await interaction.followup.send("❌ Keine Belohnungen konnten eingesammelt werden.", ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error in /questclaim command: {e}", exc_info=True)
+        await interaction.followup.send(f"❌ Fehler beim Einsammeln der Belohnungen: {str(e)}", ephemeral=True)
+
+
+@tree.command(name="monthly", description="Zeigt deinen monatlichen Quest-Fortschritt an.")
+async def monthly_progress(interaction: discord.Interaction):
+    """Display monthly quest progress and milestones."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        # Get monthly completion count
+        completion_days, total_days = await quests.get_monthly_completion_count(db_helpers, interaction.user.id)
+        
+        # Create embed
+        embed = quests.create_monthly_progress_embed(
+            completion_days,
+            total_days,
+            interaction.user.display_name,
+            config
+        )
+        
+        # Add current month info
+        now = datetime.now(timezone.utc)
+        embed.add_field(
+            name="Aktueller Monat",
+            value=f"{now.strftime('%B %Y')}",
+            inline=False
+        )
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error in /monthly command: {e}", exc_info=True)
+        await interaction.followup.send(f"❌ Fehler beim Laden des monatlichen Fortschritts: {str(e)}", ephemeral=True)
 # --- Game Commands & UI ---
 from modules.games import BlackjackGame, RouletteGame, MinesGame, RussianRouletteGame
 
@@ -3615,6 +3799,13 @@ async def on_message(message):
             stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
             custom_emojis = re.findall(r'<a?:(\w+):\d+>', message.content)
             await db_helpers.log_message_stat(message.author.id, message.channel.id, custom_emojis, stat_period)
+            
+            # --- NEW: Track message quest progress ---
+            try:
+                quest_completed, _ = await quests.update_quest_progress(db_helpers, message.author.id, 'messages', 1)
+                # Only notify on quest completion, not on every message
+            except Exception as e:
+                logger.error(f"Error updating message quest progress: {e}", exc_info=True)
 
             new_level = await grant_xp(message.author.id, message.author.display_name, db_helpers.add_xp, config)
             if new_level:
@@ -3633,6 +3824,34 @@ async def on_message(message):
 
     # 4. Fallback for any other channel types (e.g., threads) to prevent any processing.
     return
+
+
+# ============================================================================
+# REACTION EVENT HANDLERS - Quest Progress Tracking
+# ============================================================================
+
+@client.event
+async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
+    """Track reactions for quest progress."""
+    # Ignore bot reactions
+    if payload.user_id == client.user.id:
+        return
+    
+    # Ignore reactions from bots
+    try:
+        user = await client.fetch_user(payload.user_id)
+        if user.bot:
+            return
+    except:
+        return
+    
+    # Track reaction quest progress
+    try:
+        quest_completed, _ = await quests.update_quest_progress(db_helpers, payload.user_id, 'reactions', 1)
+        # Quest completion notifications will be sent when user checks /quests or uses /questclaim
+    except Exception as e:
+        logger.error(f"Error updating reaction quest progress: {e}", exc_info=True)
+
 
 # --- GRACEFUL SHUTDOWN HANDLER ---
 async def graceful_shutdown(signal_name=None):
