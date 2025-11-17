@@ -17,13 +17,25 @@ Complete guide for running Sulfur Discord bot on Android using Termux.
 
 ### Method 1: Automated Setup (Recommended)
 
+**📌 Important**: This is a private repository. You need to:
+1. **Fork the repo** to your own GitHub account, OR
+2. Have access to the original repo and use a **Personal Access Token**
+
 **Option A: One-Line Command (Easiest)**
 
 Copy and paste this ENTIRE line as ONE command:
 
 ```bash
-pkg update && pkg install -y git && git clone https://github.com/mereMint/sulfur.git sulfur && cd sulfur && bash termux_quickstart.sh
+pkg update && pkg install -y git && git clone --depth 1 https://github.com/YOUR_USERNAME/sulfur.git sulfur && cd sulfur && bash termux_quickstart.sh
 ```
+
+**Replace `YOUR_USERNAME`** with your GitHub username.
+
+**When prompted for password**: Use a Personal Access Token (NOT your GitHub password)
+- Create token: https://github.com/settings/tokens
+- Click "Generate new token (classic)"
+- Select `repo` scope
+- Copy and paste the token when asked for password
 
 **Option B: Step-by-Step**
 
@@ -33,15 +45,18 @@ If you prefer to see each step:
 # Step 1: Update and install git
 pkg update && pkg install -y git
 
-# Step 2: Clone the repository
-git clone https://github.com/mereMint/sulfur.git sulfur
+# Step 2: Clone the repository (replace YOUR_USERNAME with your GitHub username)
+git clone --depth 1 https://github.com/YOUR_USERNAME/sulfur.git sulfur
+# When prompted:
+#   Username: your_github_username
+#   Password: your_personal_access_token (create at https://github.com/settings/tokens)
 
 # Step 3: Enter the directory and run setup
 cd sulfur
 bash termux_quickstart.sh
 ```
 
-**Note**: The initial clone uses HTTPS (public access). The script will set up SSH authentication for future git operations.
+**Note**: After the initial clone with HTTPS, the script will set up SSH for future git operations (push/pull).
 
 **Alternative**: If you already have the repository:
 ```bash
@@ -282,16 +297,32 @@ mysqldump -u sulfur_bot_user sulfur_bot > backup_$(date +%Y%m%d_%H%M%S).sql
 
 ### Installation Asks for GitHub Username/Password
 
-**Problem**: When running the installation command, git asks for username and password during clone.
+**This is normal for private repositories!**
 
-**Cause**: You ran the commands separately instead of as one line with `&&`.
+**What to enter**:
+- **Username**: Your GitHub username
+- **Password**: A Personal Access Token (NOT your GitHub password)
 
-**Solution**: Copy and paste the ENTIRE installation command as ONE line:
+**Creating a Personal Access Token**:
+1. Go to https://github.com/settings/tokens
+2. Click "Generate new token (classic)"
+3. Give it a name like "Termux Sulfur Bot"
+4. Select the `repo` scope (full control of private repositories)
+5. Click "Generate token"
+6. **Copy the token immediately** (you won't see it again!)
+7. Paste it when git asks for "Password"
+
+**Alternative**: If you don't want to use HTTPS authentication:
 ```bash
-pkg update && pkg install -y git && git clone https://github.com/mereMint/sulfur.git sulfur && cd sulfur && bash termux_quickstart.sh
-```
+# Cancel the current clone (Ctrl+C)
+cd ~
+rm -rf sulfur
 
-The `&&` ensures each command only runs if the previous one succeeded. Running them separately breaks the flow.
+# Then run the automated setup which will set up SSH first
+pkg install -y git openssh
+bash termux_quickstart.sh
+# Follow the SSH key setup prompts
+```
 
 ### MariaDB Won't Start
 

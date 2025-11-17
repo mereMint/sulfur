@@ -4,15 +4,17 @@
 # ============================================================
 # This script automates EVERYTHING needed to run the bot on Termux
 #
-# IMPORTANT: Don't try to download this file directly!
-# Instead, use the one-line installation command:
+# IMPORTANT: This repo is PRIVATE - you need credentials or SSH!
+# 
+# For private repo access, use one of these methods:
 #
-# Copy and paste this ENTIRE line (all on one line):
-#   pkg update && pkg install -y git && git clone https://github.com/mereMint/sulfur.git sulfur && cd sulfur && bash termux_quickstart.sh
+# METHOD 1: Fork the repo and use your fork:
+#   pkg update && pkg install -y git && git clone --depth 1 https://github.com/YOUR_USERNAME/sulfur.git sulfur && cd sulfur && bash termux_quickstart.sh
 #
-# Or step-by-step:
-#   pkg update && pkg install -y git
-#   git clone https://github.com/mereMint/sulfur.git sulfur
+# METHOD 2: Use Personal Access Token:
+#   When git asks for password, use a token from https://github.com/settings/tokens
+#
+# METHOD 3: Already have the repo cloned?
 #   cd sulfur && bash termux_quickstart.sh
 #
 # Usage: bash termux_quickstart.sh
@@ -30,6 +32,110 @@ MAGENTA='\033[0;35m'
 NC='\033[0m' # No Color
 
 # Functions
+ask_yes_no() {
+    local prompt="$1"
+    local default_choice="$2" # y or n
+    local choice
+    while true; do
+        read -r -p "$prompt [y/n] " choice
+        choice=${choice:-$default_choice}
+        case "$choice" in
+            [Yy]) return 0 ;;
+            [Nn]) return 1 ;;
+            *) echo "Please enter y or n." ;;
+        esac
+    done
+}
+
+print_divider() {
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+}
+
+show_public_key_block() {
+    local key_path="$1"
+    print_divider
+    echo -e "${MAGENTA}Your SSH public key (copy and add to GitHub):${NC}"
+    echo ""
+    if [ -f "${key_path}.pub" ]; then
+        cat "${key_path}.pub"
+        echo ""
+        if command -v termux-clipboard-set >/dev/null 2>&1; then
+            cat "${key_path}.pub" | termux-clipboard-set && echo -e "${GREEN}[✓]${NC} Copied to clipboard"
+        fi
+    else
+        echo -e "${RED}[✗]${NC} Public key not found at ${key_path}.pub"
+    fi
+    print_divider
+}
+
+ssh_setup_wizard() {
+    echo ""
+    print_divider
+    echo -e "${BLUE}SSH Setup Wizard${NC}"
+    print_divider
+
+    # Ensure OpenSSH is installed
+    if ! command -v ssh >/dev/null 2>&1; then
+        print_info "Installing OpenSSH (required for GitHub SSH)..."
+        pkg install -y openssh || true
+    fi
+
+    SSH_KEY_PATH="$HOME/.ssh/id_ed25519"
+    mkdir -p "$HOME/.ssh"
+
+    if [ ! -f "$SSH_KEY_PATH" ]; then
+        echo -e "${YELLOW}No SSH key found at ${SSH_KEY_PATH}.${NC}"
+        read -r -p "Enter your GitHub email for the key: " GITHUB_EMAIL
+        if [ -z "$GITHUB_EMAIL" ]; then
+            GITHUB_EMAIL="termux-$(date +%Y%m%d)@local"
+        fi
+        print_info "Generating SSH key (ed25519)..."
+        ssh-keygen -t ed25519 -C "$GITHUB_EMAIL" -f "$SSH_KEY_PATH" -N "" || true
+        print_success "SSH key generated!"
+    else
+        print_success "SSH key already exists at $SSH_KEY_PATH"
+    fi
+
+    # Show key and guide user
+    show_public_key_block "$SSH_KEY_PATH"
+    echo -e "Add this key at: ${GREEN}https://github.com/settings/keys${NC} (New SSH key)"
+
+    # Ask for username if missing, we'll reuse later for clone
+    if [ -z "$GITHUB_USER" ]; then
+        read -r -p "Your GitHub username (for SSH clone): " GITHUB_USER
+    fi
+
+    # Verification loop
+    SSH_READY=false
+    for attempt in 1 2 3; do
+        echo -e "${CYAN}[Attempt $attempt/3] Testing SSH connection to GitHub...${NC}"
+        # Suppress host key prompt by auto-accepting in first try
+        ssh -o StrictHostKeyChecking=accept-new -T git@github.com 2>&1 | grep -qi "successfully authenticated"
+        if [ $? -eq 0 ]; then
+            print_success "SSH authentication with GitHub works!"
+            SSH_READY=true
+            break
+        else
+            print_warning "SSH test failed. Make sure the key is added to your GitHub account."
+            show_public_key_block "$SSH_KEY_PATH"
+            if ! ask_yes_no "Open the GitHub keys page on another device and add the key, then retry?" y; then
+                break
+            fi
+        fi
+    done
+
+    if [ "$SSH_READY" != true ]; then
+        print_warning "SSH not ready. You can still proceed using HTTPS + Personal Access Token."
+        if ask_yes_no "Proceed with HTTPS clone (will prompt for PAT)?" y; then
+            export SSH_READY=false
+        else
+            print_error "Cannot proceed without SSH or HTTPS credentials. Exiting."
+            exit 1
+        fi
+    else
+        export SSH_READY=true
+    fi
+}
 print_header() {
     echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║  Sulfur Bot - Complete Termux Installation & Setup        ║${NC}"
@@ -137,9 +243,17 @@ done
 echo ""
 
 # ============================================================
-# STEP 3: Setup MariaDB
+# STEP 3: SSH Setup Wizard (Interactive)
 # ============================================================
-print_step "Step 3: Setting up MariaDB database..."
+print_step "Step 3: Launching SSH setup wizard..."
+echo ""
+ssh_setup_wizard
+echo ""
+
+# ============================================================
+# STEP 4: Setup MariaDB
+# ============================================================
+print_step "Step 4: Setting up MariaDB database..."
 echo ""
 
 # Check if MariaDB is initialized
@@ -235,73 +349,18 @@ fi
 echo ""
 
 # ============================================================
-# STEP 5: Setup SSH Key for GitHub
+# STEP 5: SSH Setup Summary
 # ============================================================
-print_step "Step 5: Setting up SSH key for GitHub..."
+print_step "Step 5: SSH setup summary..."
 echo ""
-
-SSH_KEY_PATH="$HOME/.ssh/id_ed25519"
-GITHUB_USER=""
-
-if [ -f "$SSH_KEY_PATH" ]; then
-    print_success "SSH key already exists at $SSH_KEY_PATH"
-    
-    # Test if SSH works
-    print_info "Testing SSH connection to GitHub..."
-    if ssh -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
-        print_success "SSH connection to GitHub works!"
-    else
-        print_warning "SSH key exists but connection failed"
-        print_info "You may need to add the key to GitHub"
-        echo ""
-        print_info "Your public key:"
-        cat "${SSH_KEY_PATH}.pub"
-        echo ""
-        print_warning "Add this to: https://github.com/settings/keys"
-        read -p "Press Enter after adding the key to GitHub..."
-    fi
+if [ "$SSH_READY" = true ]; then
+    print_success "SSH to GitHub is configured and working."
 else
-    print_warning "No SSH key found - GitHub requires SSH for authentication"
-    print_info "Generating SSH key..."
-    
-    read -p "Enter your GitHub email: " GITHUB_EMAIL
-    
-    mkdir -p "$HOME/.ssh"
-    ssh-keygen -t ed25519 -C "$GITHUB_EMAIL" -f "$SSH_KEY_PATH" -N ""
-    
-    print_success "SSH key generated!"
-    echo ""
-    print_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    print_info "YOUR PUBLIC KEY (copy this):"
-    echo ""
-    cat "${SSH_KEY_PATH}.pub"
-    echo ""
-    print_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
-    print_warning "REQUIRED: Add this key to GitHub NOW:"
-    print_info "1. Open: ${GREEN}https://github.com/settings/keys${NC}"
-    print_info "2. Click '${GREEN}New SSH key${NC}'"
-    print_info "3. Title: '${GREEN}Termux - $(date +%Y-%m-%d)${NC}'"
-    print_info "4. Paste the key shown above"
-    print_info "5. Click '${GREEN}Add SSH key${NC}'"
-    echo ""
-    read -p "Press Enter AFTER you've added the key to GitHub..."
-    
-    # Test SSH connection
-    print_info "Testing SSH connection to GitHub..."
-    if ssh -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
-        print_success "SSH connection successful!"
-    else
-        print_error "SSH connection failed!"
-        print_warning "Please make sure you added the key to GitHub"
-        print_info "You can try again by running: ssh -T git@github.com"
-        read -p "Continue anyway? (y/n): " CONTINUE
-        if [[ ! "$CONTINUE" =~ ^[Yy]$ ]]; then
-            exit 1
-        fi
-    fi
+    print_warning "Proceeding without SSH; HTTPS clone will prompt for a Personal Access Token."
 fi
-
+if [ -z "$GITHUB_USER" ]; then
+    read -r -p "Your GitHub username (for clone): " GITHUB_USER
+fi
 echo ""
 
 # ============================================================
@@ -341,14 +400,25 @@ else
         read -p "Remove it and clone fresh? (y/n): " REMOVE_DIR
         if [[ "$REMOVE_DIR" =~ ^[Yy]$ ]]; then
             rm -rf "$REPO_DIR"
-            print_info "Cloning repository via SSH..."
+            if [ "$SSH_READY" = true ]; then
+                print_info "Cloning repository via SSH..."
+                CLONE_URL="git@github.com:$GITHUB_USER/sulfur.git"
+            else
+                print_info "Cloning repository via HTTPS (will prompt for Personal Access Token)..."
+                CLONE_URL="https://github.com/$GITHUB_USER/sulfur.git"
+            fi
             
-            if git clone "git@github.com:$GITHUB_USER/sulfur.git" "$REPO_DIR"; then
+            if git clone "$CLONE_URL" "$REPO_DIR"; then
                 print_success "Repository cloned to $REPO_DIR"
             else
                 print_error "Failed to clone repository!"
-                print_info "Make sure your SSH key is added to GitHub"
-                print_info "Test with: ssh -T git@github.com"
+                if [ "$SSH_READY" = true ]; then
+                    print_info "Make sure your SSH key is added to GitHub"
+                    print_info "Test with: ssh -T git@github.com"
+                else
+                    print_info "If prompted, use your GitHub Personal Access Token as password"
+                    print_info "Create one at: https://github.com/settings/tokens (classic, repo scope)"
+                fi
                 exit 1
             fi
         else
@@ -356,14 +426,25 @@ else
             cd "$REPO_DIR"
         fi
     else
-        print_info "Cloning repository via SSH..."
+        if [ "$SSH_READY" = true ]; then
+            print_info "Cloning repository via SSH..."
+            CLONE_URL="git@github.com:$GITHUB_USER/sulfur.git"
+        else
+            print_info "Cloning repository via HTTPS (will prompt for Personal Access Token)..."
+            CLONE_URL="https://github.com/$GITHUB_USER/sulfur.git"
+        fi
         
-        if git clone "git@github.com:$GITHUB_USER/sulfur.git" "$REPO_DIR"; then
+        if git clone "$CLONE_URL" "$REPO_DIR"; then
             print_success "Repository cloned to $REPO_DIR"
         else
             print_error "Failed to clone repository!"
-            print_info "Make sure your SSH key is added to GitHub"
-            print_info "Test with: ssh -T git@github.com"
+            if [ "$SSH_READY" = true ]; then
+                print_info "Make sure your SSH key is added to GitHub"
+                print_info "Test with: ssh -T git@github.com"
+            else
+                print_info "If prompted, use your GitHub Personal Access Token as password"
+                print_info "Create one at: https://github.com/settings/tokens (classic, repo scope)"
+            fi
             exit 1
         fi
     fi

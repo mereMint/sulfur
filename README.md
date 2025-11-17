@@ -586,15 +586,29 @@ sudo systemctl status sulfur-bot
 
 🚀 **The Fastest Way to Get Started on Android!**
 
+**📌 Note**: This is a private repository. You have two options:
+
+1. **Fork this repo** to your GitHub account (recommended)
+2. Use GitHub credentials when prompted
+
 Our automated Termux setup script handles **everything** in one command:
 
 ```bash
-pkg update && pkg install -y git && git clone https://github.com/mereMint/sulfur.git sulfur && cd sulfur && bash termux_quickstart.sh
+pkg update && pkg install -y git && git clone --depth 1 https://github.com/YOUR_USERNAME/sulfur.git sulfur && cd sulfur && bash termux_quickstart.sh
 ```
 
-⚠️ **IMPORTANT**: Copy and paste the ENTIRE line above as ONE command. Do not run the commands separately.
+⚠️ **IMPORTANT**: 
+- Replace `YOUR_USERNAME` with your GitHub username (if you forked the repo)
+- Copy and paste the ENTIRE line above as ONE command
+- If using the original repo, you'll be asked for your GitHub username and a **Personal Access Token** (not password)
 
-**Note**: The initial clone uses HTTPS (no authentication needed for public repos). The script will then set up SSH for future git operations.
+**Creating a Personal Access Token**:
+1. Go to https://github.com/settings/tokens
+2. Click "Generate new token" → "Classic"
+3. Select `repo` scope
+4. Copy the token and use it as the password when prompted
+
+**Note**: The initial clone requires authentication for private repos. The script will then set up SSH for future git operations.
 
 **What it does:**
 - ✅ Updates Termux packages
