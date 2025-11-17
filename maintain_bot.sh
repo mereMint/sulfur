@@ -111,14 +111,28 @@ EOF
 cleanup() {
     log_warning "Cleaning up..."
     
-    # Stop bot
+    # Stop bot gracefully
     if [ -f "$BOT_PID_FILE" ]; then
         BOT_PID=$(cat "$BOT_PID_FILE")
         if kill -0 "$BOT_PID" 2>/dev/null; then
-            log_bot "Stopping bot (PID: $BOT_PID)..."
-            kill "$BOT_PID" 2>/dev/null
-            sleep 2
-            kill -9 "$BOT_PID" 2>/dev/null
+            log_bot "Sending graceful shutdown signal to bot (PID: $BOT_PID)..."
+            # Send SIGTERM for graceful shutdown
+            kill -TERM "$BOT_PID" 2>/dev/null
+            
+            # Wait up to 5 seconds for graceful shutdown
+            for i in {1..5}; do
+                if ! kill -0 "$BOT_PID" 2>/dev/null; then
+                    log_success "Bot shut down gracefully"
+                    break
+                fi
+                sleep 1
+            done
+            
+            # Force kill if still running
+            if kill -0 "$BOT_PID" 2>/dev/null; then
+                log_warning "Force stopping bot..."
+                kill -9 "$BOT_PID" 2>/dev/null
+            fi
         fi
         rm -f "$BOT_PID_FILE"
     fi
@@ -346,10 +360,24 @@ stop_bot() {
     if [ -f "$BOT_PID_FILE" ]; then
         local bot_pid=$(cat "$BOT_PID_FILE")
         if kill -0 "$bot_pid" 2>/dev/null; then
-            log_bot "Stopping bot..."
-            kill "$bot_pid" 2>/dev/null
-            sleep 2
-            kill -9 "$bot_pid" 2>/dev/null
+            log_bot "Sending graceful shutdown signal..."
+            # Send SIGTERM for graceful shutdown
+            kill -TERM "$bot_pid" 2>/dev/null
+            
+            # Wait up to 5 seconds for graceful shutdown
+            for i in {1..5}; do
+                if ! kill -0 "$bot_pid" 2>/dev/null; then
+                    log_success "Bot shut down gracefully"
+                    break
+                fi
+                sleep 1
+            done
+            
+            # Force kill if still running
+            if kill -0 "$bot_pid" 2>/dev/null; then
+                log_warning "Force stopping bot..."
+                kill -9 "$bot_pid" 2>/dev/null
+            fi
         fi
         rm -f "$BOT_PID_FILE"
     fi

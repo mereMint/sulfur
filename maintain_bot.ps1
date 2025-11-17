@@ -286,7 +286,25 @@ while($true){
         if(Test-Path 'stop.flag'){
             Write-ColorLog 'Stop flag detected' 'Yellow'
             Remove-Item 'stop.flag' -ErrorAction SilentlyContinue
-            Stop-Process -Id $script:botProcess.Id -Force
+            
+            # Send Ctrl+C for graceful shutdown (allows bot to set status offline)
+            Write-ColorLog 'Sending graceful shutdown signal...' 'Cyan'
+            try {
+                [Console]::TreatControlCAsInput = $true
+                Stop-Process -Id $script:botProcess.Id -ErrorAction SilentlyContinue
+            } catch {
+                # Fallback to force stop if graceful fails
+            }
+            
+            # Wait for graceful shutdown
+            Start-Sleep 3
+            
+            # Force stop if still running
+            if(-not $script:botProcess.HasExited){
+                Write-ColorLog 'Force stopping bot process...' 'Yellow'
+                Stop-Process -Id $script:botProcess.Id -Force -ErrorAction SilentlyContinue
+            }
+            
             Start-Sleep 2
             Invoke-DatabaseBackup
             Invoke-GitCommit 'chore: Auto-commit on stop'
@@ -302,7 +320,22 @@ while($true){
         if(Test-Path 'restart.flag'){
             Write-ColorLog 'Restart flag detected' 'Yellow'
             Remove-Item 'restart.flag' -ErrorAction SilentlyContinue
-            Stop-Process -Id $script:botProcess.Id -Force
+            
+            # Send graceful shutdown signal
+            Write-ColorLog 'Sending graceful shutdown signal...' 'Cyan'
+            try {
+                Stop-Process -Id $script:botProcess.Id -ErrorAction SilentlyContinue
+            } catch {}
+            
+            # Wait for graceful shutdown
+            Start-Sleep 3
+            
+            # Force stop if still running
+            if(-not $script:botProcess.HasExited){
+                Write-ColorLog 'Force stopping bot process...' 'Yellow'
+                Stop-Process -Id $script:botProcess.Id -Force -ErrorAction SilentlyContinue
+            }
+            
             break
         }
         

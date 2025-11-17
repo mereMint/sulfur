@@ -5,6 +5,8 @@ import random
 import os
 import subprocess
 import socket
+import signal
+import sys
 from collections import deque
 import re
 from datetime import datetime, timedelta, timezone
@@ -2456,6 +2458,63 @@ async def on_message(message):
     # 4. Fallback for any other channel types (e.g., threads) to prevent any processing.
     return
 
+# --- GRACEFUL SHUTDOWN HANDLER ---
+async def graceful_shutdown(signal_name=None):
+    """Handle graceful shutdown of the bot."""
+    if signal_name:
+        logger.info(f"Received {signal_name}, shutting down gracefully...")
+        print(f"\n[Shutdown] Received {signal_name}, shutting down gracefully...")
+    else:
+        logger.info("Shutting down gracefully...")
+        print("\n[Shutdown] Shutting down gracefully...")
+    
+    try:
+        # Set status to offline/invisible
+        logger.info("Setting Discord status to offline...")
+        print("[Shutdown] Setting Discord status to offline...")
+        await client.change_presence(status=discord.Status.offline)
+        await asyncio.sleep(1)  # Give Discord time to update the status
+        
+        # Close the bot connection
+        logger.info("Closing Discord connection...")
+        print("[Shutdown] Closing Discord connection...")
+        await client.close()
+        
+        logger.info("Bot shutdown complete.")
+        print("[Shutdown] Bot shutdown complete.")
+    except Exception as e:
+        logger.error(f"Error during shutdown: {e}")
+        print(f"[Shutdown] Error during shutdown: {e}")
+
+def signal_handler(sig, frame):
+    """Handle SIGINT and SIGTERM signals."""
+    signal_name = 'SIGINT' if sig == signal.SIGINT else 'SIGTERM'
+    print(f"\n[Signal] Received {signal_name}")
+    
+    # Schedule the graceful shutdown
+    loop = asyncio.get_event_loop()
+    if loop.is_running():
+        loop.create_task(graceful_shutdown(signal_name))
+    else:
+        asyncio.run(graceful_shutdown(signal_name))
+
 # --- RUN THE BOT ---
 if __name__ == "__main__":
-    client.run(DISCORD_BOT_TOKEN)
+    # Register signal handlers for graceful shutdown
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    try:
+        client.run(DISCORD_BOT_TOKEN)
+    except KeyboardInterrupt:
+        print("\n[Shutdown] KeyboardInterrupt received.")
+    except Exception as e:
+        logger.critical(f"Fatal error: {e}")
+        print(f"\n[Shutdown] Fatal error: {e}")
+    finally:
+        # Ensure we always try to set status to offline
+        if not client.is_closed():
+            try:
+                asyncio.run(graceful_shutdown())
+            except:
+                pass
