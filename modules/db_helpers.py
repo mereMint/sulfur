@@ -4,6 +4,7 @@ from mysql.connector import errorcode, pooling
 import time
 import logging
 import functools
+import traceback
 
 # Setup logging
 logger = logging.getLogger('Database')
@@ -434,10 +435,11 @@ async def cleanup_custom_status_entries():
 
     except mysql.connector.Error as err:
         print(f"DB Cleanup Error: {err}")
+        logger.error(f"DB Cleanup Error: {err}")
+        logger.error(traceback.format_exc())
     finally:
         cursor.close()
         cnx.close()
-        logger.error(traceback.format_exc())
 
 # --- NEW: Conversation Context + AI Usage (Medium Priority Features) ---
 

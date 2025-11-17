@@ -14,6 +14,61 @@ Write-Host "             Sulfur Discord Bot - Starter                  " -Foregr
 Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host ""
 
+# Check if MySQL/MariaDB is running
+Write-Host "Checking MySQL/MariaDB status..." -ForegroundColor Yellow
+$mysqlProcess = Get-Process mysqld,mariadbd -ErrorAction SilentlyContinue | Select-Object -First 1
+
+if ($mysqlProcess) {
+    Write-Host "+ OK MySQL/MariaDB is running (PID: $($mysqlProcess.Id))" -ForegroundColor Green
+} else {
+    Write-Host "- ERR MySQL/MariaDB is not running" -ForegroundColor Red
+    Write-Host "" 
+    Write-Host "Attempting to start MySQL/MariaDB..." -ForegroundColor Yellow
+    
+    # Try XAMPP first
+    $xamppMysqlStart = "C:\xampp\mysql_start.bat"
+    if (Test-Path $xamppMysqlStart) {
+        Write-Host "  Found XAMPP, starting MySQL..." -ForegroundColor Cyan
+        try {
+            Start-Process -FilePath $xamppMysqlStart -WindowStyle Hidden -Wait
+            Start-Sleep -Seconds 3
+            $mysqlProcess = Get-Process mysqld,mariadbd -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($mysqlProcess) {
+                Write-Host "+ OK MySQL started successfully" -ForegroundColor Green
+            } else {
+                Write-Host "! WARN MySQL may not have started. Please check XAMPP Control Panel." -ForegroundColor Yellow
+            }
+        } catch {
+            Write-Host "! WARN Could not start MySQL via XAMPP: $_" -ForegroundColor Yellow
+        }
+    } else {
+        # Try Windows Service
+        try {
+            $mysqlService = Get-Service -Name "MySQL*","MariaDB*" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($mysqlService) {
+                Write-Host "  Starting $($mysqlService.Name) service..." -ForegroundColor Cyan
+                Start-Service -Name $mysqlService.Name -ErrorAction Stop
+                Start-Sleep -Seconds 3
+                Write-Host "+ OK MySQL service started" -ForegroundColor Green
+            } else {
+                Write-Host "! WARN Could not find MySQL/MariaDB service" -ForegroundColor Yellow
+                Write-Host "  Please start MySQL manually and run this script again." -ForegroundColor Gray
+                Write-Host ""
+                Write-Host "To install MySQL/MariaDB:" -ForegroundColor Cyan
+                Write-Host "  1. Download XAMPP from https://www.apachefriends.org/" -ForegroundColor Gray
+                Write-Host "  2. Or install MySQL from https://dev.mysql.com/downloads/installer/" -ForegroundColor Gray
+                Write-Host ""
+                Read-Host "Press Enter to continue anyway or Ctrl+C to exit"
+            }
+        } catch {
+            Write-Host "! WARN Could not start MySQL service: $_" -ForegroundColor Yellow
+            Write-Host "  Please start MySQL manually." -ForegroundColor Gray
+            Read-Host "Press Enter to continue anyway or Ctrl+C to exit"
+        }
+    }
+}
+Write-Host ""
+
 # Check if virtual environment exists and activate it
 if (Test-Path "venv\Scripts\Activate.ps1") {
     Write-Host "Activating virtual environment..." -ForegroundColor Yellow

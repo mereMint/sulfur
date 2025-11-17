@@ -1,5 +1,6 @@
 @echo off
 REM Simple Windows starter for Sulfur Bot (double-clickable)
 cd /d %~dp0
-powershell -ExecutionPolicy Bypass -File "%cd%\start.ps1" %*
-pause
+echo Starting Sulfur Discord Bot...
+echo.
+powershell -ExecutionPolicy Bypass -NoExit -File "%cd%\start.ps1" %*

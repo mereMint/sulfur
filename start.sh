@@ -34,6 +34,54 @@ else
 fi
 echo ""
 
+# Check if MySQL/MariaDB is running
+echo -e "${YELLOW}Checking MySQL/MariaDB status...${NC}"
+if pgrep -x mysqld > /dev/null 2>&1 || pgrep -x mariadbd > /dev/null 2>&1; then
+    echo -e "${GREEN}✓ MySQL/MariaDB is running${NC}"
+else
+    echo -e "${RED}✗ MySQL/MariaDB is not running${NC}"
+    echo ""
+    echo -e "${YELLOW}Attempting to start MySQL/MariaDB...${NC}"
+    
+    if [ "$IS_TERMUX" = true ]; then
+        if command -v mysqld_safe > /dev/null 2>&1; then
+            echo -e "${CYAN}  Starting MariaDB in Termux...${NC}"
+            mysqld_safe &
+            sleep 3
+            if pgrep -x mysqld > /dev/null 2>&1 || pgrep -x mariadbd > /dev/null 2>&1; then
+                echo -e "${GREEN}✓ MariaDB started successfully${NC}"
+            else
+                echo -e "${YELLOW}⚠ MariaDB may not have started${NC}"
+                echo -e "${GRAY}  Try: mysqld_safe &${NC}"
+            fi
+        else
+            echo -e "${YELLOW}⚠ MariaDB not installed in Termux${NC}"
+            echo -e "${GRAY}  Install with: pkg install mariadb${NC}"
+            echo -e "${GRAY}  Then run: mysql_install_db${NC}"
+            read -p "Press Enter to continue anyway or Ctrl+C to exit"
+        fi
+    else
+        # Try to start MySQL service on Linux
+        if command -v systemctl > /dev/null 2>&1; then
+            echo -e "${CYAN}  Attempting to start MySQL service...${NC}"
+            sudo systemctl start mysql 2>/dev/null || sudo systemctl start mariadb 2>/dev/null
+            sleep 3
+            if pgrep -x mysqld > /dev/null 2>&1 || pgrep -x mariadbd > /dev/null 2>&1; then
+                echo -e "${GREEN}✓ MySQL service started${NC}"
+            else
+                echo -e "${YELLOW}⚠ Could not start MySQL service${NC}"
+                echo -e "${GRAY}  Try manually: sudo systemctl start mysql${NC}"
+                read -p "Press Enter to continue anyway or Ctrl+C to exit"
+            fi
+        else
+            echo -e "${YELLOW}⚠ Could not auto-start MySQL${NC}"
+            echo -e "${GRAY}  Please start MySQL manually and run this script again${NC}"
+            read -p "Press Enter to continue anyway or Ctrl+C to exit"
+        fi
+    fi
+fi
+echo ""
+
 # Check for virtual environment
 if [ -f "venv/bin/activate" ]; then
     echo -e "${YELLOW}Activating virtual environment...${NC}"
