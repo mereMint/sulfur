@@ -106,7 +106,7 @@ def index():
 @app.route('/config', methods=['GET', 'POST'])
 def config_editor():
     """Renders the config editor and handles saving changes."""
-    config_path = 'config.json'
+    config_path = 'config/config.json'
     if request.method == 'POST':
         try:
             # Get raw text from the form and parse it as JSON
@@ -309,6 +309,82 @@ def api_ai_usage():
         })
     except Exception as e:
         print(f"Error fetching AI usage: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/config', methods=['GET'])
+def api_get_config():
+    """API endpoint to get current configuration."""
+    try:
+        with open('config/config.json', 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        return jsonify({'status': 'success', 'config': config})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/config/model', methods=['POST'])
+def api_change_model():
+    """API endpoint to change the AI model."""
+    try:
+        data = request.get_json()
+        provider = data.get('provider')
+        model = data.get('model')
+        
+        if not provider or not model:
+            return jsonify({'status': 'error', 'message': 'Provider and model are required'}), 400
+        
+        # Load current config
+        with open('config/config.json', 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        
+        # Update the configuration
+        config['api']['provider'] = provider
+        if provider == 'gemini':
+            config['api']['gemini']['model'] = model
+        elif provider == 'openai':
+            config['api']['openai']['chat_model'] = model
+        
+        # Save updated config
+        with open('config/config.json', 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=2)
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Model changed to {provider}/{model}. Restart bot to apply changes.'
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/config/setting', methods=['POST'])
+def api_update_setting():
+    """API endpoint to update a specific config setting."""
+    try:
+        data = request.get_json()
+        path = data.get('path')  # e.g., "api.gemini.generation_config.temperature"
+        value = data.get('value')
+        
+        if not path:
+            return jsonify({'status': 'error', 'message': 'Path is required'}), 400
+        
+        # Load current config
+        with open('config/config.json', 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        
+        # Navigate and update the nested value
+        keys = path.split('.')
+        current = config
+        for key in keys[:-1]:
+            current = current[key]
+        current[keys[-1]] = value
+        
+        # Save updated config
+        with open('config/config.json', 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=2)
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Setting {path} updated successfully.'
+        })
+    except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 def restart_bot():

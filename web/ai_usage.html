@@ -2,35 +2,65 @@
 {% block title %}AI Usage{% endblock %}
 
 {% block content %}
-<h3>AI API Usage</h3>
-<p class="text-muted">Daily call counts for the Gemini API.</p>
-
-{% if usage_data and not usage_data[0].error %}
-    <div class="table-responsive">
-        <table class="table table-striped table-bordered">
-            <thead>
-                <tr>
-                    <th scope="col">Date</th>
-                    <th scope="col">Model Name</th>
-                    <th scope="col">Call Count</th>
-                    <th scope="col">Input Tokens</th>
-                    <th scope="col">Output Tokens</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for row in usage_data %}
-                    <tr>
-                        <td>{{ row.usage_date.strftime('%Y-%m-%d') }}</td>
-                        <td>{{ row.model_name }}</td>
-                        <td>{{ row.call_count }}</td>
-                        <td>{{ row.input_tokens }}</td>
-                        <td>{{ row.output_tokens }}</td>
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+<div class="card">
+    <div class="card-header">
+        <h5 class="mb-0">AI API Usage</h5>
     </div>
-{% else %}
-    <div class="alert alert-danger">Could not load AI usage data.</div>
-{% endif %}
+    <div class="card-body">
+        <p class="text-muted">Daily API call counts and token usage.</p>
+
+        {% if usage_data %}
+            {% if usage_data[0] and usage_data[0].get('error') %}
+                <div class="alert alert-danger" role="alert">
+                    <i class="bi bi-exclamation-triangle"></i> Error loading data: {{ usage_data[0].error }}
+                </div>
+            {% elif usage_data|length == 0 %}
+                <div class="alert alert-info" role="alert">
+                    <i class="bi bi-info-circle"></i> No API usage data available yet. Start using the bot to see statistics here.
+                </div>
+            {% else %}
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover">
+                        <thead>
+                            <tr>
+                                <th scope="col">Date</th>
+                                <th scope="col">Model Name</th>
+                                <th scope="col">Call Count</th>
+                                <th scope="col">Input Tokens</th>
+                                <th scope="col">Output Tokens</th>
+                                <th scope="col">Total Tokens</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in usage_data %}
+                                <tr>
+                                    <td>
+                                        {% if row.usage_date is string %}
+                                            {{ row.usage_date }}
+                                        {% else %}
+                                            {{ row.usage_date.strftime('%Y-%m-%d') if row.usage_date else 'N/A' }}
+                                        {% endif %}
+                                    </td>
+                                    <td><code>{{ row.model_name }}</code></td>
+                                    <td>{{ row.call_count }}</td>
+                                    <td>{{ "{:,}".format(row.input_tokens) }}</td>
+                                    <td>{{ "{:,}".format(row.output_tokens) }}</td>
+                                    <td>{{ "{:,}".format(row.input_tokens + row.output_tokens) }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% endif %}
+        {% else %}
+            <div class="alert alert-warning" role="alert">
+                <i class="bi bi-exclamation-circle"></i> No usage data available. Database may not be initialized.
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 {% endblock %}

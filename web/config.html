@@ -2,22 +2,145 @@
 {% block title %}Config Editor{% endblock %}
 
 {% block content %}
-<h3>Configuration Editor (config.json)</h3>
-<p class="text-muted">Edit the bot's configuration below. Be careful with syntax, as invalid JSON will cause errors.</p>
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Configuration Editor (config.json)</h5>
+                <div>
+                    <button class="btn btn-sm btn-secondary" onclick="formatJSON()">
+                        <i class="bi bi-file-earmark-code"></i> Format JSON
+                    </button>
+                    <button class="btn btn-sm btn-info" onclick="validateJSON()">
+                        <i class="bi bi-check-circle"></i> Validate
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">Edit the bot's configuration below. Changes take effect after restarting the bot.</p>
 
-{% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-        {% for category, message in messages %}
-            <div class="alert alert-{{ category }}">{{ message }}</div>
-        {% endfor %}
-    {% endif %}
-{% endwith %}
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                                {{ message }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
 
-<form method="POST">
-    <div class="mb-3">
-        <textarea class="form-control" name="config_text" rows="25" style="font-family: 'Courier New', Courier, monospace;">{{ config_content }}</textarea>
+                <div id="validation-alert"></div>
+
+                <form method="POST" onsubmit="return confirmSave()">
+                    <div class="mb-3">
+                        <textarea class="form-control" id="config-textarea" name="config_text" rows="30" 
+                                  style="font-family: 'Courier New', Courier, monospace; font-size: 13px;">{{ config_content }}</textarea>
+                    </div>
+                    <div class="d-flex justify-content-between">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-save"></i> Save Configuration
+                        </button>
+                        <a href="/" class="btn btn-secondary">
+                            <i class="bi bi-x-circle"></i> Cancel
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="card mt-4">
+            <div class="card-header">
+                <h6 class="mb-0">Configuration Reference</h6>
+            </div>
+            <div class="card-body">
+                <div class="accordion" id="configReference">
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#apiConfig">
+                                API Configuration
+                            </button>
+                        </h2>
+                        <div id="apiConfig" class="accordion-collapse collapse" data-bs-parent="#configReference">
+                            <div class="accordion-body">
+                                <p><code>api.provider</code> - AI provider to use ("gemini" or "openai")</p>
+                                <p><code>api.gemini.model</code> - Gemini model name</p>
+                                <p><code>api.openai.chat_model</code> - OpenAI model name</p>
+                                <p><code>api.gemini.generation_config.temperature</code> - Response randomness (0.0-2.0)</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#botConfig">
+                                Bot Configuration
+                            </button>
+                        </h2>
+                        <div id="botConfig" class="accordion-collapse collapse" data-bs-parent="#configReference">
+                            <div class="accordion-body">
+                                <p><code>bot.names</code> - Names the bot responds to</p>
+                                <p><code>bot.presence.update_interval_minutes</code> - How often to update bot status</p>
+                                <p><code>bot.chat.max_history_messages</code> - Number of previous messages to remember</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
-    <button type="submit" class="btn btn-primary">Save Configuration</button>
-</form>
+</div>
+{% endblock %}
 
+{% block scripts %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+<script>
+    function validateJSON() {
+        const textarea = document.getElementById('config-textarea');
+        const alertDiv = document.getElementById('validation-alert');
+        
+        try {
+            JSON.parse(textarea.value);
+            alertDiv.innerHTML = `<div class="alert alert-success alert-dismissible fade show" role="alert">
+                <i class="bi bi-check-circle"></i> JSON is valid!
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>`;
+        } catch (e) {
+            alertDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <i class="bi bi-exclamation-triangle"></i> Invalid JSON: ${e.message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>`;
+        }
+    }
+
+    function formatJSON() {
+        const textarea = document.getElementById('config-textarea');
+        const alertDiv = document.getElementById('validation-alert');
+        
+        try {
+            const obj = JSON.parse(textarea.value);
+            textarea.value = JSON.stringify(obj, null, 2);
+            alertDiv.innerHTML = `<div class="alert alert-success alert-dismissible fade show" role="alert">
+                <i class="bi bi-check-circle"></i> JSON formatted successfully!
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>`;
+        } catch (e) {
+            alertDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <i class="bi bi-exclamation-triangle"></i> Cannot format invalid JSON: ${e.message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>`;
+        }
+    }
+
+    function confirmSave() {
+        const textarea = document.getElementById('config-textarea');
+        
+        try {
+            JSON.parse(textarea.value);
+            return confirm('Are you sure you want to save these configuration changes? You will need to restart the bot for changes to take effect.');
+        } catch (e) {
+            alert('Cannot save invalid JSON. Please fix errors first.');
+            return false;
+        }
+    }
+</script>
 {% endblock %}
