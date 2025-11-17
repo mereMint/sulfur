@@ -1,7 +1,7 @@
 # ============================================================
-# Sulfur Bot - MySQL/MariaDB Setup Helper for Windows
+# Sulfur Bot - MySQL Setup Helper for Windows
 # ============================================================
-# This script helps set up MySQL/MariaDB for the Sulfur bot
+# This script helps set up MySQL for the Sulfur bot
 
 Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host "         Sulfur Bot - MySQL Setup Helper                   " -ForegroundColor Cyan
@@ -13,15 +13,15 @@ Write-Host "Checking MySQL/MariaDB status..." -ForegroundColor Yellow
 $mysqlProcess = Get-Process mysqld,mariadbd -ErrorAction SilentlyContinue | Select-Object -First 1
 
 if ($mysqlProcess) {
-    Write-Host "[OK] MySQL/MariaDB is running (PID: $($mysqlProcess.Id))" -ForegroundColor Green
+    Write-Host "✓ MySQL/MariaDB is running (PID: $($mysqlProcess.Id))" -ForegroundColor Green
 } else {
-    Write-Host "[X] MySQL/MariaDB is not running!" -ForegroundColor Red
+    Write-Host "✗ MySQL/MariaDB is not running!" -ForegroundColor Red
     Write-Host ""
     Write-Host "Please start MySQL/MariaDB first:" -ForegroundColor Yellow
     Write-Host "  - If using XAMPP: Open XAMPP Control Panel and start MySQL" -ForegroundColor White
     Write-Host "  - If using MariaDB: Run 'net start MariaDB' (as Administrator)" -ForegroundColor White
     Write-Host "  - If using MySQL: Run 'net start MySQL' (as Administrator)" -ForegroundColor White
-    Write-Host "  - Or: services.msc -> Find MySQL/MariaDB -> Start" -ForegroundColor White
+    Write-Host "  - Or: services.msc → Find MySQL/MariaDB → Start" -ForegroundColor White
     Write-Host ""
     $start = Read-Host "Press Enter after starting MySQL/MariaDB, or type 'skip' to exit"
     if ($start -eq 'skip') {
@@ -60,14 +60,14 @@ if (-not $mysqlExe) {
 }
 
 if ($mysqlExe) {
-    Write-Host "[OK] Found client at: $mysqlExe" -ForegroundColor Green
+    Write-Host "✓ Found client at: $mysqlExe" -ForegroundColor Green
 } else {
-    Write-Host "[X] Could not find mysql.exe or mariadb.exe" -ForegroundColor Red
+    Write-Host "✗ Could not find mysql.exe or mariadb.exe" -ForegroundColor Red
     Write-Host ""
     Write-Host "Please enter the full path to mysql.exe or mariadb.exe:" -ForegroundColor Yellow
     $mysqlExe = Read-Host "Path"
     if (-not (Test-Path $mysqlExe)) {
-        Write-Host "[X] File not found. Exiting." -ForegroundColor Red
+        Write-Host "✗ File not found. Exiting." -ForegroundColor Red
         exit 1
     }
 }
@@ -83,7 +83,7 @@ try {
     $sqlFile = Join-Path $PSScriptRoot "setup_database.sql"
     
     if (-not (Test-Path $sqlFile)) {
-        Write-Host "[X] SQL file not found: $sqlFile" -ForegroundColor Red
+        Write-Host "✗ SQL file not found: $sqlFile" -ForegroundColor Red
         exit 1
     }
     
@@ -95,7 +95,7 @@ try {
     
     if ($LASTEXITCODE -eq 0) {
         Write-Host ""
-        Write-Host "[OK] Database setup complete!" -ForegroundColor Green
+        Write-Host "✓ Database setup complete!" -ForegroundColor Green
         Write-Host ""
         Write-Host "Database credentials:" -ForegroundColor Cyan
         Write-Host "  Host: localhost" -ForegroundColor White
@@ -106,13 +106,13 @@ try {
         Write-Host "These are already configured in your .env file." -ForegroundColor Gray
     } else {
         Write-Host ""
-        Write-Host "[X] Setup failed. Error output:" -ForegroundColor Red
+        Write-Host "✗ Setup failed. Error output:" -ForegroundColor Red
         Write-Host $result -ForegroundColor Red
         exit 1
     }
 } catch {
     Write-Host ""
-    Write-Host "[X] Error running setup: $_" -ForegroundColor Red
+    Write-Host "✗ Error running setup: $_" -ForegroundColor Red
     exit 1
 }
 
@@ -124,18 +124,18 @@ try {
     $testResult = & $mysqlExe -u sulfur_bot_user sulfur_bot -e "SELECT 'Connection successful!' AS status;" 2>&1
     
     if ($testResult -match "Connection successful") {
-        Write-Host "[OK] Connection test passed!" -ForegroundColor Green
+        Write-Host "✓ Connection test passed!" -ForegroundColor Green
         Write-Host ""
         Write-Host "Next steps:" -ForegroundColor Cyan
         Write-Host "1. Install dependencies: pip install -r requirements.txt" -ForegroundColor White
         Write-Host "2. Run setup test: python test_setup.py" -ForegroundColor White
         Write-Host "3. Start the bot: .\maintain_bot.ps1" -ForegroundColor White
     } else {
-        Write-Host "[X] Connection test failed" -ForegroundColor Red
+        Write-Host "✗ Connection test failed" -ForegroundColor Red
         Write-Host "Error: $testResult" -ForegroundColor Red
     }
 } catch {
-    Write-Host "[X] Connection test failed: $_" -ForegroundColor Red
+    Write-Host "✗ Connection test failed: $_" -ForegroundColor Red
 }
 
 Write-Host ""
