@@ -854,17 +854,20 @@ class WerwolfGame:
                 # This prevents race conditions where the channel list is stale.
                 fresh_category = await self.game_channel.guild.fetch_channel(self.category.id)
                 if fresh_category:
-                    # Create a list of deletion tasks to run concurrently
+                    # Create a list of deletion tasks with channel names to run concurrently
                     deletion_tasks = []
+                    channel_names = []
                     for channel in fresh_category.channels:
                         print(f"    - Queuing deletion for channel: {channel.name}")
+                        channel_names.append(channel.name)
                         deletion_tasks.append(channel.delete(reason="Spielende"))
                     # Wait for all channel deletions to complete, catching exceptions
                     results = await asyncio.gather(*deletion_tasks, return_exceptions=True)
                     # Log any errors that occurred during deletion
                     for i, result in enumerate(results):
                         if isinstance(result, Exception):
-                            print(f"    - Error deleting channel {fresh_category.channels[i].name if i < len(fresh_category.channels) else 'unknown'}: {result}")
+                            channel_name = channel_names[i] if i < len(channel_names) else 'unknown'
+                            print(f"    - Error deleting channel '{channel_name}': {result}")
                 
                 # Now, delete the category itself
                 await fresh_category.delete(reason="Spielende")

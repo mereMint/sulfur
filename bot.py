@@ -617,11 +617,6 @@ async def on_presence_update(before, after):
                 )
                 last_spotify_log[user_id] = current_song
 
-        activity_name = None
-        if after.activity:
-            # For games, streaming, etc., it has a name. For custom status, it's in 'state'.
-            activity_name = after.activity.name or after.activity.state
-        
         # --- NEW: Prioritize non-custom activities ---
         # Find the most "important" activity to log.
         # Order of importance: Game > Spotify > Other Activity > Custom Status
