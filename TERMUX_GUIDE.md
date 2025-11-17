@@ -65,7 +65,7 @@ pkg install -y python git mariadb openssh nano wget curl
 mysql_install_db
 
 # Start MariaDB
-mysqld_safe --datadir=$PREFIX/var/lib/mysql &
+mysqld_safe &
 
 # Wait a few seconds
 sleep 10
@@ -134,7 +134,7 @@ cd ~/sulfur
 source venv/bin/activate
 
 # Make sure MariaDB is running
-pgrep mysqld || mysqld_safe --datadir=$PREFIX/var/lib/mysql &
+pgrep mysqld || mysqld_safe &
 
 # Start bot with auto-restart
 bash maintain_bot.sh
@@ -176,7 +176,7 @@ nano ~/.termux/boot/sulfur.sh
 termux-wake-lock
 
 # Start MariaDB
-mysqld_safe --datadir=$PREFIX/var/lib/mysql &
+mysqld_safe &
 sleep 5
 
 # Start bot
@@ -272,7 +272,7 @@ pgrep mysqld
 # If not, try:
 pkill -9 mysqld  # Kill any stuck processes
 rm -f $PREFIX/var/lib/mysql/*.pid  # Remove PID files
-mysqld_safe --datadir=$PREFIX/var/lib/mysql &
+mysqld_safe &
 ```
 
 ### Permission Denied Errors
@@ -390,7 +390,6 @@ export PYTHONUNBUFFERED=1
 
 # Start MariaDB with custom settings
 mysqld_safe \
-    --datadir=$PREFIX/var/lib/mysql \
     --innodb-buffer-pool-size=128M &
 
 # Wait for database
@@ -451,7 +450,7 @@ termux-tts-speak "Bot is online"
 ║  Stop Bot:         Press Q or touch stop.flag            ║
 ║  View Logs:        tail -f ~/sulfur/logs/session_*.log  ║
 ║  Web Dashboard:    http://localhost:5000                 ║
-║  Start MariaDB:    mysqld_safe --datadir=$PREFIX/... &  ║
+║  Start MariaDB:    mysqld_safe &                        ║
 ║  Update Bot:       cd ~/sulfur && git pull               ║
 ║  Restart:          touch ~/sulfur/restart.flag           ║
 ║  Check Status:     pgrep -af bot.py                      ║

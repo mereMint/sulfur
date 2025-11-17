@@ -148,7 +148,7 @@ if pgrep -x mysqld > /dev/null || pgrep -x mariadbd > /dev/null; then
 else
     # Start in background
     print_info "This may take 10-15 seconds..."
-    mysqld_safe --datadir=$PREFIX/var/lib/mysql > /dev/null 2>&1 &
+    mysqld_safe > /dev/null 2>&1 &
     
     # Wait up to 15 seconds for MariaDB to start
     for i in {1..15}; do
@@ -165,7 +165,7 @@ if pgrep -x mysqld > /dev/null || pgrep -x mariadbd > /dev/null; then
     print_success "MariaDB is running (PID: $(pgrep -x mysqld || pgrep -x mariadbd))"
 else
     print_error "Failed to start MariaDB!"
-    print_info "Try running manually: mysqld_safe --datadir=\$PREFIX/var/lib/mysql &"
+    print_info "Try running manually: mysqld_safe &"
     print_info "Then wait 10 seconds and run this script again."
     exit 1
 fi
@@ -490,7 +490,7 @@ echo ""
 print_step "Step 12: Creating startup helper..."
 echo ""
 
-cat > start_sulfur.sh <<'EOF'
+cat > start_sulfur.sh <<'SCRIPT_EOF'
 #!/data/data/com.termux/files/usr/bin/bash
 # Quick start script for Sulfur bot
 
@@ -499,8 +499,9 @@ cd ~/sulfur
 # Start MariaDB if not running
 if ! pgrep -x mysqld > /dev/null && ! pgrep -x mariadbd > /dev/null; then
     echo "Starting MariaDB..."
-    mysqld_safe --datadir=$PREFIX/var/lib/mysql &
-    sleep 3
+    mysqld_safe &
+    sleep 5
+    echo "MariaDB started"
 fi
 
 # Activate virtual environment
@@ -508,7 +509,7 @@ source venv/bin/activate
 
 # Run the bot with maintenance script
 bash maintain_bot.sh
-EOF
+SCRIPT_EOF
 
 chmod +x start_sulfur.sh
 
@@ -554,7 +555,7 @@ echo -e "     • Settings → Apps → Termux → Battery → Unrestricted"
 echo -e ""
 echo -e "  ${YELLOW}2. MariaDB Management:${NC}"
 echo -e "     • MariaDB must be running before starting the bot"
-echo -e "     • Start manually: ${GREEN}mysqld_safe --datadir=\$PREFIX/var/lib/mysql &${NC}"
+echo -e "     • Start manually: ${GREEN}mysqld_safe &${NC}"
 echo -e "     • Check if running: ${GREEN}pgrep mysqld${NC}"
 echo -e ""
 echo -e "  ${YELLOW}3. Auto-Start on Boot:${NC}"

@@ -239,7 +239,7 @@ touch stop.flag
 ### "MySQL/MariaDB not running"
 **Windows**: Start MySQL via XAMPP Control Panel  
 **Linux**: `sudo systemctl start mariadb`  
-**Termux**: `mysqld_safe --datadir=$PREFIX/var/lib/mysql &`
+**Termux**: `mysqld_safe &`
 
 ### "DISCORD_BOT_TOKEN not set"
 Edit `.env` file and add your Discord bot token (no extra quotes/spaces)

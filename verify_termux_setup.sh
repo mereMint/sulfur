@@ -227,7 +227,7 @@ else
     echo -e "${YELLOW}Please fix the errors above before starting the bot.${NC}"
     echo ""
     echo -e "${CYAN}Common fixes:${NC}"
-    echo -e "  • Start MariaDB: ${GREEN}mysqld_safe --datadir=\$PREFIX/var/lib/mysql &${NC}"
+    echo -e "  • Start MariaDB: ${GREEN}mysqld_safe &${NC}"
     echo -e "  • Install packages: ${GREEN}pip install -r requirements.txt${NC}"
     echo -e "  • Configure .env: ${GREEN}nano .env${NC}"
     echo -e "  • Run database setup: ${GREEN}mysql -u sulfur_bot_user sulfur_bot < setup_database.sql${NC}"
