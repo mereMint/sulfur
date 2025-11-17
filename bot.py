@@ -2359,14 +2359,201 @@ shop_group = app_commands.Group(
     description="Kaufe Farben und Features."
 )
 
-@shop_group.command(name="view", description="Zeigt den Shop an.")
-async def shop_view(interaction: discord.Interaction):
+@tree.command(name="shop", description="Zeigt den Shop an.")
+async def shop_main(interaction: discord.Interaction):
+    """Main shop view."""
     await interaction.response.defer(ephemeral=True)
     try:
         embed = shop_module.create_shop_embed(config)
         await interaction.followup.send(embed=embed, ephemeral=True)
     except Exception as e:
         await interaction.followup.send(f"Fehler beim Anzeigen des Shops: {e}", ephemeral=True)
+
+
+class ShopBuyView(discord.ui.View):
+    """Interactive shop purchase interface."""
+    
+    def __init__(self, member: discord.Member, config: dict):
+        super().__init__(timeout=180)
+        self.member = member
+        self.config = config
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.member.id:
+            await interaction.response.send_message("Du kannst diese Auswahl nicht bedienen.", ephemeral=True)
+            return False
+        return True
+    
+    @discord.ui.button(label="🎨 Farbrollen", style=discord.ButtonStyle.primary)
+    async def color_roles_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Show color role options."""
+        await interaction.response.defer()
+        
+        # Create a new view for color tier selection
+        view = ColorTierSelectView(self.member, self.config)
+        embed = discord.Embed(
+            title="🎨 Farbrollen",
+            description="Wähle eine Kategorie:",
+            color=discord.Color.blue()
+        )
+        
+        currency = self.config['modules']['economy']['currency_symbol']
+        prices = self.config['modules']['economy']['shop']['color_roles']['prices']
+        
+        embed.add_field(name="Basic", value=f"{prices['basic']} {currency}", inline=True)
+        embed.add_field(name="Premium", value=f"{prices['premium']} {currency}", inline=True)
+        embed.add_field(name="Legendary", value=f"{prices['legendary']} {currency}", inline=True)
+        
+        await interaction.edit_original_response(embed=embed, view=view)
+    
+    @discord.ui.button(label="✨ Features", style=discord.ButtonStyle.success)
+    async def features_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Show feature unlock options."""
+        await interaction.response.defer()
+        
+        view = FeatureSelectView(self.member, self.config)
+        embed = discord.Embed(
+            title="✨ Feature Unlocks",
+            description="Wähle ein Feature zum Kaufen:",
+            color=discord.Color.green()
+        )
+        
+        currency = self.config['modules']['economy']['currency_symbol']
+        features = self.config['modules']['economy']['shop']['features']
+        
+        for feature, price in features.items():
+            name = {
+                'dm_access': 'DM Access',
+                'games_access': 'Games Access',
+                'werwolf_special_roles': 'Werwolf Special Roles',
+                'custom_status': 'Custom Status'
+            }.get(feature, feature)
+            
+            embed.add_field(name=name, value=f"{price} {currency}", inline=False)
+        
+        await interaction.edit_original_response(embed=embed, view=view)
+
+
+class ColorTierSelectView(discord.ui.View):
+    """View for selecting color tier."""
+    
+    def __init__(self, member: discord.Member, config: dict):
+        super().__init__(timeout=120)
+        self.member = member
+        self.config = config
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.member.id:
+            await interaction.response.send_message("Du kannst diese Auswahl nicht bedienen.", ephemeral=True)
+            return False
+        return True
+    
+    @discord.ui.button(label="Basic", style=discord.ButtonStyle.secondary)
+    async def basic_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._show_colors(interaction, "basic")
+    
+    @discord.ui.button(label="Premium", style=discord.ButtonStyle.primary)
+    async def premium_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._show_colors(interaction, "premium")
+    
+    @discord.ui.button(label="Legendary", style=discord.ButtonStyle.success)
+    async def legendary_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._show_colors(interaction, "legendary")
+    
+    async def _show_colors(self, interaction: discord.Interaction, tier: str):
+        await interaction.response.defer()
+        view = ColorSelectView(tier, self.config, self.member)
+        embed = shop_module.create_color_selection_embed(tier, self.config)
+        await interaction.edit_original_response(embed=embed, view=view)
+
+
+class FeatureSelectView(discord.ui.View):
+    """View for selecting features to purchase."""
+    
+    def __init__(self, member: discord.Member, config: dict):
+        super().__init__(timeout=120)
+        self.member = member
+        self.config = config
+        
+        # Create select menu for features
+        options = []
+        features = config['modules']['economy']['shop']['features']
+        feature_names = {
+            'dm_access': 'DM Access',
+            'games_access': 'Games Access',
+            'werwolf_special_roles': 'Werwolf Special Roles',
+            'custom_status': 'Custom Status'
+        }
+        
+        for feature, price in features.items():
+            name = feature_names.get(feature, feature)
+            currency = config['modules']['economy']['currency_symbol']
+            options.append(
+                discord.SelectOption(
+                    label=name,
+                    value=feature,
+                    description=f"Preis: {price} {currency}"
+                )
+            )
+        
+        select = discord.ui.Select(placeholder="Wähle ein Feature...", options=options)
+        select.callback = self.on_feature_select
+        self.add_item(select)
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.member.id:
+            await interaction.response.send_message("Du kannst diese Auswahl nicht bedienen.", ephemeral=True)
+            return False
+        return True
+    
+    async def on_feature_select(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        
+        feature = interaction.data['values'][0]
+        price = self.config['modules']['economy']['shop']['features'][feature]
+        
+        try:
+            success, message = await shop_module.purchase_feature(
+                db_helpers,
+                self.member,
+                feature,
+                price,
+                self.config
+            )
+            
+            if success:
+                embed = discord.Embed(
+                    title="✅ Kauf erfolgreich!",
+                    description=message,
+                    color=discord.Color.green()
+                )
+            else:
+                embed = discord.Embed(
+                    title="❌ Kauf fehlgeschlagen",
+                    description=message,
+                    color=discord.Color.red()
+                )
+            
+            await interaction.edit_original_response(embed=embed, view=None)
+        except Exception as e:
+            logger.error(f"Error purchasing feature: {e}", exc_info=True)
+            await interaction.followup.send(f"Fehler beim Kauf: {str(e)}", ephemeral=True)
+
+
+@shop_group.command(name="buy", description="Öffne das Kaufmenü für den Shop")
+async def shop_buy(interaction: discord.Interaction):
+    """Interactive shop purchase menu."""
+    await interaction.response.defer(ephemeral=True)
+    
+    view = ShopBuyView(interaction.user, config)
+    embed = discord.Embed(
+        title="🛒 Shop",
+        description="Was möchtest du kaufen?",
+        color=discord.Color.blue()
+    )
+    
+    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
 
 
 class ColorSelectView(discord.ui.View):
@@ -2405,76 +2592,49 @@ class ColorSelectView(discord.ui.View):
         self.stop()
 
 
-@shop_group.command(name="buy_color", description="Kaufe eine Farbrolle (basic/premium/legendary)")
-@app_commands.describe(tier="Welche Kategorie?")
-@app_commands.choices(tier=[
-    app_commands.Choice(name="basic", value="basic"),
-    app_commands.Choice(name="premium", value="premium"),
-    app_commands.Choice(name="legendary", value="legendary")
-])
-async def shop_buy_color(interaction: discord.Interaction, tier: app_commands.Choice[str]):
-    await interaction.response.defer(ephemeral=True)
-    view = ColorSelectView(tier.value, config, interaction.user)
-    embed = shop_module.create_color_selection_embed(tier.value, config)
-    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-
-
-@shop_group.command(name="buy", description="Kaufe Features oder Unlocks aus dem Shop")
-@app_commands.describe(item="Was möchtest du kaufen?")
-@app_commands.choices(item=[
-    app_commands.Choice(name="DM Access - Direktnachrichten an den Bot senden", value="dm_access"),
-    app_commands.Choice(name="Games Access - Zugang zu allen Spielen", value="games_access"),
-    app_commands.Choice(name="Werwolf Special Roles - Spezialrollen im Werwolf-Spiel", value="werwolf_special_roles"),
-    app_commands.Choice(name="Custom Status - Eigenen Status setzen", value="custom_status")
-])
-async def shop_buy_feature(interaction: discord.Interaction, item: app_commands.Choice[str]):
-    """Purchase a feature from the shop."""
-    await interaction.response.defer(ephemeral=True)
-    
-    feature_name = item.value
-    shop_config = config['modules']['economy']['shop']
-    
-    # Get price for the feature
-    price = shop_config['features'].get(feature_name, 0)
-    
-    if price <= 0:
-        await interaction.followup.send("Dieses Feature ist nicht verfügbar.", ephemeral=True)
-        return
-    
-    try:
-        success, message = await shop_module.purchase_feature(
-            db_helpers,
-            interaction.user,
-            feature_name,
-            price,
-            config
-        )
-        
-        if success:
-            embed = discord.Embed(
-                title="✅ Kauf erfolgreich!",
-                description=message,
-                color=discord.Color.green()
-            )
-        else:
-            embed = discord.Embed(
-                title="❌ Kauf fehlgeschlagen",
-                description=message,
-                color=discord.Color.red()
-            )
-        
-        await interaction.followup.send(embed=embed, ephemeral=True)
-    except Exception as e:
-        logger.error(f"Error in shop buy feature: {e}", exc_info=True)
-        await interaction.followup.send(f"Fehler beim Kauf: {str(e)}", ephemeral=True)
-
-
 @tree.command(name="balance", description="Zeigt dein aktuelles Guthaben an.")
 async def balance(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     bal = await db_helpers.get_balance(interaction.user.id)
     currency = config['modules']['economy']['currency_symbol']
     await interaction.followup.send(f"Dein Guthaben: **{bal} {currency}**", ephemeral=True)
+
+
+@tree.command(name="daily", description="Hole deine tägliche Belohnung ab.")
+async def daily(interaction: discord.Interaction):
+    """Claim daily reward."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        from modules.economy import grant_daily_reward
+        
+        success, amount, message = await grant_daily_reward(
+            db_helpers,
+            interaction.user.id,
+            interaction.user.display_name,
+            config
+        )
+        
+        if success:
+            embed = discord.Embed(
+                title="🎁 Tägliche Belohnung!",
+                description=message,
+                color=discord.Color.green()
+            )
+            new_balance = await db_helpers.get_balance(interaction.user.id)
+            currency = config['modules']['economy']['currency_symbol']
+            embed.add_field(name="Neues Guthaben", value=f"{new_balance} {currency}", inline=True)
+        else:
+            embed = discord.Embed(
+                title="⏰ Bereits abgeholt",
+                description=message,
+                color=discord.Color.orange()
+            )
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    except Exception as e:
+        logger.error(f"Error claiming daily reward: {e}", exc_info=True)
+        await interaction.followup.send(f"Fehler beim Abholen der Belohnung: {str(e)}", ephemeral=True)
 
 
 @tree.command(name="transactions", description="Zeigt deine letzten Transaktionen an.")
@@ -2525,6 +2685,632 @@ async def view_transactions(interaction: discord.Interaction, limit: int = 10):
 
 # Register shop group
 tree.add_command(shop_group)
+
+
+# --- Game Commands & UI ---
+from modules.games import BlackjackGame, RouletteGame, MinesGame, RussianRouletteGame
+
+# Active game states
+active_blackjack_games = {}
+active_mines_games = {}
+
+
+class BlackjackView(discord.ui.View):
+    """UI view for Blackjack game with Hit/Stand buttons."""
+    
+    def __init__(self, game: BlackjackGame, user_id: int):
+        super().__init__(timeout=120)
+        self.game = game
+        self.user_id = user_id
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht dein Spiel!", ephemeral=True)
+            return False
+        return True
+    
+    @discord.ui.button(label="Hit", style=discord.ButtonStyle.primary, emoji="🃏")
+    async def hit_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        
+        self.game.hit()
+        
+        if not self.game.is_active:
+            # Game ended (bust)
+            await self._finish_game(interaction)
+        else:
+            # Update the embed
+            embed = self.game.create_embed()
+            await interaction.edit_original_response(embed=embed, view=self)
+    
+    @discord.ui.button(label="Stand", style=discord.ButtonStyle.success, emoji="✋")
+    async def stand_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        
+        self.game.stand()
+        await self._finish_game(interaction)
+    
+    async def _finish_game(self, interaction: discord.Interaction):
+        """Finishes the game and shows results."""
+        result, multiplier = self.game.get_result()
+        embed = self.game.create_embed(show_dealer_card=True)
+        
+        currency = config['modules']['economy']['currency_symbol']
+        
+        # Calculate winnings
+        winnings = int(self.game.bet * multiplier) - self.game.bet
+        
+        # Update balance
+        stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+        new_balance = await db_helpers.add_balance(
+            self.user_id,
+            interaction.user.display_name,
+            winnings,
+            config,
+            stat_period
+        )
+        
+        # Log transaction
+        await db_helpers.log_transaction(
+            self.user_id,
+            'blackjack',
+            winnings,
+            new_balance,
+            f"Blackjack result: {result}"
+        )
+        
+        # Add result field
+        if result == 'blackjack':
+            embed.add_field(name="🎉 BLACKJACK!", value=f"Du gewinnst **{int(self.game.bet * multiplier)} {currency}**!", inline=False)
+            embed.color = discord.Color.gold()
+        elif result == 'win':
+            embed.add_field(name="✅ Gewonnen!", value=f"Du gewinnst **{int(self.game.bet * multiplier)} {currency}**!", inline=False)
+            embed.color = discord.Color.green()
+        elif result == 'lose':
+            embed.add_field(name="❌ Verloren!", value=f"Du verlierst **{self.game.bet} {currency}**.", inline=False)
+            embed.color = discord.Color.red()
+        else:  # push
+            embed.add_field(name="🤝 Unentschieden!", value=f"Du bekommst deinen Einsatz zurück: **{self.game.bet} {currency}**", inline=False)
+            embed.color = discord.Color.blue()
+        
+        embed.add_field(name="Neues Guthaben", value=f"{new_balance} {currency}", inline=True)
+        
+        # Disable all buttons
+        for item in self.children:
+            item.disabled = True
+        
+        await interaction.edit_original_response(embed=embed, view=self)
+        
+        # Remove from active games
+        if self.user_id in active_blackjack_games:
+            del active_blackjack_games[self.user_id]
+        
+        self.stop()
+
+
+class MinesView(discord.ui.View):
+    """UI view for Mines game with grid buttons."""
+    
+    def __init__(self, game: MinesGame, user_id: int):
+        super().__init__(timeout=300)
+        self.game = game
+        self.user_id = user_id
+        self._build_grid()
+    
+    def _build_grid(self):
+        """Builds the button grid for the mines game."""
+        for row in range(self.game.grid_size):
+            for col in range(self.game.grid_size):
+                button = discord.ui.Button(
+                    label="⬜",
+                    style=discord.ButtonStyle.secondary,
+                    custom_id=f"mine_{row}_{col}",
+                    row=row
+                )
+                button.callback = self._create_callback(row, col)
+                self.add_item(button)
+        
+        # Add cashout button
+        cashout_button = discord.ui.Button(
+            label="💰 Cash Out",
+            style=discord.ButtonStyle.success,
+            custom_id="cashout"
+        )
+        cashout_button.callback = self._cashout_callback
+        self.add_item(cashout_button)
+    
+    def _create_callback(self, row: int, col: int):
+        """Creates a callback for a grid button."""
+        async def callback(interaction: discord.Interaction):
+            if interaction.user.id != self.user_id:
+                await interaction.response.send_message("Das ist nicht dein Spiel!", ephemeral=True)
+                return
+            
+            await interaction.response.defer()
+            
+            continue_game, hit_mine, multiplier = self.game.reveal(row, col)
+            
+            # Update button appearance
+            for item in self.children:
+                if hasattr(item, 'custom_id') and item.custom_id == f"mine_{row}_{col}":
+                    if hit_mine:
+                        item.label = "💣"
+                        item.style = discord.ButtonStyle.danger
+                    else:
+                        item.label = "💎"
+                        item.style = discord.ButtonStyle.success
+                    item.disabled = True
+                    break
+            
+            if hit_mine:
+                # Game over - hit a mine
+                await self._end_game(interaction, lost=True)
+            elif not continue_game:
+                # All safe cells revealed
+                await self._end_game(interaction, lost=False)
+            else:
+                # Update embed and continue
+                embed = self.game.create_embed()
+                await interaction.edit_original_response(embed=embed, view=self)
+        
+        return callback
+    
+    async def _cashout_callback(self, interaction: discord.Interaction):
+        """Handles the cashout button."""
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht dein Spiel!", ephemeral=True)
+            return
+        
+        await interaction.response.defer()
+        
+        winnings, multiplier = self.game.cashout()
+        
+        if winnings > 0:
+            # Update balance
+            stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+            profit = winnings - self.game.bet
+            new_balance = await db_helpers.add_balance(
+                self.user_id,
+                interaction.user.display_name,
+                profit,
+                config,
+                stat_period
+            )
+            
+            # Log transaction
+            await db_helpers.log_transaction(
+                self.user_id,
+                'mines',
+                profit,
+                new_balance,
+                f"Mines cashout at {multiplier}x"
+            )
+            
+            currency = config['modules']['economy']['currency_symbol']
+            embed = self.game.create_embed()
+            embed.color = discord.Color.green()
+            embed.add_field(
+                name="💰 Ausgezahlt!",
+                value=f"Gewinn: **{profit} {currency}** ({multiplier}x)\nNeues Guthaben: {new_balance} {currency}",
+                inline=False
+            )
+            
+            # Disable all buttons
+            for item in self.children:
+                item.disabled = True
+            
+            await interaction.edit_original_response(embed=embed, view=self)
+            
+            # Remove from active games
+            if self.user_id in active_mines_games:
+                del active_mines_games[self.user_id]
+            
+            self.stop()
+    
+    async def _end_game(self, interaction: discord.Interaction, lost: bool):
+        """Ends the game and shows results."""
+        currency = config['modules']['economy']['currency_symbol']
+        embed = self.game.create_embed(show_mines=True)
+        
+        if lost:
+            # Lost - deduct bet
+            stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+            new_balance = await db_helpers.add_balance(
+                self.user_id,
+                interaction.user.display_name,
+                -self.game.bet,
+                config,
+                stat_period
+            )
+            
+            # Log transaction
+            await db_helpers.log_transaction(
+                self.user_id,
+                'mines',
+                -self.game.bet,
+                new_balance,
+                "Hit a mine"
+            )
+            
+            embed.color = discord.Color.red()
+            embed.add_field(
+                name="💥 Mine getroffen!",
+                value=f"Verlust: **{self.game.bet} {currency}**\nNeues Guthaben: {new_balance} {currency}",
+                inline=False
+            )
+        else:
+            # Won - all safe cells revealed
+            winnings = int(self.game.bet * self.game.get_current_multiplier())
+            profit = winnings - self.game.bet
+            
+            stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+            new_balance = await db_helpers.add_balance(
+                self.user_id,
+                interaction.user.display_name,
+                profit,
+                config,
+                stat_period
+            )
+            
+            # Log transaction
+            await db_helpers.log_transaction(
+                self.user_id,
+                'mines',
+                profit,
+                new_balance,
+                f"Completed all safe cells at {self.game.get_current_multiplier()}x"
+            )
+            
+            embed.color = discord.Color.gold()
+            embed.add_field(
+                name="🎉 Alle sicheren Felder aufgedeckt!",
+                value=f"Gewinn: **{profit} {currency}** ({self.game.get_current_multiplier()}x)\nNeues Guthaben: {new_balance} {currency}",
+                inline=False
+            )
+        
+        # Disable all buttons and reveal all mines
+        for item in self.children:
+            item.disabled = True
+        
+        await interaction.edit_original_response(embed=embed, view=self)
+        
+        # Remove from active games
+        if self.user_id in active_mines_games:
+            del active_mines_games[self.user_id]
+        
+        self.stop()
+
+
+@tree.command(name="blackjack", description="Spiele Blackjack!")
+@app_commands.describe(bet="Dein Einsatz")
+async def blackjack(interaction: discord.Interaction, bet: int):
+    """Start a Blackjack game."""
+    await interaction.response.defer(ephemeral=True)
+    
+    user_id = interaction.user.id
+    
+    # Check if user already has an active game
+    if user_id in active_blackjack_games:
+        await interaction.followup.send("Du hast bereits ein aktives Blackjack-Spiel!", ephemeral=True)
+        return
+    
+    # Validate bet amount
+    min_bet = config['modules']['economy']['games']['blackjack']['min_bet']
+    max_bet = config['modules']['economy']['games']['blackjack']['max_bet']
+    
+    if bet < min_bet or bet > max_bet:
+        currency = config['modules']['economy']['currency_symbol']
+        await interaction.followup.send(
+            f"Ungültiger Einsatz! Minimum: {min_bet} {currency}, Maximum: {max_bet} {currency}",
+            ephemeral=True
+        )
+        return
+    
+    # Check balance
+    balance = await db_helpers.get_balance(user_id)
+    if balance < bet:
+        currency = config['modules']['economy']['currency_symbol']
+        await interaction.followup.send(
+            f"Nicht genug Guthaben! Du hast {balance} {currency}, brauchst aber {bet} {currency}.",
+            ephemeral=True
+        )
+        return
+    
+    # Create game
+    game = BlackjackGame(user_id, bet)
+    active_blackjack_games[user_id] = game
+    
+    # Create view
+    view = BlackjackView(game, user_id)
+    embed = game.create_embed()
+    
+    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+
+@tree.command(name="roulette", description="Spiele Roulette!")
+@app_commands.describe(
+    bet_type="Wettart (number/red/black/odd/even/high/low)",
+    bet_value="Wert (z.B. Zahl 0-36, 'red', 'black', etc.)",
+    amount="Einsatzbetrag"
+)
+@app_commands.choices(bet_type=[
+    app_commands.Choice(name="Einzelne Zahl (0-36)", value="number"),
+    app_commands.Choice(name="Rot", value="red"),
+    app_commands.Choice(name="Schwarz", value="black"),
+    app_commands.Choice(name="Ungerade", value="odd"),
+    app_commands.Choice(name="Gerade", value="even"),
+    app_commands.Choice(name="Hoch (19-36)", value="high"),
+    app_commands.Choice(name="Niedrig (1-18)", value="low")
+])
+async def roulette(interaction: discord.Interaction, bet_type: app_commands.Choice[str], bet_value: str, amount: int):
+    """Play Roulette."""
+    await interaction.response.defer(ephemeral=True)
+    
+    user_id = interaction.user.id
+    
+    # Validate bet amount
+    min_bet = config['modules']['economy']['games']['roulette']['min_bet']
+    max_bet = config['modules']['economy']['games']['roulette']['max_bet']
+    currency = config['modules']['economy']['currency_symbol']
+    
+    if amount < min_bet or amount > max_bet:
+        await interaction.followup.send(
+            f"Ungültiger Einsatz! Minimum: {min_bet} {currency}, Maximum: {max_bet} {currency}",
+            ephemeral=True
+        )
+        return
+    
+    # Check balance
+    balance = await db_helpers.get_balance(user_id)
+    if balance < amount:
+        await interaction.followup.send(
+            f"Nicht genug Guthaben! Du hast {balance} {currency}, brauchst aber {amount} {currency}.",
+            ephemeral=True
+        )
+        return
+    
+    # Parse bet value
+    bet_type_str = bet_type.value
+    parsed_bet_value = bet_value
+    
+    if bet_type_str == 'number':
+        try:
+            parsed_bet_value = int(bet_value)
+            if parsed_bet_value < 0 or parsed_bet_value > 36:
+                await interaction.followup.send("Zahl muss zwischen 0 und 36 liegen!", ephemeral=True)
+                return
+        except ValueError:
+            await interaction.followup.send("Ungültige Zahl!", ephemeral=True)
+            return
+    elif bet_type_str in ['red', 'black']:
+        parsed_bet_value = bet_type_str
+        bet_type_str = 'color'
+    elif bet_type_str in ['odd', 'even']:
+        parsed_bet_value = bet_type_str
+        bet_type_str = 'odd_even'
+    elif bet_type_str in ['high', 'low']:
+        parsed_bet_value = bet_type_str
+        bet_type_str = 'high_low'
+    
+    # Spin the wheel
+    result_number = RouletteGame.spin()
+    won, multiplier = RouletteGame.check_bet(result_number, bet_type_str, parsed_bet_value)
+    
+    # Determine color
+    if result_number == 0:
+        result_color = "🟢 Grün"
+    elif result_number in RouletteGame.RED:
+        result_color = "🔴 Rot"
+    else:
+        result_color = "⚫ Schwarz"
+    
+    # Calculate winnings
+    if won:
+        winnings = amount * multiplier - amount
+    else:
+        winnings = -amount
+    
+    # Update balance
+    stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+    new_balance = await db_helpers.add_balance(
+        user_id,
+        interaction.user.display_name,
+        winnings,
+        config,
+        stat_period
+    )
+    
+    # Log transaction
+    await db_helpers.log_transaction(
+        user_id,
+        'roulette',
+        winnings,
+        new_balance,
+        f"Bet: {bet_type.name} on {bet_value}, Result: {result_number}"
+    )
+    
+    # Create result embed
+    embed = discord.Embed(
+        title="🎰 Roulette",
+        color=discord.Color.green() if won else discord.Color.red()
+    )
+    
+    embed.add_field(name="Ergebnis", value=f"**{result_number}** {result_color}", inline=False)
+    embed.add_field(name="Deine Wette", value=f"{bet_type.name}: {bet_value}", inline=True)
+    embed.add_field(name="Einsatz", value=f"{amount} {currency}", inline=True)
+    
+    if won:
+        embed.add_field(
+            name="✅ Gewonnen!",
+            value=f"Gewinn: **{winnings} {currency}** ({multiplier}x)",
+            inline=False
+        )
+    else:
+        embed.add_field(
+            name="❌ Verloren!",
+            value=f"Verlust: **{amount} {currency}**",
+            inline=False
+        )
+    
+    embed.add_field(name="Neues Guthaben", value=f"{new_balance} {currency}", inline=True)
+    
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+@tree.command(name="mines", description="Spiele Mines!")
+@app_commands.describe(bet="Dein Einsatz")
+async def mines(interaction: discord.Interaction, bet: int):
+    """Start a Mines game."""
+    await interaction.response.defer(ephemeral=True)
+    
+    user_id = interaction.user.id
+    
+    # Check if user already has an active game
+    if user_id in active_mines_games:
+        await interaction.followup.send("Du hast bereits ein aktives Mines-Spiel!", ephemeral=True)
+        return
+    
+    # Validate bet amount
+    min_bet = config['modules']['economy']['games']['mines']['min_bet']
+    max_bet = config['modules']['economy']['games']['mines']['max_bet']
+    currency = config['modules']['economy']['currency_symbol']
+    
+    if bet < min_bet or bet > max_bet:
+        await interaction.followup.send(
+            f"Ungültiger Einsatz! Minimum: {min_bet} {currency}, Maximum: {max_bet} {currency}",
+            ephemeral=True
+        )
+        return
+    
+    # Check balance
+    balance = await db_helpers.get_balance(user_id)
+    if balance < bet:
+        await interaction.followup.send(
+            f"Nicht genug Guthaben! Du hast {balance} {currency}, brauchst aber {bet} {currency}.",
+            ephemeral=True
+        )
+        return
+    
+    # Create game
+    grid_size = config['modules']['economy']['games']['mines']['grid_size']
+    mine_count = config['modules']['economy']['games']['mines']['mine_count']
+    game = MinesGame(user_id, bet, grid_size, mine_count)
+    active_mines_games[user_id] = game
+    
+    # Create view
+    view = MinesView(game, user_id)
+    embed = game.create_embed()
+    embed.add_field(
+        name="ℹ️ Anleitung",
+        value="Klicke auf Felder um sie aufzudecken. Vermeide die Minen! Cash out jederzeit für den aktuellen Multiplikator.",
+        inline=False
+    )
+    
+    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+
+@tree.command(name="rr", description="Spiele Russian Roulette!")
+async def russian_roulette(interaction: discord.Interaction):
+    """Play Russian Roulette."""
+    await interaction.response.defer(ephemeral=True)
+    
+    user_id = interaction.user.id
+    entry_fee = config['modules']['economy']['games']['russian_roulette']['entry_fee']
+    reward_multiplier = config['modules']['economy']['games']['russian_roulette']['reward_multiplier']
+    currency = config['modules']['economy']['currency_symbol']
+    
+    # Check balance
+    balance = await db_helpers.get_balance(user_id)
+    if balance < entry_fee:
+        await interaction.followup.send(
+            f"Nicht genug Guthaben! Du brauchst {entry_fee} {currency} zum Spielen.",
+            ephemeral=True
+        )
+        return
+    
+    # Deduct entry fee
+    stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+    await db_helpers.add_balance(
+        user_id,
+        interaction.user.display_name,
+        -entry_fee,
+        config,
+        stat_period
+    )
+    
+    # Create game
+    game = RussianRouletteGame(user_id, entry_fee, reward_multiplier)
+    
+    # Play the game
+    embed = discord.Embed(
+        title="🔫 Russian Roulette",
+        description="Du ziehst den Abzug...",
+        color=discord.Color.orange()
+    )
+    
+    embed.add_field(name="Einsatz", value=f"{entry_fee} {currency}", inline=True)
+    embed.add_field(name="Möglicher Gewinn", value=f"{entry_fee * reward_multiplier} {currency}", inline=True)
+    
+    results = []
+    for shot in range(1, 7):
+        alive, won, reward = game.pull_trigger()
+        
+        if not alive:
+            results.append(f"**Schuss {shot}:** 💀 BANG!")
+            embed.add_field(name="Ergebnis", value="\n".join(results), inline=False)
+            embed.color = discord.Color.red()
+            
+            new_balance = await db_helpers.get_balance(user_id)
+            
+            # Log transaction
+            await db_helpers.log_transaction(
+                user_id,
+                'russian_roulette',
+                -entry_fee,
+                new_balance,
+                f"Died on shot {shot}"
+            )
+            
+            embed.add_field(
+                name="❌ Du bist tot!",
+                value=f"Verlust: **{entry_fee} {currency}**\nNeues Guthaben: {new_balance} {currency}",
+                inline=False
+            )
+            break
+        
+        results.append(f"**Schuss {shot}:** ✅ Click...")
+        
+        if won:
+            embed.add_field(name="Ergebnis", value="\n".join(results), inline=False)
+            embed.color = discord.Color.gold()
+            
+            # Award winnings
+            new_balance = await db_helpers.add_balance(
+                user_id,
+                interaction.user.display_name,
+                reward,
+                config,
+                stat_period
+            )
+            
+            # Log transaction
+            await db_helpers.log_transaction(
+                user_id,
+                'russian_roulette',
+                reward - entry_fee,
+                new_balance,
+                "Survived all 6 shots"
+            )
+            
+            embed.add_field(
+                name="🎉 Du hast überlebt!",
+                value=f"Gewinn: **{reward} {currency}** ({reward_multiplier}x)\nNeues Guthaben: {new_balance} {currency}",
+                inline=False
+            )
+            break
+    
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
 
 class WerwolfJoinView(discord.ui.View):
     """A view for the Werwolf join phase, including a start button and countdown."""
