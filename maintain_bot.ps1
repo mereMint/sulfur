@@ -50,35 +50,19 @@ function Invoke-DatabaseBackup {
         
         $user=$env:DB_USER
         if(-not $user){$user='sulfur_bot_user'}
-        $pass=$env:DB_PASS
-        if(-not $pass){$pass=''}
         $db=$env:DB_NAME
         if(-not $db){$db='sulfur_bot'}
         $backupDir=Join-Path $PSScriptRoot 'backups'
         if(-not(Test-Path $backupDir)){New-Item -ItemType Directory -Path $backupDir|Out-Null}
         $backupFile=Join-Path $backupDir "sulfur_bot_backup_$(Get-Date -Format 'yyyy-MM-dd_HH-mm-ss').sql"
-        $syncFile=Join-Path $PSScriptRoot 'config\database_sync.sql'
         
         if($dumpCmd){
-            if($pass){
-                & $dumpCmd -u $user -p$pass $db > $backupFile 2>$null
-                & $dumpCmd -u $user -p$pass $db > $syncFile 2>$null
-            } else {
-                & $dumpCmd -u $user $db > $backupFile 2>$null
-                & $dumpCmd -u $user $db > $syncFile 2>$null
-            }
+            & $dumpCmd -u $user $db > $backupFile 2>$null
         } else {
             'mysqldump/mariadb-dump not found; placeholder backup entry.' | Out-File -FilePath $backupFile
         }
         if(Test-Path $backupFile){
-            $fileSize=(Get-Item $backupFile).Length
-            if($fileSize -gt 500){
-                Write-ColorLog "Backup created: $backupFile ($fileSize bytes)" 'Green' '[DB] '
-                Write-ColorLog "Sync file updated: $syncFile" 'Green' '[DB] '
-            } else {
-                Write-ColorLog "Backup failed (file too small: $fileSize bytes)" 'Red' '[DB] '
-                return $false
-            }
+            Write-ColorLog "Backup created: $backupFile" 'Green' '[DB] '
             $allBackups=Get-ChildItem $backupDir -Filter *.sql | Sort-Object LastWriteTime -Descending
             if($allBackups.Count -gt 10){
                 $allBackups|Select-Object -Skip 10 | Remove-Item -Force
@@ -100,42 +84,24 @@ function Invoke-GitCommit {
     Write-ColorLog 'Checking for changes...' 'Cyan' '[GIT] '
     $hasChanges=$false
     $syncFile='config\database_sync.sql'
-    
-    # Check if database sync file exists and has changes
     if(Test-Path $syncFile){
-        $gitStatus=git status --porcelain $syncFile 2>$null
-        if($gitStatus){
+        if(git status --porcelain $syncFile){
             $hasChanges=$true
-            Write-ColorLog 'Database sync file has changes' 'Cyan' '[GIT] '
         }
     }
-    
-    # Check for any other changes
-    $allStatus=git status --porcelain 2>$null
-    if($allStatus){
+    if(git status --porcelain){
         $hasChanges=$true
     }
-    
     if($hasChanges){
         Write-ColorLog 'Changes detected, committing...' 'Yellow' '[GIT] '
         try {
-            git add -A 2>&1 | Out-Null
-            git commit -m $Message 2>&1 | Out-Null
-            if($LASTEXITCODE -eq 0){
-                git push 2>&1 | Out-Null
-                if($LASTEXITCODE -eq 0){
-                    Write-ColorLog 'Changes committed & pushed' 'Green' '[GIT] '
-                    return $true
-                } else {
-                    Write-ColorLog 'Git push failed' 'Red' '[GIT] '
-                    return $false
-                }
-            } else {
-                Write-ColorLog 'Git commit failed (no changes or error)' 'Yellow' '[GIT] '
-                return $false
-            }
+            git add -A
+            git commit -m $Message
+            git push
+            Write-ColorLog 'Changes committed & pushed' 'Green' '[GIT] '
+            return $true
         } catch {
-            Write-ColorLog "Git operation failed: $_" 'Red' '[GIT] '
+            Write-ColorLog "Git commit failed: $_" 'Red' '[GIT] '
             return $false
         }
     } else {

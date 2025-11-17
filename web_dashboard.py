@@ -63,9 +63,9 @@ def follow_log_file():
             current_time = time.time()
             if current_time - last_flag_check >= flag_check_interval:
                 if os.path.exists('restart.flag'):
-                    socketio.emit('log_update', {'data': '<div style="background: #856404; color: #ffc107; padding: 5px; margin: 2px 0; border-left: 3px solid #ffc107;">⚠️ RESTART SIGNAL DETECTED - Bot is restarting...</div>\n'}, namespace='/')
+                    socketio.emit('log_update', {'data': '\n<span style="color: #ffc107;">⚠️ RESTART SIGNAL DETECTED - Bot is restarting...</span>\n'}, namespace='/')
                 if os.path.exists('stop.flag'):
-                    socketio.emit('log_update', {'data': '<div style="background: #721c24; color: #f8d7da; padding: 5px; margin: 2px 0; border-left: 3px solid #dc3545;">🛑 STOP SIGNAL DETECTED - Bot is shutting down...</div>\n'}, namespace='/')
+                    socketio.emit('log_update', {'data': '\n<span style="color: #dc3545;">🛑 STOP SIGNAL DETECTED - Bot is shutting down...</span>\n'}, namespace='/')
                 last_flag_check = current_time
             
             latest_log = get_latest_log_file()
@@ -74,7 +74,7 @@ def follow_log_file():
                 if file:
                     file.close()
                 if latest_log:
-                    socketio.emit('log_update', {'data': f'<div style=\"background: #0c5460; color: #d1ecf1; padding: 5px; margin: 2px 0; border-left: 3px solid #0dcaf0;\">--- Switched to new log file: {os.path.basename(latest_log)} ---</div>\\n'}, namespace='/')
+                    socketio.emit('log_update', {'data': f'\n<span style="color: #0dcaf0;">--- Switched to new log file: {os.path.basename(latest_log)} ---</span>\n'}, namespace='/')
                     # --- FIX: Open with error handling for encoding issues ---
                     try:
                         file = open(latest_log, 'r', encoding='utf-8', errors='ignore')
