@@ -44,20 +44,21 @@ try {
     exit 1
 }
 
-# Check MySQL
-Write-Host "Checking MySQL..." -ForegroundColor Cyan
-$mysqlProcess = Get-Process mysqld -ErrorAction SilentlyContinue
+# Check MySQL/MariaDB
+Write-Host "Checking MySQL/MariaDB..." -ForegroundColor Cyan
+$mysqlProcess = Get-Process mysqld,mariadbd -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($mysqlProcess) {
-    Write-Host "✓ MySQL is running (PID: $($mysqlProcess.Id))" -ForegroundColor Green
+    Write-Host "✓ MySQL/MariaDB is running (PID: $($mysqlProcess.Id))" -ForegroundColor Green
 } else {
-    Write-Host "✗ MySQL is not running!" -ForegroundColor Red
+    Write-Host "✗ MySQL/MariaDB is not running!" -ForegroundColor Red
     Write-Host ""
-    Write-Host "  Please start MySQL:" -ForegroundColor Yellow
+    Write-Host "  Please start MySQL/MariaDB:" -ForegroundColor Yellow
     Write-Host "    - XAMPP: Open XAMPP Control Panel → Start MySQL" -ForegroundColor White
-    Write-Host "    - MySQL Service: Run 'net start MySQL' as Administrator" -ForegroundColor White
-    Write-Host "    - Or: services.msc → Find MySQL → Start" -ForegroundColor White
+    Write-Host "    - MariaDB: Run 'net start MariaDB' as Administrator" -ForegroundColor White
+    Write-Host "    - MySQL: Run 'net start MySQL' as Administrator" -ForegroundColor White
+    Write-Host "    - Or: services.msc → Find MySQL/MariaDB → Start" -ForegroundColor White
     Write-Host ""
-    $continue = Read-Host "Press Enter after starting MySQL (or 'q' to quit)"
+    $continue = Read-Host "Press Enter after starting MySQL/MariaDB (or 'q' to quit)"
     if ($continue -eq 'q') { exit 1 }
 }
 

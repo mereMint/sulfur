@@ -40,7 +40,14 @@ function Update-BotStatus {
 function Invoke-DatabaseBackup {
     Write-ColorLog 'Creating database backup...' 'Cyan' '[DB] '
     try {
-        $mysql='mysqldump'
+        # Try mariadb-dump first, then mysqldump
+        $dumpCmd=$null
+        if(Get-Command mariadb-dump -ErrorAction SilentlyContinue){
+            $dumpCmd='mariadb-dump'
+        }elseif(Get-Command mysqldump -ErrorAction SilentlyContinue){
+            $dumpCmd='mysqldump'
+        }
+        
         $user=$env:DB_USER
         if(-not $user){$user='sulfur_bot_user'}
         $db=$env:DB_NAME
@@ -48,10 +55,11 @@ function Invoke-DatabaseBackup {
         $backupDir=Join-Path $PSScriptRoot 'backups'
         if(-not(Test-Path $backupDir)){New-Item -ItemType Directory -Path $backupDir|Out-Null}
         $backupFile=Join-Path $backupDir "sulfur_bot_backup_$(Get-Date -Format 'yyyy-MM-dd_HH-mm-ss').sql"
-        if(Get-Command $mysql -ErrorAction SilentlyContinue){
-            & $mysql -u $user $db > $backupFile 2>$null
+        
+        if($dumpCmd){
+            & $dumpCmd -u $user $db > $backupFile 2>$null
         } else {
-            'mysqldump not found; placeholder backup entry.' | Out-File -FilePath $backupFile
+            'mysqldump/mariadb-dump not found; placeholder backup entry.' | Out-File -FilePath $backupFile
         }
         if(Test-Path $backupFile){
             Write-ColorLog "Backup created: $backupFile" 'Green' '[DB] '

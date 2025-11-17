@@ -62,7 +62,10 @@ Before running setup, you need:
 
 ### Windows
 - **Python 3.8+** from [python.org](https://www.python.org/downloads/) ✅ Check "Add to PATH"
-- **XAMPP** from [apachefriends.org](https://www.apachefriends.org/) (for MySQL)
+- **MySQL or MariaDB**:
+  - Option A: **XAMPP** from [apachefriends.org](https://www.apachefriends.org/) (easiest - includes MySQL)
+  - Option B: **MariaDB** from [mariadb.org](https://mariadb.org/download/)
+  - Option C: **MySQL** from [mysql.com](https://dev.mysql.com/downloads/mysql/)
 - **Git** from [git-scm.com](https://git-scm.com/download/win)
 
 ### Linux

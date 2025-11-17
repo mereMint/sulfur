@@ -8,31 +8,35 @@ Write-Host "║         Sulfur Bot - MySQL Setup Helper                   ║" -
 Write-Host "╚════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
 Write-Host ""
 
-# Check if MySQL is running
-Write-Host "Checking MySQL status..." -ForegroundColor Yellow
-$mysqlProcess = Get-Process mysqld -ErrorAction SilentlyContinue
+# Check if MySQL/MariaDB is running
+Write-Host "Checking MySQL/MariaDB status..." -ForegroundColor Yellow
+$mysqlProcess = Get-Process mysqld,mariadbd -ErrorAction SilentlyContinue | Select-Object -First 1
 
 if ($mysqlProcess) {
-    Write-Host "✓ MySQL is running (PID: $($mysqlProcess.Id))" -ForegroundColor Green
+    Write-Host "✓ MySQL/MariaDB is running (PID: $($mysqlProcess.Id))" -ForegroundColor Green
 } else {
-    Write-Host "✗ MySQL is not running!" -ForegroundColor Red
+    Write-Host "✗ MySQL/MariaDB is not running!" -ForegroundColor Red
     Write-Host ""
-    Write-Host "Please start MySQL first:" -ForegroundColor Yellow
+    Write-Host "Please start MySQL/MariaDB first:" -ForegroundColor Yellow
     Write-Host "  - If using XAMPP: Open XAMPP Control Panel and start MySQL" -ForegroundColor White
-    Write-Host "  - If using MySQL Service: Run 'net start MySQL' (as Administrator)" -ForegroundColor White
-    Write-Host "  - Or: services.msc → Find MySQL → Start" -ForegroundColor White
+    Write-Host "  - If using MariaDB: Run 'net start MariaDB' (as Administrator)" -ForegroundColor White
+    Write-Host "  - If using MySQL: Run 'net start MySQL' (as Administrator)" -ForegroundColor White
+    Write-Host "  - Or: services.msc → Find MySQL/MariaDB → Start" -ForegroundColor White
     Write-Host ""
-    $start = Read-Host "Press Enter after starting MySQL, or type 'skip' to exit"
+    $start = Read-Host "Press Enter after starting MySQL/MariaDB, or type 'skip' to exit"
     if ($start -eq 'skip') {
         exit 1
     }
 }
 
-# Check for mysql.exe
+# Check for mysql.exe or mariadb.exe
 Write-Host ""
-Write-Host "Looking for mysql.exe..." -ForegroundColor Yellow
+Write-Host "Looking for MySQL/MariaDB client..." -ForegroundColor Yellow
 
 $mysqlPaths = @(
+    "C:\Program Files\MariaDB 11.0\bin\mariadb.exe",
+    "C:\Program Files\MariaDB 10.11\bin\mariadb.exe",
+    "C:\Program Files\MariaDB 10.6\bin\mariadb.exe",
     "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe",
     "C:\Program Files\MySQL\MySQL Server 5.7\bin\mysql.exe",
     "C:\xampp\mysql\bin\mysql.exe",
@@ -47,17 +51,20 @@ foreach ($path in $mysqlPaths) {
     }
 }
 
-# Try to find it in PATH
+# Try to find mariadb or mysql in PATH
+if (-not $mysqlExe) {
+    $mysqlExe = (Get-Command mariadb -ErrorAction SilentlyContinue).Source
+}
 if (-not $mysqlExe) {
     $mysqlExe = (Get-Command mysql -ErrorAction SilentlyContinue).Source
 }
 
 if ($mysqlExe) {
-    Write-Host "✓ Found mysql.exe at: $mysqlExe" -ForegroundColor Green
+    Write-Host "✓ Found client at: $mysqlExe" -ForegroundColor Green
 } else {
-    Write-Host "✗ Could not find mysql.exe" -ForegroundColor Red
+    Write-Host "✗ Could not find mysql.exe or mariadb.exe" -ForegroundColor Red
     Write-Host ""
-    Write-Host "Please enter the full path to mysql.exe:" -ForegroundColor Yellow
+    Write-Host "Please enter the full path to mysql.exe or mariadb.exe:" -ForegroundColor Yellow
     $mysqlExe = Read-Host "Path"
     if (-not (Test-Path $mysqlExe)) {
         Write-Host "✗ File not found. Exiting." -ForegroundColor Red
