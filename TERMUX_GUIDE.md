@@ -17,10 +17,26 @@ Complete guide for running Sulfur Discord bot on Android using Termux.
 
 ### Method 1: Automated Setup (Recommended)
 
+**Option A: One-Line Command (Easiest)**
+
+Copy and paste this ENTIRE line as ONE command:
+
 ```bash
-# Clone the repository first to get the setup script
+pkg update && pkg install -y git && git clone https://github.com/mereMint/sulfur.git sulfur && cd sulfur && bash termux_quickstart.sh
+```
+
+**Option B: Step-by-Step**
+
+If you prefer to see each step:
+
+```bash
+# Step 1: Update and install git
 pkg update && pkg install -y git
+
+# Step 2: Clone the repository
 git clone https://github.com/mereMint/sulfur.git sulfur
+
+# Step 3: Enter the directory and run setup
 cd sulfur
 bash termux_quickstart.sh
 ```
@@ -263,6 +279,19 @@ mysqldump -u sulfur_bot_user sulfur_bot > backup_$(date +%Y%m%d_%H%M%S).sql
 ```
 
 ## Troubleshooting
+
+### Installation Asks for GitHub Username/Password
+
+**Problem**: When running the installation command, git asks for username and password during clone.
+
+**Cause**: You ran the commands separately instead of as one line with `&&`.
+
+**Solution**: Copy and paste the ENTIRE installation command as ONE line:
+```bash
+pkg update && pkg install -y git && git clone https://github.com/mereMint/sulfur.git sulfur && cd sulfur && bash termux_quickstart.sh
+```
+
+The `&&` ensures each command only runs if the previous one succeeded. Running them separately breaks the flow.
 
 ### MariaDB Won't Start
 

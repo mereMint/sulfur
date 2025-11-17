@@ -5,7 +5,12 @@
 # This script automates EVERYTHING needed to run the bot on Termux
 #
 # IMPORTANT: Don't try to download this file directly!
-# Instead, clone the repository first:
+# Instead, use the one-line installation command:
+#
+# Copy and paste this ENTIRE line (all on one line):
+#   pkg update && pkg install -y git && git clone https://github.com/mereMint/sulfur.git sulfur && cd sulfur && bash termux_quickstart.sh
+#
+# Or step-by-step:
 #   pkg update && pkg install -y git
 #   git clone https://github.com/mereMint/sulfur.git sulfur
 #   cd sulfur && bash termux_quickstart.sh

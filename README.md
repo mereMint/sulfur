@@ -592,6 +592,8 @@ Our automated Termux setup script handles **everything** in one command:
 pkg update && pkg install -y git && git clone https://github.com/mereMint/sulfur.git sulfur && cd sulfur && bash termux_quickstart.sh
 ```
 
+⚠️ **IMPORTANT**: Copy and paste the ENTIRE line above as ONE command. Do not run the commands separately.
+
 **Note**: The initial clone uses HTTPS (no authentication needed for public repos). The script will then set up SSH for future git operations.
 
 **What it does:**
