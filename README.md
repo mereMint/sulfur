@@ -75,7 +75,34 @@ A feature-rich Discord bot with AI capabilities, mini-games, and comprehensive m
 
 > **Important:** You need Discord Bot Token and API keys before starting. See [Prerequisites](#-prerequisites).
 
-### Windows (PowerShell)
+### 🪟 Windows - Installation Wizard (Easiest!)
+
+**New!** We now have a comprehensive installation wizard that makes setup a breeze:
+
+```powershell
+# 1) Clone the repository
+git clone https://github.com/mereMint/sulfur.git
+cd sulfur
+
+# 2) Run the installation wizard
+.\INSTALL.bat
+# Or: .\install_wizard.ps1
+```
+
+The wizard will:
+- ✅ Check all prerequisites (Python, Git, MySQL)
+- ✅ Guide you through obtaining API keys
+- ✅ Configure your .env file interactively
+- ✅ Set up the database automatically
+- ✅ Install all dependencies
+- ✅ Test your setup
+- ✅ Create desktop shortcuts
+
+**📖 Detailed Guide:** See [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md) for complete instructions.
+
+### Windows (Manual PowerShell Setup)
+
+If you prefer manual setup:
 
 ```powershell
 # 1) Clone and enter the repo
@@ -156,6 +183,33 @@ chmod +x start.sh maintain_bot.sh
 Dashboard: http://localhost:5000 (served by Waitress). Stop with Ctrl+C or create `stop.flag`.
 
 ### Windows Installation
+
+> **🎯 Recommended:** Use the **Installation Wizard** for the easiest setup experience!
+> 
+> Simply run `.\INSTALL.bat` or see [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md) for detailed instructions.
+
+#### Using the Installation Wizard (Recommended)
+
+1. **Clone the repository:**
+   ```powershell
+   git clone https://github.com/mereMint/sulfur.git
+   cd sulfur
+   ```
+
+2. **Run the wizard:**
+   - **Easy way:** Double-click `INSTALL.bat`
+   - **PowerShell:** Run `.\install_wizard.ps1`
+
+3. **Follow the prompts** - The wizard will:
+   - Check prerequisites (Python, Git, MySQL)
+   - Help you get API keys
+   - Configure everything automatically
+   - Create desktop shortcuts
+   - Test the setup
+
+#### Manual Installation (Advanced)
+
+If you prefer manual setup:
 
 #### Step 1: Install Prerequisites
 

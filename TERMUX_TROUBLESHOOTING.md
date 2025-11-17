@@ -1,5 +1,18 @@
 # Termux Bot Not Replying - Troubleshooting Guide
 
+## 🔍 New Enhanced Debugging Features
+
+**As of latest update**, the bot now includes comprehensive debug logging to help identify message handling issues. See **[TERMUX_DEBUG_GUIDE.md](TERMUX_DEBUG_GUIDE.md)** for detailed instructions on using the new logging features.
+
+The bot now logs every step of message processing:
+- Message reception and filtering
+- Trigger detection (mentions, bot names)
+- API calls to Gemini/OpenAI
+- Response generation and sending
+- Network errors and timeouts
+
+**Quick check:** Run the bot and send a message, then check if you see detailed `[MSG]`, `[TRIGGER]`, `[CHATBOT]`, and `[API]` logs.
+
 ## Quick Diagnostics
 
 Run these commands on your Termux device to diagnose the issue:

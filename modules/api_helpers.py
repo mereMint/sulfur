@@ -17,36 +17,55 @@ async def _call_gemini_api(payload, model_name, api_key, timeout):
     """
     api_url = f"{GEMINI_API_BASE_URL}/{model_name}:generateContent?key={api_key}"
     
+    logger.info(f"[Gemini API] Calling model '{model_name}'")
+    logger.debug(f"[Gemini API] URL: {api_url[:80]}...")
+    print(f"[Gemini API] Making request to model '{model_name}'...")
+    
     try:
         async with aiohttp.ClientSession() as session:
+            logger.debug(f"[Gemini API] Session created, sending POST request")
+            print(f"[Gemini API] Sending POST request with timeout={timeout}...")
             async with session.post(api_url, json=payload, timeout=timeout) as response:
+                logger.info(f"[Gemini API] Response status: {response.status}")
+                print(f"[Gemini API] Got response with status {response.status}")
+                
                 if response.status == 200:
+                    logger.debug(f"[Gemini API] Parsing JSON response")
                     data = await response.json()
                     # Robust checking for valid API response content
                     if data.get('candidates') and data['candidates'][0].get('content') and data['candidates'][0]['content'].get('parts'):
-                        return data['candidates'][0]['content']['parts'][0]['text'], None
+                        response_text = data['candidates'][0]['content']['parts'][0]['text']
+                        logger.info(f"[Gemini API] Success - got {len(response_text)} chars")
+                        print(f"[Gemini API] Success - received {len(response_text)} character response")
+                        return response_text, None
                     else:
                         # This happens if the response was blocked for safety or other reasons.
                         error_reason = data.get('promptFeedback', {}).get('blockReason', 'UNKNOWN')
                         if not error_reason:
                              error_reason = data.get('candidates', [{}])[0].get('finishReason', 'UNKNOWN')
-                        logger.warning(f"Gemini API: No content in response. Finish Reason: {error_reason}")
-                        logger.debug(f"Full API response: {data}")
-                        print(f"Gemini API Error: No content in response. Finish Reason: {error_reason}")
-                        print(f"Full API response: {data}")
+                        logger.warning(f"[Gemini API] No content in response. Finish Reason: {error_reason}")
+                        logger.debug(f"[Gemini API] Full API response: {data}")
+                        print(f"[Gemini API] Error: No content in response. Finish Reason: {error_reason}")
+                        print(f"[Gemini API] Full API response: {data}")
                         return None, f"Meine Antwort wurde blockiert (Grund: {error_reason}). Versuchs mal anders zu formulieren."
                 else:
                     # --- NEW: Add specific diagnostic for 404 errors ---
                     if response.status == 404:
                         error_text = await response.text()
-                        print(f"Gemini API Error (Status 404): {error_text}")
+                        logger.error(f"[Gemini API] 404 Error: {error_text}")
+                        print(f"[Gemini API] Error (Status 404): {error_text}")
                         return None, f"Modell '{model_name}' nicht gefunden (404). **Überprüfe, ob die 'Generative Language API' in deinem Google Cloud Projekt aktiviert ist und dein API-Schlüssel die Berechtigung dafür hat.**"
                     error_text = await response.text()
-                    print(f"Gemini API Error (Status {response.status}): {error_text}")
+                    logger.error(f"[Gemini API] HTTP {response.status}: {error_text}")
+                    print(f"[Gemini API] Error (Status {response.status}): {error_text}")
                     return None, f"Ich habe einen Fehler vom Server erhalten (Status: {response.status}). Wahrscheinlich ist die API down oder dein Key ist ungültig."
+    except aiohttp.ClientError as e:
+        logger.error(f"[Gemini API] Network error: {e}", exc_info=True)
+        print(f"[Gemini API] Network error: {e}")
+        return None, f"Netzwerkfehler beim Erreichen der Gemini API: {str(e)}"
     except Exception as e:
-        logger.error(f"Exception calling Gemini API: {e}", exc_info=True)
-        print(f"An exception occurred while calling Gemini API: {e}")
+        logger.error(f"[Gemini API] Exception: {e}", exc_info=True)
+        print(f"[Gemini API] An exception occurred while calling Gemini API: {e}")
         return None, "Ich konnte die AI nicht erreichen. Überprüfe die Internetverbindung oder die API-Keys."
 
 async def get_chat_response(history, user_prompt, user_display_name, system_prompt, config, gemini_key, openai_key):
@@ -56,6 +75,10 @@ async def get_chat_response(history, user_prompt, user_display_name, system_prom
     """
     provider = config.get('api', {}).get('provider', 'gemini')
     timeout = config.get('api', {}).get('timeout', 30)
+
+    logger.info(f"[Chat API] Starting chat response generation via '{provider}'")
+    logger.debug(f"[Chat API] History length: {len(history)}, Timeout: {timeout}s")
+    print(f"[Chat API] Provider: {provider}, History: {len(history)} messages")
 
     # --- FIX: Validate and clean the history to ensure alternating roles ---
     # The Gemini API requires a strict user -> model -> user -> model sequence.
@@ -74,18 +97,27 @@ async def get_chat_response(history, user_prompt, user_display_name, system_prom
         clean_history.popleft()
 
     final_history_for_api = list(clean_history)
+    logger.debug(f"[Chat API] Cleaned history: {len(final_history_for_api)} messages")
+    print(f"[Chat API] Cleaned history to {len(final_history_for_api)} alternating messages")
 
     # Add the current user prompt to the history for this specific API call
     final_history_for_api.append({"role": "user", "parts": [{"text": f"User '{user_display_name}' said: {user_prompt}"}]})
+    logger.debug(f"[Chat API] Added current user prompt to history")
+    print(f"[Chat API] Added user prompt: '{user_prompt[:50]}...'")
 
     if provider == 'gemini':
         # --- FIX: Dynamically build the URL with the model from config ---
         model = config.get('api', {}).get('gemini', {}).get('model', 'gemini-2.5-flash')
         generation_config = config.get('api', {}).get('gemini', {}).get('generation_config', {})
         
+        logger.info(f"[Chat API] Using Gemini model: {model}")
+        print(f"[Chat API] Gemini model: {model}")
+        
         # --- FIX: Prepend system prompt to contents instead of using system_instruction ---
         # This is more compatible with newer models like gemini-1.5-flash.
         final_contents = [{"role": "user", "parts": [{"text": system_prompt}]}, {"role": "model", "parts": [{"text": "Understood."}]}] + final_history_for_api
+        logger.debug(f"[Chat API] Final contents length: {len(final_contents)}")
+        print(f"[Chat API] Prepared {len(final_contents)} content items for API call")
         
         # --- FIX: Add safety settings to prevent blocking ---
         safety_settings = [
@@ -101,10 +133,17 @@ async def get_chat_response(history, user_prompt, user_display_name, system_prom
             "safetySettings": safety_settings
         }
         
+        logger.debug(f"[Chat API] Calling Gemini API with payload size: {len(str(payload))} chars")
+        print(f"[Chat API] Sending request to Gemini API...")
         response_text, error = await _call_gemini_api(payload, model, gemini_key, timeout)
         if response_text:
             # --- FIX: Return the updated history instead of modifying it in-place ---
             final_history_for_api.append({"role": "model", "parts": [{"text": response_text}]})
+            logger.info(f"[Chat API] Gemini response received successfully")
+            print(f"[Chat API] Gemini call succeeded, updating history")
+        elif error:
+            logger.error(f"[Chat API] Gemini call failed: {error}")
+            print(f"[Chat API] Gemini call failed with error")
         # The `history` object passed from bot.py is no longer modified.
         return response_text, error, final_history_for_api
 
@@ -112,6 +151,9 @@ async def get_chat_response(history, user_prompt, user_display_name, system_prom
         model = config.get('api', {}).get('openai', {}).get('chat_model', 'gpt-4o-mini')
         temperature = config.get('api', {}).get('openai', {}).get('chat_temperature', 0.7)
         max_tokens = config.get('api', {}).get('openai', {}).get('chat_max_tokens', 2048)
+
+        logger.info(f"[Chat API] Using OpenAI model: {model}")
+        print(f"[Chat API] OpenAI model: {model}")
 
         headers = {"Authorization": f"Bearer {openai_key}"}
         
