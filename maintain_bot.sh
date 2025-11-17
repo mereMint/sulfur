@@ -167,21 +167,38 @@ backup_database() {
     
     local backup_file="$BACKUP_DIR/sulfur_bot_backup_$(date +"%Y-%m-%d_%H-%M-%S").sql"
     
-    if $dump_cmd -u "$DB_USER" "$DB_NAME" > "$backup_file" 2>>"$MAIN_LOG"; then
-        log_success "Database backup created: $(basename "$backup_file")"
-        
-        # Keep only last 10 backups
-        local backup_count=$(ls -1 "$BACKUP_DIR"/*.sql 2>/dev/null | wc -l)
-        if [ "$backup_count" -gt 10 ]; then
-            ls -1t "$BACKUP_DIR"/*.sql | tail -n +11 | xargs rm -f
-            log_warning "Cleaned up old backups (kept last 10)"
+    # Try backup with password from environment or without password
+    if [ -n "$DB_PASS" ]; then
+        # Use password if set
+        if $dump_cmd -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" > "$backup_file" 2>>"$MAIN_LOG"; then
+            log_success "Database backup created: $(basename "$backup_file")"
+        else
+            log_error "Database backup failed with password"
+            return 1
         fi
-        
-        return 0
     else
-        log_error "Database backup failed"
-        return 1
+        # Try without password (for users with no password like sulfur_bot_user)
+        if $dump_cmd -u "$DB_USER" "$DB_NAME" > "$backup_file" 2>>"$MAIN_LOG"; then
+            log_success "Database backup created: $(basename "$backup_file")"
+        else
+            # If that fails, try using defaults-file for debian-sys-maint
+            if [ -f "/etc/mysql/debian.cnf" ] && $dump_cmd --defaults-file=/etc/mysql/debian.cnf "$DB_NAME" > "$backup_file" 2>>"$MAIN_LOG"; then
+                log_success "Database backup created using debian.cnf: $(basename "$backup_file")"
+            else
+                log_error "Database backup failed (tried no password and debian.cnf)"
+                return 1
+            fi
+        fi
     fi
+    
+    # Keep only last 10 backups
+    local backup_count=$(ls -1 "$BACKUP_DIR"/*.sql 2>/dev/null | wc -l)
+    if [ "$backup_count" -gt 10 ]; then
+        ls -1t "$BACKUP_DIR"/*.sql | tail -n +11 | xargs rm -f
+        log_warning "Cleaned up old backups (kept last 10)"
+    fi
+    
+    return 0
 }
 
 # ==============================================================================

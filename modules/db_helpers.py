@@ -109,30 +109,29 @@ def initialize_database():
             )
         """)
         # --- NEW: Add relationship summary column and chat history table ---
-        cursor.execute("""
-            ALTER TABLE players
-            ADD COLUMN IF NOT EXISTS relationship_summary TEXT;
-        """)
+        # Check and add columns only if they don't exist (MySQL doesn't support IF NOT EXISTS for ALTER TABLE ADD COLUMN)
+        cursor.execute("SHOW COLUMNS FROM players LIKE 'relationship_summary'")
+        if not cursor.fetchone():
+            cursor.execute("ALTER TABLE players ADD COLUMN relationship_summary TEXT")
+        
         # --- NEW: Add columns for presence tracking ---
-        cursor.execute("""
-            ALTER TABLE players
-            ADD COLUMN IF NOT EXISTS last_seen TIMESTAMP NULL DEFAULT NULL,
-            ADD COLUMN IF NOT EXISTS last_activity_name VARCHAR(255) NULL DEFAULT NULL;
-        """)
+        cursor.execute("SHOW COLUMNS FROM players LIKE 'last_seen'")
+        if not cursor.fetchone():
+            cursor.execute("ALTER TABLE players ADD COLUMN last_seen TIMESTAMP NULL DEFAULT NULL, ADD COLUMN last_activity_name VARCHAR(255) NULL DEFAULT NULL")
+        
         # --- NEW: Add columns for economy and spotify tracking ---
-        cursor.execute("""
-            ALTER TABLE players
-            ADD COLUMN IF NOT EXISTS balance BIGINT DEFAULT 1000 NOT NULL;
-        """)
-        cursor.execute("""
-            ALTER TABLE players
-            ADD COLUMN IF NOT EXISTS spotify_history JSON NULL;
-        """)
+        cursor.execute("SHOW COLUMNS FROM players LIKE 'balance'")
+        if not cursor.fetchone():
+            cursor.execute("ALTER TABLE players ADD COLUMN balance BIGINT DEFAULT 1000 NOT NULL")
+        
+        cursor.execute("SHOW COLUMNS FROM players LIKE 'spotify_history'")
+        if not cursor.fetchone():
+            cursor.execute("ALTER TABLE players ADD COLUMN spotify_history JSON NULL")
+        
         # --- NEW: Add game_history column for persistent game stats ---
-        cursor.execute("""
-            ALTER TABLE players
-            ADD COLUMN IF NOT EXISTS game_history JSON NULL;
-        """)
+        cursor.execute("SHOW COLUMNS FROM players LIKE 'game_history'")
+        if not cursor.fetchone():
+            cursor.execute("ALTER TABLE players ADD COLUMN game_history JSON NULL")
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS chat_history (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -164,11 +163,9 @@ def initialize_database():
             print("Migration complete.")
 
         # Ensure other columns for custom channel settings exist
-        cursor.execute("""
-            ALTER TABLE managed_voice_channels
-            ADD COLUMN IF NOT EXISTS channel_name VARCHAR(100) NULL,
-            ADD COLUMN IF NOT EXISTS user_limit INT DEFAULT 0;
-        """)
+        cursor.execute("SHOW COLUMNS FROM managed_voice_channels LIKE 'channel_name'")
+        if not cursor.fetchone():
+            cursor.execute("ALTER TABLE managed_voice_channels ADD COLUMN channel_name VARCHAR(100) NULL, ADD COLUMN user_limit INT DEFAULT 0")
         # --- NEW: Table for "Wrapped" monthly stats ---
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS user_monthly_stats (
@@ -184,25 +181,24 @@ def initialize_database():
             )
         """)
         # --- FIX: Add missing sulf_interactions column ---
-        cursor.execute("""
-            ALTER TABLE user_monthly_stats
-            ADD COLUMN IF NOT EXISTS sulf_interactions INT DEFAULT 0 NOT NULL;
-        """)
+        cursor.execute("SHOW COLUMNS FROM user_monthly_stats LIKE 'sulf_interactions'")
+        if not cursor.fetchone():
+            cursor.execute("ALTER TABLE user_monthly_stats ADD COLUMN sulf_interactions INT DEFAULT 0 NOT NULL")
+        
         # --- FIX: Add missing activity_usage column for Wrapped stats ---
-        cursor.execute("""
-            ALTER TABLE user_monthly_stats
-            ADD COLUMN IF NOT EXISTS activity_usage JSON;
-        """)
+        cursor.execute("SHOW COLUMNS FROM user_monthly_stats LIKE 'activity_usage'")
+        if not cursor.fetchone():
+            cursor.execute("ALTER TABLE user_monthly_stats ADD COLUMN activity_usage JSON")
+        
         # --- NEW: Add game_usage column for Wrapped stats ---
-        cursor.execute("""
-            ALTER TABLE user_monthly_stats
-            ADD COLUMN IF NOT EXISTS game_usage JSON;
-        """)
+        cursor.execute("SHOW COLUMNS FROM user_monthly_stats LIKE 'game_usage'")
+        if not cursor.fetchone():
+            cursor.execute("ALTER TABLE user_monthly_stats ADD COLUMN game_usage JSON")
+        
         # --- NEW: Add spotify_minutes column for Wrapped stats ---
-        cursor.execute("""
-            ALTER TABLE user_monthly_stats
-            ADD COLUMN IF NOT EXISTS spotify_minutes JSON;
-        """)
+        cursor.execute("SHOW COLUMNS FROM user_monthly_stats LIKE 'spotify_minutes'")
+        if not cursor.fetchone():
+            cursor.execute("ALTER TABLE user_monthly_stats ADD COLUMN spotify_minutes JSON")
         # --- NEW: Table for Werwolf bot names ---
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS werwolf_bot_names (
@@ -256,6 +252,56 @@ def initialize_database():
             )
         """)
         cursor.execute("DROP EVENT IF EXISTS reset_daily_api_usage;") # Remove old event
+        
+        # --- NEW: Conversation Context Table ---
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS conversation_context (
+                user_id BIGINT NOT NULL,
+                channel_id BIGINT NOT NULL,
+                last_bot_message_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_user_message TEXT,
+                last_bot_response TEXT,
+                PRIMARY KEY (user_id, channel_id),
+                INDEX(last_bot_message_at)
+            )
+        """)
+        
+        # --- NEW: AI Model Usage Tracking Table ---
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ai_model_usage (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                model_name VARCHAR(100) NOT NULL,
+                feature VARCHAR(100) NOT NULL,
+                call_count INT DEFAULT 0 NOT NULL,
+                input_tokens INT DEFAULT 0 NOT NULL,
+                output_tokens INT DEFAULT 0 NOT NULL,
+                total_cost DECIMAL(10, 6) DEFAULT 0.0 NOT NULL,
+                usage_date DATE NOT NULL,
+                UNIQUE KEY `daily_model_feature_usage` (`usage_date`, `model_name`, `feature`)
+            )
+        """)
+        
+        # --- NEW: Emoji Descriptions Table ---
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS emoji_descriptions (
+                emoji_id BIGINT PRIMARY KEY,
+                emoji_name VARCHAR(255) NOT NULL,
+                description TEXT,
+                usage_context TEXT,
+                image_url TEXT,
+                analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # --- NEW: Wrapped Registrations Table ---
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS wrapped_registrations (
+                user_id BIGINT PRIMARY KEY,
+                username VARCHAR(255) NOT NULL,
+                opted_out BOOLEAN DEFAULT FALSE NOT NULL,
+                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        """)
 
         logger.info("Database tables checked/created successfully")
     except mysql.connector.Error as err:
