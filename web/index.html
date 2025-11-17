@@ -46,6 +46,11 @@
                         </button>
                     </li>
                     <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="maintenance-tab" data-bs-toggle="tab" data-bs-target="#maintenance-pane" type="button" role="tab">
+                            <i class="bi bi-tools"></i> Maintenance
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
                         <button class="nav-link" id="wrapped-tab" data-bs-toggle="tab" data-bs-target="#wrapped-pane" type="button" role="tab">
                             <i class="bi bi-gift"></i> Wrapped
                         </button>
@@ -65,23 +70,39 @@
             <div class="card-body p-0">
                 <div class="tab-content">
                     <div class="tab-pane fade show active" id="console-pane" role="tabpanel">
-                        <div class="p-3 d-flex justify-content-between border-bottom">
-                            <div class="btn-group" role="group">
-                                <button type="button" class="btn btn-sm btn-outline-secondary active" onclick="filterLogs('all')">All</button>
-                                <button type="button" class="btn btn-sm btn-outline-info" onclick="filterLogs('info')">Info</button>
-                                <button type="button" class="btn btn-sm btn-outline-warning" onclick="filterLogs('warning')">Warnings</button>
-                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="filterLogs('error')">Errors</button>
-                            </div>
-                            <div>
-                                <button class="btn btn-sm btn-outline-secondary me-2" onclick="pauseConsole()" title="Pause console updates">
-                                    <i class="bi bi-pause-circle" id="pause-icon"></i> <span id="pause-text">Pause</span>
-                                </button>
-                                <button class="btn btn-sm btn-outline-secondary me-2" onclick="clearConsole()" title="Clear console">
-                                    <i class="bi bi-x-circle"></i> Clear
-                                </button>
-                                <button class="btn btn-sm btn-outline-secondary" id="auto-scroll-toggle" onclick="toggleAutoScroll()" title="Toggle auto-scroll">
-                                    <i class="bi bi-arrow-down-circle"></i> Auto-scroll: ON
-                                </button>
+                        <div class="p-3 border-bottom">
+                            <div class="row">
+                                <div class="col-md-12 mb-2">
+                                    <label class="text-muted small">Log Level:</label>
+                                    <div class="btn-group me-3" role="group">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary active" onclick="filterLogs('all')">All</button>
+                                        <button type="button" class="btn btn-sm btn-outline-info" onclick="filterLogs('info')">Info</button>
+                                        <button type="button" class="btn btn-sm btn-outline-warning" onclick="filterLogs('warning')">Warnings</button>
+                                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="filterLogs('error')">Errors</button>
+                                    </div>
+                                    <label class="text-muted small ms-3">Feature:</label>
+                                    <div class="btn-group" role="group">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary active" onclick="filterFeature('all')">All</button>
+                                        <button type="button" class="btn btn-sm btn-outline-info" onclick="filterFeature('chat')">Chat</button>
+                                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="filterFeature('werwolf')">Werwolf</button>
+                                        <button type="button" class="btn btn-sm btn-outline-success" onclick="filterFeature('wrapped')">Wrapped</button>
+                                        <button type="button" class="btn btn-sm btn-outline-warning" onclick="filterFeature('admin')">Admin</button>
+                                    </div>
+                                </div>
+                                <div class="col-md-12">
+                                    <div class="d-flex gap-2 justify-content-end">
+                                        <input type="text" class="form-control form-control-sm" id="log-search" placeholder="Search logs..." style="max-width: 200px;" oninput="searchLogs()">
+                                        <button class="btn btn-sm btn-outline-secondary" onclick="pauseConsole()" title="Pause console updates">
+                                            <i class="bi bi-pause-circle" id="pause-icon"></i> <span id="pause-text">Pause</span>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-secondary" onclick="clearConsole()" title="Clear console">
+                                            <i class="bi bi-x-circle"></i> Clear
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-secondary" id="auto-scroll-toggle" onclick="toggleAutoScroll()" title="Toggle auto-scroll">
+                                            <i class="bi bi-arrow-down-circle"></i> Auto-scroll: ON
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         <div id="console" class="console"></div>
@@ -114,20 +135,44 @@
                                 </div>
                             </div>
                             <div class="table-responsive">
-                                <table class="table table-dark table-striped">
+                                <table class="table table-dark table-striped table-hover">
                                     <thead>
                                         <tr>
-                                            <th>Model</th>
-                                            <th>Feature</th>
+                                            <th>Model / Feature</th>
                                             <th>Calls</th>
-                                            <th>Tokens</th>
-                                            <th>Last Used</th>
+                                            <th>Input Tokens</th>
+                                            <th>Output Tokens</th>
+                                            <th>Cost (USD)</th>
                                         </tr>
                                     </thead>
                                     <tbody id="ai-usage-table">
                                         <tr><td colspan="5" class="text-center">No data available</td></tr>
                                     </tbody>
                                 </table>
+                                <small class="text-muted">💡 Click on a model row to expand/collapse feature details</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="tab-pane fade p-4" id="maintenance-pane" role="tabpanel">
+                        <h5 class="mb-3">Maintenance Script Activity</h5>
+                        <p class="text-muted">View recent maintenance operations, git updates, backups, and restart activities</p>
+                        
+                        <div id="maintenance-loading" class="text-center">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                        
+                        <div id="maintenance-content" style="display: none;">
+                            <div class="mb-3">
+                                <button class="btn btn-sm btn-outline-primary" onclick="loadMaintenanceLogs()">
+                                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                                </button>
+                            </div>
+                            
+                            <div id="maintenance-logs-container">
+                                <!-- Maintenance logs will be loaded here -->
                             </div>
                         </div>
                     </div>
@@ -513,6 +558,8 @@
     let consolePaused = false;
     let consoleFilter = 'all';
     let pausedMessages = [];
+    let searchTerm = '';
+    let featureFilter = 'all';
     
     function pauseConsole() {
         consolePaused = !consolePaused;
@@ -523,16 +570,21 @@
         if (consolePaused) {
             icon.className = 'bi bi-play-circle';
             text.textContent = 'Resume';
-            btn.className = 'btn btn-sm btn-warning me-2';
+            btn.className = 'btn btn-sm btn-warning';
             pausedMessages = [];
         } else {
             icon.className = 'bi bi-pause-circle';
             text.textContent = 'Pause';
-            btn.className = 'btn btn-sm btn-outline-secondary me-2';
+            btn.className = 'btn btn-sm btn-outline-secondary';
             // Flush paused messages
             pausedMessages.forEach(msg => appendToConsole(msg, true));
             pausedMessages = [];
         }
+    }
+    
+    function searchLogs() {
+        searchTerm = document.getElementById('log-search').value.toLowerCase();
+        applyFilters();
     }
     
     function filterLogs(level) {
@@ -544,22 +596,49 @@
         });
         event.target.classList.add('active');
         
-        // Re-filter existing messages
+        applyFilters();
+    }
+    
+    function filterFeature(feature) {
+        featureFilter = feature;
+        
+        // Update button states
+        document.querySelectorAll('[onclick^="filterFeature"]').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        event.target.classList.add('active');
+        
+        applyFilters();
+    }
+    
+    function applyFilters() {
         const console = document.getElementById('console');
         const lines = console.querySelectorAll('.console-line');
         
         lines.forEach(line => {
-            if (level === 'all') {
-                line.style.display = '';
-            } else {
-                const text = line.textContent.toLowerCase();
-                const shouldShow = 
-                    (level === 'info' && (text.includes('[info]') || text.includes('[94m'))) ||
-                    (level === 'warning' && (text.includes('[warning]') || text.includes('[93m'))) ||
-                    (level === 'error' && (text.includes('[error]') || text.includes('[91m') || text.includes('error')));
-                
-                line.style.display = shouldShow ? '' : 'none';
+            const text = line.textContent.toLowerCase();
+            const html = line.innerHTML.toLowerCase();
+            let shouldShow = true;
+            
+            // Apply level filter
+            if (consoleFilter !== 'all') {
+                shouldShow = 
+                    (consoleFilter === 'info' && (text.includes('[info]') || text.includes('[94m'))) ||
+                    (consoleFilter === 'warning' && (text.includes('[warning]') || text.includes('[93m'))) ||
+                    (consoleFilter === 'error' && (text.includes('[error]') || text.includes('[91m') || text.includes('error')));
             }
+            
+            // Apply feature filter
+            if (shouldShow && featureFilter !== 'all') {
+                shouldShow = html.includes(`badge bg-`) && html.includes(featureFilter);
+            }
+            
+            // Apply search filter
+            if (shouldShow && searchTerm) {
+                shouldShow = text.includes(searchTerm);
+            }
+            
+            line.style.display = shouldShow ? '' : 'none';
         });
     }
     
@@ -575,16 +654,25 @@
         div.innerHTML = message;
         console.appendChild(div);
         
-        // Apply current filter
+        // Apply current filters
+        const text = message.toLowerCase();
+        let shouldShow = true;
+        
         if (consoleFilter !== 'all') {
-            const text = message.toLowerCase();
-            const shouldShow = 
+            shouldShow = 
                 (consoleFilter === 'info' && (text.includes('[info]') || text.includes('[94m'))) ||
                 (consoleFilter === 'warning' && (text.includes('[warning]') || text.includes('[93m'))) ||
                 (consoleFilter === 'error' && (text.includes('[error]') || text.includes('[91m') || text.includes('error')));
             
             if (!shouldShow) {
                 div.style.display = 'none';
+            }
+        }
+        
+        // Apply search filter
+        if (shouldShow && searchTerm && !text.includes(searchTerm)) {
+            div.style.display = 'none';
+        }
             }
         }
         
@@ -729,33 +817,46 @@
         loading.style.display = 'block';
         content.style.display = 'none';
         
-        fetch('/api/ai_usage')
+        fetch('/api/ai-usage?days=30')
             .then(response => response.json())
             .then(data => {
                 loading.style.display = 'none';
                 content.style.display = 'block';
                 
-                if (data.usage_data && data.usage_data.length > 0) {
-                    let totalCalls = 0;
-                    let totalTokens = 0;
+                if (data.status === 'success' && data.by_model) {
+                    // Update summary totals
+                    document.getElementById('total-calls').textContent = data.summary.total_calls.toLocaleString();
+                    document.getElementById('total-tokens').textContent = data.summary.total_tokens.toLocaleString();
+                    
+                    // Build table with grouped by model data
                     let tableHTML = '';
                     
-                    data.usage_data.forEach(row => {
-                        totalCalls += row.total_calls || 0;
-                        totalTokens += (row.input_tokens || 0) + (row.output_tokens || 0);
+                    // Create expandable rows by model
+                    Object.entries(data.by_model).forEach(([model, modelData]) => {
+                        const totalTokens = modelData.input_tokens + modelData.output_tokens;
+                        const modelRowId = `model-${model.replace(/[^a-zA-Z0-9]/g, '-')}`;
                         
-                        const date = row.usage_date ? new Date(row.usage_date).toLocaleDateString() : 'N/A';
-                        tableHTML += `<tr>
-                            <td>${row.model_name || 'Unknown'}</td>
-                            <td>${row.feature_name || 'chat'}</td>
-                            <td>${row.total_calls || 0}</td>
-                            <td>${(row.input_tokens || 0) + (row.output_tokens || 0)}</td>
-                            <td>${date}</td>
+                        // Model summary row (clickable to expand)
+                        tableHTML += `<tr class="table-primary fw-bold" style="cursor: pointer;" onclick="toggleModelDetails('${modelRowId}')">
+                            <td colspan="2">📊 ${model}</td>
+                            <td>${modelData.calls.toLocaleString()}</td>
+                            <td>${totalTokens.toLocaleString()}</td>
+                            <td>$${modelData.cost.toFixed(4)}</td>
                         </tr>`;
+                        
+                        // Feature breakdown rows (hidden by default)
+                        Object.entries(modelData.features).forEach(([feature, featureData]) => {
+                            const featureTokens = featureData.input_tokens + featureData.output_tokens;
+                            tableHTML += `<tr class="${modelRowId} model-details" style="display: none;">
+                                <td class="ps-4">↳ ${feature}</td>
+                                <td>${featureData.calls.toLocaleString()}</td>
+                                <td>${featureData.input_tokens.toLocaleString()}</td>
+                                <td>${featureData.output_tokens.toLocaleString()}</td>
+                                <td>$${featureData.cost.toFixed(4)}</td>
+                            </tr>`;
+                        });
                     });
                     
-                    document.getElementById('total-calls').textContent = totalCalls.toLocaleString();
-                    document.getElementById('total-tokens').textContent = totalTokens.toLocaleString();
                     document.getElementById('ai-usage-table').innerHTML = tableHTML;
                 } else {
                     document.getElementById('ai-usage-table').innerHTML = '<tr><td colspan="5" class="text-center">No data available</td></tr>';
@@ -765,7 +866,15 @@
                 loading.style.display = 'none';
                 content.style.display = 'block';
                 console.error('Error loading AI stats:', error);
+                document.getElementById('ai-usage-table').innerHTML = '<tr><td colspan="5" class="text-center text-danger">Error loading data</td></tr>';
             });
+    }
+    
+    function toggleModelDetails(modelRowId) {
+        const rows = document.querySelectorAll(`.${modelRowId}`);
+        rows.forEach(row => {
+            row.style.display = row.style.display === 'none' ? '' : 'none';
+        });
     }
 
     // Load Wrapped Statistics
@@ -878,8 +987,68 @@
             });
     }
 
+    // Load Maintenance Logs
+    function loadMaintenanceLogs() {
+        const loading = document.getElementById('maintenance-loading');
+        const content = document.getElementById('maintenance-content');
+        const container = document.getElementById('maintenance-logs-container');
+        
+        loading.style.display = 'block';
+        content.style.display = 'none';
+        
+        fetch('/api/maintenance/logs')
+            .then(response => response.json())
+            .then(data => {
+                loading.style.display = 'none';
+                content.style.display = 'block';
+                
+                if (data.status === 'success' && data.logs && data.logs.length > 0) {
+                    let html = '';
+                    data.logs.forEach(log => {
+                        html += `<div class="card mb-3">
+                            <div class="card-header bg-dark text-white">
+                                <h6 class="mb-0">
+                                    <i class="bi bi-file-text"></i> ${log.filename}
+                                    <small class="text-muted float-end">${log.timestamp}</small>
+                                </h6>
+                            </div>
+                            <div class="card-body p-2" style="max-height: 400px; overflow-y: auto;">`;
+                        
+                        if (log.activities && log.activities.length > 0) {
+                            html += '<ul class="list-unstyled mb-0 font-monospace small">';
+                            log.activities.forEach(activity => {
+                                // Color code activities
+                                let color = '';
+                                if (activity.toLowerCase().includes('error')) color = 'text-danger';
+                                else if (activity.toLowerCase().includes('restart')) color = 'text-warning';
+                                else if (activity.toLowerCase().includes('backup')) color = 'text-info';
+                                else if (activity.toLowerCase().includes('update') || activity.toLowerCase().includes('pull')) color = 'text-success';
+                                
+                                html += `<li class="${color}">${activity}</li>`;
+                            });
+                            html += '</ul>';
+                        } else {
+                            html += '<p class="text-muted mb-0">No significant activities recorded</p>';
+                        }
+                        
+                        html += `</div></div>`;
+                    });
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<div class="alert alert-info">No maintenance logs available</div>';
+                }
+            })
+            .catch(error => {
+                loading.style.display = 'none';
+                content.style.display = 'block';
+                container.innerHTML = '<div class="alert alert-danger">Error loading maintenance logs</div>';
+                console.error('Error loading maintenance logs:', error);
+            });
+    }
+
     // Tab change listeners to load data when tabs are opened
     document.getElementById('ai-tab').addEventListener('shown.bs.tab', loadAIStats);
+    document.getElementById('maintenance-tab').addEventListener('shown.bs.tab', loadMaintenanceLogs);
     document.getElementById('wrapped-tab').addEventListener('shown.bs.tab', loadWrappedStats);
     document.getElementById('leaderboard-tab').addEventListener('shown.bs.tab', loadLeaderboards);
     

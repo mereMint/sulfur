@@ -91,7 +91,26 @@ def follow_log_file():
                     if not line:
                         time.sleep(0.1)
                         continue
-                    socketio.emit('log_update', {'data': line}, namespace='/')
+                    
+                    # Add feature badges to log lines
+                    enhanced_line = line
+                    line_lower = line.lower()
+                    
+                    # Check for feature keywords and add badges
+                    if 'werwolf' in line_lower or 'werewolf' in line_lower:
+                        enhanced_line = '<span class="badge bg-danger me-1">Werwolf</span>' + line
+                    elif 'wrapped' in line_lower:
+                        enhanced_line = '<span class="badge bg-success me-1">Wrapped</span>' + line
+                    elif 'admin' in line_lower and ('command' in line_lower or 'slash' in line_lower):
+                        enhanced_line = '<span class="badge bg-warning me-1">Admin</span>' + line
+                    elif 'chat' in line_lower or 'conversation' in line_lower:
+                        enhanced_line = '<span class="badge bg-info me-1">Chat</span>' + line
+                    elif 'level' in line_lower or 'xp' in line_lower:
+                        enhanced_line = '<span class="badge bg-primary me-1">Leveling</span>' + line
+                    elif 'economy' in line_lower or 'coin' in line_lower:
+                        enhanced_line = '<span class="badge bg-secondary me-1">Economy</span>' + line
+                    
+                    socketio.emit('log_update', {'data': enhanced_line}, namespace='/')
                 except (IOError, OSError) as e:
                     print(f"[Web Dashboard] Error reading log file: {e}")
                     file = None
@@ -299,7 +318,7 @@ def api_stop_bot():
 
 @app.route('/api/ai-usage', methods=['GET'])
 def api_ai_usage():
-    """API endpoint to get AI usage statistics."""
+    """API endpoint to get AI usage statistics with detailed breakdown."""
     try:
         days = int(request.args.get('days', 30))
         
@@ -313,9 +332,54 @@ def api_ai_usage():
         stats = loop.run_until_complete(get_ai_usage_stats(days))
         loop.close()
         
+        # Group by model and feature for better display
+        by_model = {}
+        by_feature = {}
+        total_calls = 0
+        total_tokens = 0
+        
+        for stat in stats:
+            model = stat.get('model_name', 'Unknown')
+            feature = stat.get('feature', 'Unknown')
+            calls = stat.get('total_calls', 0)
+            input_tok = stat.get('total_input_tokens', 0)
+            output_tok = stat.get('total_output_tokens', 0)
+            cost = stat.get('total_cost', 0.0)
+            
+            # Aggregate by model
+            if model not in by_model:
+                by_model[model] = {'calls': 0, 'input_tokens': 0, 'output_tokens': 0, 'cost': 0.0, 'features': {}}
+            by_model[model]['calls'] += calls
+            by_model[model]['input_tokens'] += input_tok
+            by_model[model]['output_tokens'] += output_tok
+            by_model[model]['cost'] += cost
+            by_model[model]['features'][feature] = {
+                'calls': calls,
+                'input_tokens': input_tok,
+                'output_tokens': output_tok,
+                'cost': cost
+            }
+            
+            # Aggregate by feature
+            if feature not in by_feature:
+                by_feature[feature] = {'calls': 0, 'cost': 0.0, 'models': {}}
+            by_feature[feature]['calls'] += calls
+            by_feature[feature]['cost'] += cost
+            by_feature[feature]['models'][model] = calls
+            
+            total_calls += calls
+            total_tokens += input_tok + output_tok
+        
         return jsonify({
             'status': 'success',
             'data': stats,
+            'by_model': by_model,
+            'by_feature': by_feature,
+            'summary': {
+                'total_calls': total_calls,
+                'total_tokens': total_tokens,
+                'total_cost': sum(m['cost'] for m in by_model.values())
+            },
             'period_days': days
         })
     except Exception as e:
@@ -617,6 +681,82 @@ def admin_preview_wrapped():
         'success': False,
         'message': 'This feature requires direct bot access. Use the Discord slash command /admin view_wrapped instead.'
     }), 501
+
+@app.route('/api/maintenance/logs', methods=['GET'])
+def api_maintenance_logs():
+    """Get recent maintenance script activity."""
+    try:
+        # Get the most recent maintenance log files
+        log_files = []
+        if os.path.exists(LOG_DIR):
+            all_logs = [f for f in os.listdir(LOG_DIR) if f.startswith('maintenance_') and f.endswith('.log')]
+            all_logs.sort(reverse=True)
+            log_files = all_logs[:5]  # Get last 5 maintenance logs
+        
+        logs_data = []
+        for log_file in log_files:
+            log_path = os.path.join(LOG_DIR, log_file)
+            try:
+                with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                    # Extract key activities
+                    activities = []
+                    for line in content.split('\n'):
+                        if any(keyword in line.lower() for keyword in ['restart', 'update', 'backup', 'commit', 'pull', 'stopped', 'started']):
+                            activities.append(line.strip())
+                    
+                    logs_data.append({
+                        'filename': log_file,
+                        'timestamp': log_file.replace('maintenance_', '').replace('.log', ''),
+                        'activities': activities[:20]  # Limit to 20 most recent activities
+                    })
+            except Exception as e:
+                print(f"Error reading log file {log_file}: {e}")
+        
+        return jsonify({
+            'status': 'success',
+            'logs': logs_data
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/logs/recent', methods=['GET'])
+def api_recent_logs():
+    """Get recent log entries with filtering."""
+    try:
+        level = request.args.get('level', 'all')
+        limit = int(request.args.get('limit', 100))
+        
+        latest_log = get_latest_log_file()
+        if not latest_log:
+            return jsonify({'status': 'success', 'logs': []})
+        
+        logs = []
+        with open(latest_log, 'r', encoding='utf-8', errors='ignore') as f:
+            lines = f.readlines()
+            # Get last N lines
+            recent_lines = lines[-limit:] if len(lines) > limit else lines
+            
+            for line in recent_lines:
+                line_lower = line.lower()
+                # Filter by level
+                if level != 'all':
+                    if level == 'error' and 'error' not in line_lower:
+                        continue
+                    elif level == 'warning' and 'warning' not in line_lower:
+                        continue
+                    elif level == 'info' and 'info' not in line_lower:
+                        continue
+                
+                logs.append(line.strip())
+        
+        return jsonify({
+            'status': 'success',
+            'logs': logs,
+            'count': len(logs)
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
 if __name__ == '__main__':
