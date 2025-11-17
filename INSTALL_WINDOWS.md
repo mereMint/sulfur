@@ -1,5 +1,20 @@
 # 🪟 Windows Installation Guide - Sulfur Discord Bot
 
+## 📋 Table of Contents
+
+- [Quick Start](#-quick-start-recommended)
+- [What the Wizard Does](#-what-the-wizard-does)
+- [Prerequisites](#-prerequisites)
+- [Getting Bot Token & API Keys](#-getting-your-bot-token--api-keys)
+- [Using the Installation Wizard](#-using-the-installation-wizard)
+- [Manual Installation](#-manual-installation-advanced)
+- [Troubleshooting](#-troubleshooting)
+- [After Installation](#-after-installation)
+- [Additional Resources](#-additional-resources)
+- [Installation Checklist](#-installation-checklist)
+
+---
+
 ## ⚡ Quick Start (Recommended)
 
 The easiest way to install Sulfur Bot on Windows is using the **Installation Wizard**:
@@ -333,6 +348,14 @@ powershell -ExecutionPolicy Bypass -File .\install_wizard.ps1
    ```powershell
    .\install_wizard.ps1 -SkipPrerequisites
    ```
+
+### More Troubleshooting Help
+
+For comprehensive troubleshooting of wizard-specific issues, see:
+- **[Wizard Troubleshooting Guide](docs/WIZARD_TROUBLESHOOTING.md)** - Detailed solutions for all wizard issues
+- **[Installation Flow Diagram](docs/INSTALLATION_FLOW.md)** - Visual guide to the installation process
+
+For general bot troubleshooting, see the main [README.md](README.md) troubleshooting section.
 
 ---
 
