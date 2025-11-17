@@ -56,7 +56,13 @@ cd sulfur
 bash termux_quickstart.sh
 ```
 
-**Note**: After the initial clone with HTTPS, the script will set up SSH for future git operations (push/pull).
+**What happens next**: The quickstart opens an interactive SSH Setup Wizard early in the run. It will:
+- Generate an `ed25519` SSH key if missing
+- Show your public key and offer to copy it via `termux-clipboard-set`
+- Guide you to add the key at https://github.com/settings/keys
+- Verify `ssh -T git@github.com` and remember readiness for future git ops
+
+If SSH isn’t ready yet, the script continues and uses HTTPS + PAT for cloning; you can finish SSH setup during the wizard and future `git pull` will use SSH.
 
 **Alternative**: If you already have the repository:
 ```bash
@@ -70,7 +76,7 @@ This script will:
 - ✅ Setup and start MariaDB database
 - ✅ Create database and user
 - ✅ Clone the repository
-- ✅ Generate SSH key for GitHub (optional)
+- ✅ Run SSH Setup Wizard for GitHub (interactive; recommended)
 - ✅ Setup Python virtual environment
 - ✅ Install all dependencies
 - ✅ Configure .env file interactively
@@ -115,7 +121,11 @@ EOF
 #### 4. Clone Repository
 ```bash
 cd ~
-git clone https://github.com/mereMint/sulfur.git
+# Option A (SSH; requires you added your SSH key to GitHub)
+git clone git@github.com:YOUR_USERNAME/sulfur.git sulfur
+
+# Option B (HTTPS; use Personal Access Token when prompted)
+git clone https://github.com/YOUR_USERNAME/sulfur.git sulfur
 cd sulfur
 ```
 
@@ -259,7 +269,7 @@ pgrep -x mysqld || pgrep -x mariadbd
 
 ### Start MariaDB Manually
 ```bash
-mysqld_safe --datadir=$PREFIX/var/lib/mysql &
+mysqld_safe &
 ```
 
 ### Stop the Bot
@@ -312,16 +322,18 @@ mysqldump -u sulfur_bot_user sulfur_bot > backup_$(date +%Y%m%d_%H%M%S).sql
 6. **Copy the token immediately** (you won't see it again!)
 7. Paste it when git asks for "Password"
 
-**Alternative**: If you don't want to use HTTPS authentication:
+**Alternative paths**:
+- Finish SSH first, then clone via SSH:
 ```bash
-# Cancel the current clone (Ctrl+C)
-cd ~
-rm -rf sulfur
-
-# Then run the automated setup which will set up SSH first
-pkg install -y git openssh
-bash termux_quickstart.sh
-# Follow the SSH key setup prompts
+pkg install -y openssh
+ssh-keygen -t ed25519 -C "your_email@example.com" -f ~/.ssh/id_ed25519 -N ""
+cat ~/.ssh/id_ed25519.pub  # Add this at https://github.com/settings/keys
+ssh -T git@github.com      # Verify: should say you authenticated successfully
+git clone git@github.com:YOUR_USERNAME/sulfur.git sulfur
+```
+- Or use the automated setup with HTTPS+PAT; it will run the SSH wizard during setup:
+```bash
+pkg update && pkg install -y git && git clone --depth 1 https://github.com/YOUR_USERNAME/sulfur.git sulfur && cd sulfur && bash termux_quickstart.sh
 ```
 
 ### MariaDB Won't Start
@@ -389,6 +401,20 @@ cat ~/.ssh/id_ed25519.pub
 
 # Test GitHub connection
 ssh -T git@github.com
+```
+
+If you used the quickstart, you can re-run the SSH wizard anytime by executing:
+```bash
+cd ~/sulfur
+bash termux_quickstart.sh
+# The wizard will detect existing keys, display your public key, and re-test SSH
+```
+
+To switch an existing clone to SSH after adding your key:
+```bash
+cd ~/sulfur
+git remote set-url origin git@github.com:YOUR_USERNAME/sulfur.git
+git pull
 ```
 
 ## Performance Tips
