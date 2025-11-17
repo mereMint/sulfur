@@ -2565,78 +2565,110 @@ class WerwolfJoinView(discord.ui.View):
 @client.event
 async def on_message(message):
     """Fires on every message in any channel the bot can see."""
-    # --- DEBUG: Log incoming messages (remove in production) ---
+    # --- ENHANCED DEBUG: Log all incoming messages with more detail ---
     if not message.author.bot and message.content:
-        logger.debug(f"Message from {message.author.name} in {message.channel}: {message.content[:50]}")
+        logger.debug(f"[MSG] From: {message.author.name} ({message.author.id}) | Channel: {message.channel} | Content: {message.content[:50]}")
+        print(f"[MSG] Received from {message.author.name} in {message.channel}: '{message.content[:50]}...'")
     
     # --- MULTI-INSTANCE GUARD ---
     if SECONDARY_INSTANCE:
-        logger.debug("SECONDARY_INSTANCE=True, ignoring message")
+        logger.warning(f"[GUARD] SECONDARY_INSTANCE=True, ignoring message from {message.author.name}")
+        print(f"[GUARD] SECONDARY_INSTANCE is True - this is a secondary instance, not processing message")
         return  # Secondary instance does not process messages to avoid duplicate replies
 
     # --- HARD DEDUPLICATION BY MESSAGE ID ---
     if message.id in last_processed_message_ids:
-        logger.debug(f"Duplicate message ID {message.id}, ignoring")
+        logger.debug(f"[DEDUP] Duplicate message ID {message.id}, ignoring")
+        print(f"[DEDUP] Duplicate message ID detected, skipping")
         return
     last_processed_message_ids.append(message.id)
 
     # --- SOFT DEDUPLICATION BY (author, content, short time window) ---
     if not message.author.bot:
         key = (message.author.id, message.content.strip())
-        now_ts = datetime.utcnow().timestamp()
+        # FIX: Use timezone-aware datetime instead of deprecated utcnow()
+        now_ts = datetime.now(timezone.utc).timestamp()
         prev_ts = recent_user_message_cache.get(key)
         if prev_ts and (now_ts - prev_ts) < 3:  # Ignore repeats within 3 seconds
+            logger.debug(f"[DEDUP] Recent duplicate from {message.author.name}, ignoring (within 3s)")
+            print(f"[DEDUP] Duplicate message from {message.author.name} within 3 seconds, skipping")
             return
         recent_user_message_cache[key] = now_ts
     async def run_chatbot(message):
         """Handles the core logic of fetching and sending an AI response."""
         channel_name = f"DM with {message.author.name}" if isinstance(message.channel, discord.DMChannel) else f"#{message.channel.name}"
-        logger.info(f"Chatbot triggered by {message.author.name} in {channel_name}")
-        print(f"Chatbot triggered by {message.author.name} in channel {channel_name}.")
+        logger.info(f"[CHATBOT] Triggered by {message.author.name} in {channel_name}")
+        print(f"[CHATBOT] === Starting chatbot handler for {message.author.name} in {channel_name} ===")
+        
         if not isinstance(message.channel, discord.DMChannel):
             stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
             await log_stat_increment(message.author.id, stat_period, 'sulf_interactions')
         user_prompt = message.content.replace(f"<@{client.user.id}>", "").strip()
+        logger.debug(f"[CHATBOT] User prompt after cleanup: '{user_prompt}'")
+        print(f"[CHATBOT] Cleaned user prompt: '{user_prompt}'")
 
         # --- NEW: Vision/image attachment handling ---
         try:
             image_context = await handle_image_attachment(message, config, GEMINI_API_KEY, OPENAI_API_KEY)
             if image_context:
                 user_prompt = f"{image_context}\n{user_prompt}".strip()
+                logger.debug(f"[CHATBOT] Added image context to prompt")
+                print(f"[CHATBOT] Image context added")
         except Exception as _e:
-            print(f"[Vision] Skipping image analysis due to error: {_e}")
+            logger.warning(f"[CHATBOT] Vision error: {_e}")
+            print(f"[CHATBOT] [Vision] Skipping image analysis due to error: {_e}")
 
         # --- NEW: Add short-term conversation context (2-minute window) ---
         try:
             user_prompt, _ = await enhance_prompt_with_context(message.author.id, message.channel.id, user_prompt)
+            logger.debug(f"[CHATBOT] Context enhanced")
+            print(f"[CHATBOT] Conversation context enhanced")
         except Exception as _e:
-            print(f"[Context] Could not enhance prompt: {_e}")
+            logger.warning(f"[CHATBOT] Context enhancement error: {_e}")
+            print(f"[CHATBOT] [Context] Could not enhance prompt: {_e}")
+            
         if not user_prompt:
+            logger.info(f"[CHATBOT] Empty prompt after processing, sending empty ping response")
+            print(f"[CHATBOT] Empty prompt - sending empty ping response")
             await message.channel.send(config['bot']['chat']['empty_ping_response'])
             return
+            
+        logger.debug(f"[CHATBOT] Fetching chat history")
+        print(f"[CHATBOT] Fetching chat history...")
         history = await get_chat_history(message.channel.id, config['bot']['chat']['max_history_messages'])
+        logger.debug(f"[CHATBOT] History fetched: {len(history)} messages")
+        print(f"[CHATBOT] Got {len(history)} messages from history")
 
         # --- FIX: Revert to using the 'typing' context manager which works for DMs and Guilds. ---
         # The asyncio.wait_for will prevent the rate-limiting issue by timing out the AI call.
         try:
+            logger.debug(f"[CHATBOT] Starting typing indicator and AI call")
+            print(f"[CHATBOT] Calling AI API...")
             async with message.channel.typing():
                 # Wait for the AI response, but with a timeout.
                 response_text, error_message, updated_history = await asyncio.wait_for(
                     _get_ai_response(history, message, user_prompt),
                     timeout=config.get('api', {}).get('timeout', 30)
                 )
+            logger.debug(f"[CHATBOT] AI response received: error={error_message is not None}")
+            print(f"[CHATBOT] AI call completed - got {'error' if error_message else 'response'}")
         except asyncio.TimeoutError:
             timeout_val = config.get('api', {}).get('timeout', 30)
-            print(f"  -> [AI] Response for channel {message.channel.id} timed out after {timeout_val} seconds.")
+            logger.error(f"[CHATBOT] AI response timed out after {timeout_val}s")
+            print(f"[CHATBOT] [AI] Response for channel {message.channel.id} timed out after {timeout_val} seconds.")
             error_message = "Die Anfrage hat zu lange gedauert. Versuche es später erneut."
             response_text, updated_history = None, None
 
         if error_message:
+            logger.warning(f"[CHATBOT] Sending error message to user: {error_message}")
+            print(f"[CHATBOT] Sending error to user: {error_message}")
             await message.channel.send(f"{message.author.mention} {error_message}")
             return
 
         # --- REFACTORED: Save history and send response after getting it ---
         if response_text:
+            logger.info(f"[CHATBOT] Got response, saving to history and sending")
+            print(f"[CHATBOT] Response received - saving and sending...")
             if len(updated_history) >= 2:
                 # --- FIX: Use updated_history to get the correct user message ---
                 user_message_content = updated_history[-2]['parts'][0]['text']
@@ -2647,11 +2679,13 @@ async def on_message(message):
             try:
                 await save_ai_conversation(message.author.id, message.channel.id, message.content, response_text)
             except Exception as _e:
-                print(f"[Conversation] Save failed: {_e}")
+                logger.warning(f"[CHATBOT] Conversation save failed: {_e}")
+                print(f"[CHATBOT] [Conversation] Save failed: {_e}")
 
             update_interval = config['bot']['chat']['relationship_update_interval'] * 2
             if len(updated_history) > 0 and len(updated_history) % update_interval == 0:
-                print(f"Updating relationship summary for {message.author.name}.")
+                logger.debug(f"[CHATBOT] Updating relationship summary for {message.author.name}")
+                print(f"[CHATBOT] Updating relationship summary for {message.author.name}.")
                 provider_to_use_summary = await get_current_provider(config)
                 if provider_to_use_summary == 'gemini':
                     await db_helpers.increment_gemini_usage()
@@ -2661,9 +2695,16 @@ async def on_message(message):
                 if new_summary:
                     await update_relationship_summary(message.author.id, new_summary)
 
+            logger.debug(f"[CHATBOT] Processing emoji tags in response")
+            print(f"[CHATBOT] Processing emoji tags...")
             final_response = await replace_emoji_tags(response_text, client)
+            logger.info(f"[CHATBOT] Sending response to {message.author.name}")
+            print(f"[CHATBOT] Sending response chunks to channel...")
             for chunk in await split_message(final_response):
-                if chunk: await message.channel.send(chunk)
+                if chunk: 
+                    await message.channel.send(chunk)
+                    logger.debug(f"[CHATBOT] Sent chunk of {len(chunk)} chars")
+            print(f"[CHATBOT] === Response sent successfully to {message.author.name} ===")
 
             # --- NEW: Track AI usage (model + feature) ---
             try:
@@ -2674,45 +2715,70 @@ async def on_message(message):
                     model_name = config.get('api', {}).get('openai', {}).get('chat_model', 'openai')
                 await track_api_call(model_name, feature="chat", input_tokens=0, output_tokens=0)
             except Exception as _e:
-                print(f"[AI Usage] Tracking failed: {_e}")
+                logger.warning(f"[CHATBOT] AI usage tracking failed: {_e}")
+                print(f"[CHATBOT] [AI Usage] Tracking failed: {_e}")
 
     async def _get_ai_response(history, message, user_prompt):
         """Helper function to encapsulate the API call logic."""
+        logger.debug(f"[AI] Fetching relationship summary for {message.author.name}")
+        print(f"[AI] Getting relationship summary...")
         relationship_summary = await get_relationship_summary(message.author.id)
         dynamic_system_prompt = config['bot']['system_prompt']
         if relationship_summary:
+            logger.debug(f"[AI] Adding relationship context to system prompt")
+            print(f"[AI] Relationship summary found, adding to prompt")
             dynamic_system_prompt += f"\n\nZusätzlicher Kontext über deine Beziehung zu '{message.author.display_name}': {relationship_summary}"
         
         # --- NEW: Add detailed logging for AI calls ---
         provider_to_use = await get_current_provider(config)
-        print(f"  -> [AI] Calling provider '{provider_to_use}' for user '{message.author.display_name}'...")
+        logger.info(f"[AI] Using provider '{provider_to_use}' for user '{message.author.display_name}'")
+        print(f"[AI] Calling provider '{provider_to_use}' for user '{message.author.display_name}'...")
         temp_config = config.copy()
         temp_config['api']['provider'] = provider_to_use
         
+        logger.debug(f"[AI] Making API call to {provider_to_use}")
+        print(f"[AI] Making API request...")
         response_text, error_message, updated_history = await get_chat_response(
             history, user_prompt, message.author.display_name, dynamic_system_prompt, temp_config, GEMINI_API_KEY, OPENAI_API_KEY
         )
-        print(f"  -> [AI] Received response from '{provider_to_use}'. Error: {error_message is not None}")
+        logger.info(f"[AI] Response from '{provider_to_use}': {'ERROR' if error_message else 'SUCCESS'}")
+        print(f"[AI] Received response from '{provider_to_use}'. Error: {error_message is not None}")
+        if error_message:
+            logger.error(f"[AI] Error message: {error_message}")
+            print(f"[AI] Error details: {error_message}")
         return response_text, error_message, updated_history
 
     # 1. Ignore messages from the bot itself. This is the most important guard to prevent loops.
     if message.author == client.user:
+        logger.debug(f"[FILTER] Ignoring message from bot itself")
+        print(f"[FILTER] Message from bot itself, skipping")
         return
 
     # 2. Handle Direct Messages.
     if isinstance(message.channel, discord.DMChannel):
+        logger.info(f"[DM] Received DM from {message.author.name}: {message.content[:50]}")
+        print(f"[DM] Processing DM from {message.author.name}")
+        
         # --- FIX: Ignore DMs from the bot itself (e.g., level-up notifications) ---
         if message.author == client.user:
+            logger.debug(f"[FILTER] Ignoring DM from bot itself")
             return
         
         # If it's not a game command, treat it as a chatbot message.
+        logger.info(f"[DM] Triggering chatbot for DM from {message.author.name}")
+        print(f"[DM] Running chatbot handler for DM")
         await run_chatbot(message)
         return
 
     # 3. Handle messages in Guild Text Channels.
     if isinstance(message.channel, discord.TextChannel):
+        logger.debug(f"[GUILD] Processing guild message from {message.author.name}")
+        print(f"[GUILD] Guild message from {message.author.name} in #{message.channel.name}")
+        
         # Ignore any messages in active Werwolf game channels to prevent interference.
         if message.channel.id in active_werwolf_games:
+            logger.debug(f"[FILTER] Ignoring message in Werwolf game channel")
+            print(f"[FILTER] Message in Werwolf game channel, skipping")
             return
 
         # Determine if the message is a trigger for the chatbot.
@@ -2721,14 +2787,23 @@ async def on_message(message):
         is_name_used = any(name in message.content.lower().split() for name in config['bot']['names'])
         is_chatbot_trigger = is_pinged or is_name_used
         
-        logger.debug(f"Chatbot trigger check: is_pinged={is_pinged}, is_name_used={is_name_used}, trigger={is_chatbot_trigger}")
+        # Enhanced logging for trigger detection
+        logger.debug(f"[TRIGGER] is_pinged={is_pinged}, is_name_used={is_name_used}, trigger={is_chatbot_trigger}")
+        logger.debug(f"[TRIGGER] Bot names in config: {config['bot']['names']}")
+        logger.debug(f"[TRIGGER] Message words: {message.content.lower().split()}")
+        print(f"[TRIGGER] Chatbot trigger check: pinged={is_pinged}, name_used={is_name_used}, final={is_chatbot_trigger}")
 
         # --- CRITICAL FIX: Prioritize the chatbot trigger. ---
         # If the message is a chatbot trigger, run the chatbot logic and IMMEDIATELY stop.
         # This prevents the leveling system from also running and sending a DM that would re-trigger the bot.
         if is_chatbot_trigger:
+            logger.info(f"[TRIGGER] Chatbot triggered by {message.author.name}")
+            print(f"[TRIGGER] Chatbot TRIGGERED - running chatbot handler")
             await run_chatbot(message)
             return
+        else:
+            logger.debug(f"[TRIGGER] Chatbot NOT triggered - message will be processed for XP only")
+            print(f"[TRIGGER] Chatbot NOT triggered - continuing to XP processing")
 
         # If it was NOT a chatbot trigger, then we can safely run the leveling system and other stats logging.
         if not message.content.startswith('/'):
