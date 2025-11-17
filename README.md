@@ -279,7 +279,7 @@ Press **Q** to gracefully shutdown.
 
 > **🚀 NEW: One-Command Setup!** Skip manual steps with our automated installer:
 > ```bash
-> pkg update && pkg install -y git && git clone https://github.com/mereMint/sulfur.git ~/sulfur && cd ~/sulfur && bash termux_quickstart.sh
+> pkg update && pkg install -y git && git clone https://github.com/mereMint/sulfur.git sulfur && cd sulfur && bash termux_quickstart.sh
 > ```
 > **📖 For detailed Termux guide, see [TERMUX_GUIDE.md](TERMUX_GUIDE.md)**
 
@@ -589,10 +589,10 @@ sudo systemctl status sulfur-bot
 Our automated Termux setup script handles **everything** in one command:
 
 ```bash
-pkg update && pkg install -y git && git clone https://github.com/mereMint/sulfur.git ~/sulfur && cd ~/sulfur && bash termux_quickstart.sh
+pkg update && pkg install -y git && git clone https://github.com/mereMint/sulfur.git sulfur && cd sulfur && bash termux_quickstart.sh
 ```
 
-**Note**: The initial clone above uses HTTPS (no authentication needed). The script will then set up SSH for future git operations.
+**Note**: The initial clone uses HTTPS (no authentication needed for public repos). The script will then set up SSH for future git operations.
 
 **What it does:**
 - ✅ Updates Termux packages

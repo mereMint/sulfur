@@ -7,8 +7,8 @@
 # IMPORTANT: Don't try to download this file directly!
 # Instead, clone the repository first:
 #   pkg update && pkg install -y git
-#   git clone https://github.com/mereMint/sulfur.git ~/sulfur
-#   cd ~/sulfur && bash termux_quickstart.sh
+#   git clone https://github.com/mereMint/sulfur.git sulfur
+#   cd sulfur && bash termux_quickstart.sh
 #
 # Usage: bash termux_quickstart.sh
 
@@ -305,13 +305,19 @@ echo ""
 print_step "Step 6: Setting up bot repository..."
 echo ""
 
-REPO_DIR="$HOME/sulfur"
+# Check if we're already in the sulfur directory
+if [ -f "bot.py" ] && [ -f "web_dashboard.py" ]; then
+    REPO_DIR="$(pwd)"
+    print_success "Already in repository directory: $REPO_DIR"
+    print_info "Skipping clone step"
+else
+    REPO_DIR="$HOME/sulfur"
 
-# Get GitHub username if not set
-if [ -z "$GITHUB_USER" ]; then
-    read -p "Enter your GitHub username (or press Enter for 'mereMint'): " GITHUB_USER
-    GITHUB_USER="${GITHUB_USER:-mereMint}"
-fi
+    # Get GitHub username if not set
+    if [ -z "$GITHUB_USER" ]; then
+        read -p "Enter your GitHub username (or press Enter for 'mereMint'): " GITHUB_USER
+        GITHUB_USER="${GITHUB_USER:-mereMint}"
+    fi
 
 if [ -d "$REPO_DIR/.git" ]; then
     print_warning "Repository already exists at $REPO_DIR"
