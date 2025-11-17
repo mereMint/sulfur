@@ -164,43 +164,63 @@ def test_api_connectivity():
     
     issues = []
     
-    # Test Gemini
+    # Test Gemini (via HTTP, no SDK required)
     gemini_key = os.getenv("GEMINI_API_KEY")
     if gemini_key:
         print("Testing Gemini API...")
         try:
-            import google.generativeai as genai
-            genai.configure(api_key=gemini_key)
-            model = genai.GenerativeModel('gemini-2.5-flash')
-            response = model.generate_content("Say 'API test successful' in exactly those words.")
+            import aiohttp
+            import asyncio
+            async def test_gemini():
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
+                payload = {"contents": [{"parts": [{"text": "Say 'API test successful' in exactly those words."}]}]}
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(url, json=payload, timeout=10) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            return data['candidates'][0]['content']['parts'][0]['text']
+                        else:
+                            raise Exception(f"HTTP {resp.status}: {await resp.text()}")
+            response_text = asyncio.run(test_gemini())
             print(f"✓ Gemini API working")
-            print(f"  Response: {response.text[:100]}")
+            print(f"  Response: {response_text[:100]}")
         except ImportError:
-            print("✗ google-generativeai package not installed")
-            issues.append("Missing google-generativeai package")
+            print("✗ aiohttp package not installed")
+            issues.append("Missing aiohttp package")
         except Exception as e:
             print(f"✗ Gemini API failed: {e}")
             issues.append(f"Gemini API error: {e}")
     else:
         print("  Gemini API key not set - skipping")
     
-    # Test OpenAI
+    # Test OpenAI (via HTTP, no SDK required)
     openai_key = os.getenv("OPENAI_API_KEY")
     if openai_key:
         print("\nTesting OpenAI API...")
         try:
-            from openai import OpenAI
-            client = OpenAI(api_key=openai_key)
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": "Say 'API test successful' in exactly those words."}],
-                max_tokens=50
-            )
+            import aiohttp
+            import asyncio
+            async def test_openai():
+                url = "https://api.openai.com/v1/chat/completions"
+                headers = {"Authorization": f"Bearer {openai_key}", "Content-Type": "application/json"}
+                payload = {
+                    "model": "gpt-4o-mini",
+                    "messages": [{"role": "user", "content": "Say 'API test successful' in exactly those words."}],
+                    "max_tokens": 50
+                }
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(url, json=payload, headers=headers, timeout=10) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            return data['choices'][0]['message']['content']
+                        else:
+                            raise Exception(f"HTTP {resp.status}: {await resp.text()}")
+            response_text = asyncio.run(test_openai())
             print(f"✓ OpenAI API working")
-            print(f"  Response: {response.choices[0].message.content[:100]}")
+            print(f"  Response: {response_text[:100]}")
         except ImportError:
-            print("✗ openai package not installed")
-            issues.append("Missing openai package")
+            print("✗ aiohttp package not installed")
+            issues.append("Missing aiohttp package")
         except Exception as e:
             print(f"✗ OpenAI API failed: {e}")
             issues.append(f"OpenAI API error: {e}")
