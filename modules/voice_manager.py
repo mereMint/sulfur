@@ -15,12 +15,12 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
     join_to_create_channel_name = config['modules']['voice_manager']['join_to_create_channel_name']
     # --- Handle channel creation ---
     if after.channel and after.channel.name == join_to_create_channel_name:
-        # --- REFACTORED: Prevent creating multiple channels by checking the database ---
-        
         # --- NEW: Check lock to prevent race conditions ---
         if member.id in creating_channel_for:
+            logger.debug(f"Ignoring duplicate join event for {member.display_name} - creation already in progress")
             return # Creation is already in progress for this user, ignore this event.
 
+        # --- REFACTORED: Prevent creating multiple channels by checking the database ---
         owned_channel_id = await get_owned_channel(member.id, member.guild.id)
         if owned_channel_id:
             try:
@@ -114,25 +114,28 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
         # Check if the channel that was left is a managed one
         channel_config = await get_managed_channel_config(before.channel.id)
         if channel_config:
-            # --- FIX: Fetch the channel again to get an accurate member count. ---
+            # --- FIX: Get the current channel object from the guild, not fetch (faster) ---
             # The 'before.channel' object is a snapshot. We need the *current* state of the channel
             # to ensure our checks and actions are based on the most up-to-date information.
-            try:
-                # --- REFACTORED: Use this fresh channel object for all subsequent operations ---
-                fresh_channel = await member.guild.fetch_channel(before.channel.id)
-            except discord.NotFound:
-                # The channel was already deleted, nothing to do.
+            fresh_channel = member.guild.get_channel(before.channel.id)
+            
+            # If channel was already deleted, clean up DB
+            if not fresh_channel:
+                logger.debug(f"Channel {before.channel.id} already deleted, cleaning up DB")
                 await remove_managed_channel(before.channel.id, keep_owner_record=True)
                 return
 
-            if not fresh_channel.members: # Check if the channel is NOW empty
+            # Check if the channel is NOW empty
+            if len(fresh_channel.members) == 0:
                 # Save the current name and limit for the owner by passing their ID
                 await update_managed_channel_config((channel_config['owner_id'], member.guild.id), by_owner=True, name=fresh_channel.name, limit=fresh_channel.user_limit)
                 
-                # Check if the channel is empty and old enough to delete
+                # Check if the channel is old enough to delete
                 creation_grace_period = config['modules']['voice_manager']['empty_channel_delete_grace_period_seconds']
-                is_old_enough_to_delete = (discord.utils.utcnow() - fresh_channel.created_at).total_seconds() > creation_grace_period
-                if not is_old_enough_to_delete:
+                channel_age_seconds = (discord.utils.utcnow() - fresh_channel.created_at).total_seconds()
+                
+                if channel_age_seconds <= creation_grace_period:
+                    logger.debug(f"Channel {fresh_channel.name} is empty but only {channel_age_seconds:.1f}s old (grace period: {creation_grace_period}s)")
                     return # Don't delete a channel that was just created
                 
                 try:

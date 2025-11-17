@@ -2404,9 +2404,11 @@ async def on_message(message):
 
     # 2. Handle Direct Messages.
     if isinstance(message.channel, discord.DMChannel):
-
-        # --- FIX: If it's not a game command, treat it as a chatbot message. ---
-        # The original code had a bug where this was missed.
+        # --- FIX: Ignore DMs from the bot itself (e.g., level-up notifications) ---
+        if message.author == client.user:
+            return
+        
+        # If it's not a game command, treat it as a chatbot message.
         await run_chatbot(message)
         return
 
