@@ -54,6 +54,28 @@ fi
 print_header
 
 # ============================================================
+# STEP 0: Setup Termux Storage (Important!)
+# ============================================================
+print_step "Step 0: Setting up Termux storage access..."
+echo ""
+
+if [ ! -d "$HOME/storage" ]; then
+    print_info "Requesting storage permissions..."
+    print_warning "Please ALLOW storage access when prompted!"
+    termux-setup-storage
+    sleep 2
+    if [ -d "$HOME/storage" ]; then
+        print_success "Storage access granted!"
+    else
+        print_warning "Storage access not granted - you can run 'termux-setup-storage' later"
+    fi
+else
+    print_success "Storage access already configured"
+fi
+
+echo ""
+
+# ============================================================
 # STEP 1: Update Termux Packages
 # ============================================================
 print_step "Step 1: Updating Termux packages..."
@@ -84,13 +106,14 @@ REQUIRED_PACKAGES=(
     "curl"
 )
 
+print_info "Installing all required packages (this may take a few minutes)..."
+pkg install -y python git mariadb openssh nano wget curl
+
 for package in "${REQUIRED_PACKAGES[@]}"; do
-    if pkg list-installed 2>/dev/null | grep -q "^${package}/"; then
-        print_success "$package is already installed"
+    if command -v "$package" &> /dev/null || pkg list-installed 2>/dev/null | grep -q "^${package}"; then
+        print_success "$package is installed"
     else
-        print_info "Installing $package..."
-        pkg install -y "$package"
-        print_success "$package installed!"
+        print_warning "$package may not be installed correctly"
     fi
 done
 
@@ -117,9 +140,17 @@ if pgrep -x mysqld > /dev/null || pgrep -x mariadbd > /dev/null; then
     print_success "MariaDB is already running"
 else
     # Start in background
-    mysqld_safe --datadir=$PREFIX/var/lib/mysql &
-    sleep 5
-    print_success "MariaDB started!"
+    print_info "This may take 10-15 seconds..."
+    mysqld_safe --datadir=$PREFIX/var/lib/mysql > /dev/null 2>&1 &
+    
+    # Wait up to 15 seconds for MariaDB to start
+    for i in {1..15}; do
+        if pgrep -x mysqld > /dev/null || pgrep -x mariadbd > /dev/null; then
+            print_success "MariaDB started after $i seconds!"
+            break
+        fi
+        sleep 1
+    done
 fi
 
 # Verify MariaDB is running
@@ -127,7 +158,8 @@ if pgrep -x mysqld > /dev/null || pgrep -x mariadbd > /dev/null; then
     print_success "MariaDB is running (PID: $(pgrep -x mysqld || pgrep -x mariadbd))"
 else
     print_error "Failed to start MariaDB!"
-    print_info "Try running: mysqld_safe --datadir=\$PREFIX/var/lib/mysql &"
+    print_info "Try running manually: mysqld_safe --datadir=\$PREFIX/var/lib/mysql &"
+    print_info "Then wait 10 seconds and run this script again."
     exit 1
 fi
 
@@ -145,19 +177,43 @@ if command -v mariadb &> /dev/null; then
     MYSQL_CMD="mariadb"
 fi
 
+# Wait a bit more to ensure MariaDB is fully ready
+sleep 2
+
 print_info "Creating database 'sulfur_bot'..."
-$MYSQL_CMD -u root <<EOF
+if $MYSQL_CMD -u root <<EOF 2>/dev/null
 CREATE DATABASE IF NOT EXISTS sulfur_bot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 EOF
-print_success "Database created!"
+then
+    print_success "Database created!"
+else
+    print_warning "Database may already exist or there was an issue"
+fi
 
 print_info "Creating user 'sulfur_bot_user'..."
-$MYSQL_CMD -u root <<EOF
+if $MYSQL_CMD -u root <<EOF 2>/dev/null
 CREATE USER IF NOT EXISTS 'sulfur_bot_user'@'localhost';
 GRANT ALL PRIVILEGES ON sulfur_bot.* TO 'sulfur_bot_user'@'localhost';
 FLUSH PRIVILEGES;
 EOF
-print_success "User created with full permissions!"
+then
+    print_success "User created with full permissions!"
+else
+    print_warning "User may already exist or there was an issue"
+    print_info "Attempting to grant permissions anyway..."
+    $MYSQL_CMD -u root <<EOF 2>/dev/null
+GRANT ALL PRIVILEGES ON sulfur_bot.* TO 'sulfur_bot_user'@'localhost';
+FLUSH PRIVILEGES;
+EOF
+fi
+
+# Verify database connection
+if $MYSQL_CMD -u sulfur_bot_user -e "USE sulfur_bot; SELECT 1;" >/dev/null 2>&1; then
+    print_success "Database connection verified!"
+else
+    print_error "Cannot connect to database as sulfur_bot_user"
+    print_info "The bot may still work, but check database configuration"
+fi
 
 echo ""
 
@@ -177,14 +233,42 @@ if [ -d "$REPO_DIR/.git" ]; then
         print_info "Pulling latest changes..."
         git pull
         print_success "Repository updated!"
+    else
+        print_info "Keeping existing repository"
+        cd "$REPO_DIR"
+    fi
+elif [ -d "$REPO_DIR" ]; then
+    print_warning "Directory $REPO_DIR exists but is not a git repository"
+    read -p "Remove it and clone fresh? (y/n): " REMOVE_DIR
+    if [[ "$REMOVE_DIR" =~ ^[Yy]$ ]]; then
+        rm -rf "$REPO_DIR"
+        print_info "Cloning repository..."
+        read -p "Enter your GitHub username (or press Enter for 'mereMint'): " GITHUB_USER
+        GITHUB_USER="${GITHUB_USER:-mereMint}"
+        
+        if git clone "https://github.com/$GITHUB_USER/sulfur.git" "$REPO_DIR"; then
+            print_success "Repository cloned to $REPO_DIR"
+        else
+            print_error "Failed to clone repository!"
+            print_info "Check your internet connection and GitHub username"
+            exit 1
+        fi
+    else
+        print_info "Using existing directory"
+        cd "$REPO_DIR"
     fi
 else
     print_info "Cloning repository..."
     read -p "Enter your GitHub username (or press Enter for 'mereMint'): " GITHUB_USER
     GITHUB_USER="${GITHUB_USER:-mereMint}"
     
-    git clone "https://github.com/$GITHUB_USER/sulfur.git" "$REPO_DIR"
-    print_success "Repository cloned to $REPO_DIR"
+    if git clone "https://github.com/$GITHUB_USER/sulfur.git" "$REPO_DIR"; then
+        print_success "Repository cloned to $REPO_DIR"
+    else
+        print_error "Failed to clone repository!"
+        print_info "Check your internet connection and GitHub username"
+        exit 1
+    fi
 fi
 
 cd "$REPO_DIR"
@@ -266,12 +350,20 @@ print_step "Step 8: Installing Python dependencies..."
 echo ""
 
 print_info "Upgrading pip..."
-pip install --upgrade pip
+pip install --upgrade pip --quiet
 
-print_info "Installing required packages..."
-pip install -r requirements.txt
+print_info "Installing required packages (this may take several minutes)..."
+print_warning "Don't worry if you see warnings about 'legacy setup.py install' - this is normal"
+echo ""
 
-print_success "All Python dependencies installed!"
+if pip install -r requirements.txt; then
+    print_success "All Python dependencies installed!"
+else
+    print_error "Some packages failed to install"
+    print_info "Trying again with --no-cache-dir flag..."
+    pip install -r requirements.txt --no-cache-dir
+fi
+
 echo ""
 
 # ============================================================
@@ -304,14 +396,14 @@ if [ -z "$ENV_EXISTS" ]; then
     echo -e "${YELLOW}Enter your OpenAI API Key (or press Enter to skip):${NC}"
     read -p "> " OPENAI_KEY
     
-    # Create .env file
+    # Create .env file (without quotes around values to avoid escaping issues)
     cat > .env <<EOF
 # Discord Bot Token
-DISCORD_BOT_TOKEN="$DISCORD_TOKEN"
+DISCORD_BOT_TOKEN=${DISCORD_TOKEN}
 
 # AI API Keys
-GEMINI_API_KEY="$GEMINI_KEY"
-OPENAI_API_KEY="$OPENAI_KEY"
+GEMINI_API_KEY=${GEMINI_KEY}
+OPENAI_API_KEY=${OPENAI_KEY}
 
 # Database Configuration
 DB_HOST=localhost
@@ -337,11 +429,20 @@ echo ""
 
 if [ -f "setup_database.sql" ]; then
     print_info "Running database setup script..."
-    $MYSQL_CMD -u sulfur_bot_user sulfur_bot < setup_database.sql
-    print_success "Database tables created!"
+    if $MYSQL_CMD -u sulfur_bot_user sulfur_bot < setup_database.sql 2>/dev/null; then
+        print_success "Database tables created!"
+    else
+        print_warning "Database setup had some issues, but tables may already exist"
+        print_info "The bot will create any missing tables on first run"
+    fi
 else
     print_warning "setup_database.sql not found"
-    print_info "Database tables will be created on first bot run"
+    print_info "Running Python setup script instead..."
+    if [ -f "setup_database.py" ]; then
+        python setup_database.py 2>/dev/null || print_info "Tables will be created on first bot run"
+    else
+        print_info "Database tables will be created on first bot run"
+    fi
 fi
 
 echo ""
@@ -355,12 +456,23 @@ echo ""
 if [ -f "verify_termux_setup.sh" ]; then
     print_info "Running Termux-specific verification..."
     chmod +x verify_termux_setup.sh
-    bash verify_termux_setup.sh
+    if bash verify_termux_setup.sh; then
+        print_success "Verification passed!"
+    else
+        print_warning "Some verification checks failed - review above"
+        print_info "You can still try to run the bot"
+    fi
 elif [ -f "test_setup.py" ]; then
     print_info "Running Python setup verification..."
-    python test_setup.py
+    if python test_setup.py; then
+        print_success "Verification passed!"
+    else
+        print_warning "Some verification checks failed - review above"
+        print_info "You can still try to run the bot"
+    fi
 else
     print_warning "No verification script found, skipping tests"
+    print_info "You can run 'python test_setup.py' later to verify"
 fi
 
 echo ""
@@ -429,15 +541,24 @@ print_info "Database: sulfur_bot (user: sulfur_bot_user, no password)"
 
 echo ""
 print_warning "IMPORTANT REMINDERS:"
-echo -e "  • MariaDB must be running before starting the bot"
-echo -e "  • Keep Termux running for the bot to work"
-echo -e "  • Use Termux:Boot app to auto-start on device boot"
-echo -e "  • Use Wake Lock in Termux to prevent sleep"
+echo -e "  ${YELLOW}1. Keep Termux Running:${NC}"
+echo -e "     • Long-press Termux notification → 'Acquire Wake Lock'"
+echo -e "     • Settings → Apps → Termux → Battery → Unrestricted"
+echo -e ""
+echo -e "  ${YELLOW}2. MariaDB Management:${NC}"
+echo -e "     • MariaDB must be running before starting the bot"
+echo -e "     • Start manually: ${GREEN}mysqld_safe --datadir=\$PREFIX/var/lib/mysql &${NC}"
+echo -e "     • Check if running: ${GREEN}pgrep mysqld${NC}"
+echo -e ""
+echo -e "  ${YELLOW}3. Auto-Start on Boot:${NC}"
+echo -e "     • Install Termux:Boot from F-Droid"
+echo -e "     • See TERMUX_GUIDE.md for setup instructions"
 
 echo ""
 echo -e "${CYAN}Need help?${NC}"
-echo -e "  • Check README.md for detailed documentation"
-echo -e "  • See QUICKSTART.md for quick reference"
+echo -e "  • Check ${GREEN}README.md${NC} for detailed documentation"
+echo -e "  • See ${GREEN}TERMUX_GUIDE.md${NC} for Termux-specific guide"
+echo -e "  • Run ${GREEN}bash verify_termux_setup.sh${NC} to verify setup"
 echo -e "  • Visit the web dashboard for live monitoring"
 
 echo ""
