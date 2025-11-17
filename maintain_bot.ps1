@@ -2,7 +2,7 @@
 # Sulfur Bot - Maintenance Script (Refactored Minimal)
 # ==============================================================================
 param([switch]$SkipDatabaseBackup)
-$ErrorActionPreference='Stop'
+$ErrorActionPreference='Continue'
 $statusFile=Join-Path $PSScriptRoot 'config\bot_status.json'
 $logDir=Join-Path $PSScriptRoot 'logs'
 if(-not(Test-Path $logDir)){New-Item -ItemType Directory -Path $logDir|Out-Null}
@@ -161,7 +161,10 @@ function Start-Bot {
     if(Test-Path 'venv\Scripts\python.exe'){
         $pythonExe='venv\Scripts\python.exe'
     }
-    $proc=Start-Process -FilePath $pythonExe -ArgumentList @('-u','bot.py') -RedirectStandardOutput $botLogFile -RedirectStandardError $botLogFile -PassThru -NoNewWindow
+    # Use Start-Process without output redirection to avoid process detachment issues
+    # The bot will write to its own log files via the logger_utils module
+    $proc=Start-Process -FilePath $pythonExe -ArgumentList @('-u','bot.py') -PassThru -WindowStyle Hidden
+    Start-Sleep -Seconds 2 # Give the process time to start
     Update-BotStatus 'Running' $proc.Id
     Write-ColorLog "Bot started (PID: $($proc.Id))" 'Green' '[BOT] '
     return $proc
@@ -233,22 +236,26 @@ while($true){
         Start-Sleep 1
         $check++
         
-        if([Console]::KeyAvailable){
-            $key=[Console]::ReadKey($true)
-            if($key.Key -eq 'Q'){
-                Write-ColorLog 'Shutdown requested' 'Yellow'
-                Stop-Process -Id $script:botProcess.Id -Force
-                Start-Sleep 2
-                Invoke-DatabaseBackup
-                Invoke-GitCommit 'chore: Auto-commit on shutdown'
-                Update-BotStatus 'Shutdown'
-                if($script:webDashboardJob){
-                    Stop-Job $script:webDashboardJob -ErrorAction SilentlyContinue
-                    Remove-Job $script:webDashboardJob -Force -ErrorAction SilentlyContinue
+        try {
+            if([Console]::KeyAvailable){
+                $key=[Console]::ReadKey($true)
+                if($key.Key -eq 'Q'){
+                    Write-ColorLog 'Shutdown requested' 'Yellow'
+                    Stop-Process -Id $script:botProcess.Id -Force
+                    Start-Sleep 2
+                    Invoke-DatabaseBackup
+                    Invoke-GitCommit 'chore: Auto-commit on shutdown'
+                    Update-BotStatus 'Shutdown'
+                    if($script:webDashboardJob){
+                        Stop-Job $script:webDashboardJob -ErrorAction SilentlyContinue
+                        Remove-Job $script:webDashboardJob -Force -ErrorAction SilentlyContinue
+                    }
+                    Stop-Transcript
+                    exit 0
                 }
-                Stop-Transcript
-                exit 0
             }
+        } catch {
+            # Ignore console access errors when running in background
         }
         
         if(Test-Path 'stop.flag'){
