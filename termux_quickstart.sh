@@ -163,6 +163,44 @@ print_info() {
     echo -e "${CYAN}[i]${NC} $1"
 }
 
+# ---------- MariaDB helpers ----------
+_db_client() {
+    if command -v mariadb >/dev/null 2>&1; then
+        echo mariadb
+    else
+        echo mysql
+    fi
+}
+
+_db_is_running() {
+    # Prefer pgrep if available
+    if command -v pgrep >/dev/null 2>&1; then
+        pgrep -x mysqld >/dev/null 2>&1 || pgrep -x mariadbd >/dev/null 2>&1
+        return $?
+    fi
+    # Fallback to ps/grep (avoid matching the grep process)
+    ps aux 2>/dev/null | grep -E "[m]ysqld|[m]ariadbd" >/dev/null 2>&1
+}
+
+_db_is_ready() {
+    local client
+    client=$(_db_client)
+    # Try a simple ping via SQL
+    ${client} -u root -e "SELECT 1" >/dev/null 2>&1
+}
+
+_db_start_if_needed() {
+    if _db_is_ready; then
+        return 0
+    fi
+    if _db_is_running; then
+        # Running but not ready yet; continue to wait in caller
+        return 1
+    fi
+    mysqld_safe >/dev/null 2>&1 &
+    return 2
+}
+
 # Check if running in Termux
 if [ -z "$TERMUX_VERSION" ]; then
     print_error "This script is designed for Termux only!"
@@ -265,32 +303,42 @@ else
     print_success "MariaDB already initialized"
 fi
 
-# Start MariaDB
-print_info "Starting MariaDB server..."
-if pgrep -x mysqld > /dev/null || pgrep -x mariadbd > /dev/null; then
-    print_success "MariaDB is already running"
-else
-    # Start in background
-    print_info "This may take 10-15 seconds..."
-    mysqld_safe > /dev/null 2>&1 &
-    
-    # Wait up to 15 seconds for MariaDB to start
-    for i in {1..15}; do
-        if pgrep -x mysqld > /dev/null || pgrep -x mariadbd > /dev/null; then
-            print_success "MariaDB started after $i seconds!"
-            break
-        fi
-        sleep 1
-    done
-fi
+print_info "Ensuring MariaDB server is running..."
 
-# Verify MariaDB is running
-if pgrep -x mysqld > /dev/null || pgrep -x mariadbd > /dev/null; then
-    print_success "MariaDB is running (PID: $(pgrep -x mysqld || pgrep -x mariadbd))"
-else
-    print_error "Failed to start MariaDB!"
-    print_info "Try running manually: mysqld_safe &"
-    print_info "Then wait 10 seconds and run this script again."
+start_status=1
+_db_start_if_needed
+start_rc=$?
+case $start_rc in
+  0)
+    print_success "MariaDB is running and ready"
+    ;;
+  1)
+    print_info "MariaDB process detected; waiting for readiness..."
+    ;;
+  2)
+    print_info "Started MariaDB; waiting for readiness..."
+    ;;
+esac
+
+# Wait up to 30 seconds for readiness
+ready=0
+for i in $(seq 1 30); do
+    if _db_is_ready; then
+        ready=1
+        print_success "MariaDB is ready (after ${i}s)"
+        break
+    fi
+    sleep 1
+done
+
+if [ $ready -ne 1 ]; then
+    if _db_is_running; then
+        print_warning "MariaDB process is running but not ready yet."
+    else
+        print_error "Failed to start MariaDB process."
+    fi
+    print_info "You can start it manually: mysqld_safe &"
+    print_info "Then wait ~10-20 seconds and re-run this script."
     exit 1
 fi
 
@@ -303,10 +351,7 @@ print_step "Step 4: Creating database and user..."
 echo ""
 
 # Use mysql client (or mariadb client)
-MYSQL_CMD="mysql"
-if command -v mariadb &> /dev/null; then
-    MYSQL_CMD="mariadb"
-fi
+MYSQL_CMD=$(_db_client)
 
 # Wait a bit more to ensure MariaDB is fully ready
 sleep 2
