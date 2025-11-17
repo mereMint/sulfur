@@ -25,6 +25,8 @@ cd ~/sulfur
 bash termux_quickstart.sh
 ```
 
+**Note**: The initial clone uses HTTPS (public access). The script will set up SSH authentication for future git operations.
+
 **Alternative**: If you already have the repository, just run:
 ```bash
 cd ~/sulfur

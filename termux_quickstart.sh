@@ -230,12 +230,88 @@ fi
 echo ""
 
 # ============================================================
-# STEP 5: Clone/Update Repository
+# STEP 5: Setup SSH Key for GitHub
 # ============================================================
-print_step "Step 5: Setting up bot repository..."
+print_step "Step 5: Setting up SSH key for GitHub..."
+echo ""
+
+SSH_KEY_PATH="$HOME/.ssh/id_ed25519"
+GITHUB_USER=""
+
+if [ -f "$SSH_KEY_PATH" ]; then
+    print_success "SSH key already exists at $SSH_KEY_PATH"
+    
+    # Test if SSH works
+    print_info "Testing SSH connection to GitHub..."
+    if ssh -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
+        print_success "SSH connection to GitHub works!"
+    else
+        print_warning "SSH key exists but connection failed"
+        print_info "You may need to add the key to GitHub"
+        echo ""
+        print_info "Your public key:"
+        cat "${SSH_KEY_PATH}.pub"
+        echo ""
+        print_warning "Add this to: https://github.com/settings/keys"
+        read -p "Press Enter after adding the key to GitHub..."
+    fi
+else
+    print_warning "No SSH key found - GitHub requires SSH for authentication"
+    print_info "Generating SSH key..."
+    
+    read -p "Enter your GitHub email: " GITHUB_EMAIL
+    
+    mkdir -p "$HOME/.ssh"
+    ssh-keygen -t ed25519 -C "$GITHUB_EMAIL" -f "$SSH_KEY_PATH" -N ""
+    
+    print_success "SSH key generated!"
+    echo ""
+    print_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    print_info "YOUR PUBLIC KEY (copy this):"
+    echo ""
+    cat "${SSH_KEY_PATH}.pub"
+    echo ""
+    print_info "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    print_warning "REQUIRED: Add this key to GitHub NOW:"
+    print_info "1. Open: ${GREEN}https://github.com/settings/keys${NC}"
+    print_info "2. Click '${GREEN}New SSH key${NC}'"
+    print_info "3. Title: '${GREEN}Termux - $(date +%Y-%m-%d)${NC}'"
+    print_info "4. Paste the key shown above"
+    print_info "5. Click '${GREEN}Add SSH key${NC}'"
+    echo ""
+    read -p "Press Enter AFTER you've added the key to GitHub..."
+    
+    # Test SSH connection
+    print_info "Testing SSH connection to GitHub..."
+    if ssh -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
+        print_success "SSH connection successful!"
+    else
+        print_error "SSH connection failed!"
+        print_warning "Please make sure you added the key to GitHub"
+        print_info "You can try again by running: ssh -T git@github.com"
+        read -p "Continue anyway? (y/n): " CONTINUE
+        if [[ ! "$CONTINUE" =~ ^[Yy]$ ]]; then
+            exit 1
+        fi
+    fi
+fi
+
+echo ""
+
+# ============================================================
+# STEP 6: Clone/Update Repository
+# ============================================================
+print_step "Step 6: Setting up bot repository..."
 echo ""
 
 REPO_DIR="$HOME/sulfur"
+
+# Get GitHub username if not set
+if [ -z "$GITHUB_USER" ]; then
+    read -p "Enter your GitHub username (or press Enter for 'mereMint'): " GITHUB_USER
+    GITHUB_USER="${GITHUB_USER:-mereMint}"
+fi
 
 if [ -d "$REPO_DIR/.git" ]; then
     print_warning "Repository already exists at $REPO_DIR"
@@ -254,15 +330,14 @@ elif [ -d "$REPO_DIR" ]; then
     read -p "Remove it and clone fresh? (y/n): " REMOVE_DIR
     if [[ "$REMOVE_DIR" =~ ^[Yy]$ ]]; then
         rm -rf "$REPO_DIR"
-        print_info "Cloning repository..."
-        read -p "Enter your GitHub username (or press Enter for 'mereMint'): " GITHUB_USER
-        GITHUB_USER="${GITHUB_USER:-mereMint}"
+        print_info "Cloning repository via SSH..."
         
-        if git clone "https://github.com/$GITHUB_USER/sulfur.git" "$REPO_DIR"; then
+        if git clone "git@github.com:$GITHUB_USER/sulfur.git" "$REPO_DIR"; then
             print_success "Repository cloned to $REPO_DIR"
         else
             print_error "Failed to clone repository!"
-            print_info "Check your internet connection and GitHub username"
+            print_info "Make sure your SSH key is added to GitHub"
+            print_info "Test with: ssh -T git@github.com"
             exit 1
         fi
     else
@@ -270,70 +345,19 @@ elif [ -d "$REPO_DIR" ]; then
         cd "$REPO_DIR"
     fi
 else
-    print_info "Cloning repository..."
-    read -p "Enter your GitHub username (or press Enter for 'mereMint'): " GITHUB_USER
-    GITHUB_USER="${GITHUB_USER:-mereMint}"
+    print_info "Cloning repository via SSH..."
     
-    if git clone "https://github.com/$GITHUB_USER/sulfur.git" "$REPO_DIR"; then
+    if git clone "git@github.com:$GITHUB_USER/sulfur.git" "$REPO_DIR"; then
         print_success "Repository cloned to $REPO_DIR"
     else
         print_error "Failed to clone repository!"
-        print_info "Check your internet connection and GitHub username"
+        print_info "Make sure your SSH key is added to GitHub"
+        print_info "Test with: ssh -T git@github.com"
         exit 1
     fi
 fi
 
 cd "$REPO_DIR"
-echo ""
-
-# ============================================================
-# STEP 6: Setup SSH Key for Git (Optional)
-# ============================================================
-print_step "Step 6: Setting up SSH key for GitHub..."
-echo ""
-
-SSH_KEY_PATH="$HOME/.ssh/id_ed25519"
-
-if [ -f "$SSH_KEY_PATH" ]; then
-    print_success "SSH key already exists at $SSH_KEY_PATH"
-else
-    read -p "Do you want to generate an SSH key for GitHub? (y/n): " GEN_SSH
-    if [[ "$GEN_SSH" =~ ^[Yy]$ ]]; then
-        print_info "Generating SSH key..."
-        read -p "Enter your GitHub email: " GITHUB_EMAIL
-        
-        ssh-keygen -t ed25519 -C "$GITHUB_EMAIL" -f "$SSH_KEY_PATH" -N ""
-        
-        print_success "SSH key generated!"
-        print_info "Your public key:"
-        echo ""
-        cat "${SSH_KEY_PATH}.pub"
-        echo ""
-        print_warning "IMPORTANT: Add this key to GitHub:"
-        print_info "1. Go to https://github.com/settings/keys"
-        print_info "2. Click 'New SSH key'"
-        print_info "3. Paste the key shown above"
-        print_info "4. Give it a name like 'Termux - $(date +%Y-%m-%d)'"
-        echo ""
-        read -p "Press Enter when you've added the key to GitHub..."
-        
-        # Test SSH connection
-        print_info "Testing SSH connection to GitHub..."
-        if ssh -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
-            print_success "SSH connection successful!"
-            
-            # Update remote to use SSH
-            print_info "Updating git remote to use SSH..."
-            git remote set-url origin "git@github.com:$GITHUB_USER/sulfur.git"
-            print_success "Git remote updated to use SSH!"
-        else
-            print_warning "SSH test failed, but you can configure it later"
-        fi
-    else
-        print_info "Skipping SSH key generation"
-    fi
-fi
-
 echo ""
 
 # ============================================================
