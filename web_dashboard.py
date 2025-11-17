@@ -91,7 +91,26 @@ def follow_log_file():
                     if not line:
                         time.sleep(0.1)
                         continue
-                    socketio.emit('log_update', {'data': line}, namespace='/')
+                    
+                    # Add feature badges to log lines
+                    enhanced_line = line
+                    line_lower = line.lower()
+                    
+                    # Check for feature keywords and add badges
+                    if 'werwolf' in line_lower or 'werewolf' in line_lower:
+                        enhanced_line = '<span class="badge bg-danger me-1">Werwolf</span>' + line
+                    elif 'wrapped' in line_lower:
+                        enhanced_line = '<span class="badge bg-success me-1">Wrapped</span>' + line
+                    elif 'admin' in line_lower and ('command' in line_lower or 'slash' in line_lower):
+                        enhanced_line = '<span class="badge bg-warning me-1">Admin</span>' + line
+                    elif 'chat' in line_lower or 'conversation' in line_lower:
+                        enhanced_line = '<span class="badge bg-info me-1">Chat</span>' + line
+                    elif 'level' in line_lower or 'xp' in line_lower:
+                        enhanced_line = '<span class="badge bg-primary me-1">Leveling</span>' + line
+                    elif 'economy' in line_lower or 'coin' in line_lower:
+                        enhanced_line = '<span class="badge bg-secondary me-1">Economy</span>' + line
+                    
+                    socketio.emit('log_update', {'data': enhanced_line}, namespace='/')
                 except (IOError, OSError) as e:
                     print(f"[Web Dashboard] Error reading log file: {e}")
                     file = None
