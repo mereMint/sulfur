@@ -14,6 +14,7 @@ OPENAI_API_BASE_URL = "https://api.openai.com/v1/chat/completions"
 async def _call_gemini_api(payload, model_name, api_key, timeout):
     """
     A centralized function to handle all calls to the Gemini API.
+    Returns: (response_text, error, usage_metadata)
     """
     api_url = f"{GEMINI_API_BASE_URL}/{model_name}:generateContent?key={api_key}"
     
@@ -35,9 +36,15 @@ async def _call_gemini_api(payload, model_name, api_key, timeout):
                     # Robust checking for valid API response content
                     if data.get('candidates') and data['candidates'][0].get('content') and data['candidates'][0]['content'].get('parts'):
                         response_text = data['candidates'][0]['content']['parts'][0]['text']
-                        logger.info(f"[Gemini API] Success - got {len(response_text)} chars")
-                        print(f"[Gemini API] Success - received {len(response_text)} character response")
-                        return response_text, None
+                        
+                        # Extract token usage from response
+                        usage_metadata = data.get('usageMetadata', {})
+                        input_tokens = usage_metadata.get('promptTokenCount', 0)
+                        output_tokens = usage_metadata.get('candidatesTokenCount', 0)
+                        
+                        logger.info(f"[Gemini API] Success - got {len(response_text)} chars, tokens: {input_tokens} in / {output_tokens} out")
+                        print(f"[Gemini API] Success - received {len(response_text)} character response, tokens: {input_tokens}/{output_tokens}")
+                        return response_text, None, (input_tokens, output_tokens)
                     else:
                         # This happens if the response was blocked for safety or other reasons.
                         error_reason = data.get('promptFeedback', {}).get('blockReason', 'UNKNOWN')
@@ -47,26 +54,26 @@ async def _call_gemini_api(payload, model_name, api_key, timeout):
                         logger.debug(f"[Gemini API] Full API response: {data}")
                         print(f"[Gemini API] Error: No content in response. Finish Reason: {error_reason}")
                         print(f"[Gemini API] Full API response: {data}")
-                        return None, f"Meine Antwort wurde blockiert (Grund: {error_reason}). Versuchs mal anders zu formulieren."
+                        return None, f"Meine Antwort wurde blockiert (Grund: {error_reason}). Versuchs mal anders zu formulieren.", (0, 0)
                 else:
                     # --- NEW: Add specific diagnostic for 404 errors ---
                     if response.status == 404:
                         error_text = await response.text()
                         logger.error(f"[Gemini API] 404 Error: {error_text}")
                         print(f"[Gemini API] Error (Status 404): {error_text}")
-                        return None, f"Modell '{model_name}' nicht gefunden (404). **Überprüfe, ob die 'Generative Language API' in deinem Google Cloud Projekt aktiviert ist und dein API-Schlüssel die Berechtigung dafür hat.**"
+                        return None, f"Modell '{model_name}' nicht gefunden (404). **Überprüfe, ob die 'Generative Language API' in deinem Google Cloud Projekt aktiviert ist und dein API-Schlüssel die Berechtigung dafür hat.**", (0, 0)
                     error_text = await response.text()
                     logger.error(f"[Gemini API] HTTP {response.status}: {error_text}")
                     print(f"[Gemini API] Error (Status {response.status}): {error_text}")
-                    return None, f"Ich habe einen Fehler vom Server erhalten (Status: {response.status}). Wahrscheinlich ist die API down oder dein Key ist ungültig."
+                    return None, f"Ich habe einen Fehler vom Server erhalten (Status: {response.status}). Wahrscheinlich ist die API down oder dein Key ist ungültig.", (0, 0)
     except aiohttp.ClientError as e:
         logger.error(f"[Gemini API] Network error: {e}", exc_info=True)
         print(f"[Gemini API] Network error: {e}")
-        return None, f"Netzwerkfehler beim Erreichen der Gemini API: {str(e)}"
+        return None, f"Netzwerkfehler beim Erreichen der Gemini API: {str(e)}", (0, 0)
     except Exception as e:
         logger.error(f"[Gemini API] Exception: {e}", exc_info=True)
         print(f"[Gemini API] An exception occurred while calling Gemini API: {e}")
-        return None, "Ich konnte die AI nicht erreichen. Überprüfe die Internetverbindung oder die API-Keys."
+        return None, "Ich konnte die AI nicht erreichen. Überprüfe die Internetverbindung oder die API-Keys.", (0, 0)
 
 async def get_chat_response(history, user_prompt, user_display_name, system_prompt, config, gemini_key, openai_key):
     """
@@ -135,7 +142,15 @@ async def get_chat_response(history, user_prompt, user_display_name, system_prom
         
         logger.debug(f"[Chat API] Calling Gemini API with payload size: {len(str(payload))} chars")
         print(f"[Chat API] Sending request to Gemini API...")
-        response_text, error = await _call_gemini_api(payload, model, gemini_key, timeout)
+        response_text, error, usage_data = await _call_gemini_api(payload, model, gemini_key, timeout)
+        
+        # Log API usage to database
+        input_tokens, output_tokens = usage_data
+        if input_tokens > 0 or output_tokens > 0:
+            from modules.db_helpers import log_api_usage
+            await log_api_usage(model, input_tokens, output_tokens)
+            logger.debug(f"[Chat API] Logged API usage: {input_tokens} input / {output_tokens} output tokens")
+        
         if response_text:
             # --- FIX: Return the updated history instead of modifying it in-place ---
             final_history_for_api.append({"role": "model", "parts": [{"text": response_text}]})
@@ -177,6 +192,18 @@ async def get_chat_response(history, user_prompt, user_display_name, system_prom
                     if response.status == 200:
                         data = await response.json()
                         response_text = data['choices'][0]['message']['content']
+                        
+                        # Extract token usage from response
+                        usage_data = data.get('usage', {})
+                        input_tokens = usage_data.get('prompt_tokens', 0)
+                        output_tokens = usage_data.get('completion_tokens', 0)
+                        
+                        # Log API usage to database
+                        if input_tokens > 0 or output_tokens > 0:
+                            from modules.db_helpers import log_api_usage
+                            await log_api_usage(model, input_tokens, output_tokens)
+                            logger.debug(f"[Chat API] Logged API usage: {input_tokens} input / {output_tokens} output tokens")
+                        
                         # --- FIX: Return the updated history ---
                         final_history_for_api.append({"role": "model", "parts": [{"text": response_text}]})
                         return response_text, None, final_history_for_api
@@ -223,7 +250,14 @@ async def get_relationship_summary_from_api(history, user_display_name, old_summ
             "generationConfig": generation_config,
             "safetySettings": safety_settings
         }
-        summary, error = await _call_gemini_api(payload, model, gemini_key, timeout)
+        summary, error, usage_data = await _call_gemini_api(payload, model, gemini_key, timeout)
+        
+        # Log API usage
+        input_tokens, output_tokens = usage_data
+        if input_tokens > 0 or output_tokens > 0:
+            from modules.db_helpers import log_api_usage
+            await log_api_usage(model, input_tokens, output_tokens)
+        
         return summary.strip() if summary else None, error
 
     elif provider == 'openai':
@@ -244,7 +278,17 @@ async def get_relationship_summary_from_api(history, user_display_name, old_summ
                 async with session.post(OPENAI_API_BASE_URL, json=payload, headers=headers, timeout=timeout) as response:
                     if response.status == 200:
                         data = await response.json()
-                        return data['choices'][0]['message']['content'].strip(), None
+                        response_text = data['choices'][0]['message']['content'].strip()
+                        
+                        # Log API usage
+                        usage_data = data.get('usage', {})
+                        input_tokens = usage_data.get('prompt_tokens', 0)
+                        output_tokens = usage_data.get('completion_tokens', 0)
+                        if input_tokens > 0 or output_tokens > 0:
+                            from modules.db_helpers import log_api_usage
+                            await log_api_usage(model, input_tokens, output_tokens)
+                        
+                        return response_text, None
                     else:
                         error_text = await response.text()
                         print(f"OpenAI API Error (get_relationship_summary): {error_text}")
@@ -283,7 +327,13 @@ async def get_werwolf_tts_message(event_text, config, gemini_key, openai_key):
             "generationConfig": generation_config,
             "safetySettings": safety_settings
         }
-        tts_text, _ = await _call_gemini_api(payload, model, gemini_key, timeout)
+        tts_text, _, usage_data = await _call_gemini_api(payload, model, gemini_key, timeout)
+        
+        # Log API usage
+        input_tokens, output_tokens = usage_data
+        if input_tokens > 0 or output_tokens > 0:
+            from modules.db_helpers import log_api_usage
+            await log_api_usage(model, input_tokens, output_tokens)
         return tts_text.strip().replace("*", "") if tts_text else event_text
 
     elif provider == 'openai':
@@ -299,7 +349,17 @@ async def get_werwolf_tts_message(event_text, config, gemini_key, openai_key):
                 async with session.post(OPENAI_API_BASE_URL, json=payload, headers=headers, timeout=timeout) as response:
                     if response.status == 200:
                         data = await response.json()
-                        return data['choices'][0]['message']['content'].strip().replace("*", "")
+                        response_text = data['choices'][0]['message']['content'].strip().replace("*", "")
+                        
+                        # Log API usage
+                        usage_data = data.get('usage', {})
+                        input_tokens = usage_data.get('prompt_tokens', 0)
+                        output_tokens = usage_data.get('completion_tokens', 0)
+                        if input_tokens > 0 or output_tokens > 0:
+                            from modules.db_helpers import log_api_usage
+                            await log_api_usage(model, input_tokens, output_tokens)
+                        
+                        return response_text
                     else:
                         print(f"OpenAI API Error (get_werwolf_tts_message): {await response.text()}")
                         return event_text # Fallback
@@ -334,7 +394,13 @@ async def get_random_names(count, db_helpers, config, gemini_key, openai_key):
                 "generationConfig": generation_config,
                 "safetySettings": safety_settings
             }
-            new_names_text, error = await _call_gemini_api(payload, model, gemini_key, timeout)
+            new_names_text, error, usage_data = await _call_gemini_api(payload, model, gemini_key, timeout)
+            
+            # Log API usage
+            input_tokens, output_tokens = usage_data
+            if input_tokens > 0 or output_tokens > 0:
+                from modules.db_helpers import log_api_usage
+                await log_api_usage(model, input_tokens, output_tokens)
             if new_names_text:
                 new_names = [name.strip() for name in new_names_text.split(',')]
                 await db_helpers.add_bot_names_to_pool(new_names)
@@ -355,6 +421,14 @@ async def get_random_names(count, db_helpers, config, gemini_key, openai_key):
                         if response.status == 200:
                             data = await response.json()
                             new_names_text = data['choices'][0]['message']['content']
+                            
+                            # Log API usage
+                            usage_data = data.get('usage', {})
+                            input_tokens = usage_data.get('prompt_tokens', 0)
+                            output_tokens = usage_data.get('completion_tokens', 0)
+                            if input_tokens > 0 or output_tokens > 0:
+                                from modules.db_helpers import log_api_usage
+                                await log_api_usage(model, input_tokens, output_tokens)
                             new_names = [name.strip() for name in new_names_text.split(',')]
                             await db_helpers.add_bot_names_to_pool(new_names)
                             names.extend(await db_helpers.get_and_remove_bot_names(needed))
@@ -398,7 +472,13 @@ async def get_wrapped_summary_from_api(user_display_name, stats, config, gemini_
             "generationConfig": generation_config,
             "safetySettings": safety_settings
         }
-        summary, error = await _call_gemini_api(payload, model, gemini_key, timeout)
+        summary, error, usage_data = await _call_gemini_api(payload, model, gemini_key, timeout)
+        
+        # Log API usage
+        input_tokens, output_tokens = usage_data
+        if input_tokens > 0 or output_tokens > 0:
+            from modules.db_helpers import log_api_usage
+            await log_api_usage(model, input_tokens, output_tokens)
         return summary.strip() if summary else "You survived another month, I guess.", error
 
     elif provider == 'openai':
@@ -414,7 +494,17 @@ async def get_wrapped_summary_from_api(user_display_name, stats, config, gemini_
                 async with session.post(OPENAI_API_BASE_URL, json=payload, headers=headers, timeout=timeout) as response:
                     if response.status == 200:
                         data = await response.json()
-                        return data['choices'][0]['message']['content'].strip(), None
+                        response_text = data['choices'][0]['message']['content'].strip()
+                        
+                        # Log API usage
+                        usage_data = data.get('usage', {})
+                        input_tokens = usage_data.get('prompt_tokens', 0)
+                        output_tokens = usage_data.get('completion_tokens', 0)
+                        if input_tokens > 0 or output_tokens > 0:
+                            from modules.db_helpers import log_api_usage
+                            await log_api_usage(model, input_tokens, output_tokens)
+                        
+                        return response_text, None
                     else:
                         print(f"OpenAI API Error (get_wrapped_summary): {await response.text()}")
                         return "You did... stuff. Congrats?", f"API Error {response.status}"
@@ -457,7 +547,13 @@ async def get_game_details_from_api(game_names: list, config: dict, gemini_key: 
                 "generationConfig": generation_config,
                 "safetySettings": safety_settings
             }
-            response_text, error = await _call_gemini_api(payload, model, gemini_key, timeout)
+            response_text, error, usage_data = await _call_gemini_api(payload, model, gemini_key, timeout)
+            
+            # Log API usage
+            input_tokens, output_tokens = usage_data
+            if input_tokens > 0 or output_tokens > 0:
+                from modules.db_helpers import log_api_usage
+                await log_api_usage(model, input_tokens, output_tokens)
             if error:
                 error_message = error
             if response_text:
@@ -478,6 +574,15 @@ async def get_game_details_from_api(game_names: list, config: dict, gemini_key: 
                         if response.status == 200:
                             data = await response.json()
                             response_content = data['choices'][0]['message']['content']
+                            
+                            # Log API usage
+                            usage_data = data.get('usage', {})
+                            input_tokens = usage_data.get('prompt_tokens', 0)
+                            output_tokens = usage_data.get('completion_tokens', 0)
+                            if input_tokens > 0 or output_tokens > 0:
+                                from modules.db_helpers import log_api_usage
+                                await log_api_usage(model, input_tokens, output_tokens)
+                            
                             try:
                                 results[game_name] = json.loads(response_content)
                             except json.JSONDecodeError:
@@ -523,7 +628,14 @@ async def get_vision_analysis(image_url, prompt, config, gemini_key, openai_key)
             }
         }
         
-        response_text, error = await _call_gemini_api(payload, vision_model, gemini_key, timeout)
+        response_text, error, usage_data = await _call_gemini_api(payload, vision_model, gemini_key, timeout)
+        
+        # Log API usage
+        input_tokens, output_tokens = usage_data
+        if input_tokens > 0 or output_tokens > 0:
+            from modules.db_helpers import log_api_usage
+            await log_api_usage(vision_model, input_tokens, output_tokens)
+        
         return response_text, error
         
     elif provider == 'openai':
@@ -553,7 +665,17 @@ async def get_vision_analysis(image_url, prompt, config, gemini_key, openai_key)
                 async with session.post(OPENAI_API_BASE_URL, json=payload, headers=headers, timeout=timeout) as response:
                     if response.status == 200:
                         data = await response.json()
-                        return data['choices'][0]['message']['content'], None
+                        response_text = data['choices'][0]['message']['content']
+                        
+                        # Log API usage
+                        usage_data = data.get('usage', {})
+                        input_tokens = usage_data.get('prompt_tokens', 0)
+                        output_tokens = usage_data.get('completion_tokens', 0)
+                        if input_tokens > 0 or output_tokens > 0:
+                            from modules.db_helpers import log_api_usage
+                            await log_api_usage(vision_model, input_tokens, output_tokens)
+                        
+                        return response_text, None
                     else:
                         error_text = await response.text()
                         print(f"OpenAI Vision API Error: {error_text}")
@@ -592,7 +714,14 @@ async def get_ai_response_with_model(prompt, model_name, config, gemini_key, ope
                 "parts": [{"text": system_prompt}]
             })
         
-        response_text, error = await _call_gemini_api(payload, model_name, gemini_key, timeout)
+        response_text, error, usage_data = await _call_gemini_api(payload, model_name, gemini_key, timeout)
+        
+        # Log API usage
+        input_tokens, output_tokens = usage_data
+        if input_tokens > 0 or output_tokens > 0:
+            from modules.db_helpers import log_api_usage
+            await log_api_usage(model_name, input_tokens, output_tokens)
+        
         return response_text, error
         
     elif model_name.startswith('gpt'):
@@ -615,7 +744,17 @@ async def get_ai_response_with_model(prompt, model_name, config, gemini_key, ope
                 async with session.post(OPENAI_API_BASE_URL, json=payload, headers=headers, timeout=timeout) as response:
                     if response.status == 200:
                         data = await response.json()
-                        return data['choices'][0]['message']['content'], None
+                        response_text = data['choices'][0]['message']['content']
+                        
+                        # Log API usage
+                        usage_data = data.get('usage', {})
+                        input_tokens = usage_data.get('prompt_tokens', 0)
+                        output_tokens = usage_data.get('completion_tokens', 0)
+                        if input_tokens > 0 or output_tokens > 0:
+                            from modules.db_helpers import log_api_usage
+                            await log_api_usage(model_name, input_tokens, output_tokens)
+                        
+                        return response_text, None
                     else:
                         error_text = await response.text()
                         print(f"OpenAI API Error ({model_name}): {error_text}")
