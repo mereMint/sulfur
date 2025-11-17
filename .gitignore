@@ -3,6 +3,9 @@ __pycache__/
 *.pyc
 
 # Environment
+.env
+venv/
+*.env
 
 # Logs and Backups
 logs/

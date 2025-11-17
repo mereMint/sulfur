@@ -60,10 +60,11 @@ mysql_install_db
 mysqld_safe --datadir=$PREFIX/var/lib/mysql &
 
 # Wait a few seconds
-sleep 5
+sleep 10
 
 # Create database and user
-mysql -u root <<EOF
+# Note: Use 'mariadb' command on Termux, not 'mysql'
+mariadb -u root <<EOF
 CREATE DATABASE IF NOT EXISTS sulfur_bot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS 'sulfur_bot_user'@'localhost';
 GRANT ALL PRIVILEGES ON sulfur_bot.* TO 'sulfur_bot_user'@'localhost';
@@ -100,7 +101,7 @@ nano .env
 
 #### 7. Initialize Database
 ```bash
-mysql -u sulfur_bot_user sulfur_bot < setup_database.sql
+mariadb -u sulfur_bot_user sulfur_bot < setup_database.sql
 ```
 
 #### 8. Test Setup
@@ -287,10 +288,10 @@ pip install -r requirements.txt --force-reinstall
 
 ```bash
 # Check MariaDB status
-pgrep mysqld || echo "MariaDB not running"
+pgrep mariadbd || echo "MariaDB not running"
 
 # Test connection
-mysql -u sulfur_bot_user sulfur_bot -e "SELECT 1;"
+mariadb -u sulfur_bot_user sulfur_bot -e "SELECT 1;"
 
 # Check .env file
 cat .env | grep DB_

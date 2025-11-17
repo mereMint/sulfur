@@ -52,7 +52,7 @@ $requiredFiles = @(
     "requirements.txt",
     "modules/db_helpers.py",
     "modules/api_helpers.py",
-    "web/web_dashboard.py"
+    "web_dashboard.py"
 )
 
 $missingFiles = @()
