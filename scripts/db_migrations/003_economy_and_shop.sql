@@ -170,11 +170,11 @@ CREATE TABLE IF NOT EXISTS monthly_milestones (
 -- Indexes for performance
 -- ============================================================================
 
--- Add index to user_stats for balance queries if not exists
-CREATE INDEX IF NOT EXISTS idx_user_stats_balance ON user_stats(stat_period, balance DESC);
+-- Add index to user_stats for balance queries
+CREATE INDEX idx_user_stats_balance ON user_stats(stat_period, balance DESC);
 
 -- Add index for quest queries
-CREATE INDEX IF NOT EXISTS idx_daily_quests_completion ON daily_quests(user_id, quest_date, completed);
+CREATE INDEX idx_daily_quests_completion ON daily_quests(user_id, quest_date, completed);
 
 -- ============================================================================
 -- Migration complete
