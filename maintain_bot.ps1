@@ -79,11 +79,18 @@ function Invoke-Cleanup {
 # Register cleanup handler for Ctrl+C and script termination
 trap {
     Write-Host 'Script terminated. Running cleanup...' -ForegroundColor Red
+    if ($_) {
+        try {
+            Write-Host ("Error: {0}" -f ($_.Exception.Message)) -ForegroundColor Red
+            if ($_.Exception) { Write-Host ($_.Exception.ToString()) -ForegroundColor DarkRed }
+            if ($_.ScriptStackTrace) { Write-Host '--- StackTrace ---' -ForegroundColor DarkYellow; Write-Host $_.ScriptStackTrace }
+        } catch {}
+    }
     Invoke-Cleanup
     Update-BotStatus 'Shutdown'
     Write-Host 'Cleanup complete.' -ForegroundColor Green
     Stop-Transcript
-    exit 0
+    exit 1
 }
 
 # Also register an exit handler
@@ -342,9 +349,7 @@ function Invoke-Update {
 }
 
 # ==================== MAIN LOOP ====================
-Write-Host '╔════════════════════════════════════════════════════════════╗' -ForegroundColor Cyan
-Write-Host '║    Sulfur Discord Bot - Maintenance System v2.1 (Fixed)   ║' -ForegroundColor Cyan
-Write-Host '╚════════════════════════════════════════════════════════════╝' -ForegroundColor Cyan
+Write-Host '=== Sulfur Discord Bot - Maintenance System v2.1 [Fixed] ===' -ForegroundColor Cyan
 Write-Host ''
 Write-ColorLog "Press 'Q' to shutdown" 'Yellow'
 Write-Host ''
@@ -395,9 +400,9 @@ while($true){
             }
         } catch {}
         
-        if(Test-Path 'stop.flag'){
+        if(Test-Path (Join-Path $PSScriptRoot 'stop.flag')){
             Write-ColorLog 'Stop flag detected' 'Yellow'
-            Remove-Item 'stop.flag' -ErrorAction SilentlyContinue
+            Remove-Item (Join-Path $PSScriptRoot 'stop.flag') -ErrorAction SilentlyContinue
             Invoke-Cleanup
             Invoke-DatabaseBackup
             Invoke-GitCommit 'chore: Auto-commit on stop'
@@ -406,9 +411,9 @@ while($true){
             exit 0
         }
         
-        if(Test-Path 'restart.flag'){
+        if(Test-Path (Join-Path $PSScriptRoot 'restart.flag')){
             Write-ColorLog 'Restart flag detected' 'Yellow'
-            Remove-Item 'restart.flag' -ErrorAction SilentlyContinue
+            Remove-Item (Join-Path $PSScriptRoot 'restart.flag') -ErrorAction SilentlyContinue
             
             # Close file handles first
             if($script:botOutputFile) {

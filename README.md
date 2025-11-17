@@ -33,7 +33,8 @@ A feature-rich Discord bot with AI capabilities, mini-games, and comprehensive m
 
 ### 📊 Management & Analytics
 - **Web Dashboard**: Real-time bot monitoring at http://localhost:5000
-- **AI Usage Tracking**: Monitor token usage and costs across all models
+- **AI Usage Tracking**: Monitor token usage and costs across all models with grouped totals by model and feature
+- **Transaction Logging**: Full audit trail for all economy operations (shop purchases, daily rewards, etc.)
 - **Wrapped Statistics**: Discord Wrapped-style yearly summaries
 - **Auto-backup**: Database backups every 30 minutes
 
@@ -693,8 +694,9 @@ The web dashboard provides real-time monitoring and control.
 - 📊 **Live Statistics**: Server count, uptime, command usage
 - 📝 **Real-time Logs**: Color-coded console output
 - 🎮 **Bot Controls**: Start, stop, restart buttons
-- 🤖 **AI Dashboard**: Token usage tracking across all models (7-day, 30-day, all-time)
-- 💰 **Cost Monitoring**: Estimated API costs
+- 🤖 **AI Dashboard**: Token usage tracking with grouping by model and feature (7-day, 30-day, all-time)
+- 💰 **Cost Monitoring**: Estimated API costs by model with totals
+- 🛒 **Shop Commands**: `/shop view`, `/shop buy`, `/shop buy_color`, `/transactions`
 
 ### Dashboard Pages:
 - `/` - Main dashboard with live log stream
@@ -765,16 +767,34 @@ mariadb-dump -u sulfur_bot_user -p sulfur_bot > backups/manual_backup.sql
 
 Create these files in the root directory to control the bot:
 
-- `restart.flag` - Gracefully restart bot
-- `stop.flag` - Gracefully stop bot and maintenance script
+- `restart.flag` - Gracefully restart bot (closes file handles, kills process, restarts)
+- `stop.flag` - Gracefully stop bot and maintenance script (database backup, cleanup, exit)
 
 ```powershell
 # Windows - Restart bot
-New-Item -ItemType File -Name "restart.flag"
+New-Item -ItemType File -Path "C:\sulfur\restart.flag" -Force
+
+# Windows - Stop bot
+New-Item -ItemType File -Path "C:\sulfur\stop.flag" -Force
 
 # Termux/Linux - Restart bot
-touch restart.flag
+touch ~/sulfur/restart.flag
+
+# Termux/Linux - Stop bot
+touch ~/sulfur/stop.flag
 ```
+
+**Windows Enhancements** (Latest Version):
+- Uses .NET Process for robust start/stop/cleanup
+- Closes file handles before killing process (prevents orphaned handles)
+- Detects and kills orphaned Python processes from this directory
+- Improved error reporting with stack traces
+
+**Termux/Linux Enhancements** (Latest Version):
+- `--no-backup` or `-n` flag to skip database backups
+- Orphaned Python process cleanup on startup
+- Log pruning (keeps last 20 maintenance, bot, and web logs)
+- Example: `./maintain_bot.sh --no-backup`
 
 ---
 
