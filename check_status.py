@@ -135,7 +135,7 @@ else:
 print("\n📚 DOCUMENTATION")
 print("-" * 60)
 docs = [
-    'TESTING_GUIDE.md',
+    'README.md',
     'IMPLEMENTATION_SUMMARY.md',
     'MYSQL_SETUP.md'
 ]
@@ -154,9 +154,9 @@ all_ready = all(status.values())
 if all_ready:
     print("✅ ALL SYSTEMS READY!")
     print("\nNext steps:")
-    print("  1. Add slash commands to bot.py (see TESTING_GUIDE.md)")
-    print("  2. python bot.py")
-    print("  3. Test features in Discord")
+    print("  1. Start the bot: python bot.py")
+    print("  2. Test features in Discord")
+    print("  3. Monitor via web dashboard: http://localhost:5000")
 else:
     print("⚠️  SOME ISSUES DETECTED")
     print("\nAction required:")
