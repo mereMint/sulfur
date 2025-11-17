@@ -3,6 +3,13 @@
 # Sulfur Bot - Complete Termux Quick Start Script
 # ============================================================
 # This script automates EVERYTHING needed to run the bot on Termux
+#
+# IMPORTANT: Don't try to download this file directly!
+# Instead, clone the repository first:
+#   pkg update && pkg install -y git
+#   cd ~ && git clone https://github.com/mereMint/sulfur.git
+#   cd sulfur && bash termux_quickstart.sh
+#
 # Usage: bash termux_quickstart.sh
 
 set -e  # Exit on error

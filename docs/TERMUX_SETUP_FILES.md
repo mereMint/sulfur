@@ -23,7 +23,7 @@ This document describes all the Termux-related files added for Android deploymen
 
 **Usage:**
 ```bash
-pkg install -y wget && wget https://raw.githubusercontent.com/mereMint/sulfur/main/termux_quickstart.sh && bash termux_quickstart.sh
+pkg update && pkg install -y git && cd ~ && git clone https://github.com/mereMint/sulfur.git && cd sulfur && bash termux_quickstart.sh
 ```
 
 **Features:**

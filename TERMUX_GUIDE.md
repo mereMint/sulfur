@@ -18,9 +18,17 @@ Complete guide for running Sulfur Discord bot on Android using Termux.
 ### Method 1: Automated Setup (Recommended)
 
 ```bash
-# Download and run the quick start script
-pkg install -y wget
-wget https://raw.githubusercontent.com/mereMint/sulfur/main/termux_quickstart.sh
+# Clone the repository first to get the setup script
+pkg update && pkg install -y git
+cd ~
+git clone https://github.com/mereMint/sulfur.git
+cd sulfur
+bash termux_quickstart.sh
+```
+
+**Alternative**: If you already have the repository, just run:
+```bash
+cd ~/sulfur
 bash termux_quickstart.sh
 ```
 
@@ -89,14 +97,17 @@ pip install -r requirements.txt
 
 #### 6. Configure Environment
 ```bash
-# Copy example and edit
-cp .env.example .env
+# Create .env file
 nano .env
 
-# Add your tokens:
-# DISCORD_BOT_TOKEN="your_token_here"
-# GEMINI_API_KEY="your_key_here"
-# OPENAI_API_KEY="your_key_here"  # Optional
+# Add your tokens (without quotes):
+# DISCORD_BOT_TOKEN=your_token_here
+# GEMINI_API_KEY=your_key_here
+# OPENAI_API_KEY=your_key_here
+# DB_HOST=localhost
+# DB_USER=sulfur_bot_user
+# DB_PASS=
+# DB_NAME=sulfur_bot
 ```
 
 #### 7. Initialize Database

@@ -279,7 +279,7 @@ Press **Q** to gracefully shutdown.
 
 > **🚀 NEW: One-Command Setup!** Skip manual steps with our automated installer:
 > ```bash
-> pkg install -y wget && wget https://raw.githubusercontent.com/mereMint/sulfur/main/termux_quickstart.sh && bash termux_quickstart.sh
+> pkg update && pkg install -y git && cd ~ && git clone https://github.com/mereMint/sulfur.git && cd sulfur && bash termux_quickstart.sh
 > ```
 > **📖 For detailed Termux guide, see [TERMUX_GUIDE.md](TERMUX_GUIDE.md)**
 
@@ -589,7 +589,7 @@ sudo systemctl status sulfur-bot
 Our automated Termux setup script handles **everything** in one command:
 
 ```bash
-pkg install -y wget && wget https://raw.githubusercontent.com/mereMint/sulfur/main/termux_quickstart.sh && bash termux_quickstart.sh
+pkg update && pkg install -y git && cd ~ && git clone https://github.com/mereMint/sulfur.git && cd sulfur && bash termux_quickstart.sh
 ```
 
 **What it does:**
