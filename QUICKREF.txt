@@ -1,0 +1,84 @@
+╔════════════════════════════════════════════════════════════╗
+║         SULFUR BOT - QUICK REFERENCE CARD                  ║
+╚════════════════════════════════════════════════════════════╝
+
+█ CURRENT STATUS █
+  ✓ APIs Working (Gemini + OpenAI)
+  ✓ Configuration Valid
+  ✓ Dependencies Installed
+  ⚠ MySQL Needs Setup (one-time)
+
+█ QUICK START █
+
+  1. Setup MySQL (one-time):
+     Windows:  .\setup_mysql.ps1
+     Termux:   chmod +x setup_mysql.sh && ./setup_mysql.sh
+
+  2. Verify:
+     python test_setup.py
+
+  3. Start Bot:
+     Windows:  .\maintain_bot.ps1
+     Termux:   ./start.sh
+
+█ WEB DASHBOARD █
+  URL: http://localhost:5000
+  Features: Live logs, bot status, database viewer, AI stats
+
+█ CONTROL FLAGS █
+  restart.flag  → Restart bot gracefully
+  stop.flag     → Stop everything gracefully
+
+█ USEFUL COMMANDS █
+
+  # Check if MySQL is running
+  Windows:  Get-Process mysqld
+  Termux:   pgrep mysqld
+
+  # View logs
+  Windows:  Get-Content logs\maintenance_*.log -Tail 50
+  Termux:   tail -50 logs/maintenance_*.log
+
+  # Test database connection
+  mysql -u sulfur_bot_user sulfur_bot -e "SELECT 1;"
+
+  # Check dashboard port
+  Windows:  netstat -ano | findstr :5000
+  Termux:   lsof -i :5000
+
+█ FILES YOU NEED █
+  ✓ .env                    - Your secrets (exists)
+  ✓ config/config.json      - Bot config (exists)
+  ✓ config/system_prompt.txt - AI personality (exists)
+  ✓ requirements.txt        - Updated with APIs
+  ⚠ MySQL database          - Run setup script
+
+█ TROUBLESHOOTING █
+
+  Problem: "Can't connect to MySQL"
+  Fix: Start MySQL, then run .\setup_mysql.ps1
+
+  Problem: "Port 5000 already in use"
+  Fix: Edit web_dashboard.py, change port to 5001
+
+  Problem: "API key invalid"
+  Fix: Check .env file, regenerate key if needed
+
+  Problem: "Bot won't start"
+  Fix: python test_setup.py to diagnose
+
+█ DOCUMENTATION █
+  Quick:    SETUP.md
+  Status:   STATUS.md  
+  Full:     README.md
+  Detailed: docs/STARTUP_GUIDE.md
+
+█ NEXT STEPS █
+  1. .\setup_mysql.ps1     ← Start here!
+  2. python test_setup.py  ← Verify all green
+  3. .\maintain_bot.ps1    ← Start the bot
+  4. Visit http://localhost:5000
+
+╔════════════════════════════════════════════════════════════╗
+║  Need help? Run: python test_setup.py                     ║
+╚════════════════════════════════════════════════════════════╝

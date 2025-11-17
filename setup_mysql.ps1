@@ -1,0 +1,121 @@
+# ============================================================
+# Sulfur Bot - MySQL Setup Helper for Windows
+# ============================================================
+# This script helps set up MySQL for the Sulfur bot
+
+Write-Host "╔════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+Write-Host "║         Sulfur Bot - MySQL Setup Helper                   ║" -ForegroundColor Cyan
+Write-Host "╚════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host ""
+
+# Check if MySQL is running
+Write-Host "Checking MySQL status..." -ForegroundColor Yellow
+$mysqlProcess = Get-Process mysqld -ErrorAction SilentlyContinue
+
+if ($mysqlProcess) {
+    Write-Host "✓ MySQL is running (PID: $($mysqlProcess.Id))" -ForegroundColor Green
+} else {
+    Write-Host "✗ MySQL is not running!" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Please start MySQL first:" -ForegroundColor Yellow
+    Write-Host "  - If using XAMPP: Open XAMPP Control Panel and start MySQL" -ForegroundColor White
+    Write-Host "  - If using MySQL Service: Run 'net start MySQL' (as Administrator)" -ForegroundColor White
+    Write-Host "  - Or: services.msc → Find MySQL → Start" -ForegroundColor White
+    Write-Host ""
+    $start = Read-Host "Press Enter after starting MySQL, or type 'skip' to exit"
+    if ($start -eq 'skip') {
+        exit 1
+    }
+}
+
+# Check for mysql.exe
+Write-Host ""
+Write-Host "Looking for mysql.exe..." -ForegroundColor Yellow
+
+$mysqlPaths = @(
+    "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe",
+    "C:\Program Files\MySQL\MySQL Server 5.7\bin\mysql.exe",
+    "C:\xampp\mysql\bin\mysql.exe",
+    "C:\wamp64\bin\mysql\mysql8.0.27\bin\mysql.exe"
+)
+
+$mysqlExe = $null
+foreach ($path in $mysqlPaths) {
+    if (Test-Path $path) {
+        $mysqlExe = $path
+        break
+    }
+}
+
+# Try to find it in PATH
+if (-not $mysqlExe) {
+    $mysqlExe = (Get-Command mysql -ErrorAction SilentlyContinue).Source
+}
+
+if ($mysqlExe) {
+    Write-Host "✓ Found mysql.exe at: $mysqlExe" -ForegroundColor Green
+} else {
+    Write-Host "✗ Could not find mysql.exe" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Please enter the full path to mysql.exe:" -ForegroundColor Yellow
+    $mysqlExe = Read-Host "Path"
+    if (-not (Test-Path $mysqlExe)) {
+        Write-Host "✗ File not found. Exiting." -ForegroundColor Red
+        exit 1
+    }
+}
+
+# Run the setup script
+Write-Host ""
+Write-Host "Running database setup script..." -ForegroundColor Yellow
+Write-Host "You will be prompted for the MySQL root password." -ForegroundColor White
+Write-Host ""
+
+try {
+    & $mysqlExe -u root -p < setup_database.sql
+    
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host ""
+        Write-Host "✓ Database setup complete!" -ForegroundColor Green
+        Write-Host ""
+        Write-Host "Database credentials:" -ForegroundColor Cyan
+        Write-Host "  Host: localhost" -ForegroundColor White
+        Write-Host "  User: sulfur_bot_user" -ForegroundColor White
+        Write-Host "  Password: (empty)" -ForegroundColor White
+        Write-Host "  Database: sulfur_bot" -ForegroundColor White
+        Write-Host ""
+        Write-Host "These are already configured in your .env file." -ForegroundColor Gray
+    } else {
+        Write-Host ""
+        Write-Host "✗ Setup failed. Please check the error messages above." -ForegroundColor Red
+        exit 1
+    }
+} catch {
+    Write-Host ""
+    Write-Host "✗ Error running setup: $_" -ForegroundColor Red
+    exit 1
+}
+
+# Test the connection
+Write-Host ""
+Write-Host "Testing connection..." -ForegroundColor Yellow
+
+try {
+    $testResult = & $mysqlExe -u sulfur_bot_user sulfur_bot -e "SELECT 'Connection successful!' AS status;" 2>&1
+    
+    if ($testResult -match "Connection successful") {
+        Write-Host "✓ Connection test passed!" -ForegroundColor Green
+        Write-Host ""
+        Write-Host "Next steps:" -ForegroundColor Cyan
+        Write-Host "1. Install dependencies: pip install -r requirements.txt" -ForegroundColor White
+        Write-Host "2. Run setup test: python test_setup.py" -ForegroundColor White
+        Write-Host "3. Start the bot: .\maintain_bot.ps1" -ForegroundColor White
+    } else {
+        Write-Host "✗ Connection test failed" -ForegroundColor Red
+        Write-Host "Error: $testResult" -ForegroundColor Red
+    }
+} catch {
+    Write-Host "✗ Connection test failed: $_" -ForegroundColor Red
+}
+
+Write-Host ""
