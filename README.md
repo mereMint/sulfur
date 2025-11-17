@@ -10,6 +10,7 @@ A feature-rich Discord bot with AI capabilities, mini-games, and comprehensive m
   - [Windows Installation](#windows-installation)
   - [Termux/Android Installation](#termuxandroid-installation)
   - [Linux Installation](#linux-installation)
+  - [One-Command Termux Setup](#one-command-termux-setup)
 - [Configuration](#-configuration)
 - [Running the Bot](#-running-the-bot)
 - [Web Dashboard](#-web-dashboard)
@@ -222,6 +223,14 @@ Press **Q** to gracefully shutdown.
 ---
 
 ### Termux/Android Installation
+
+> **🚀 NEW: One-Command Setup!** Skip manual steps with our automated installer:
+> ```bash
+> pkg install -y wget && wget https://raw.githubusercontent.com/mereMint/sulfur/main/termux_quickstart.sh && bash termux_quickstart.sh
+> ```
+> **📖 For detailed Termux guide, see [TERMUX_GUIDE.md](TERMUX_GUIDE.md)**
+
+#### Manual Installation
 
 #### Step 1: Install Termux
 
@@ -517,6 +526,40 @@ sudo systemctl start sulfur-bot
 # Check status
 sudo systemctl status sulfur-bot
 ```
+
+---
+
+### One-Command Termux Setup
+
+🚀 **The Fastest Way to Get Started on Android!**
+
+Our automated Termux setup script handles **everything** in one command:
+
+```bash
+pkg install -y wget && wget https://raw.githubusercontent.com/mereMint/sulfur/main/termux_quickstart.sh && bash termux_quickstart.sh
+```
+
+**What it does:**
+- ✅ Updates Termux packages
+- ✅ Installs Python, MariaDB, Git, OpenSSH
+- ✅ Initializes and starts MariaDB
+- ✅ Creates database and user
+- ✅ Clones the repository
+- ✅ Generates SSH key (optional)
+- ✅ Sets up Python virtual environment
+- ✅ Installs all dependencies
+- ✅ Configures `.env` interactively
+- ✅ Initializes database tables
+- ✅ Creates startup helper script
+- ✅ Runs setup verification
+
+**After installation:**
+```bash
+cd ~/sulfur
+./start_sulfur.sh
+```
+
+📖 **For detailed Termux documentation:** See [TERMUX_GUIDE.md](TERMUX_GUIDE.md)
 
 ---
 

@@ -352,11 +352,15 @@ echo ""
 print_step "Step 11: Running setup verification..."
 echo ""
 
-if [ -f "test_setup.py" ]; then
-    print_info "Verifying setup..."
+if [ -f "verify_termux_setup.sh" ]; then
+    print_info "Running Termux-specific verification..."
+    chmod +x verify_termux_setup.sh
+    bash verify_termux_setup.sh
+elif [ -f "test_setup.py" ]; then
+    print_info "Running Python setup verification..."
     python test_setup.py
 else
-    print_warning "test_setup.py not found, skipping verification"
+    print_warning "No verification script found, skipping tests"
 fi
 
 echo ""
