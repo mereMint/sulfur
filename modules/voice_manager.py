@@ -19,25 +19,25 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
         if member.id in creating_channel_for:
             logger.debug(f"Ignoring duplicate join event for {member.display_name} - creation already in progress")
             return
-        
+
         # Acquire lock before ANY async operations
         creating_channel_for.add(member.id)
-        
+
         try:
             # --- REFACTORED: Prevent creating multiple channels by checking the database ---
             owned_channel_id = await get_owned_channel(member.id, member.guild.id)
-        if owned_channel_id:
-            try:
-                owned_channel = member.guild.get_channel(owned_channel_id)
-                if owned_channel:
-                    # Move them to their existing channel instead of creating a new one
-                    await member.move_to(owned_channel, reason="User already owns a channel.")
-                else:
-                    # The channel was deleted but not cleaned from DB. Move them out.
-                    await member.move_to(None, reason="Owned channel not found.")
-            except (discord.Forbidden, discord.HTTPException):
-                pass # Ignore if we can't move them
-            return
+            if owned_channel_id:
+                try:
+                    owned_channel = member.guild.get_channel(owned_channel_id)
+                    if owned_channel:
+                        # Move them to their existing channel instead of creating a new one
+                        await member.move_to(owned_channel, reason="User already owns a channel.")
+                    else:
+                        # The channel was deleted but not cleaned from DB. Move them out.
+                        await member.move_to(None, reason="Owned channel not found.")
+                except (discord.Forbidden, discord.HTTPException):
+                    pass  # Ignore if we can't move them
+                return
 
             guild = member.guild
             # --- NEW: Use configured category name, fallback to current category ---
@@ -45,6 +45,7 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
             if not category:
                 # Fallback to the category of the "Join to Create" channel if the configured one doesn't exist
                 category = after.channel.category
+
             # --- NEW: Fetch last used config for the user ---
             last_config = await get_managed_channel_config((member.id, member.guild.id), by_owner=True)
             if last_config and last_config.get('channel_name'):
@@ -62,7 +63,7 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
                 reason=f"Created for {member.display_name}"
             )
 
-            # --- REORDERED: Add to DB *before* moving the user to prevent race condition ---
+            # --- REORDERED: Add to DB BEFORE moving the user to prevent race condition ---
             await add_managed_channel(new_channel.id, member.id, guild.id)
             # --- NEW: Log the creation for Wrapped stats ---
             await log_temp_vc_creation(member.id, guild.id, discord.utils.utcnow())
@@ -91,8 +92,8 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
                     logger.error(f"Failed to cleanup orphaned channel: {cleanup_error}")
 
         except discord.Forbidden:
-            logger.error(f"Bot lacks permissions to create channels or move members in '{guild.name}'")
-            print(f"Error: Bot lacks permissions to create channels or move members in '{guild.name}'.")
+            logger.error(f"Bot lacks permissions to create channels or move members in '{member.guild.name}'")
+            print(f"Error: Bot lacks permissions to create channels or move members in '{member.guild.name}'.")
         except Exception as e:
             logger.error(f"Error during channel creation: {e}", exc_info=True)
             print(f"An error occurred during channel creation: {e}")

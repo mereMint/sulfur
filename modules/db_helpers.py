@@ -207,6 +207,26 @@ def initialize_database():
                 name VARCHAR(255) NOT NULL UNIQUE
             )
         """)
+        # --- NEW: Feature unlocks and simple economy tracking tables (used by shop) ---
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS feature_unlocks (
+                user_id BIGINT NOT NULL,
+                feature_name VARCHAR(64) NOT NULL,
+                purchased_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, feature_name)
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS transaction_history (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                transaction_type VARCHAR(32) NOT NULL,
+                amount BIGINT NOT NULL,
+                balance_after BIGINT NOT NULL,
+                description VARCHAR(255),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         # --- NEW: Tables for enhanced Wrapped stats ---
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS message_activity (
@@ -342,6 +362,28 @@ async def log_api_usage(model_name, input_tokens, output_tokens):
     finally:
         cursor.close()
         cnx.close()
+
+# --- NEW: Helpers for Werwolf provider selection ---
+async def get_gemini_usage():
+    """Returns today's total Gemini API call count across all Gemini models."""
+    if not db_pool:
+        return 0
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return 0
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        cursor.execute("SELECT SUM(call_count) AS total_calls FROM api_usage WHERE usage_date = CURDATE() AND model_name LIKE 'gemini%' ")
+        row = cursor.fetchone()
+        return int(row["total_calls"]) if row and row["total_calls"] else 0
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def increment_gemini_usage():
+    """Increments a synthetic Gemini usage counter row for generic Gemini usage."""
+    # Reuse log_api_usage with a synthetic model name that matches LIKE 'gemini%'
+    await log_api_usage("gemini-generic", 0, 0)
 
 # --- NEW: DB functions for enhanced Wrapped stats ---
 
@@ -951,6 +993,23 @@ async def add_balance(user_id, display_name, amount_to_add, config, stat_period=
             cnx.commit()
             
         logger.debug(f"Added {amount_to_add} balance to user {user_id}")
+    finally:
+        cursor.close()
+        cnx.close()
+
+# --- NEW: Balance helpers for shop/commands ---
+async def get_balance(user_id):
+    """Returns current balance for a user, creating the player if necessary."""
+    if not db_pool:
+        return 0
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return 0
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        cursor.execute("SELECT balance FROM players WHERE discord_id = %s", (user_id,))
+        row = cursor.fetchone()
+        return int(row["balance"]) if row and row.get("balance") is not None else 0
     finally:
         cursor.close()
         cnx.close()
@@ -1697,14 +1756,16 @@ async def has_feature_unlock(user_id, feature_name):
     """Checks if a user has unlocked a specific feature."""
     if not db_pool:
         return False
-    
-    async with get_db_connection() as (conn, cursor):
-        await cursor.execute(
-            "SELECT 1 FROM feature_unlocks WHERE user_id = %s AND feature_name = %s",
-            (user_id, feature_name)
-        )
-        result = await cursor.fetchone()
-        return result is not None
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return False
+    cursor = cnx.cursor()
+    try:
+        cursor.execute("SELECT 1 FROM feature_unlocks WHERE user_id = %s AND feature_name = %s", (user_id, feature_name))
+        return cursor.fetchone() is not None
+    finally:
+        cursor.close()
+        cnx.close()
 
 
 @db_operation("Add Feature Unlock")
@@ -1712,9 +1773,12 @@ async def add_feature_unlock(user_id, feature_name):
     """Adds a feature unlock for a user."""
     if not db_pool:
         return False
-    
-    async with get_db_connection() as (conn, cursor):
-        await cursor.execute(
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return False
+    cursor = cnx.cursor()
+    try:
+        cursor.execute(
             """
             INSERT INTO feature_unlocks (user_id, feature_name)
             VALUES (%s, %s)
@@ -1722,8 +1786,11 @@ async def add_feature_unlock(user_id, feature_name):
             """,
             (user_id, feature_name)
         )
-        await conn.commit()
+        cnx.commit()
         return True
+    finally:
+        cursor.close()
+        cnx.close()
 
 
 @db_operation("Get User Features")
@@ -1743,31 +1810,38 @@ async def get_user_features(user_id):
 
 @db_operation("Log Shop Purchase")
 async def log_shop_purchase(user_id, item_type, item_name, price):
-    """Logs a shop purchase."""
+    """Logs a shop purchase (optional; safe no-op if table missing)."""
     if not db_pool:
         return False
-    
-    async with get_db_connection() as (conn, cursor):
-        await cursor.execute(
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return False
+    cursor = cnx.cursor()
+    try:
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS shop_purchases (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                item_type VARCHAR(32) NOT NULL,
+                item_name VARCHAR(128) NOT NULL,
+                price BIGINT NOT NULL,
+                purchased_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        cursor.execute(
             """
             INSERT INTO shop_purchases (user_id, item_type, item_name, price)
             VALUES (%s, %s, %s, %s)
             """,
             (user_id, item_type, item_name, price)
         )
-        
-        # Update total spent
-        await cursor.execute(
-            """
-            INSERT INTO user_economy (user_id, total_spent)
-            VALUES (%s, %s)
-            ON DUPLICATE KEY UPDATE total_spent = total_spent + %s
-            """,
-            (user_id, price, price)
-        )
-        
-        await conn.commit()
+        cnx.commit()
         return True
+    finally:
+        cursor.close()
+        cnx.close()
 
 
 @db_operation("Get Purchase History")

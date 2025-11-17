@@ -396,6 +396,15 @@ async def on_ready():
                 except (discord.Forbidden, discord.NotFound):
                     await db_helpers.remove_managed_channel(channel_id) # Still remove from DB if delete fails
     synced = await tree.sync()
+    # Also sync per-guild for immediate availability of new commands
+    try:
+        for guild in client.guilds:
+            try:
+                await tree.sync(guild=guild)
+            except Exception as e:
+                print(f"Guild sync failed for {guild.name}: {e}")
+    except Exception as e:
+        print(f"Bulk guild sync failed: {e}")
     # --- NEW: Start the background task for voice XP ---
     if not grant_voice_xp.is_running():
         grant_voice_xp.start()
@@ -408,6 +417,9 @@ async def on_ready():
     # --- NEW: Start the background task for empty channel cleanup ---
     if not cleanup_empty_channels.is_running():
         cleanup_empty_channels.start()
+    # Start periodic Werwolf category cleanup
+    if not cleanup_werwolf_categories.is_running():
+        cleanup_werwolf_categories.start()
     
 
     print(f"Synced {len(synced)} global commands.")
@@ -525,6 +537,52 @@ async def cleanup_empty_channels():
     except Exception as e:
         logger.error(f"Error in cleanup_empty_channels task: {e}", exc_info=True)
         print(f"[Channel Cleanup Task] Error: {e}")
+
+@tasks.loop(hours=1)
+async def cleanup_werwolf_categories():
+    """Finds and deletes stale Werwolf categories and channels if no active game references them."""
+    try:
+        category_name = config['modules']['werwolf']['game_category_name']
+        for guild in client.guilds:
+            for category in guild.categories:
+                if category.name != category_name:
+                    continue
+                # Determine if any active game still uses channels within this category
+                category_channel_ids = {ch.id for ch in category.channels}
+                in_use = False
+                for game in active_werwolf_games.values():
+                    chans = [getattr(game, 'game_channel', None), getattr(game, 'lobby_vc', None), getattr(game, 'discussion_vc', None)]
+                    for ch in chans:
+                        if ch and ch.id in category_channel_ids:
+                            in_use = True
+                            break
+                    if in_use:
+                        break
+
+                if in_use:
+                    continue
+
+                # If no use: delete empty channels then category
+                try:
+                    for ch in list(category.channels):
+                        # If it's a voice channel, ensure it's empty
+                        if isinstance(ch, discord.VoiceChannel) and ch.members:
+                            # Skip categories with occupied voice channels
+                            break
+                        try:
+                            await ch.delete(reason="Periodic Werwolf cleanup (stale)")
+                        except Exception:
+                            pass
+                    else:
+                        # Only reached if we did not break (no occupied voice channels)
+                        try:
+                            await category.delete(reason="Periodic Werwolf cleanup (stale category)")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+    except Exception as e:
+        logger.error(f"Error in cleanup_werwolf_categories task: {e}")
 
 @client.event
 async def on_presence_update(before, after):
@@ -2243,17 +2301,107 @@ async def ww_start(interaction: discord.Interaction, ziel_spieler: int = None):
 
     # Automatically start the game
     # Bot filling logic is now handled inside start_game
-    error_message = await game.start_game(config, GEMINI_API_KEY, OPENAI_API_KEY, db_helpers, ziel_spieler)
-    if error_message:
-        await game.game_channel.send(error_message)
-        del active_werwolf_games[game_text_channel.id]
-        await game.lobby_vc.delete(reason="Fehler beim Spielstart")
+    try:
+        error_message = await game.start_game(config, GEMINI_API_KEY, OPENAI_API_KEY, db_helpers, ziel_spieler)
+        if error_message:
+            await game.game_channel.send(error_message)
+            del active_werwolf_games[game_text_channel.id]
+            await game.lobby_vc.delete(reason="Fehler beim Spielstart")
+    except Exception as e:
+        # Ensure cleanup on unexpected errors during start
+        try:
+            await game.game_channel.send(f"Spielstart fehlgeschlagen: {e}. Räume Kanäle auf...")
+        except Exception:
+            pass
+        try:
+            await game.end_game(config)
+        except Exception:
+            pass
+        active_werwolf_games.pop(game_text_channel.id, None)
 
 # --- NEW: Add the voice command group to the tree ---
 tree.add_command(voice_group)
 
 # --- NEW: Add the admin command group to the tree ---
 tree.add_command(AdminGroup(name="admin"))
+
+# --- NEW: Shop Commands ---
+from modules import shop as shop_module
+
+shop_group = app_commands.Group(
+    name="shop",
+    description="Kaufe Farben und Features."
+)
+
+@shop_group.command(name="view", description="Zeigt den Shop an.")
+async def shop_view(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    try:
+        embed = shop_module.create_shop_embed(config)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"Fehler beim Anzeigen des Shops: {e}", ephemeral=True)
+
+
+class ColorSelectView(discord.ui.View):
+    def __init__(self, tier: str, config: dict, member: discord.Member):
+        super().__init__(timeout=60)
+        self.tier = tier
+        self.config = config
+        self.member = member
+        colors = config['modules']['economy']['shop']['color_roles']
+        color_map = {
+            'basic': colors['basic_colors'],
+            'premium': colors['premium_colors'],
+            'legendary': colors['legendary_colors']
+        }
+        options = []
+        for idx, hex_color in enumerate(color_map.get(tier, [])[:25], start=1):
+            options.append(discord.SelectOption(label=f"{idx}. {hex_color}", value=hex_color))
+
+        self.add_item(discord.ui.Select(placeholder="Wähle eine Farbe...", options=options, custom_id="color_select"))
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        # Only the invoker can interact
+        if interaction.user.id != self.member.id:
+            await interaction.response.send_message("Du kannst diese Auswahl nicht bedienen.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.select(custom_id="color_select")
+    async def on_color_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        await interaction.response.defer(ephemeral=True)
+        hex_color = select.values[0]
+        prices = self.config['modules']['economy']['shop']['color_roles']['prices']
+        price = prices.get(self.tier, 0)
+        success, message, role = await shop_module.purchase_color_role(db_helpers, interaction.user, hex_color, self.tier, price, self.config)
+        await interaction.followup.send(message, ephemeral=True)
+        self.stop()
+
+
+@shop_group.command(name="buy_color", description="Kaufe eine Farbrolle (basic/premium/legendary)")
+@app_commands.describe(tier="Welche Kategorie?")
+@app_commands.choices(tier=[
+    app_commands.Choice(name="basic", value="basic"),
+    app_commands.Choice(name="premium", value="premium"),
+    app_commands.Choice(name="legendary", value="legendary")
+])
+async def shop_buy_color(interaction: discord.Interaction, tier: app_commands.Choice[str]):
+    await interaction.response.defer(ephemeral=True)
+    view = ColorSelectView(tier.value, config, interaction.user)
+    embed = shop_module.create_color_selection_embed(tier.value, config)
+    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+
+@tree.command(name="balance", description="Zeigt dein aktuelles Guthaben an.")
+async def balance(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    bal = await db_helpers.get_balance(interaction.user.id)
+    currency = config['modules']['economy']['currency_symbol']
+    await interaction.followup.send(f"Dein Guthaben: **{bal} {currency}**", ephemeral=True)
+
+# Register shop group
+tree.add_command(shop_group)
 
 class WerwolfJoinView(discord.ui.View):
     """A view for the Werwolf join phase, including a start button and countdown."""

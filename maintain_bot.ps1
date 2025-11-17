@@ -69,7 +69,7 @@ function Test-Preflight {
             Write-ColorLog "DISCORD_BOT_TOKEN not found in .env" 'Red'
             return $false
         }
-        $token = ($tokenLine -replace '^[^=]*=','').Trim().Trim('"','\'')
+        $token = ($tokenLine -replace '^[^=]*=','').Trim().Trim('"','''')
         if([string]::IsNullOrWhiteSpace($token)){
             Write-ColorLog "DISCORD_BOT_TOKEN is empty in .env" 'Red'
             return $false
