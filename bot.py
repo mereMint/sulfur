@@ -166,20 +166,32 @@ async def get_current_provider(config_obj):
     # --- FIX: Only check Gemini usage if the provider is set to 'gemini' ---
     # --- REFACTORED: Use the new detailed api_usage table ---
     if provider == 'gemini':
-        cnx = db_helpers.db_pool.get_connection()
-        if not cnx: return 'openai' # Fallback if DB is down
-        cursor = cnx.cursor(dictionary=True)
-        usage = 0
+        # --- FIX: Properly handle DB pool being None ---
+        if not db_helpers.db_pool:
+            logger.warning("Database pool not available, returning configured provider")
+            return provider
+        
         try:
-            # Sum up all calls for models starting with 'gemini' for today
-            cursor.execute("SELECT SUM(call_count) as total_calls FROM api_usage WHERE usage_date = CURDATE() AND model_name LIKE 'gemini%%'")
-            result = cursor.fetchone()
-            usage = result['total_calls'] if result and result['total_calls'] else 0
-        finally:
-            cursor.close()
-            cnx.close()
-        # If the limit is reached, switch to openai for this call.
-        return 'openai' if usage >= GEMINI_DAILY_LIMIT else 'gemini'
+            cnx = db_helpers.db_pool.get_connection()
+            if not cnx: 
+                logger.warning("Could not get DB connection, returning configured provider")
+                return provider
+            
+            cursor = cnx.cursor(dictionary=True)
+            usage = 0
+            try:
+                # Sum up all calls for models starting with 'gemini' for today
+                cursor.execute("SELECT SUM(call_count) as total_calls FROM api_usage WHERE usage_date = CURDATE() AND model_name LIKE 'gemini%%'")
+                result = cursor.fetchone()
+                usage = result['total_calls'] if result and result['total_calls'] else 0
+            finally:
+                cursor.close()
+                cnx.close()
+            # If the limit is reached, switch to openai for this call.
+            return 'openai' if usage >= GEMINI_DAILY_LIMIT else 'gemini'
+        except Exception as e:
+            logger.error(f"Error checking Gemini usage: {e}")
+            return provider
     # If the provider is 'openai' or anything else, just use that.
     return provider
 
@@ -420,45 +432,49 @@ async def on_ready():
 @tasks.loop(minutes=15)
 async def update_presence_task():
     """A background task that periodically updates the bot's presence to watch a random user."""
-    update_presence_task.change_interval(minutes=config['bot']['presence']['update_interval_minutes'])
+    try:
+        update_presence_task.change_interval(minutes=config['bot']['presence']['update_interval_minutes'])
 
-    if not client.guilds:
-        return
+        if not client.guilds:
+            return
 
-    # --- NEW: Check if an update is pending ---
-    if os.path.exists("update_pending.flag"):
+        # --- NEW: Check if an update is pending ---
+        if os.path.exists("update_pending.flag"):
+            await client.change_presence(
+                status=discord.Status.idle, # Set status to Idle
+                activity=discord.Activity(type=discord.ActivityType.watching, name="auf ein Update...")
+            )
+            return # Skip the normal presence update
+
+        # --- REFACTORED: More efficient way to find a random user ---
+        # 1. Get all non-bot members from all guilds the bot is in.
+        all_online_members = []
+        for guild in client.guilds:
+            all_online_members.extend([m for m in guild.members if not m.bot and m.status != discord.Status.offline])
+
+        # 2. If we found any online members, pick one at random.
+        if all_online_members:
+            member_to_watch = random.choice(all_online_members)
+            templates = config['bot']['presence']['activity_templates']
+            template = random.choice(templates)
+            activity_name = template.format(user=member_to_watch.display_name)
+
+            logger.debug(f"Presence update: {activity_name}")
+            print(f"  -> Presence update: {activity_name}")
+            await client.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=activity_name))
+            return # Success, exit the task for this run
+
+        # Fallback if no human members were found at all.
+        logger.debug("Presence update: No human members found. Using fallback.")
+        print("  -> Presence update: No human members found. Using fallback.")
+        fallback_activity = config.get('bot', {}).get('presence', {}).get('fallback_activity', "euch beim AFK sein zu")
         await client.change_presence(
-            status=discord.Status.idle, # Set status to Idle
-            activity=discord.Activity(type=discord.ActivityType.watching, name="auf ein Update...")
+            status=discord.Status.online,
+            activity=discord.Activity(type=discord.ActivityType.watching, name=fallback_activity)
         )
-        return # Skip the normal presence update
-
-    # --- REFACTORED: More efficient way to find a random user ---
-    # 1. Get all non-bot members from all guilds the bot is in.
-    all_online_members = []
-    for guild in client.guilds:
-        all_online_members.extend([m for m in guild.members if not m.bot and m.status != discord.Status.offline])
-
-    # 2. If we found any online members, pick one at random.
-    if all_online_members:
-        member_to_watch = random.choice(all_online_members)
-        templates = config['bot']['presence']['activity_templates']
-        template = random.choice(templates)
-        activity_name = template.format(user=member_to_watch.display_name)
-
-        logger.debug(f"Presence update: {activity_name}")
-        print(f"  -> Presence update: {activity_name}")
-        await client.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name=activity_name))
-        return # Success, exit the task for this run
-
-    # Fallback if no human members were found at all.
-    logger.debug("Presence update: No human members found. Using fallback.")
-    print("  -> Presence update: No human members found. Using fallback.")
-    fallback_activity = config.get('bot', {}).get('presence', {}).get('fallback_activity', "euch beim AFK sein zu")
-    await client.change_presence(
-        status=discord.Status.online,
-        activity=discord.Activity(type=discord.ActivityType.watching, name=fallback_activity)
-    )
+    except Exception as e:
+        logger.error(f"Error in presence update task: {e}", exc_info=True)
+        print(f"  -> Error updating presence: {e}")
 
 # --- NEW: Periodic cleanup of old conversation contexts ---
 @_tasks.loop(minutes=10)
@@ -467,6 +483,7 @@ async def periodic_cleanup():
         from modules.bot_enhancements import cleanup_task as _cleanup
         await _cleanup(client)
     except Exception as e:
+        logger.error(f"Error in periodic cleanup: {e}", exc_info=True)
         print(f"[Periodic Cleanup] Error: {e}")
 
 @update_presence_task.before_loop
@@ -477,184 +494,200 @@ async def before_update_presence_task():
 @tasks.loop(hours=1)
 async def cleanup_empty_channels():
     """Periodically finds and deletes empty, managed voice channels."""
-    print("Running periodic cleanup of empty voice channels...")
-    managed_channel_ids = await db_helpers.get_all_managed_channels()
-    deleted_count = 0
-    if not managed_channel_ids:
-        print("  -> No managed channels found in the database.")
-        return
+    try:
+        print("Running periodic cleanup of empty voice channels...")
+        managed_channel_ids = await db_helpers.get_all_managed_channels()
+        deleted_count = 0
+        if not managed_channel_ids:
+            print("  -> No managed channels found in the database.")
+            return
 
-    for channel_id in managed_channel_ids:
-        channel = client.get_channel(channel_id)
-        if channel and isinstance(channel, discord.VoiceChannel) and not channel.members:
+        for channel_id in managed_channel_ids:
             try:
-                await channel.delete(reason="Periodic cleanup of empty channel")
-                await db_helpers.remove_managed_channel(channel_id, keep_owner_record=True)
-                print(f"  -> Cleaned up empty channel: {channel.name} ({channel_id})")
-                deleted_count += 1
-            except (discord.Forbidden, discord.NotFound):
-                # If we can't delete, at least remove it from our active list
-                await db_helpers.remove_managed_channel(channel_id, keep_owner_record=True)
-    if deleted_count > 0:
-        print(f"Periodic cleanup finished. Deleted {deleted_count} empty channel(s).")
+                channel = client.get_channel(channel_id)
+                if channel and isinstance(channel, discord.VoiceChannel) and not channel.members:
+                    try:
+                        await channel.delete(reason="Periodic cleanup of empty channel")
+                        await db_helpers.remove_managed_channel(channel_id, keep_owner_record=True)
+                        print(f"  -> Cleaned up empty channel: {channel.name} ({channel_id})")
+                        deleted_count += 1
+                    except (discord.Forbidden, discord.NotFound):
+                        # If we can't delete, at least remove it from our active list
+                        await db_helpers.remove_managed_channel(channel_id, keep_owner_record=True)
+            except Exception as e:
+                logger.error(f"Error cleaning up channel {channel_id}: {e}")
+                continue
+                
+        if deleted_count > 0:
+            print(f"Periodic cleanup finished. Deleted {deleted_count} empty channel(s).")
+    except Exception as e:
+        logger.error(f"Error in cleanup_empty_channels task: {e}", exc_info=True)
+        print(f"[Channel Cleanup Task] Error: {e}")
 
 @client.event
 async def on_presence_update(before, after):
     """Fires when a member's status, activity, etc. changes. Used for tracking."""
-    # Ignore bots
-    if after.bot:
-        return
-        
-    # --- NEW: Ignore presence updates from offline users to reduce noise ---
-    if after.status == discord.Status.offline and before.status == discord.Status.offline:
-        return
+    try:
+        # Ignore bots
+        if after.bot:
+            return
+            
+        # --- NEW: Ignore presence updates from offline users to reduce noise ---
+        if after.status == discord.Status.offline and before.status == discord.Status.offline:
+            return
 
-    # --- NEW: Spotify Listening Time Tracking ---
-    now = datetime.now(timezone.utc)
-    # --- REFACTORED: Use a single user_id key to centralize tracking across all servers ---
-    user_id = after.id
+        # --- NEW: Spotify Listening Time Tracking ---
+        now = datetime.now(timezone.utc)
+        # --- REFACTORED: Use a single user_id key to centralize tracking across all servers ---
+        user_id = after.id
 
-    before_spotify = next((act for act in before.activities if isinstance(act, discord.Spotify)), None)
-    after_spotify = next((act for act in after.activities if isinstance(act, discord.Spotify)), None)
+        before_spotify = next((act for act in before.activities if isinstance(act, discord.Spotify)), None)
+        after_spotify = next((act for act in after.activities if isinstance(act, discord.Spotify)), None)
 
-    # Case 1: Song has stopped (or changed)
-    if before_spotify and (not after_spotify or after_spotify.track_id != before_spotify.track_id):
-        if user_id in spotify_start_times:
-            logged_song, start_time = spotify_start_times.pop(user_id)
-            duration_seconds = (now - start_time).total_seconds()
-            # Only log if they listened for a meaningful amount of time (e.g., > 30s)
-            if duration_seconds > 30:
-                duration_minutes = duration_seconds / 60.0
+        # Case 1: Song has stopped (or changed)
+        if before_spotify and (not after_spotify or after_spotify.track_id != before_spotify.track_id):
+            if user_id in spotify_start_times:
+                logged_song, start_time = spotify_start_times.pop(user_id)
+                duration_seconds = (now - start_time).total_seconds()
+                # Only log if they listened for a meaningful amount of time (e.g., > 30s)
+                if duration_seconds > 30:
+                    duration_minutes = duration_seconds / 60.0
+                    stat_period = now.strftime('%Y-%m')
+                    await db_helpers.log_stat_increment(user_id, stat_period, 'spotify_minutes', key=f"{logged_song[0]} by {logged_song[1]}", amount=duration_minutes)
+                    print(f"    - Logged {duration_minutes:.2f} mins for '{logged_song[0]}'.")
+
+                # If the song just stopped (not changed), cache it for potential resume
+                if not after_spotify:
+                    print(f"    - Paused '{logged_song[0]}'. Caching session.")
+                    spotify_pause_cache[user_id] = (logged_song, start_time)
+
+        # Case 2: Song has started (or resumed)
+        if after_spotify:
+            resumed_song = (after_spotify.title, after_spotify.artist)
+            # Check if it's a resume from pause
+            if user_id in spotify_pause_cache and spotify_pause_cache[user_id][0] == resumed_song:
+                print(f"  -> [Spotify] Resumed '{resumed_song[0]}' for {after.display_name}. Restarting timer.")
+                spotify_start_times[user_id] = spotify_pause_cache.pop(user_id) # Restore timer from cache
+            # Check if it's a brand new song session
+            elif user_id not in spotify_start_times:
+                 print(f"  -> [Spotify] New song session started for {after.display_name} (ID: {user_id}): '{after_spotify.title}'. Starting timer.")
+                 spotify_start_times[user_id] = (resumed_song, now)
+
+        # --- NEW: Game Session Tracking ---
+        before_game = next((act for act in before.activities if isinstance(act, discord.Game)), None)
+        after_game = next((act for act in after.activities if isinstance(act, discord.Game)), None)
+
+        # Case 1: Game has stopped or changed
+        if before_game and (not after_game or after_game.name != before_game.name):
+            if user_id in game_start_times and game_start_times[user_id][0] == before_game.name:
+                _, start_time = game_start_times.pop(user_id)
+                duration_seconds = (now - start_time).total_seconds()
+                # Only log sessions longer than a minute to filter out quick restarts/alt-tabs
+                if duration_seconds > 60:
+                    duration_minutes = duration_seconds / 60.0
+                    stat_period = now.strftime('%Y-%m')
+                    await db_helpers.log_game_session(user_id, stat_period, before_game.name, duration_minutes)
+                print(f"  -> [Game] Session ended for {after.display_name}: '{before_game.name}' after {duration_seconds/60.0:.1f} minutes.")
+
+        # Case 2: A new game has started
+        if after_game and (not before_game or before_game.name != after_game.name):
+            if user_id not in game_start_times:
+                game_start_times[user_id] = (after_game.name, now)
+                print(f"  -> [Game] Session started for {after.display_name}: '{after_game.name}'.")
+
+        # We only care about changes in status or activity
+        if before.status == after.status and before.activity == after.activity:
+            return
+
+        # --- NEW: Spotify Tracking ---
+        # --- FIX: Use in-memory cache to prevent duplicate song logging ---
+        if isinstance(after.activity, discord.Spotify):
+            current_song = (after.activity.title, after.activity.artist)
+            last_logged_song_for_user = last_spotify_log.get(user_id)
+            
+            if current_song != last_logged_song_for_user:
+                print(f"  -> [Spotify] New unique song detected for {after.display_name} (ID: {user_id}). Incrementing play count.")
+                spotify_pause_cache.pop(user_id, None) # Clear pause cache on new song
+                await db_helpers.update_spotify_history(
+                    client=client, # Pass client for logging
+                    user_id=after.id,
+                    display_name=after.display_name,
+                    song_title=after.activity.title,
+                    song_artist=after.activity.artist
+                )
+                last_spotify_log[user_id] = current_song
+
+        # --- NEW: Prioritize non-custom activities ---
+        # Find the most "important" activity to log.
+        # Order of importance: Game > Spotify > Other Activity > Custom Status
+        primary_activity = next((act for act in after.activities if isinstance(act, discord.Game)), None)
+        if not primary_activity:
+            primary_activity = next((act for act in after.activities if isinstance(act, discord.Spotify)), None)
+        if not primary_activity:
+            primary_activity = next((act for act in after.activities if not isinstance(act, discord.CustomActivity)), None)
+        if not primary_activity:
+            primary_activity = next((act for act in after.activities if isinstance(act, discord.CustomActivity)), None)
+
+        # Update the database with the new presence info
+        await db_helpers.update_user_presence(
+            user_id=after.id,
+            display_name=after.display_name,
+            status=str(after.status),
+            activity_name=primary_activity.name if primary_activity and hasattr(primary_activity, 'name') else (primary_activity.state if primary_activity and hasattr(primary_activity, 'state') else None)
+        )
+
+        # --- NEW: Log generic activity for Wrapped ---
+        # This logs any activity that isn't a game or Spotify.
+        generic_activity = next((act for act in after.activities if not isinstance(act, (discord.Game, discord.Spotify, discord.CustomActivity))), None)
+        if generic_activity and generic_activity.name:
+            # We only care if the activity has changed to avoid spamming the DB.
+            # Also, ensure the activity name is not something generic we want to ignore.
+            before_generic_activity = next((act for act in before.activities if not isinstance(act, (discord.Game, discord.Spotify, discord.CustomActivity))), None)
+            if not before_generic_activity or before_generic_activity.name != generic_activity.name:
                 stat_period = now.strftime('%Y-%m')
-                await db_helpers.log_stat_increment(user_id, stat_period, 'spotify_minutes', key=f"{logged_song[0]} by {logged_song[1]}", amount=duration_minutes)
-                print(f"    - Logged {duration_minutes:.2f} mins for '{logged_song[0]}'.")
-
-            # If the song just stopped (not changed), cache it for potential resume
-            if not after_spotify:
-                print(f"    - Paused '{logged_song[0]}'. Caching session.")
-                spotify_pause_cache[user_id] = (logged_song, start_time)
-
-    # Case 2: Song has started (or resumed)
-    if after_spotify:
-        resumed_song = (after_spotify.title, after_spotify.artist)
-        # Check if it's a resume from pause
-        if user_id in spotify_pause_cache and spotify_pause_cache[user_id][0] == resumed_song:
-            print(f"  -> [Spotify] Resumed '{resumed_song[0]}' for {after.display_name}. Restarting timer.")
-            spotify_start_times[user_id] = spotify_pause_cache.pop(user_id) # Restore timer from cache
-        # Check if it's a brand new song session
-        elif user_id not in spotify_start_times:
-             print(f"  -> [Spotify] New song session started for {after.display_name} (ID: {user_id}): '{after_spotify.title}'. Starting timer.")
-             spotify_start_times[user_id] = (resumed_song, now)
-
-    # --- NEW: Game Session Tracking ---
-    before_game = next((act for act in before.activities if isinstance(act, discord.Game)), None)
-    after_game = next((act for act in after.activities if isinstance(act, discord.Game)), None)
-
-    # Case 1: Game has stopped or changed
-    if before_game and (not after_game or after_game.name != before_game.name):
-        if user_id in game_start_times and game_start_times[user_id][0] == before_game.name:
-            _, start_time = game_start_times.pop(user_id)
-            duration_seconds = (now - start_time).total_seconds()
-            # Only log sessions longer than a minute to filter out quick restarts/alt-tabs
-            if duration_seconds > 60:
-                duration_minutes = duration_seconds / 60.0
-                stat_period = now.strftime('%Y-%m')
-                await db_helpers.log_game_session(user_id, stat_period, before_game.name, duration_minutes)
-            print(f"  -> [Game] Session ended for {after.display_name}: '{before_game.name}' after {duration_seconds/60.0:.1f} minutes.")
-
-    # Case 2: A new game has started
-    if after_game and (not before_game or before_game.name != after_game.name):
-        if user_id not in game_start_times:
-            game_start_times[user_id] = (after_game.name, now)
-            print(f"  -> [Game] Session started for {after.display_name}: '{after_game.name}'.")
-
-    # We only care about changes in status or activity
-    if before.status == after.status and before.activity == after.activity:
-        return
-
-    # --- NEW: Spotify Tracking ---
-    # --- FIX: Use in-memory cache to prevent duplicate song logging ---
-    if isinstance(after.activity, discord.Spotify):
-        current_song = (after.activity.title, after.activity.artist)
-        last_logged_song_for_user = last_spotify_log.get(user_id)
-        
-        if current_song != last_logged_song_for_user:
-            print(f"  -> [Spotify] New unique song detected for {after.display_name} (ID: {user_id}). Incrementing play count.")
-            spotify_pause_cache.pop(user_id, None) # Clear pause cache on new song
-            await db_helpers.update_spotify_history(
-                client=client, # Pass client for logging
-                user_id=after.id,
-                display_name=after.display_name,
-                song_title=after.activity.title,
-                song_artist=after.activity.artist
-            )
-            last_spotify_log[user_id] = current_song
-
-    activity_name = None
-    if after.activity:
-        # For games, streaming, etc., it has a name. For custom status, it's in 'state'.
-        activity_name = after.activity.name or after.activity.state
-    
-    # --- NEW: Prioritize non-custom activities ---
-    # Find the most "important" activity to log.
-    # Order of importance: Game > Spotify > Other Activity > Custom Status
-    primary_activity = next((act for act in after.activities if isinstance(act, discord.Game)), None)
-    if not primary_activity:
-        primary_activity = next((act for act in after.activities if isinstance(act, discord.Spotify)), None)
-    if not primary_activity:
-        primary_activity = next((act for act in after.activities if not isinstance(act, discord.CustomActivity)), None)
-    if not primary_activity:
-        primary_activity = next((act for act in after.activities if isinstance(act, discord.CustomActivity)), None)
-
-    # Update the database with the new presence info
-    await db_helpers.update_user_presence(
-        user_id=after.id,
-        display_name=after.display_name,
-        status=str(after.status),
-        activity_name=primary_activity.name if primary_activity and hasattr(primary_activity, 'name') else (primary_activity.state if primary_activity and hasattr(primary_activity, 'state') else None)
-    )
-
-    # --- NEW: Log generic activity for Wrapped ---
-    # This logs any activity that isn't a game or Spotify.
-    generic_activity = next((act for act in after.activities if not isinstance(act, (discord.Game, discord.Spotify, discord.CustomActivity))), None)
-    if generic_activity and generic_activity.name:
-        # We only care if the activity has changed to avoid spamming the DB.
-        # Also, ensure the activity name is not something generic we want to ignore.
-        before_generic_activity = next((act for act in before.activities if not isinstance(act, (discord.Game, discord.Spotify, discord.CustomActivity))), None)
-        if not before_generic_activity or before_generic_activity.name != generic_activity.name:
-            stat_period = now.strftime('%Y-%m')
-            await db_helpers.log_stat_increment(
-                user_id=user_id,
-                stat_period=stat_period,
-                column_name='activity_usage',
-                key=generic_activity.name
-            )
+                await db_helpers.log_stat_increment(
+                    user_id=user_id,
+                    stat_period=stat_period,
+                    column_name='activity_usage',
+                    key=generic_activity.name
+                )
+    except Exception as e:
+        logger.error(f"Error in on_presence_update: {e}", exc_info=True)
+        # Don't print to console as this could spam too much
 
 
 @tasks.loop(minutes=1)
 async def grant_voice_xp():
     """A background task that grants XP to users in voice channels every minute.
     This is now highly efficient as it only iterates over users currently in a VC."""
-    # Create a copy of the user IDs to prevent issues if the set changes during iteration
-    users_to_process = list(active_vc_users.keys())
-    
-    for user_id in users_to_process:
-        member = active_vc_users.get(user_id)
-        if not member: continue
+    try:
+        # Create a copy of the user IDs to prevent issues if the set changes during iteration
+        users_to_process = list(active_vc_users.keys())
+        
+        for user_id in users_to_process:
+            member = active_vc_users.get(user_id)
+            if not member: continue
 
-        stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
-        new_level = await db_helpers.add_xp(member.id, member.display_name, config['modules']['leveling']['xp_per_minute_in_vc'])
-        await db_helpers.log_vc_minutes(member.id, 1, stat_period) # Log 1 minute for Wrapped
-        if new_level:
-            bonus = calculate_level_up_bonus(new_level, config)
-            await db_helpers.add_balance(member.id, member.display_name, bonus, config, stat_period)
-            # --- FIX: Send level-up notifications via DM and only for special levels ---
-            if new_level % config['modules']['leveling']['vc_level_up_notification_interval'] == 0:
-                try:
-                    await member.send(f"GG! Du bist durch deine Aktivität im Voice-Chat jetzt Level **{new_level}**! :YESS:\n"
-                                     f"Du erhältst **{bonus}** Währung als Belohnung!")
-                except discord.Forbidden:
-                    print(f"Could not send voice level up DM to {member.name} (DMs likely closed).")
+            try:
+                stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+                new_level = await db_helpers.add_xp(member.id, member.display_name, config['modules']['leveling']['xp_per_minute_in_vc'])
+                await db_helpers.log_vc_minutes(member.id, 1, stat_period) # Log 1 minute for Wrapped
+                if new_level:
+                    bonus = calculate_level_up_bonus(new_level, config)
+                    await db_helpers.add_balance(member.id, member.display_name, bonus, config, stat_period)
+                    # --- FIX: Send level-up notifications via DM and only for special levels ---
+                    if new_level % config['modules']['leveling']['vc_level_up_notification_interval'] == 0:
+                        try:
+                            await member.send(f"GG! Du bist durch deine Aktivität im Voice-Chat jetzt Level **{new_level}**! :YESS:\n"
+                                             f"Du erhältst **{bonus}** Währung als Belohnung!")
+                        except discord.Forbidden:
+                            print(f"Could not send voice level up DM to {member.name} (DMs likely closed).")
+            except Exception as e:
+                logger.error(f"Error granting voice XP to user {user_id}: {e}")
+                continue
+    except Exception as e:
+        logger.error(f"Error in grant_voice_xp task: {e}", exc_info=True)
+        print(f"[Voice XP Task] Error: {e}")
 
 @grant_voice_xp.before_loop
 async def before_grant_voice_xp():
@@ -703,85 +736,89 @@ async def manage_wrapped_event():
     Manages the creation of the 'Wrapped' event and the distribution of stats.
     Runs once a day.
     """
-    now = datetime.now(timezone.utc)
-    # For simplicity, we'll use the first guild the bot is in.
-    if not client.guilds:
-        return
-    
-    # --- REFACTORED: Use helper to get dates ---
-    dates = _calculate_wrapped_dates(config)
-    event_name = dates["event_name"]
-    event_creation_date = dates["event_creation_date"]
-    release_date = dates["release_date"]
-    
-    # Check if an event for this period already exists
-    # We check across all guilds the bot is in to avoid creating duplicates
-    all_events = [e for guild in client.guilds for e in guild.scheduled_events]
-    event_exists = any(event.name == event_name for event in all_events)
+    try:
+        now = datetime.now(timezone.utc)
+        # For simplicity, we'll use the first guild the bot is in.
+        if not client.guilds:
+            return
+        
+        # --- REFACTORED: Use helper to get dates ---
+        dates = _calculate_wrapped_dates(config)
+        event_name = dates["event_name"]
+        event_creation_date = dates["event_creation_date"]
+        release_date = dates["release_date"]
+        
+        # Check if an event for this period already exists
+        # We check across all guilds the bot is in to avoid creating duplicates
+        all_events = [e for guild in client.guilds for e in guild.scheduled_events]
+        event_exists = any(event.name == event_name for event in all_events)
 
-    # If it's the right day to create the event and it doesn't exist yet
-    if now.day == event_creation_date.day and not event_exists:
-        print(f"Creating Scheduled Event for '{event_name}'...")
-        # --- FIX: Loop through all guilds to create the event ---
-        for guild in client.guilds:
-            try:
-                await guild.create_scheduled_event(
-                    name=event_name,
-                    description=f"Dein persönlicher Server-Rückblick für **{now.strftime('%B')}**! Die Ergebnisse werden am Event-Tag per DM verschickt.",
-                    start_time=release_date,
-                    end_time=release_date + timedelta(hours=1),
-                    entity_type=discord.EntityType.external,
-                    location="In deinen DMs!",
-                    privacy_level=discord.PrivacyLevel.guild_only,
-                    reason="Automated monthly Wrapped event creation."
+        # If it's the right day to create the event and it doesn't exist yet
+        if now.day == event_creation_date.day and not event_exists:
+            print(f"Creating Scheduled Event for '{event_name}'...")
+            # --- FIX: Loop through all guilds to create the event ---
+            for guild in client.guilds:
+                try:
+                    await guild.create_scheduled_event(
+                        name=event_name,
+                        description=f"Dein persönlicher Server-Rückblick für **{now.strftime('%B')}**! Die Ergebnisse werden am Event-Tag per DM verschickt.",
+                        start_time=release_date,
+                        end_time=release_date + timedelta(hours=1),
+                        entity_type=discord.EntityType.external,
+                        location="In deinen DMs!",
+                        privacy_level=discord.PrivacyLevel.guild_only,
+                        reason="Automated monthly Wrapped event creation."
+                    )
+                    print(f"Event created successfully in '{guild.name}'.")
+                except Exception as e:
+                    print(f"Failed to create scheduled event in '{guild.name}': {e}")
+
+        # --- 2. Wrapped Distribution ---
+        # Check if today is the release day for the PREVIOUS month's data.
+        first_day_of_current_month = now.replace(day=1)
+        last_month_first_day = (first_day_of_current_month - timedelta(days=1)).replace(day=1)
+        # The release day is based on the *current* month's second week, but for *last* month's data.
+        # --- FIX: To ensure consistency, we must recalculate the release date for the *previous* month's cycle. ---
+        # We use the first day of the *current* month to determine the release window for *last* month's data.
+        last_month_release_day = random.randint(config['modules']['wrapped']['release_day_min'], config['modules']['wrapped']['release_day_max'])
+        last_month_release_date = first_day_of_current_month.replace(day=last_month_release_day, hour=18, minute=0, second=0)
+        last_month_stat_period = last_month_first_day.strftime('%Y-%m')
+
+        # --- FIX: Check the full date, not just the day number ---
+        if now.year == last_month_release_date.year and now.month == last_month_release_date.month and now.day == last_month_release_date.day:
+            print(f"Distributing Wrapped for period {last_month_stat_period}...")
+            stats = await db_helpers.get_wrapped_stats_for_period(last_month_stat_period)
+
+            # --- NEW: Get list of registered users ---
+            registered_users = await db_helpers.get_wrapped_registrations()
+            if not registered_users:
+                print(f"No users registered for Wrapped. Skipping distribution.")
+                return
+
+            # --- NEW: Pre-calculate ranks ---
+            total_users = len(stats)
+            if total_users == 0:
+                print(f"No stats found for period {last_month_stat_period}. Skipping distribution.")
+                return
+
+            # Create sorted lists for ranking
+
+            # --- NEW: Only send to registered users ---
+            for user_stats in stats:
+                user_id = user_stats.get('user_id')
+                if user_id not in registered_users:
+                    continue  # Skip users who haven't opted in
+                
+                await _generate_and_send_wrapped_for_user(
+                    user_stats=user_stats,
+                    stat_period_date=last_month_first_day,
+                    all_stats_for_period=stats,
+                    total_users=total_users,
+                    server_averages=await _calculate_server_averages(stats)
                 )
-                print(f"Event created successfully in '{guild.name}'.")
-            except Exception as e:
-                print(f"Failed to create scheduled event in '{guild.name}': {e}")
-
-    # --- 2. Wrapped Distribution ---
-    # Check if today is the release day for the PREVIOUS month's data.
-    first_day_of_current_month = now.replace(day=1)
-    last_month_first_day = (first_day_of_current_month - timedelta(days=1)).replace(day=1)
-    # The release day is based on the *current* month's second week, but for *last* month's data.
-    # --- FIX: To ensure consistency, we must recalculate the release date for the *previous* month's cycle. ---
-    # We use the first day of the *current* month to determine the release window for *last* month's data.
-    last_month_release_day = random.randint(config['modules']['wrapped']['release_day_min'], config['modules']['wrapped']['release_day_max'])
-    last_month_release_date = first_day_of_current_month.replace(day=last_month_release_day, hour=18, minute=0, second=0)
-    last_month_stat_period = last_month_first_day.strftime('%Y-%m')
-
-    # --- FIX: Check the full date, not just the day number ---
-    if now.year == last_month_release_date.year and now.month == last_month_release_date.month and now.day == last_month_release_date.day:
-        print(f"Distributing Wrapped for period {last_month_stat_period}...")
-        stats = await db_helpers.get_wrapped_stats_for_period(last_month_stat_period)
-
-        # --- NEW: Get list of registered users ---
-        registered_users = await db_helpers.get_wrapped_registrations()
-        if not registered_users:
-            print(f"No users registered for Wrapped. Skipping distribution.")
-            return
-
-        # --- NEW: Pre-calculate ranks ---
-        total_users = len(stats)
-        if total_users == 0:
-            print(f"No stats found for period {last_month_stat_period}. Skipping distribution.")
-            return
-
-        # Create sorted lists for ranking
-
-        # --- NEW: Only send to registered users ---
-        for user_stats in stats:
-            user_id = user_stats.get('user_id')
-            if user_id not in registered_users:
-                continue  # Skip users who haven't opted in
-            
-            await _generate_and_send_wrapped_for_user(
-                user_stats=user_stats,
-                stat_period_date=last_month_first_day,
-                all_stats_for_period=stats,
-                total_users=total_users,
-                server_averages=await _calculate_server_averages(stats)
-            )
+    except Exception as e:
+        logger.error(f"Error in manage_wrapped_event task: {e}", exc_info=True)
+        print(f"[Wrapped Event Task] Error: {e}")
 
 async def _calculate_server_averages(all_stats):
     """Helper to calculate average stats for the server."""
@@ -2292,7 +2329,8 @@ async def on_message(message):
                     timeout=config.get('api', {}).get('timeout', 30)
                 )
         except asyncio.TimeoutError:
-            print(f"  -> [AI] Response for channel {message.channel.id} timed out after {config['api']['request_timeout_seconds']} seconds.")
+            timeout_val = config.get('api', {}).get('timeout', 30)
+            print(f"  -> [AI] Response for channel {message.channel.id} timed out after {timeout_val} seconds.")
             error_message = "Die Anfrage hat zu lange gedauert. Versuche es später erneut."
             response_text, updated_history = None, None
 
