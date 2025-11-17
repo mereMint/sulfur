@@ -143,6 +143,32 @@ tree = app_commands.CommandTree(client)
 # This will store active games, mapping a channel ID to a WerwolfGame object.
 active_werwolf_games = {}
 
+# --- INSTANCE GUARD & MESSAGE DEDUPLICATION ---
+# Prevent multi-process duplicate replies and duplicate history inserts.
+# We create a lightweight lock file with the primary process PID.
+INSTANCE_LOCK_FILE = "bot_instance.lock"
+SECONDARY_INSTANCE = False
+try:
+    if os.path.exists(INSTANCE_LOCK_FILE):
+        try:
+            with open(INSTANCE_LOCK_FILE, 'r', encoding='utf-8') as f:
+                existing_pid_line = f.readline().strip()
+                existing_pid = int(existing_pid_line) if existing_pid_line.isdigit() else None
+            if existing_pid and existing_pid != os.getpid():
+                SECONDARY_INSTANCE = True
+        except Exception:
+            # If we cannot read/parse we assume primary ownership
+            SECONDARY_INSTANCE = False
+    if not SECONDARY_INSTANCE:
+        with open(INSTANCE_LOCK_FILE, 'w', encoding='utf-8') as f:
+            f.write(str(os.getpid()))
+except Exception:
+    SECONDARY_INSTANCE = False
+
+# In-memory caches for duplicate suppression
+last_processed_message_ids = deque(maxlen=500)
+recent_user_message_cache = {}  # (user_id, content) -> timestamp
+
 # --- NEW: Import and initialize DB helpers ---
 from modules.db_helpers import init_db_pool, initialize_database, get_leaderboard, add_xp, get_player_rank, get_level_leaderboard, save_message_to_history, get_chat_history, get_relationship_summary, update_relationship_summary, save_bulk_history, clear_channel_history, update_user_presence, add_balance, update_spotify_history, get_all_managed_channels, remove_managed_channel, get_managed_channel_config, update_managed_channel_config, log_message_stat, log_vc_minutes, get_wrapped_stats_for_period, get_user_wrapped_stats, log_stat_increment, get_spotify_history, get_player_profile, cleanup_custom_status_entries, log_mention_reply, log_vc_session, get_wrapped_extra_stats, get_xp_for_level, register_for_wrapped, unregister_from_wrapped, is_registered_for_wrapped, get_wrapped_registrations
 import modules.db_helpers as db_helpers
@@ -2393,12 +2419,109 @@ async def shop_buy_color(interaction: discord.Interaction, tier: app_commands.Ch
     await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 
+@shop_group.command(name="buy", description="Kaufe Features oder Unlocks aus dem Shop")
+@app_commands.describe(item="Was möchtest du kaufen?")
+@app_commands.choices(item=[
+    app_commands.Choice(name="DM Access - Direktnachrichten an den Bot senden", value="dm_access"),
+    app_commands.Choice(name="Games Access - Zugang zu allen Spielen", value="games_access"),
+    app_commands.Choice(name="Werwolf Special Roles - Spezialrollen im Werwolf-Spiel", value="werwolf_special_roles"),
+    app_commands.Choice(name="Custom Status - Eigenen Status setzen", value="custom_status")
+])
+async def shop_buy_feature(interaction: discord.Interaction, item: app_commands.Choice[str]):
+    """Purchase a feature from the shop."""
+    await interaction.response.defer(ephemeral=True)
+    
+    feature_name = item.value
+    shop_config = config['modules']['economy']['shop']
+    
+    # Get price for the feature
+    price = shop_config['features'].get(feature_name, 0)
+    
+    if price <= 0:
+        await interaction.followup.send("Dieses Feature ist nicht verfügbar.", ephemeral=True)
+        return
+    
+    try:
+        success, message = await shop_module.purchase_feature(
+            db_helpers,
+            interaction.user,
+            feature_name,
+            price,
+            config
+        )
+        
+        if success:
+            embed = discord.Embed(
+                title="✅ Kauf erfolgreich!",
+                description=message,
+                color=discord.Color.green()
+            )
+        else:
+            embed = discord.Embed(
+                title="❌ Kauf fehlgeschlagen",
+                description=message,
+                color=discord.Color.red()
+            )
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    except Exception as e:
+        logger.error(f"Error in shop buy feature: {e}", exc_info=True)
+        await interaction.followup.send(f"Fehler beim Kauf: {str(e)}", ephemeral=True)
+
+
 @tree.command(name="balance", description="Zeigt dein aktuelles Guthaben an.")
 async def balance(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     bal = await db_helpers.get_balance(interaction.user.id)
     currency = config['modules']['economy']['currency_symbol']
     await interaction.followup.send(f"Dein Guthaben: **{bal} {currency}**", ephemeral=True)
+
+
+@tree.command(name="transactions", description="Zeigt deine letzten Transaktionen an.")
+@app_commands.describe(limit="Anzahl der anzuzeigenden Transaktionen (Standard: 10)")
+async def view_transactions(interaction: discord.Interaction, limit: int = 10):
+    """View transaction history."""
+    await interaction.response.defer(ephemeral=True)
+    
+    if limit < 1 or limit > 50:
+        await interaction.followup.send("Limit muss zwischen 1 und 50 liegen.", ephemeral=True)
+        return
+    
+    try:
+        transactions = await db_helpers.get_transaction_history(interaction.user.id, limit)
+        
+        if not transactions:
+            await interaction.followup.send("Keine Transaktionen gefunden.", ephemeral=True)
+            return
+        
+        currency = config['modules']['economy']['currency_symbol']
+        embed = discord.Embed(
+            title=f"💳 Transaktionsverlauf",
+            description=f"Deine letzten {len(transactions)} Transaktionen",
+            color=discord.Color.blue()
+        )
+        
+        for trans in transactions:
+            trans_type, amount, balance_after, description, created_at = trans
+            
+            # Format amount with sign
+            amount_str = f"+{amount}" if amount > 0 else str(amount)
+            
+            # Format timestamp
+            timestamp = created_at.strftime("%d.%m.%Y %H:%M")
+            
+            # Create field
+            field_name = f"{trans_type} - {timestamp}"
+            field_value = f"**{amount_str} {currency}** → Guthaben: {balance_after} {currency}"
+            if description:
+                field_value += f"\n_{description}_"
+            
+            embed.add_field(name=field_name, value=field_value, inline=False)
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    except Exception as e:
+        logger.error(f"Error viewing transactions: {e}", exc_info=True)
+        await interaction.followup.send(f"Fehler beim Laden der Transaktionen: {str(e)}", ephemeral=True)
 
 # Register shop group
 tree.add_command(shop_group)
@@ -2442,6 +2565,23 @@ class WerwolfJoinView(discord.ui.View):
 @client.event
 async def on_message(message):
     """Fires on every message in any channel the bot can see."""
+    # --- MULTI-INSTANCE GUARD ---
+    if SECONDARY_INSTANCE:
+        return  # Secondary instance does not process messages to avoid duplicate replies
+
+    # --- HARD DEDUPLICATION BY MESSAGE ID ---
+    if message.id in last_processed_message_ids:
+        return
+    last_processed_message_ids.append(message.id)
+
+    # --- SOFT DEDUPLICATION BY (author, content, short time window) ---
+    if not message.author.bot:
+        key = (message.author.id, message.content.strip())
+        now_ts = datetime.utcnow().timestamp()
+        prev_ts = recent_user_message_cache.get(key)
+        if prev_ts and (now_ts - prev_ts) < 3:  # Ignore repeats within 3 seconds
+            return
+        recent_user_message_cache[key] = now_ts
     async def run_chatbot(message):
         """Handles the core logic of fetching and sending an AI response."""
         channel_name = f"DM with {message.author.name}" if isinstance(message.channel, discord.DMChannel) else f"#{message.channel.name}"

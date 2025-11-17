@@ -45,37 +45,116 @@
     <div class="col-md-12">
         <div class="card">
             <div class="card-header bg-primary text-white">
-                <h4>Last 7 Days</h4>
+                <h4>Last 7 Days - By Model & Feature</h4>
             </div>
             <div class="card-body">
                 {% if stats_7days %}
-                <div class="table-responsive">
-                    <table class="table table-striped">
-                        <thead>
-                            <tr>
-                                <th>Model</th>
-                                <th>Feature</th>
-                                <th>Calls</th>
-                                <th>Input Tokens</th>
-                                <th>Output Tokens</th>
-                                <th>Cost</th>
-                                <th>Last Used</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for stat in stats_7days %}
-                            <tr>
-                                <td><span class="badge bg-secondary">{{ stat.model_name }}</span></td>
-                                <td>{{ stat.feature }}</td>
-                                <td>{{ "{:,}".format(stat.total_calls) }}</td>
-                                <td>{{ "{:,}".format(stat.total_input_tokens) }}</td>
-                                <td>{{ "{:,}".format(stat.total_output_tokens) }}</td>
-                                <td>${{ "%.4f"|format(stat.total_cost) }}</td>
-                                <td>{{ stat.last_use }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+                <!-- Model Grouping Summary -->
+                <div class="mb-4">
+                    <h5>Summary by Model</h5>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Model</th>
+                                    <th>Total Calls</th>
+                                    <th>Total Tokens</th>
+                                    <th>Total Cost</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% set model_totals = {} %}
+                                {% for stat in stats_7days %}
+                                    {% set model = stat.model_name %}
+                                    {% if model not in model_totals %}
+                                        {% set _ = model_totals.update({model: {'calls': 0, 'tokens': 0, 'cost': 0.0}}) %}
+                                    {% endif %}
+                                    {% set _ = model_totals[model].update({
+                                        'calls': model_totals[model]['calls'] + stat.total_calls,
+                                        'tokens': model_totals[model]['tokens'] + stat.total_input_tokens + stat.total_output_tokens,
+                                        'cost': model_totals[model]['cost'] + stat.total_cost
+                                    }) %}
+                                {% endfor %}
+                                {% for model, totals in model_totals.items() %}
+                                <tr>
+                                    <td><span class="badge bg-secondary">{{ model }}</span></td>
+                                    <td>{{ "{:,}".format(totals.calls) }}</td>
+                                    <td>{{ "{:,}".format(totals.tokens) }}</td>
+                                    <td>${{ "%.4f"|format(totals.cost) }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Feature Grouping Summary -->
+                <div class="mb-4">
+                    <h5>Summary by Feature</h5>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Feature</th>
+                                    <th>Total Calls</th>
+                                    <th>Total Cost</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% set feature_totals = {} %}
+                                {% for stat in stats_7days %}
+                                    {% set feature = stat.feature %}
+                                    {% if feature not in feature_totals %}
+                                        {% set _ = feature_totals.update({feature: {'calls': 0, 'cost': 0.0}}) %}
+                                    {% endif %}
+                                    {% set _ = feature_totals[feature].update({
+                                        'calls': feature_totals[feature]['calls'] + stat.total_calls,
+                                        'cost': feature_totals[feature]['cost'] + stat.total_cost
+                                    }) %}
+                                {% endfor %}
+                                {% for feature, totals in feature_totals.items() %}
+                                <tr>
+                                    <td><span class="badge bg-info">{{ feature }}</span></td>
+                                    <td>{{ "{:,}".format(totals.calls) }}</td>
+                                    <td>${{ "%.4f"|format(totals.cost) }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Detailed Table -->
+                <div>
+                    <h5>Detailed Breakdown</h5>
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Model</th>
+                                    <th>Feature</th>
+                                    <th>Calls</th>
+                                    <th>Input Tokens</th>
+                                    <th>Output Tokens</th>
+                                    <th>Cost</th>
+                                    <th>Last Used</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for stat in stats_7days %}
+                                <tr>
+                                    <td><span class="badge bg-secondary">{{ stat.model_name }}</span></td>
+                                    <td><span class="badge bg-info">{{ stat.feature }}</span></td>
+                                    <td>{{ "{:,}".format(stat.total_calls) }}</td>
+                                    <td>{{ "{:,}".format(stat.total_input_tokens) }}</td>
+                                    <td>{{ "{:,}".format(stat.total_output_tokens) }}</td>
+                                    <td>${{ "%.4f"|format(stat.total_cost) }}</td>
+                                    <td>{{ stat.last_use }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
                 {% else %}
                 <p class="text-muted">No AI usage data available for the last 7 days.</p>
@@ -90,10 +169,36 @@
     <div class="col-md-12">
         <div class="card">
             <div class="card-header bg-success text-white">
-                <h4>Last 30 Days</h4>
+                <h4>Last 30 Days - Cost Analysis</h4>
             </div>
             <div class="card-body">
                 {% if stats_30days %}
+                <!-- Model Cost Summary -->
+                <div class="mb-4">
+                    <h5>Cost by Model</h5>
+                    <div class="row">
+                        {% set model_costs = {} %}
+                        {% for stat in stats_30days %}
+                            {% set model = stat.model_name %}
+                            {% if model not in model_costs %}
+                                {% set _ = model_costs.update({model: 0.0}) %}
+                            {% endif %}
+                            {% set _ = model_costs.update({model: model_costs[model] + stat.total_cost}) %}
+                        {% endfor %}
+                        {% for model, cost in model_costs.items() %}
+                        <div class="col-md-4 mb-3">
+                            <div class="card text-white bg-dark">
+                                <div class="card-body">
+                                    <h6 class="card-title">{{ model }}</h6>
+                                    <h3>${{ "%.4f"|format(cost) }}</h3>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <!-- Detailed Table -->
                 <div class="table-responsive">
                     <table class="table table-striped">
                         <thead>
@@ -111,7 +216,7 @@
                             {% for stat in stats_30days %}
                             <tr>
                                 <td><span class="badge bg-secondary">{{ stat.model_name }}</span></td>
-                                <td>{{ stat.feature }}</td>
+                                <td><span class="badge bg-info">{{ stat.feature }}</span></td>
                                 <td>{{ "{:,}".format(stat.total_calls) }}</td>
                                 <td>{{ "{:,}".format(stat.total_input_tokens) }}</td>
                                 <td>{{ "{:,}".format(stat.total_output_tokens) }}</td>

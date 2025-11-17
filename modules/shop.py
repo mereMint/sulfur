@@ -115,8 +115,15 @@ async def purchase_color_role(db_helpers, member: discord.Member, color: str, ti
     if error:
         return False, f"Failed to create color role: {error}", None
     
-    # Deduct balance
-    await db_helpers.add_balance(member.id, member.display_name, -price, config, stat_period)
+    # Deduct balance and log transaction
+    new_balance = await db_helpers.add_balance(member.id, member.display_name, -price, config, stat_period)
+    await db_helpers.log_transaction(
+        member.id,
+        'shop_purchase',
+        -price,
+        new_balance,
+        f"Purchased {tier} color role ({color})"
+    )
     
     currency = config['modules']['economy']['currency_symbol']
     return True, f"Successfully purchased {tier} color role for {price} {currency}!", role
@@ -151,8 +158,15 @@ async def purchase_feature(db_helpers, member: discord.Member, feature: str, pri
         currency = config['modules']['economy']['currency_symbol']
         return False, f"Insufficient funds! You need {price} {currency} but only have {balance}."
     
-    # Deduct balance
-    await db_helpers.add_balance(member.id, member.display_name, -price, config, stat_period)
+    # Deduct balance and log transaction
+    new_balance = await db_helpers.add_balance(member.id, member.display_name, -price, config, stat_period)
+    await db_helpers.log_transaction(
+        member.id,
+        'shop_purchase',
+        -price,
+        new_balance,
+        f"Purchased feature: {feature}"
+    )
     
     # Grant feature
     await db_helpers.add_feature_unlock(member.id, feature)

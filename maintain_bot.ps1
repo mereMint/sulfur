@@ -1,5 +1,6 @@
+<# Replaced with fixed process management variant. See maintain_bot_fixed.ps1 history for prior content. #>
 # ==============================================================================
-# Sulfur Bot - Maintenance Script (Refactored Minimal)
+# Sulfur Bot - Maintenance Script (Fixed Process Management)
 # ==============================================================================
 param([switch]$SkipDatabaseBackup)
 $ErrorActionPreference='Continue'
@@ -11,27 +12,74 @@ $logFile=Join-Path $logDir "maintenance_$ts.log"
 $botLogFile=Join-Path $logDir "bot_$ts.log"
 Start-Transcript -Path $logFile -Append | Out-Null
 
-# Register cleanup handler for Ctrl+C and script termination
-trap {
-    Write-Host 'Script terminated. Cleaning up...' -ForegroundColor Red
-    if($script:botProcess -and -not $script:botProcess.HasExited){
-        Write-Host "Stopping bot process (PID: $($script:botProcess.Id))..." -ForegroundColor Yellow
-        Stop-Process -Id $script:botProcess.Id -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2
+# Cleanup function
+function Invoke-Cleanup {
+    Write-Host 'Cleaning up processes...' -ForegroundColor Yellow
+    
+    # Close file handles
+    if($script:botOutputFile) {
+        try {
+            $script:botOutputFile.Close()
+            $script:botOutputFile.Dispose()
+        } catch {}
+        $script:botOutputFile = $null
     }
+    if($script:botErrorFile) {
+        try {
+            $script:botErrorFile.Close()
+            $script:botErrorFile.Dispose()
+        } catch {}
+        $script:botErrorFile = $null
+    }
+    
+    # Kill bot process
+    if($script:botProcess) {
+        if(-not $script:botProcess.HasExited){
+            Write-Host "Stopping bot process (PID: $($script:botProcess.Id))..." -ForegroundColor Yellow
+            try {
+                $script:botProcess.Kill()
+                $script:botProcess.WaitForExit(5000)
+            } catch {
+                Stop-Process -Id $script:botProcess.Id -Force -ErrorAction SilentlyContinue
+            }
+        }
+        try { $script:botProcess.Close() } catch {}
+        $script:botProcess = $null
+    }
+    
+    # Stop web dashboard
     if($script:webDashboardJob){
         Write-Host 'Stopping Web Dashboard...' -ForegroundColor Yellow
         Stop-Job $script:webDashboardJob -ErrorAction SilentlyContinue
         Remove-Job $script:webDashboardJob -Force -ErrorAction SilentlyContinue
+        $script:webDashboardJob = $null
     }
-    # Kill any orphaned Python processes
+    
+    # Kill orphaned Python processes from this directory
     $orphans = Get-Process -Name python* -ErrorAction SilentlyContinue | Where-Object {
-        $_.Path -like "*$PSScriptRoot*"
+        try {
+            $_.Path -and ($_.Path -like "*$PSScriptRoot*")
+        } catch {
+            $false
+        }
     }
     if($orphans){
         Write-Host "Cleaning up $($orphans.Count) orphaned Python processes..." -ForegroundColor Yellow
-        $orphans | Stop-Process -Force -ErrorAction SilentlyContinue
+        $orphans | ForEach-Object {
+            try {
+                $_.Kill()
+                $_.WaitForExit(2000)
+            } catch {
+                Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+            }
+        }
     }
+}
+
+# Register cleanup handler for Ctrl+C and script termination
+trap {
+    Write-Host 'Script terminated. Running cleanup...' -ForegroundColor Red
+    Invoke-Cleanup
     Update-BotStatus 'Shutdown'
     Write-Host 'Cleanup complete.' -ForegroundColor Green
     Stop-Transcript
@@ -40,13 +88,7 @@ trap {
 
 # Also register an exit handler
 $null = Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action {
-    if($script:botProcess -and -not $script:botProcess.HasExited){
-        Stop-Process -Id $script:botProcess.Id -Force -ErrorAction SilentlyContinue
-    }
-    if($script:webDashboardJob){
-        Stop-Job $script:webDashboardJob -ErrorAction SilentlyContinue
-        Remove-Job $script:webDashboardJob -Force -ErrorAction SilentlyContinue
-    }
+    Invoke-Cleanup
 }
 
 function Write-ColorLog {
@@ -56,7 +98,6 @@ function Write-ColorLog {
 }
 
 function Test-Preflight {
-    # Basic checks to avoid restart loops
     $envPath = Join-Path $PSScriptRoot '.env'
     if(-not (Test-Path $envPath)){
         Write-ColorLog "Missing .env file. Create one or copy .env.example" 'Red'
@@ -96,7 +137,6 @@ function Update-BotStatus {
 function Invoke-DatabaseBackup {
     Write-ColorLog 'Creating database backup...' 'Cyan' '[DB] '
     try {
-        # Try mariadb-dump first, then mysqldump
         $dumpCmd=$null
         if(Get-Command mariadb-dump -ErrorAction SilentlyContinue){
             $dumpCmd='mariadb-dump'
@@ -183,14 +223,12 @@ function Start-WebDashboard {
     for($i=0; $i -lt $maxTries; $i++){
         Start-Sleep 2
         try {
-            # Prefer an HTTP HEAD check to avoid ping dependency or ICMP issues
             $resp = Invoke-WebRequest -Uri 'http://127.0.0.1:5000/' -Method Head -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
             if($resp.StatusCode -ge 200 -and $resp.StatusCode -lt 500){
                 Write-ColorLog 'Web Dashboard running at http://localhost:5000' 'Green' '[WEB] '
                 return $job
             }
         } catch {
-            # Fallback to a quick TCP probe
             try {
                 $ok = Test-NetConnection -ComputerName 127.0.0.1 -Port 5000 -InformationLevel Quiet -WarningAction SilentlyContinue -ErrorAction SilentlyContinue
                 if($ok){
@@ -218,9 +256,51 @@ function Start-Bot {
         $pythonExe='venv\Scripts\python.exe'
     }
     $botErrFile = $botLogFile -replace '\.log$','_errors.log'
-    # Start process and capture stdout/stderr to logs for diagnostics
-    $proc=Start-Process -FilePath $pythonExe -ArgumentList @('-u','bot.py') -RedirectStandardOutput $botLogFile -RedirectStandardError $botErrFile -PassThru -WindowStyle Hidden
-    Start-Sleep -Seconds 2 # Give the process time to start
+    
+    # Use System.Diagnostics.Process for better control
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $pythonExe
+    $startInfo.Arguments = '-u bot.py'
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.WorkingDirectory = $PSScriptRoot
+    
+    # Create process
+    $proc = New-Object System.Diagnostics.Process
+    $proc.StartInfo = $startInfo
+    $proc.EnableRaisingEvents = $true
+    
+    # Setup output redirection
+    $script:botOutputFile = [System.IO.StreamWriter]::new($botLogFile, $true)
+    $script:botErrorFile = [System.IO.StreamWriter]::new($botErrFile, $true)
+    
+    $proc.add_OutputDataReceived({
+        param($sender, $e)
+        if($e.Data -and $script:botOutputFile) {
+            try {
+                $script:botOutputFile.WriteLine($e.Data)
+                $script:botOutputFile.Flush()
+            } catch {}
+        }
+    })
+    
+    $proc.add_ErrorDataReceived({
+        param($sender, $e)
+        if($e.Data -and $script:botErrorFile) {
+            try {
+                $script:botErrorFile.WriteLine($e.Data)
+                $script:botErrorFile.Flush()
+            } catch {}
+        }
+    })
+    
+    [void]$proc.Start()
+    $proc.BeginOutputReadLine()
+    $proc.BeginErrorReadLine()
+    
+    Start-Sleep -Seconds 2
     Update-BotStatus 'Running' $proc.Id
     Write-ColorLog "Bot started (PID: $($proc.Id))" 'Green' '[BOT] '
     return $proc
@@ -248,13 +328,10 @@ function Invoke-Update {
     Invoke-GitCommit 'chore: Auto-commit before update'
     git fetch 2>&1 | Out-Null
     $changedFiles=git diff --name-only HEAD...origin/main
-    if($changedFiles -like '*maintain_bot.ps1*'){
+    if($changedFiles -like '*maintain_bot.ps1*' -or $changedFiles -like '*maintain_bot_fixed.ps1*'){
         Write-ColorLog 'Maintenance script updated; restarting...' 'Magenta' '[UPDATE] '
         git pull
-        if($script:webDashboardJob){
-            Stop-Job $script:webDashboardJob -ErrorAction SilentlyContinue
-            Remove-Job $script:webDashboardJob -Force -ErrorAction SilentlyContinue
-        }
+        Invoke-Cleanup
         Start-Process powershell.exe -ArgumentList "-File `"$PSScriptRoot\maintain_bot.ps1`""
         Stop-Transcript
         exit 0
@@ -266,7 +343,7 @@ function Invoke-Update {
 
 # ==================== MAIN LOOP ====================
 Write-Host '╔════════════════════════════════════════════════════════════╗' -ForegroundColor Cyan
-Write-Host '║       Sulfur Discord Bot - Maintenance System v2.0        ║' -ForegroundColor Cyan
+Write-Host '║    Sulfur Discord Bot - Maintenance System v2.1 (Fixed)   ║' -ForegroundColor Cyan
 Write-Host '╚════════════════════════════════════════════════════════════╝' -ForegroundColor Cyan
 Write-Host ''
 Write-ColorLog "Press 'Q' to shutdown" 'Yellow'
@@ -298,7 +375,8 @@ while($true){
 
     $script:botProcess=Start-Bot
     $botStartTime = Get-Date
-    while($script:botProcess -and (Get-Process -Id $script:botProcess.Id -ErrorAction SilentlyContinue)){
+    
+    while($script:botProcess -and -not $script:botProcess.HasExited){
         Start-Sleep 1
         $check++
         
@@ -307,53 +385,23 @@ while($true){
                 $key=[Console]::ReadKey($true)
                 if($key.Key -eq 'Q'){
                     Write-ColorLog 'Shutdown requested' 'Yellow'
-                    Stop-Process -Id $script:botProcess.Id -Force
-                    Start-Sleep 2
+                    Invoke-Cleanup
                     Invoke-DatabaseBackup
                     Invoke-GitCommit 'chore: Auto-commit on shutdown'
                     Update-BotStatus 'Shutdown'
-                    if($script:webDashboardJob){
-                        Stop-Job $script:webDashboardJob -ErrorAction SilentlyContinue
-                        Remove-Job $script:webDashboardJob -Force -ErrorAction SilentlyContinue
-                    }
                     Stop-Transcript
                     exit 0
                 }
             }
-        } catch {
-            # Ignore console access errors when running in background
-        }
+        } catch {}
         
         if(Test-Path 'stop.flag'){
             Write-ColorLog 'Stop flag detected' 'Yellow'
             Remove-Item 'stop.flag' -ErrorAction SilentlyContinue
-            
-            # Send Ctrl+C for graceful shutdown (allows bot to set status offline)
-            Write-ColorLog 'Sending graceful shutdown signal...' 'Cyan'
-            try {
-                [Console]::TreatControlCAsInput = $true
-                Stop-Process -Id $script:botProcess.Id -ErrorAction SilentlyContinue
-            } catch {
-                # Fallback to force stop if graceful fails
-            }
-            
-            # Wait for graceful shutdown
-            Start-Sleep 3
-            
-            # Force stop if still running
-            if(-not $script:botProcess.HasExited){
-                Write-ColorLog 'Force stopping bot process...' 'Yellow'
-                Stop-Process -Id $script:botProcess.Id -Force -ErrorAction SilentlyContinue
-            }
-            
-            Start-Sleep 2
+            Invoke-Cleanup
             Invoke-DatabaseBackup
             Invoke-GitCommit 'chore: Auto-commit on stop'
             Update-BotStatus 'Shutdown'
-            if($script:webDashboardJob){
-                Stop-Job $script:webDashboardJob -ErrorAction SilentlyContinue
-                Remove-Job $script:webDashboardJob -Force -ErrorAction SilentlyContinue
-            }
             Stop-Transcript
             exit 0
         }
@@ -362,21 +410,31 @@ while($true){
             Write-ColorLog 'Restart flag detected' 'Yellow'
             Remove-Item 'restart.flag' -ErrorAction SilentlyContinue
             
-            # Send graceful shutdown signal
-            Write-ColorLog 'Sending graceful shutdown signal...' 'Cyan'
-            try {
-                Stop-Process -Id $script:botProcess.Id -ErrorAction SilentlyContinue
-            } catch {}
-            
-            # Wait for graceful shutdown
-            Start-Sleep 3
-            
-            # Force stop if still running
-            if(-not $script:botProcess.HasExited){
-                Write-ColorLog 'Force stopping bot process...' 'Yellow'
-                Stop-Process -Id $script:botProcess.Id -Force -ErrorAction SilentlyContinue
+            # Close file handles first
+            if($script:botOutputFile) {
+                try {
+                    $script:botOutputFile.Close()
+                    $script:botOutputFile.Dispose()
+                } catch {}
+                $script:botOutputFile = $null
+            }
+            if($script:botErrorFile) {
+                try {
+                    $script:botErrorFile.Close()
+                    $script:botErrorFile.Dispose()
+                } catch {}
+                $script:botErrorFile = $null
             }
             
+            # Kill process
+            if($script:botProcess -and -not $script:botProcess.HasExited){
+                try {
+                    $script:botProcess.Kill()
+                    $script:botProcess.WaitForExit(3000)
+                } catch {
+                    Stop-Process -Id $script:botProcess.Id -Force -ErrorAction SilentlyContinue
+                }
+            }
             break
         }
         
@@ -392,8 +450,7 @@ while($true){
             (Get-Date).ToUniversalTime().ToString('o') | Out-File -FilePath 'last_check.txt' -Encoding utf8
             if(Test-ForUpdates){
                 Write-ColorLog 'Stopping bot for update...' 'Yellow' '[UPDATE] '
-                Stop-Process -Id $script:botProcess.Id -Force
-                Start-Sleep 2
+                Invoke-Cleanup
                 Invoke-Update
                 break
             }

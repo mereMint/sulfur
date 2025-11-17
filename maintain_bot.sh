@@ -48,6 +48,19 @@ CHECK_INTERVAL=60      # Check for updates every 60 seconds
 COMMIT_INTERVAL=300    # Auto-commit every 5 minutes
 BACKUP_INTERVAL=1800   # Backup every 30 minutes
 
+# Flags
+SKIP_BACKUP=${SKIP_BACKUP:-false}
+
+# CLI flags
+for arg in "$@"; do
+    case "$arg" in
+        --no-backup|-n)
+            SKIP_BACKUP=true
+            shift
+            ;;
+    esac
+done
+
 # Counters
 CHECK_COUNTER=0
 CRASH_COUNT=0
@@ -153,7 +166,11 @@ cleanup() {
     fi
     
     # Final backup and commit
-    backup_database
+    if [ "$SKIP_BACKUP" != true ]; then
+        backup_database
+    else
+        log_db "Skipping final backup due to SKIP_BACKUP=true"
+    fi
     git_commit "chore: Auto-commit on shutdown"
     
     update_status "Shutdown"
@@ -163,6 +180,32 @@ cleanup() {
 
 # Set trap for Ctrl+C
 trap cleanup SIGINT SIGTERM
+
+# Kill orphaned python processes that originated in this project dir
+cleanup_orphans() {
+    log_warning "Searching for orphaned Python processes..."
+    if command -v pgrep >/dev/null 2>&1; then
+        # Match processes with this script directory in the command line
+        local pids
+        pids=$(pgrep -f "python.*${SCRIPT_DIR}" || true)
+        if [ -n "$pids" ]; then
+            log_warning "Killing orphaned PIDs: $pids"
+            kill -9 $pids 2>/dev/null || true
+        else
+            log_info "No orphaned Python processes found"
+        fi
+    else
+        # Fallback using ps/grep/awk
+        local pids
+        pids=$(ps aux | grep -E "python.*${SCRIPT_DIR}" | grep -v grep | awk '{print $2}')
+        if [ -n "$pids" ]; then
+            log_warning "Killing orphaned PIDs: $pids"
+            kill -9 $pids 2>/dev/null || true
+        else
+            log_info "No orphaned Python processes found"
+        fi
+    fi
+}
 
 # ==============================================================================
 # Database Functions
@@ -405,7 +448,16 @@ else
 fi
 
 # Initial backup
-backup_database
+if [ "$SKIP_BACKUP" != true ]; then
+    backup_database
+else
+    log_db "Skipping initial backup due to SKIP_BACKUP=true"
+fi
+
+# Prune old logs (keep last 20 per type)
+find "$LOG_DIR" -type f -name 'maintenance_*.log' | sort -r | tail -n +21 | xargs -r rm -f
+find "$LOG_DIR" -type f -name 'bot_*.log' | sort -r | tail -n +21 | xargs -r rm -f
+find "$LOG_DIR" -type f -name 'web_*.log' | sort -r | tail -n +21 | xargs -r rm -f
 
 # Preflight check for token to avoid restart loops
 preflight_check() {
@@ -448,6 +500,7 @@ start_web_dashboard || log_warning "Web Dashboard failed to start, continuing an
 # Main loop
 while true; do
     # Start bot
+    cleanup_orphans
     start_bot
     
     # Monitor bot
@@ -486,7 +539,11 @@ while true; do
         fi
         
         if [ $((CHECK_COUNTER % BACKUP_INTERVAL)) -eq 0 ]; then
-            backup_database
+            if [ "$SKIP_BACKUP" != true ]; then
+                backup_database
+            else
+                log_db "Skipping scheduled backup due to SKIP_BACKUP=true"
+            fi
         fi
         
         if [ $((CHECK_COUNTER % CHECK_INTERVAL)) -eq 0 ]; then

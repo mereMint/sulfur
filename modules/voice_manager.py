@@ -55,6 +55,11 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
                 new_channel_name = f"🔊 {member.display_name}'s Channel"
                 user_limit = 0
 
+            # SAFETY CHECK: Ensure user is STILL in the join-to-create channel before creation
+            if not member.voice or member.voice.channel != after.channel:
+                logger.debug(f"{member.display_name} left join channel before creation started; aborting create.")
+                return
+
             # Create the voice channel
             new_channel = await guild.create_voice_channel(
                 name=new_channel_name,
@@ -73,6 +78,20 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
 
             # --- FIX: Wait a moment before moving the user to avoid race conditions ---
             await asyncio.sleep(config['modules']['voice_manager']['creation_move_delay_ms'] / 1000.0)
+
+            # FINAL CHECK: Ensure user is still connected and not already in another managed channel
+            if not member.voice or member.voice.channel == new_channel:
+                # Already moved by Discord automatically or user disconnected
+                pass
+            elif member.voice.channel != after.channel:
+                # User moved somewhere else meanwhile; clean up the just-created channel
+                try:
+                    await new_channel.delete(reason="User moved before being placed in new channel")
+                    await remove_managed_channel(new_channel.id, keep_owner_record=True)
+                    logger.debug(f"Aborted channel creation for {member.display_name}; cleaned up {new_channel.id}")
+                    return
+                except Exception:
+                    pass
 
             # Move the user to their new channel
             try:
