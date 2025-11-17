@@ -76,7 +76,7 @@ A feature-rich Discord bot with AI capabilities, mini-games, and comprehensive m
 
 ```powershell
 # 1) Clone and enter the repo
-git clone https://github.com/yourusername/sulfur.git; cd sulfur
+git clone https://github.com/mereMint/sulfur.git; cd sulfur
 
 # 2) Create venv + install deps
 python -m venv venv; .\venv\Scripts\Activate.ps1; pip install -r requirements.txt
@@ -91,7 +91,7 @@ Open http://localhost:5000 for the dashboard. Press Q in the maintenance window 
 
 ```bash
 # 1) Clone and enter the repo
-git clone https://github.com/yourusername/sulfur.git && cd sulfur
+git clone https://github.com/mereMint/sulfur.git && cd sulfur
 
 # 2) Create venv + install deps
 python -m venv venv && source venv/bin/activate && pip install -r requirements.txt
@@ -125,7 +125,7 @@ Dashboard: http://localhost:5000 (served by Waitress). Stop with Ctrl+C or creat
 
 ```powershell
 cd C:\
-git clone https://github.com/yourusername/sulfur.git
+git clone https://github.com/mereMint/sulfur.git
 cd sulfur
 ```
 
@@ -157,15 +157,15 @@ mysql -u sulfur_bot_user -p sulfur_bot < backups\latest_backup.sql
 
 #### Step 4: Configure Environment
 
-1. **Create `.env` file** in the project root:
+1. **Create `.env` file** in the project root (or copy from `.env.example`):
 ```env
 # Discord Bot Token (from https://discord.com/developers/applications)
-DISCORD_TOKEN=your_discord_bot_token_here
+DISCORD_BOT_TOKEN=your_discord_bot_token_here
 
 # Database Configuration
 DB_HOST=localhost
 DB_USER=sulfur_bot_user
-DB_PASSWORD=your_secure_password
+DB_PASS=your_secure_password
 DB_NAME=sulfur_bot
 
 # AI API Keys
@@ -325,7 +325,7 @@ EXIT;
 
 # Note: If you prefer no password for local development:
 # CREATE USER 'sulfur_bot_user'@'localhost' IDENTIFIED BY '';
-# Then set DB_PASSWORD='' in your .env file
+# Then set DB_PASS='' in your .env file
 
 # Initialize schema (auto-created on first run)
 # No manual schema import required.
@@ -342,10 +342,10 @@ nano .env
 
 Add the following (paste by long-pressing):
 ```env
-DISCORD_TOKEN=your_discord_bot_token_here
+DISCORD_BOT_TOKEN=your_discord_bot_token_here
 DB_HOST=localhost
 DB_USER=sulfur_bot_user
-DB_PASSWORD=your_secure_password
+DB_PASS=your_secure_password
 DB_NAME=sulfur_bot
 GEMINI_API_KEY=your_gemini_api_key_here
 OPENAI_API_KEY=your_openai_api_key_here
@@ -353,7 +353,7 @@ BOT_PREFIX=!
 OWNER_ID=your_discord_user_id
 ```
 
-**Important:** Set `DB_PASSWORD` to match what you used in Step 6. If you chose no password, use `DB_PASSWORD=`
+**Important:** Set `DB_PASS` to match what you used in Step 6. If you chose no password, use `DB_PASS=`
 
 Save with **Ctrl+O**, **Enter**, then **Ctrl+X**
 
@@ -590,10 +590,10 @@ Get Client ID from: Discord Developer Portal > Your App > General Information
 
 | Variable | Required | Description | Example |
 |----------|----------|-------------|---------|
-| `DISCORD_TOKEN` | ✅ Yes | Bot token from Discord | `YOUR_BOT_TOKEN_HERE` |
+| `DISCORD_BOT_TOKEN` | ✅ Yes | Bot token from Discord | `YOUR_BOT_TOKEN_HERE` |
 | `DB_HOST` | ✅ Yes | MySQL host | `localhost` |
 | `DB_USER` | ✅ Yes | MySQL username | `sulfur_bot_user` |
-| `DB_PASSWORD` | ✅ Yes | MySQL password | `your_secure_password` |
+| `DB_PASS` | ✅ Yes | MySQL password | `your_secure_password` |
 | `DB_NAME` | ✅ Yes | Database name | `sulfur_bot` |
 | `GEMINI_API_KEY` | ✅ Yes | Google Gemini API key | `YOUR_GEMINI_KEY_HERE` |
 | `OPENAI_API_KEY` | ⚠️ Optional | OpenAI API key | `YOUR_OPENAI_KEY_HERE` |
@@ -748,7 +748,7 @@ Solution:
 ```
 Solution:
 1. Regenerate token in Discord Developer Portal
-2. Update DISCORD_TOKEN in .env
+2. Update DISCORD_BOT_TOKEN in .env
 3. Ensure no extra spaces or quotes
 ```
 
