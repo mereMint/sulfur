@@ -473,7 +473,7 @@ preflight_check() {
         return 1
     fi
     local token
-    token=$(echo "$raw_line" | sed -E 's/^[^=]*=\s*//; s/^"//; s/"$//; s/^\'\''//; s/\'\'$//;')
+    token=$(echo "$raw_line" | sed -E "s/^[^=]*=\s*//; s/^\"|\"$//g; s/^'|'\$//g")
     if [ -z "$token" ]; then
         log_error "DISCORD_BOT_TOKEN is empty"
         return 1
@@ -571,7 +571,7 @@ while true; do
 
     # Crash-loop detection: if bot exits within QUICK_CRASH_SECONDS, increment; else reset
     if [ -f "$BOT_LOG" ]; then
-        # If the log file's last modified time is recent, we can approximate runtime
+        # If the log file last modified time is recent, we can approximate runtime
         : # placeholder; we track time implicitly by sleeping 1s in loop
     fi
 

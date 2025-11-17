@@ -72,17 +72,40 @@ A feature-rich Discord bot with AI capabilities, mini-games, and comprehensive m
 
 ## ⚡ Quick Start
 
+> **Important:** You need Discord Bot Token and API keys before starting. See [Prerequisites](#-prerequisites).
+
 ### Windows (PowerShell)
 
 ```powershell
 # 1) Clone and enter the repo
-git clone https://github.com/mereMint/sulfur.git; cd sulfur
+git clone https://github.com/mereMint/sulfur.git
+cd sulfur
 
-# 2) Create venv + install deps
-python -m venv venv; .\venv\Scripts\Activate.ps1; pip install -r requirements.txt
+# 2) Install MySQL (if not already installed)
+# Download and install XAMPP from https://www.apachefriends.org/
+# Or MySQL from https://dev.mysql.com/downloads/installer/
 
-# 3) Run the maintenance system (starts bot + web dashboard)
-./maintain_bot.ps1
+# 3) Create database
+# Open MySQL command line or phpMyAdmin and run:
+# CREATE DATABASE sulfur_bot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+# CREATE USER 'sulfur_bot_user'@'localhost' IDENTIFIED BY 'your_password';
+# GRANT ALL PRIVILEGES ON sulfur_bot.* TO 'sulfur_bot_user'@'localhost';
+# FLUSH PRIVILEGES;
+
+# 4) Create .env file from template
+Copy-Item .env.example .env
+# Edit .env and add your tokens:
+# - DISCORD_BOT_TOKEN (from Discord Developer Portal)
+# - GEMINI_API_KEY (from Google AI Studio)
+# - DB_PASS (your MySQL password from step 3)
+
+# 5) Create venv + install deps
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+
+# 6) Run the maintenance system (starts bot + web dashboard)
+.\maintain_bot.ps1
 ```
 
 Open http://localhost:5000 for the dashboard. Press Q in the maintenance window to shut down cleanly.
@@ -91,13 +114,42 @@ Open http://localhost:5000 for the dashboard. Press Q in the maintenance window 
 
 ```bash
 # 1) Clone and enter the repo
-git clone https://github.com/mereMint/sulfur.git && cd sulfur
+git clone https://github.com/mereMint/sulfur.git
+cd sulfur
 
-# 2) Create venv + install deps
-python -m venv venv && source venv/bin/activate && pip install -r requirements.txt
+# 2) Install MySQL/MariaDB (if not already installed)
+# Ubuntu/Debian: sudo apt install mysql-server
+# Termux: pkg install mariadb && mariadb-install-db
 
-# 3) Start (wrapper runs the maintenance script)
-chmod +x start.sh maintain_bot.sh && ./start.sh
+# 3) Start MySQL/MariaDB
+# Ubuntu/Debian: sudo systemctl start mysql
+# Termux: mysqld_safe & (wait 10 seconds)
+
+# 4) Create database
+# Run: mysql -u root -p (or 'mariadb -u root' on Termux)
+# Then execute:
+# CREATE DATABASE sulfur_bot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+# CREATE USER 'sulfur_bot_user'@'localhost' IDENTIFIED BY '';
+# GRANT ALL PRIVILEGES ON sulfur_bot.* TO 'sulfur_bot_user'@'localhost';
+# FLUSH PRIVILEGES;
+# EXIT;
+
+# 5) Create .env file from template
+cp .env.example .env
+# Edit .env and add your tokens:
+nano .env
+# - DISCORD_BOT_TOKEN (from Discord Developer Portal)
+# - GEMINI_API_KEY (from Google AI Studio)
+# Save with Ctrl+O, Enter, Ctrl+X
+
+# 6) Create venv + install deps
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# 7) Start (wrapper runs the maintenance script)
+chmod +x start.sh maintain_bot.sh
+./start.sh
 ```
 
 Dashboard: http://localhost:5000 (served by Waitress). Stop with Ctrl+C or create `stop.flag`.
