@@ -679,22 +679,7 @@ async def on_presence_update(before, after):
                     # --- NEW: Track game minutes for quest progress ---
                     try:
                         quest_completed, _ = await quests.update_quest_progress(db_helpers, user_id, 'game_minutes', int(duration_minutes))
-                        if quest_completed:
-                            # Notify user of quest completion
-                            try:
-                                user = await client.fetch_user(user_id)
-                                all_completed, _, _ = await quests.check_all_quests_completed(db_helpers, user_id)
-                                if all_completed:
-                                    await user.send(
-                                        "🎉 **Alle täglichen Quests abgeschlossen!**\n"
-                                        "Nutze `/questclaim` um deine Belohnungen und den Tagesbonus einzusammeln!"
-                                    )
-                                else:
-                                    await user.send(
-                                        "✅ **Quest abgeschlossen!** Nutze `/questclaim` um deine Belohnung einzusammeln."
-                                    )
-                            except discord.Forbidden:
-                                pass  # User has DMs disabled
+                        # Quest completion notifications will be sent when user checks /quests or uses /questclaim
                     except Exception as e:
                         logger.error(f"Error updating game quest progress for user {user_id}: {e}", exc_info=True)
                 
@@ -787,21 +772,7 @@ async def grant_voice_xp():
                 # --- NEW: Track VC minutes for quest progress ---
                 try:
                     quest_completed, _ = await quests.update_quest_progress(db_helpers, member.id, 'vc_minutes', 1)
-                    if quest_completed:
-                        # Notify user of quest completion
-                        try:
-                            all_completed, _, _ = await quests.check_all_quests_completed(db_helpers, member.id)
-                            if all_completed:
-                                await member.send(
-                                    "🎉 **Alle täglichen Quests abgeschlossen!**\n"
-                                    "Nutze `/questclaim` um deine Belohnungen und den Tagesbonus einzusammeln!"
-                                )
-                            else:
-                                await member.send(
-                                    "✅ **Quest abgeschlossen!** Nutze `/questclaim` um deine Belohnung einzusammeln."
-                                )
-                        except discord.Forbidden:
-                            pass  # User has DMs disabled
+                    # Quest completion notifications will be sent when user checks /quests or uses /questclaim
                 except Exception as e:
                     logger.error(f"Error updating VC quest progress for user {user_id}: {e}", exc_info=True)
                 
@@ -2956,21 +2927,7 @@ async def on_message(message):
             # --- NEW: Track message quest progress ---
             try:
                 quest_completed, _ = await quests.update_quest_progress(db_helpers, message.author.id, 'messages', 1)
-                if quest_completed:
-                    # Notify user of quest completion
-                    try:
-                        all_completed, _, _ = await quests.check_all_quests_completed(db_helpers, message.author.id)
-                        if all_completed:
-                            await message.author.send(
-                                "🎉 **Alle täglichen Quests abgeschlossen!**\n"
-                                "Nutze `/questclaim` um deine Belohnungen und den Tagesbonus einzusammeln!"
-                            )
-                        else:
-                            await message.author.send(
-                                "✅ **Quest abgeschlossen!** Nutze `/questclaim` um deine Belohnung einzusammeln."
-                            )
-                    except discord.Forbidden:
-                        pass  # User has DMs disabled
+                # Only notify on quest completion, not on every message
             except Exception as e:
                 logger.error(f"Error updating message quest progress: {e}", exc_info=True)
 
@@ -3015,21 +2972,7 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
     # Track reaction quest progress
     try:
         quest_completed, _ = await quests.update_quest_progress(db_helpers, payload.user_id, 'reactions', 1)
-        if quest_completed:
-            # Notify user of quest completion
-            try:
-                all_completed, _, _ = await quests.check_all_quests_completed(db_helpers, payload.user_id)
-                if all_completed:
-                    await user.send(
-                        "🎉 **Alle täglichen Quests abgeschlossen!**\n"
-                        "Nutze `/questclaim` um deine Belohnungen und den Tagesbonus einzusammeln!"
-                    )
-                else:
-                    await user.send(
-                        "✅ **Quest abgeschlossen!** Nutze `/questclaim` um deine Belohnung einzusammeln."
-                    )
-            except discord.Forbidden:
-                pass  # User has DMs disabled
+        # Quest completion notifications will be sent when user checks /quests or uses /questclaim
     except Exception as e:
         logger.error(f"Error updating reaction quest progress: {e}", exc_info=True)
 
