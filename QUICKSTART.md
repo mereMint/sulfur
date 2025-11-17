@@ -205,33 +205,84 @@ mysqld_safe --datadir=$PREFIX/var/lib/mysql &
 
 ---
 
-## Common Issues
+## 🔧 Control Commands
 
-**"Module not found"**
-→ Activate virtual environment first
+### Windows PowerShell
+```powershell
+# Restart bot
+echo $null > restart.flag
 
-**"Can't connect to database"**
-→ Make sure MariaDB is running: `ps aux | grep mariadb`
-→ Restart if needed: `mariadbd-safe --datadir=$PREFIX/var/lib/mysql &`
+# Stop bot
+echo $null > stop.flag
 
-**"Invalid token"**
-→ Check .env file for typos
+# Or press 'Q' in maintenance console
+```
 
-**Bot stops when I close terminal (Termux)**
-→ Use `tmux` or `screen` (see Termux section above)
+### Linux/Termux
+```bash
+# Restart bot
+touch restart.flag
 
-**"mysql: Deprecated program name" error**
-→ Use `mariadb` command instead of `mysql`
+# Stop bot
+touch stop.flag
 
----
-
-## What's Next?
-
-- Visit web dashboard: http://localhost:5000
-- Try commands: `!help`
-- Check AI usage: http://localhost:5000/ai_dashboard
-- Read full README.md for all features
+# Or press Ctrl+C in console
+```
 
 ---
 
-**Need Help?** Check README.md or create an issue on GitHub!
+## 🆘 Common Issues
+
+### "MySQL/MariaDB not running"
+**Windows**: Start MySQL via XAMPP Control Panel  
+**Linux**: `sudo systemctl start mariadb`  
+**Termux**: `mysqld_safe --datadir=$PREFIX/var/lib/mysql &`
+
+### "DISCORD_BOT_TOKEN not set"
+Edit `.env` file and add your Discord bot token (no extra quotes/spaces)
+
+### "Script execution policy error" (Windows)
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+```
+
+### "Permission denied" (Linux/Termux)
+```bash
+chmod +x *.sh
+```
+
+### "Module not found"
+Activate virtual environment:
+- **Windows**: `.\venv\Scripts\Activate.ps1`
+- **Linux/Termux**: `source venv/bin/activate`
+
+### Bot stops when terminal closes (Termux)
+Use `tmux` (see Termux-Specific Tips above)
+
+---
+
+## 📚 Next Steps
+
+1. Customize bot personality: `config/system_prompt.txt`
+2. Configure settings: `config/config.json`
+3. Try commands: `!help` in Discord
+4. Check AI usage: http://localhost:5000/ai_dashboard
+5. Read full setup guide: `SETUP_GUIDE.md`
+6. Explore features: `README.md`
+7. Check planned features: `TODO.md`
+
+---
+
+## 🔗 Useful Links
+
+- **Full Setup Guide**: `SETUP_GUIDE.md`
+- **Troubleshooting**: `SETUP_GUIDE.md#troubleshooting`
+- **Project Structure**: `PROJECT_STRUCTURE.md`
+- **Discord Developer Portal**: https://discord.com/developers/applications
+- **Google AI Studio**: https://aistudio.google.com/
+
+---
+
+**Happy botting! 🤖✨**
+
+*Need help? Check `SETUP_GUIDE.md` or create an issue on GitHub!*
