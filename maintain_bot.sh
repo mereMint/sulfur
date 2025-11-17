@@ -488,11 +488,60 @@ preflight_check() {
     return 0
 }
 
+# Ensure venv and dependencies are present
+ensure_python_env() {
+    log_info "Ensuring Python virtual environment and dependencies..."
+
+    # Prefer project venv
+    if [ ! -f "venv/bin/python" ]; then
+        log_warning "Virtual environment not found; creating venv..."
+        if ! $PYTHON_CMD -m venv venv >>"$MAIN_LOG" 2>&1; then
+            log_error "Failed to create virtual environment"
+            return 1
+        fi
+        log_success "Virtual environment created"
+    fi
+
+    local venv_python="venv/bin/python"
+    local venv_pip="venv/bin/pip"
+
+    # Upgrade pip to avoid common install issues
+    $venv_python -m pip install --upgrade pip >>"$MAIN_LOG" 2>&1 || true
+
+    # Install requirements if discord.py is missing
+    if ! $venv_python -c 'import discord' >/dev/null 2>&1; then
+        log_warning "discord.py not found in venv; installing requirements..."
+        if ! $venv_pip install -r requirements.txt >>"$MAIN_LOG" 2>&1; then
+            log_warning "First install attempt failed; retrying without cache..."
+            if ! $venv_pip install -r requirements.txt --no-cache-dir >>"$MAIN_LOG" 2>&1; then
+                log_error "Failed to install Python dependencies"
+                return 1
+            fi
+        fi
+    fi
+
+    # Final verification
+    if $venv_python -c 'import discord, flask, socketio; print("ok")' >/dev/null 2>&1 || \
+       $venv_python -c 'import discord; print("ok")' >/dev/null 2>&1; then
+        log_success "Python environment ready"
+        return 0
+    else
+        log_error "Python environment verification failed (discord.py still missing?)"
+        return 1
+    fi
+}
+
 # Ensure preflight passes before starting
 until preflight_check; do
     log_warning "Fix the issues above (edit .env), then press Enter to retry..."
     read -r _
 done
+
+# Ensure venv/deps before starting services
+ensure_python_env || {
+    log_error "Cannot start without required Python packages. Check $MAIN_LOG for details."
+    exit 1
+}
 
 # Start web dashboard
 start_web_dashboard || log_warning "Web Dashboard failed to start, continuing anyway..."
