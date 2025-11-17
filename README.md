@@ -825,6 +825,68 @@ Solution:
 4. If still not working, ensure web_dashboard.py uses host='0.0.0.0' not 'localhost'
 ```
 
+### Common Issues (Fixed in Latest Version)
+
+**Problem:** "Database backup failed" in maintenance script logs
+```
+Cause: The script couldn't find mysqldump/mariadb-dump or authentication failed
+Solution (Already Fixed):
+- The maintain_bot.sh script now tries multiple methods:
+  1. Using DB_PASS from .env if set
+  2. No password authentication (for passwordless users)
+  3. Falls back to /etc/mysql/debian.cnf if available
+- Ensure your .env has the correct DB_PASS value or leave it empty if no password
+```
+
+**Problem:** "Web Dashboard failed to start" - SocketIO.WSGIApp error
+```
+Cause: Flask-SocketIO API changed in newer versions
+Solution (Already Fixed):
+- Updated web_dashboard.py to use socketio.run() instead of socketio.WSGIApp()
+- The dashboard now starts correctly with Werkzeug dev server
+```
+
+**Problem:** Bot doesn't react to messages
+```
+Cause: Bot needs to be mentioned or its name used in messages
+Solution:
+1. Mention the bot: @BotName hello
+2. Use bot name in message: "sulfur what's up?"
+3. Check config/config.json for configured bot names
+4. Ensure intents are enabled in Discord Developer Portal:
+   - MESSAGE CONTENT INTENT must be enabled
+   - Server Members Intent
+   - Presence Intent
+```
+
+**Problem:** "/rank command can't connect to database" or similar DB errors
+```
+Cause: Missing database tables (conversation_context, ai_model_usage, etc.)
+Solution (Already Fixed):
+- Run the bot once - it will auto-create all required tables
+- Or manually: python3 -c "from modules import db_helpers; db_helpers.init_db_pool('localhost', 'sulfur_bot_user', '', 'sulfur_bot'); db_helpers.initialize_database()"
+- All tables including conversation_context, ai_model_usage, emoji_descriptions, and wrapped_registrations are now created automatically
+```
+
+**Problem:** "ADD COLUMN IF NOT EXISTS" SQL syntax errors
+```
+Cause: MySQL doesn't support this syntax
+Solution (Already Fixed):
+- Updated db_helpers.py to check if columns exist before adding them
+- Uses "SHOW COLUMNS FROM table LIKE 'column'" pattern
+```
+
+**Problem:** Git commit fails in maintenance script
+```
+Cause: Git not configured or no push permissions
+Solution:
+1. Configure git: 
+   git config --global user.email "you@example.com"
+   git config --global user.name "Your Name"
+2. For Termux: Set up SSH keys (see Installation section)
+3. For testing: The script continues even if git fails
+```
+
 ---
 
 ## ❓ FAQ

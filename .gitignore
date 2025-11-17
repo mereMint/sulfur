@@ -3,10 +3,18 @@ __pycache__/
 *.pyc
 
 # Environment
+.env
 
 # Logs and Backups
 logs/
 backups/
+
+# Runtime files
+config/*.pid
+config/bot_status.json
+*.flag
+last_check.txt
+last_update.txt
 
 # IDE / Editor specific
 .vscode/
