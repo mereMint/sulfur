@@ -20,9 +20,8 @@ Complete guide for running Sulfur Discord bot on Android using Termux.
 ```bash
 # Clone the repository first to get the setup script
 pkg update && pkg install -y git
-cd ~
-git clone https://github.com/mereMint/sulfur.git
-cd sulfur
+git clone https://github.com/mereMint/sulfur.git ~/sulfur
+cd ~/sulfur
 bash termux_quickstart.sh
 ```
 

@@ -7,12 +7,13 @@
 # IMPORTANT: Don't try to download this file directly!
 # Instead, clone the repository first:
 #   pkg update && pkg install -y git
-#   cd ~ && git clone https://github.com/mereMint/sulfur.git
-#   cd sulfur && bash termux_quickstart.sh
+#   git clone https://github.com/mereMint/sulfur.git ~/sulfur
+#   cd ~/sulfur && bash termux_quickstart.sh
 #
 # Usage: bash termux_quickstart.sh
 
-set -e  # Exit on error
+# Note: We don't use 'set -e' because some commands may have warnings
+# that shouldn't stop the script (like apt warnings)
 
 # Colors
 RED='\033[0;31m'
@@ -89,10 +90,14 @@ print_step "Step 1: Updating Termux packages..."
 echo ""
 
 print_info "Updating package lists..."
-pkg update -y
+if ! pkg update -y; then
+    print_warning "Package update had some warnings, but continuing..."
+fi
 
 print_info "Upgrading installed packages..."
-pkg upgrade -y
+if ! pkg upgrade -y; then
+    print_warning "Package upgrade had some warnings, but continuing..."
+fi
 
 print_success "Termux packages updated!"
 echo ""
