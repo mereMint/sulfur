@@ -2742,13 +2742,16 @@ class BlackjackView(discord.ui.View):
         
         # Update balance
         stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
-        new_balance = await db_helpers.add_balance(
+        await db_helpers.add_balance(
             self.user_id,
             interaction.user.display_name,
             winnings,
             config,
             stat_period
         )
+        
+        # Get new balance
+        new_balance = await db_helpers.get_balance(self.user_id)
         
         # Log transaction
         await db_helpers.log_transaction(
@@ -2869,13 +2872,16 @@ class MinesView(discord.ui.View):
             # Update balance
             stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
             profit = winnings - self.game.bet
-            new_balance = await db_helpers.add_balance(
+            await db_helpers.add_balance(
                 self.user_id,
                 interaction.user.display_name,
                 profit,
                 config,
                 stat_period
             )
+            
+            # Get new balance
+            new_balance = await db_helpers.get_balance(self.user_id)
             
             # Log transaction
             await db_helpers.log_transaction(
@@ -2915,13 +2921,16 @@ class MinesView(discord.ui.View):
         if lost:
             # Lost - deduct bet
             stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
-            new_balance = await db_helpers.add_balance(
+            await db_helpers.add_balance(
                 self.user_id,
                 interaction.user.display_name,
                 -self.game.bet,
                 config,
                 stat_period
             )
+            
+            # Get new balance
+            new_balance = await db_helpers.get_balance(self.user_id)
             
             # Log transaction
             await db_helpers.log_transaction(
@@ -2944,13 +2953,16 @@ class MinesView(discord.ui.View):
             profit = winnings - self.game.bet
             
             stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
-            new_balance = await db_helpers.add_balance(
+            await db_helpers.add_balance(
                 self.user_id,
                 interaction.user.display_name,
                 profit,
                 config,
                 stat_period
             )
+            
+            # Get new balance
+            new_balance = await db_helpers.get_balance(self.user_id)
             
             # Log transaction
             await db_helpers.log_transaction(
@@ -3112,13 +3124,16 @@ async def roulette(interaction: discord.Interaction, bet_type: app_commands.Choi
     
     # Update balance
     stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
-    new_balance = await db_helpers.add_balance(
+    await db_helpers.add_balance(
         user_id,
         interaction.user.display_name,
         winnings,
         config,
         stat_period
     )
+    
+    # Get new balance
+    new_balance = await db_helpers.get_balance(user_id)
     
     # Log transaction
     await db_helpers.log_transaction(
@@ -3285,13 +3300,16 @@ async def russian_roulette(interaction: discord.Interaction):
             embed.color = discord.Color.gold()
             
             # Award winnings
-            new_balance = await db_helpers.add_balance(
+            await db_helpers.add_balance(
                 user_id,
                 interaction.user.display_name,
                 reward,
                 config,
                 stat_period
             )
+            
+            # Get new balance
+            new_balance = await db_helpers.get_balance(user_id)
             
             # Log transaction
             await db_helpers.log_transaction(
