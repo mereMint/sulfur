@@ -319,23 +319,38 @@ else
         GITHUB_USER="${GITHUB_USER:-mereMint}"
     fi
 
-if [ -d "$REPO_DIR/.git" ]; then
-    print_warning "Repository already exists at $REPO_DIR"
-    read -p "Do you want to update it? (y/n): " UPDATE_REPO
-    if [[ "$UPDATE_REPO" =~ ^[Yy]$ ]]; then
-        cd "$REPO_DIR"
-        print_info "Pulling latest changes..."
-        git pull
-        print_success "Repository updated!"
+    if [ -d "$REPO_DIR/.git" ]; then
+        print_warning "Repository already exists at $REPO_DIR"
+        read -p "Do you want to update it? (y/n): " UPDATE_REPO
+        if [[ "$UPDATE_REPO" =~ ^[Yy]$ ]]; then
+            cd "$REPO_DIR"
+            print_info "Pulling latest changes..."
+            git pull
+            print_success "Repository updated!"
+        else
+            print_info "Keeping existing repository"
+            cd "$REPO_DIR"
+        fi
+    elif [ -d "$REPO_DIR" ]; then
+        print_warning "Directory $REPO_DIR exists but is not a git repository"
+        read -p "Remove it and clone fresh? (y/n): " REMOVE_DIR
+        if [[ "$REMOVE_DIR" =~ ^[Yy]$ ]]; then
+            rm -rf "$REPO_DIR"
+            print_info "Cloning repository via SSH..."
+            
+            if git clone "git@github.com:$GITHUB_USER/sulfur.git" "$REPO_DIR"; then
+                print_success "Repository cloned to $REPO_DIR"
+            else
+                print_error "Failed to clone repository!"
+                print_info "Make sure your SSH key is added to GitHub"
+                print_info "Test with: ssh -T git@github.com"
+                exit 1
+            fi
+        else
+            print_info "Using existing directory"
+            cd "$REPO_DIR"
+        fi
     else
-        print_info "Keeping existing repository"
-        cd "$REPO_DIR"
-    fi
-elif [ -d "$REPO_DIR" ]; then
-    print_warning "Directory $REPO_DIR exists but is not a git repository"
-    read -p "Remove it and clone fresh? (y/n): " REMOVE_DIR
-    if [[ "$REMOVE_DIR" =~ ^[Yy]$ ]]; then
-        rm -rf "$REPO_DIR"
         print_info "Cloning repository via SSH..."
         
         if git clone "git@github.com:$GITHUB_USER/sulfur.git" "$REPO_DIR"; then
@@ -346,24 +361,11 @@ elif [ -d "$REPO_DIR" ]; then
             print_info "Test with: ssh -T git@github.com"
             exit 1
         fi
-    else
-        print_info "Using existing directory"
-        cd "$REPO_DIR"
     fi
-else
-    print_info "Cloning repository via SSH..."
     
-    if git clone "git@github.com:$GITHUB_USER/sulfur.git" "$REPO_DIR"; then
-        print_success "Repository cloned to $REPO_DIR"
-    else
-        print_error "Failed to clone repository!"
-        print_info "Make sure your SSH key is added to GitHub"
-        print_info "Test with: ssh -T git@github.com"
-        exit 1
-    fi
+    cd "$REPO_DIR"
 fi
 
-cd "$REPO_DIR"
 echo ""
 
 # ============================================================
