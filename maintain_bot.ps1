@@ -239,8 +239,75 @@ function Invoke-GitCommit {
     }
 }
 
+function Test-PortAvailable {
+    param([int]$Port)
+    try {
+        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Any, $Port)
+        $listener.Start()
+        $listener.Stop()
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Clear-Port {
+    param([int]$Port)
+    Write-ColorLog "Attempting to free port $Port..." 'Yellow' '[WEB] '
+    
+    try {
+        # Find processes using the port
+        $connections = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
+        if($connections){
+            $pids = $connections | Select-Object -ExpandProperty OwningProcess -Unique
+            Write-ColorLog "Found processes using port ${Port}: $($pids -join ', ')" 'Yellow' '[WEB] '
+            
+            foreach($pid in $pids){
+                try {
+                    $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
+                    if($proc){
+                        Write-ColorLog "Stopping process $pid ($($proc.ProcessName))..." 'Yellow' '[WEB] '
+                        Stop-Process -Id $pid -Force -ErrorAction Stop
+                        Start-Sleep -Seconds 2
+                    }
+                } catch {
+                    Write-ColorLog "Failed to stop process $pid: $_" 'Red' '[WEB] '
+                }
+            }
+            
+            # Verify port is now free
+            Start-Sleep -Seconds 2
+            if(Test-PortAvailable $Port){
+                Write-ColorLog "Port $Port is now available" 'Green' '[WEB] '
+                return $true
+            } else {
+                Write-ColorLog "Port $Port is still in use after cleanup" 'Red' '[WEB] '
+                return $false
+            }
+        } else {
+            Write-ColorLog "No processes found using port $Port" 'Yellow' '[WEB] '
+            return $true
+        }
+    } catch {
+        Write-ColorLog "Port cleanup failed: $_" 'Red' '[WEB] '
+        return $false
+    }
+}
+
 function Start-WebDashboard {
     Write-ColorLog 'Starting Web Dashboard...' 'Cyan' '[WEB] '
+    
+    # Check if port 5000 is available
+    if(-not (Test-PortAvailable 5000)){
+        Write-ColorLog 'Port 5000 is already in use' 'Yellow' '[WEB] '
+        
+        # Try to free the port
+        if(-not (Clear-Port 5000)){
+            Write-ColorLog 'Failed to free port 5000. Web Dashboard cannot start.' 'Red' '[WEB] '
+            Write-ColorLog 'You may need to manually kill processes using port 5000' 'Yellow' '[WEB] '
+            return $null
+        }
+    }
     
     # Check if Flask dependencies are installed
     $pythonExe='python'
@@ -292,7 +359,19 @@ function Start-WebDashboard {
         }
 
         if($job.State -in 'Failed','Stopped'){
-            Write-ColorLog 'Web Dashboard failed to start' 'Red' '[WEB] '
+            Write-ColorLog 'Web Dashboard process died during startup' 'Red' '[WEB] '
+            
+            # Check if it was due to port conflict
+            if(Test-Path $webLog){
+                $lastLines = Get-Content $webLog -Tail 20 -ErrorAction SilentlyContinue
+                if($lastLines -match 'Port 5000 is already in use|Address already in use'){
+                    Write-ColorLog 'Port 5000 conflict detected - attempting emergency cleanup...' 'Red' '[WEB] '
+                    Clear-Port 5000
+                }
+                Write-ColorLog 'Last 10 lines from web dashboard log:' 'Yellow' '[WEB] '
+                Get-Content $webLog -Tail 10 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  | $_" }
+            }
+            
             Remove-Job $job -Force -ErrorAction SilentlyContinue
             return $null
         }
@@ -409,6 +488,12 @@ if(-not $script:webDashboardJob){
     Write-ColorLog 'Warning: Web Dashboard failed to start' 'Yellow'
 }
 
+# Web dashboard restart tracking
+$webRestartCount = 0
+$webRestartThreshold = 3
+$webRestartCooldown = 30  # seconds
+$lastWebRestart = $null
+
 $check=0
 $updateEvery=60
 $backupEvery=1800
@@ -508,8 +593,53 @@ while($true){
         }
         
         if($script:webDashboardJob -and $script:webDashboardJob.State -ne 'Running'){
-            Write-ColorLog 'Web Dashboard stopped; restarting...' 'Yellow' '[WEB] '
-            $script:webDashboardJob=Start-WebDashboard
+            $currentTime = Get-Date
+            
+            # Calculate time since last restart
+            if($lastWebRestart){
+                $timeSinceLastRestart = [int]($currentTime - $lastWebRestart).TotalSeconds
+            } else {
+                $timeSinceLastRestart = 999999  # Large number for first time
+            }
+            
+            # Check if we've hit the restart threshold
+            if($webRestartCount -ge $webRestartThreshold){
+                if($timeSinceLastRestart -lt 300){
+                    # Multiple restarts in 5 minutes - something is wrong
+                    Write-ColorLog "Web Dashboard has crashed $webRestartCount times. Giving up on auto-restart." 'Red' '[WEB] '
+                    Write-ColorLog "Please check the web dashboard logs for errors and fix the issue manually." 'Yellow' '[WEB] '
+                    $webRestartCount++  # Increment to prevent further attempts
+                } else {
+                    # It's been a while, reset the counter
+                    Write-ColorLog "Resetting web dashboard restart counter (last restart was ${timeSinceLastRestart}s ago)" 'Yellow' '[WEB] '
+                    $webRestartCount = 0
+                }
+            }
+            
+            # Only try to restart if under threshold and cooldown has passed
+            if($webRestartCount -lt $webRestartThreshold){
+                if($timeSinceLastRestart -ge $webRestartCooldown){
+                    Write-ColorLog "Web Dashboard stopped, restarting... (attempt $($webRestartCount + 1)/$webRestartThreshold)" 'Yellow' '[WEB] '
+                    
+                    $lastWebRestart = $currentTime
+                    $webRestartCount++
+                    
+                    # Clean up the old job
+                    Remove-Job $script:webDashboardJob -Force -ErrorAction SilentlyContinue
+                    
+                    # Try to restart
+                    $script:webDashboardJob = Start-WebDashboard
+                    if($script:webDashboardJob){
+                        Write-ColorLog 'Web Dashboard restarted successfully' 'Green' '[WEB] '
+                        $webRestartCount = 0  # Reset counter on success
+                    } else {
+                        Write-ColorLog 'Failed to restart Web Dashboard' 'Red' '[WEB] '
+                    }
+                } else {
+                    $waitTime = $webRestartCooldown - $timeSinceLastRestart
+                    Write-ColorLog "Web Dashboard stopped, but waiting ${waitTime}s before retry (cooldown period)" 'Yellow' '[WEB] '
+                }
+            }
         }
     }
     
