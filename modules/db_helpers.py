@@ -448,6 +448,9 @@ async def cleanup_custom_status_entries():
     A one-time cleanup function to remove 'Custom Status' entries from JSON columns.
     This is useful after changing logging logic to clean up old, irrelevant data.
     """
+    if not db_pool:
+        logger.warning("Database pool not available, skipping cleanup")
+        return
     cnx = db_pool.get_connection()
     if not cnx:
         print("DB Cleanup: Could not connect to database.")
@@ -619,6 +622,9 @@ async def get_ai_usage_stats(days: int = 30):
 
 async def get_owned_channel(owner_id, guild_id):
     """Fetches the channel ID owned by a user, if any."""
+    if not db_pool:
+        logger.warning("Database pool not available, cannot get owned channel")
+        return None
     cnx = db_pool.get_connection()
     if not cnx: return None
     cursor = cnx.cursor(dictionary=True)
@@ -632,6 +638,9 @@ async def get_owned_channel(owner_id, guild_id):
 
 async def add_managed_channel(channel_id, owner_id, guild_id):
     """Adds a new managed channel to the database."""
+    if not db_pool:
+        logger.warning("Database pool not available, cannot add managed channel")
+        return
     cnx = db_pool.get_connection()
     if not cnx: return
     cursor = cnx.cursor()
@@ -650,6 +659,9 @@ async def remove_managed_channel(channel_id, keep_owner_record=False):
     If keep_owner_record is True, it sets channel_id to NULL instead of deleting the row,
     preserving the owner's settings.
     """
+    if not db_pool:
+        logger.warning("Database pool not available, cannot remove managed channel")
+        return
     cnx = db_pool.get_connection()
     if not cnx: return
     cursor = cnx.cursor()
@@ -670,6 +682,9 @@ async def get_managed_channel_config(id, by_owner=False):
     Retrieves the configuration for a managed channel.
     Can fetch by channel_id or owner_id.
     """
+    if not db_pool:
+        logger.warning("Database pool not available, cannot get managed channel config")
+        return None
     cnx = db_pool.get_connection()
     if not cnx: return None
     cursor = cnx.cursor(dictionary=True)
@@ -690,6 +705,9 @@ async def get_managed_channel_config(id, by_owner=False):
 
 async def update_managed_channel_config(id, by_owner=False, is_private=None, allowed_users=None, name=None, limit=None):
     """Updates the configuration of a managed channel."""
+    if not db_pool:
+        logger.warning("Database pool not available, cannot update managed channel config")
+        return
     cnx = db_pool.get_connection()
     if not cnx: return
     cursor = cnx.cursor()
@@ -727,6 +745,9 @@ async def update_managed_channel_config(id, by_owner=False, is_private=None, all
 
 async def get_all_managed_channels():
     """Fetches all managed channel IDs from the database for cleanup."""
+    if not db_pool:
+        logger.warning("Database pool not available, cannot get managed channels")
+        return []
     cnx = db_pool.get_connection()
     if not cnx: return []
     cursor = cnx.cursor(dictionary=True)
@@ -742,6 +763,9 @@ async def get_all_managed_channels():
 
 async def save_message_to_history(channel_id, role, content):
     """Saves a single message to the chat history table."""
+    if not db_pool:
+        logger.warning("Database pool not available, cannot save message to history")
+        return
     cnx = db_pool.get_connection()
     if not cnx:
         return
@@ -762,6 +786,9 @@ async def save_bulk_history(channel_id, messages):
     if not messages:
         return
 
+    if not db_pool:
+        logger.warning("Database pool not available, cannot save bulk history")
+        return
     cnx = db_pool.get_connection()
     if not cnx:
         return
@@ -782,6 +809,9 @@ async def save_bulk_history(channel_id, messages):
 
 async def clear_channel_history(channel_id):
     """Deletes all chat history for a specific channel."""
+    if not db_pool:
+        logger.warning("Database pool not available, cannot clear channel history")
+        return 0, "Database pool not available."
     cnx = db_pool.get_connection()
     if not cnx:
         return 0, "Database connection failed."
@@ -802,6 +832,9 @@ async def clear_channel_history(channel_id):
 
 async def get_chat_history(channel_id, limit):
     """Retrieves the last N messages for a channel from the database."""
+    if not db_pool:
+        logger.warning("Database pool not available, cannot get chat history")
+        return []
     cnx = db_pool.get_connection()
     if not cnx:
         return []
@@ -834,6 +867,9 @@ async def get_chat_history(channel_id, limit):
 
 async def get_relationship_summary(user_id):
     """Gets the current relationship summary for a user."""
+    if not db_pool:
+        logger.warning("Database pool not available, cannot get relationship summary")
+        return None
     cnx = db_pool.get_connection()
     if not cnx: return None
     cursor = cnx.cursor(dictionary=True)
@@ -847,6 +883,9 @@ async def get_relationship_summary(user_id):
 
 async def update_relationship_summary(user_id, summary):
     """Updates the relationship summary for a user."""
+    if not db_pool:
+        logger.warning("Database pool not available, cannot update relationship summary")
+        return
     cnx = db_pool.get_connection()
     if not cnx: return
     cursor = cnx.cursor()
@@ -861,6 +900,9 @@ async def update_relationship_summary(user_id, summary):
 
 async def get_bot_name_pool_count():
     """Counts how many unused bot names are in the database."""
+    if not db_pool:
+        logger.warning("Database pool not available, cannot get bot name pool count")
+        return 0
     cnx = db_pool.get_connection()
     if not cnx: return 0
     cursor = cnx.cursor()
@@ -875,6 +917,9 @@ async def get_bot_name_pool_count():
 async def add_bot_names_to_pool(names):
     """Adds a list of new bot names to the pool, ignoring duplicates."""
     if not names: return
+    if not db_pool:
+        logger.warning("Database pool not available, cannot add bot names to pool")
+        return
     cnx = db_pool.get_connection()
     if not cnx: return
     cursor = cnx.cursor()
@@ -891,6 +936,9 @@ async def add_bot_names_to_pool(names):
 
 async def get_and_remove_bot_names(count):
     """Atomically fetches and removes a number of random names from the pool."""
+    if not db_pool:
+        logger.warning("Database pool not available, cannot get bot names")
+        return []
     cnx = db_pool.get_connection()
     if not cnx: return []
     cursor = cnx.cursor(dictionary=True)
@@ -911,6 +959,9 @@ async def get_and_remove_bot_names(count):
 
 async def update_player_stats(player_id, display_name, won_game):
     """Updates a player's win/loss record in the database."""
+    if not db_pool:
+        logger.warning("Database pool not available, cannot update player stats")
+        return
     cnx = db_pool.get_connection()
     if not cnx:
         return
@@ -940,6 +991,9 @@ async def update_player_stats(player_id, display_name, won_game):
 
 async def update_user_presence(user_id, display_name, status, activity_name):
     """Updates a user's presence information in the database."""
+    if not db_pool:
+        logger.warning("Database pool not available, cannot update user presence")
+        return
     cnx = db_pool.get_connection()
     if not cnx:
         return
@@ -1021,6 +1075,9 @@ async def update_spotify_history(client, user_id: int, display_name: str, song_t
     Increments the play count for a song in a user's persistent Spotify history.
     The history is stored as a JSON object mapping 'song by artist' to a play count.
     """
+    if not db_pool:
+        logger.warning("Database pool not available, cannot update Spotify history")
+        return
     cnx = db_pool.get_connection()
     if not cnx: return
 
@@ -1056,6 +1113,9 @@ async def log_game_session(user_id, stat_period, game_name, duration_minutes):
     """
     Logs a completed game session, updating both monthly and all-time stats.
     """
+    if not db_pool:
+        logger.warning("Database pool not available, cannot log game session")
+        return
     cnx = db_pool.get_connection()
     if not cnx: return
     cursor = cnx.cursor()
@@ -1102,6 +1162,9 @@ async def log_game_session(user_id, stat_period, game_name, duration_minutes):
 async def log_message_stat(user_id, channel_id, emoji_list, stat_period):
     """Logs message count, channel usage, and emoji usage for the Wrapped feature."""
     # This function is now optimized to perform all logging in a single query.
+    if not db_pool:
+        logger.warning("Database pool not available, cannot log message stat")
+        return
     cnx = db_pool.get_connection()
     if not cnx: return
 
@@ -1144,6 +1207,9 @@ async def log_message_stat(user_id, channel_id, emoji_list, stat_period):
 
 async def log_vc_minutes(user_id, minutes_to_add, stat_period):
     """Logs minutes spent in a voice channel."""
+    if not db_pool:
+        logger.warning("Database pool not available, cannot log VC minutes")
+        return
     cnx = db_pool.get_connection()
     if not cnx: return
     cursor = cnx.cursor()
@@ -1162,6 +1228,9 @@ async def log_vc_minutes(user_id, minutes_to_add, stat_period):
 
 async def log_stat_increment(user_id, stat_period, column_name, key=None, amount=1):
     """A generic function to increment a stat or a key within a JSON column."""
+    if not db_pool:
+        logger.warning("Database pool not available, cannot log stat increment")
+        return
     cnx = db_pool.get_connection()
     if not cnx: return
     cursor = cnx.cursor()
@@ -1187,6 +1256,9 @@ async def log_stat_increment(user_id, stat_period, column_name, key=None, amount
 
 async def get_wrapped_stats_for_period(stat_period):
     """Fetches all user stats for a given Wrapped period."""
+    if not db_pool:
+        logger.warning("Database pool not available, cannot get wrapped stats")
+        return []
     cnx = db_pool.get_connection()
     if not cnx: return []
     cursor = cnx.cursor(dictionary=True)
@@ -1200,6 +1272,9 @@ async def get_wrapped_stats_for_period(stat_period):
 
 async def get_spotify_history(user_id):
     """Fetches the full Spotify history for a user."""
+    if not db_pool:
+        logger.warning("Database pool not available, cannot get Spotify history")
+        return None
     cnx = db_pool.get_connection()
     if not cnx: return None
     cursor = cnx.cursor(dictionary=True)
@@ -1319,6 +1394,9 @@ async def get_level_leaderboard():
 
 async def get_player_profile(user_id):
     """Fetches all relevant stats for a user's profile."""
+    if not db_pool:
+        logger.warning("Database pool not available, cannot get player profile")
+        return None, "Database pool not available."
     cnx = db_pool.get_connection()
     if not cnx:
         return None, "Database connection failed."
@@ -1344,6 +1422,9 @@ async def get_player_profile(user_id):
 
 async def get_leaderboard():
     """Fetches the top 10 players by wins."""
+    if not db_pool:
+        logger.warning("Database pool not available, cannot get leaderboard")
+        return None, "Database pool not available."
     cnx = db_pool.get_connection()
     if not cnx:
         return None, "Konnte keine Verbindung zur Datenbank herstellen."
@@ -1363,6 +1444,9 @@ async def get_leaderboard():
 
 async def get_user_wrapped_stats(user_id, stat_period):
     """Fetches the Wrapped stats for a single user for a given period."""
+    if not db_pool:
+        logger.warning("Database pool not available, cannot get user wrapped stats")
+        return None
     cnx = db_pool.get_connection()
     if not cnx: return None
     cursor = cnx.cursor(dictionary=True)
@@ -1381,6 +1465,9 @@ async def get_wrapped_extra_stats(user_id, stat_period):
     """
     Fetches the new Wrapped stats (Bestie, Prime Time, VC stats) for a user.
     """
+    if not db_pool:
+        logger.warning("Database pool not available, cannot get wrapped extra stats")
+        return None
     cnx = db_pool.get_connection()
     if not cnx: return None
     cursor = cnx.cursor(dictionary=True)
