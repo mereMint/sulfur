@@ -16,6 +16,7 @@ WERWOLF = "Werwolf"
 SEHERIN = "Seherin"
 HEXE = "Hexe"
 DÖNERSTOPFER = "Dönerstopfer"
+JÄGER = "Jäger"
 
 class WerwolfPlayer:
     """Represents a player in the game."""
@@ -269,21 +270,22 @@ class WerwolfGame:
         # Logic adjusted for small player counts
         if player_count == 1:
             num_werwolfe = 1
-            num_seherin, num_hexe, num_döner = 0, 0, 0
+            num_seherin, num_hexe, num_döner, num_jäger = 0, 0, 0, 0
         elif player_count == 2:
             num_werwolfe = 1
             num_seherin = 1
-            num_hexe, num_döner = 0, 0
+            num_hexe, num_döner, num_jäger = 0, 0, 0
         else:
             num_werwolfe = max(1, player_count // 3)
             num_seherin = 1 if player_count > 2 else 0
             num_hexe = 1 if player_count >= 7 else 0
             num_döner = 1 if player_count >= 9 else 0
+            num_jäger = 1 if player_count >= 5 else 0
         
-        num_dorfbewohner = player_count - num_werwolfe - num_seherin - num_hexe - num_döner
+        num_dorfbewohner = player_count - num_werwolfe - num_seherin - num_hexe - num_döner - num_jäger
 
         roles = ([WERWOLF] * num_werwolfe + [SEHERIN] * num_seherin + [HEXE] * num_hexe + 
-                 [DÖNERSTOPFER] * num_döner + [DORFBEWOHNER] * num_dorfbewohner)
+                 [DÖNERSTOPFER] * num_döner + [JÄGER] * num_jäger + [DORFBEWOHNER] * num_dorfbewohner)
         random.shuffle(roles)
 
         player_objects = list(self.players.values())
@@ -313,6 +315,8 @@ class WerwolfGame:
                     player.has_healing_potion = True
                     player.has_kill_potion = True
                     role_message += "\nDu hast einen Heiltrank und einen Gifttrank."
+                elif player.role == JÄGER:
+                    role_message += "\nStirbt der Jäger, darfst du noch eine Person mit in den Tod nehmen."
                 
                 await player.user.send(role_message)
             except discord.Forbidden:
@@ -835,7 +839,7 @@ class WerwolfGame:
         if winner_team and config:
             winning_roles = []
             if winner_team == "Dorfbewohner":
-                winning_roles = [DORFBEWOHNER, SEHERIN, HEXE, DÖNERSTOPFER]
+                winning_roles = [DORFBEWOHNER, SEHERIN, HEXE, DÖNERSTOPFER, JÄGER]
             elif winner_team == "Werwölfe":
                 winning_roles = [WERWOLF]
 
@@ -875,6 +879,16 @@ class WerwolfGame:
                 print(f"Could not send summary to original channel {self.original_channel.id}")
 
         self.phase = "finished" # Mark as finished before cleanup
+
+        # --- FIX: Unmute and undeafen all players before cleanup ---
+        if self.discussion_vc:
+            print(f"  [WW] Unmuting/undeafening all players before game end...")
+            for member in self.discussion_vc.members:
+                try:
+                    await member.edit(mute=False, deafen=False, reason="Spiel beendet")
+                    print(f"    - Unmuted/undeafened {member.display_name}")
+                except (discord.Forbidden, discord.HTTPException) as e:
+                    print(f"    - Could not unmute/undeafen {member.display_name}: {e}")
 
         # Delete the entire category, which cleans up all channels within it.
         if self.category:

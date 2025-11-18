@@ -390,11 +390,27 @@ async def split_message(text, limit=2000):
     chunks.append(current_chunk.strip()) # Add the last chunk
     return chunks
 
+def sanitize_malformed_emojis(text):
+    """
+    Fixes malformed emoji patterns that the AI might generate.
+    Examples: <<:name:id>id> -> <:name:id> or <<:name:id>> -> <:name:id>
+    """
+    # Fix pattern like <<:emoji_name:emoji_id>emoji_id>
+    text = re.sub(r'<<:(\w+):(\d+)>\2>', r'<:\1:\2>', text)
+    # Fix pattern like <<:emoji_name:emoji_id>>
+    text = re.sub(r'<<:(\w+):(\d+)>>', r'<:\1:\2>', text)
+    # Fix pattern like <:emoji_name:emoji_id>emoji_id (trailing ID)
+    text = re.sub(r'<:(\w+):(\d+)>\2', r'<:\1:\2>', text)
+    return text
+
 async def replace_emoji_tags(text, client):
     """
     Replaces :emoji_name: and <:emoji_name:emoji_id> style tags with the actual Discord emoji object.
     Prioritizes application emojis (bot's own emojis) over server emojis.
     """
+    # First, sanitize any malformed emoji patterns
+    text = sanitize_malformed_emojis(text)
+    
     # Find all :emoji_name: tags in the text
     emoji_tags = re.findall(r':(\w+):', text)
     # Also find <:emoji_name:emoji_id> tags
@@ -2224,44 +2240,7 @@ async def summary(interaction: discord.Interaction, user: discord.Member = None)
     )
     await interaction.followup.send(embed=embed)
 
-@tree.command(name="rank", description="Überprüfe deinen oder den Rang eines anderen Benutzers.")
-@app_commands.describe(user="Der Benutzer, dessen Rang du sehen möchtest (optional).")
-async def rank(interaction: discord.Interaction, user: discord.Member = None):
-    """Displays the level and rank of a user."""
-    target_user = user or interaction.user
-    await interaction.response.defer()
-
-    player_stats, error = await db_helpers.get_player_rank(target_user.id)
-
-    if error:
-        await interaction.followup.send(error, ephemeral=True)
-        return
-
-    if not player_stats:
-        await interaction.followup.send(f"{target_user.display_name} hat noch keine Nachrichten geschrieben und daher keinen Rang.", ephemeral=True)
-        return
-
-    level = player_stats['level'] or 1
-    xp = player_stats['xp']
-    rank = player_stats['rank']
-    xp_for_next_level = get_xp_for_level(level)
-    wins = player_stats.get('wins', 0)
-    losses = player_stats.get('losses', 0)
-    
-    # Create a progress bar
-    progress = int((xp / xp_for_next_level) * 20) # 20 characters for the bar
-    progress_bar = '█' * progress + '░' * (20 - progress)
-
-    # Get user's equipped color or default
-    embed_color = await get_user_embed_color(target_user.id, config)
-
-    embed = discord.Embed(color=embed_color)
-    embed.set_author(name=f"Rang von {target_user.display_name}", icon_url=target_user.display_avatar.url) 
-    embed.add_field(name="Level", value=f"```{level}```", inline=True) 
-    embed.add_field(name="Global Rang", value=f"```#{rank}```", inline=True) 
-    embed.add_field(name="Fortschritt", value=f"`{xp} / {xp_for_next_level} XP`\n`{progress_bar}`", inline=False) 
-
-    await interaction.followup.send(embed=embed)
+# REMOVED: /rank command - functionality integrated into /profile command
 
 @tree.command(name="profile", description="Zeigt dein Profil oder das eines anderen Benutzers an.")
 @app_commands.describe(user="Der Benutzer, dessen Profil du sehen möchtest (optional).")
@@ -2290,9 +2269,18 @@ async def profile(interaction: discord.Interaction, user: discord.Member = None)
     embed.set_thumbnail(url=target_user.display_avatar.url)
 
     # Leveling and Economy
-    embed.add_field(name="Level", value=f"**{profile_data.get('level', 1)}**", inline=True)
+    level = profile_data.get('level', 1)
+    xp = profile_data.get('xp', 0)
+    xp_for_next_level = get_xp_for_level(level)
+    
+    # Create a progress bar
+    progress = int((xp / xp_for_next_level) * 20) # 20 characters for the bar
+    progress_bar = '█' * progress + '░' * (20 - progress)
+    
+    embed.add_field(name="Level", value=f"**{level}**", inline=True)
     embed.add_field(name="Guthaben", value=f"**{profile_data.get('balance', 0)}** 🪙", inline=True)
     embed.add_field(name="Globaler Rang", value=f"**#{profile_data.get('rank', 'N/A')}**", inline=True)
+    embed.add_field(name="XP Fortschritt", value=f"`{xp} / {xp_for_next_level} XP`\n`{progress_bar}`", inline=False)
 
     # Get equipped color display
     equipped_color = await db_helpers.get_user_equipped_color(target_user.id)
@@ -2919,13 +2907,8 @@ class ColorSelectView(discord.ui.View):
         self.stop()
 
 
-@tree.command(name="balance", description="Zeigt dein aktuelles Guthaben an.")
-async def balance(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
-    bal = await db_helpers.get_balance(interaction.user.id)
-    currency = config['modules']['economy']['currency_symbol']
-    await interaction.followup.send(f"Dein Guthaben: **{bal} {currency}**", ephemeral=True)
 
+# REMOVED: /balance command - functionality integrated into /profile command
 
 @tree.command(name="daily", description="Hole deine tägliche Belohnung ab.")
 async def daily(interaction: discord.Interaction):
@@ -3218,133 +3201,10 @@ async def view_quests(interaction: discord.Interaction):
         await interaction.followup.send(f"❌ Fehler beim Laden der Quests: {str(e)}", ephemeral=True)
 
 
-@tree.command(name="questclaim", description="Sammle die Belohnung für abgeschlossene Quests ein.")
-async def claim_quest(interaction: discord.Interaction):
-    """Claim rewards for completed quests."""
-    await interaction.response.defer(ephemeral=True)
-    
-    try:
-        # Get user's quests
-        quest_list = await quests.get_user_quests(db_helpers, interaction.user.id, config)
-        
-        if not quest_list:
-            await interaction.followup.send("❌ Du hast heute noch keine Quests.", ephemeral=True)
-            return
-        
-        # Find completed but unclaimed quests
-        unclaimed_quests = [q for q in quest_list if q['completed'] and not q.get('reward_claimed', False)]
-        
-        if not unclaimed_quests:
-            await interaction.followup.send("❌ Du hast keine abgeschlossenen Quests zum Einsammeln.", ephemeral=True)
-            return
-        
-        # Claim all unclaimed quests
-        total_reward = 0
-        claimed_count = 0
-        
-        for quest in unclaimed_quests:
-            success, reward, message = await quests.claim_quest_reward(
-                db_helpers,
-                interaction.user.id,
-                interaction.user.display_name,
-                quest['id'],
-                config
-            )
-            
-            if success:
-                total_reward += reward
-                claimed_count += 1
-        
-        currency = config['modules']['economy']['currency_symbol']
-        
-        if claimed_count > 0:
-            embed = discord.Embed(
-                title="✅ Quest-Belohnungen eingesammelt!",
-                description=f"Du hast {claimed_count} Quest(s) abgeschlossen!",
-                color=discord.Color.green()
-            )
-            embed.add_field(
-                name="Belohnung",
-                value=f"**+{total_reward} {currency}**",
-                inline=False
-            )
-            
-            # Check if all quests are now completed and claimed
-            all_completed, completed_count, total_count = await quests.check_all_quests_completed(db_helpers, interaction.user.id)
-            
-            if all_completed:
-                # Grant daily completion bonus
-                bonus_success, bonus_amount = await quests.grant_daily_completion_bonus(
-                    db_helpers,
-                    interaction.user.id,
-                    interaction.user.display_name,
-                    config
-                )
-                
-                if bonus_success:
-                    embed.add_field(
-                        name="🎉 Tagesbonus!",
-                        value=f"Alle Quests abgeschlossen! **+{bonus_amount} {currency}** Bonus!",
-                        inline=False
-                    )
-                    total_reward += bonus_amount
-                    
-                    # Check for monthly milestone
-                    completion_days, total_days = await quests.get_monthly_completion_count(db_helpers, interaction.user.id)
-                    milestone_reached, milestone_reward, milestone_name = await quests.grant_monthly_milestone_reward(
-                        db_helpers,
-                        interaction.user.id,
-                        interaction.user.display_name,
-                        completion_days,
-                        config
-                    )
-                    
-                    if milestone_reached:
-                        embed.add_field(
-                            name=f"🏆 Monatlicher Meilenstein erreicht!",
-                            value=f"**{milestone_name}** ({completion_days} Tage)\n**+{milestone_reward} {currency}**",
-                            inline=False
-                        )
-            
-            await interaction.followup.send(embed=embed, ephemeral=True)
-        else:
-            await interaction.followup.send("❌ Keine Belohnungen konnten eingesammelt werden.", ephemeral=True)
-        
-    except Exception as e:
-        logger.error(f"Error in /questclaim command: {e}", exc_info=True)
-        await interaction.followup.send(f"❌ Fehler beim Einsammeln der Belohnungen: {str(e)}", ephemeral=True)
+# REMOVED: /questclaim command - functionality exists as a button in /quests command
 
+# REMOVED: /monthly command - functionality exists as a button in /quests command
 
-@tree.command(name="monthly", description="Zeigt deinen monatlichen Quest-Fortschritt an.")
-async def monthly_progress(interaction: discord.Interaction):
-    """Display monthly quest progress and milestones."""
-    await interaction.response.defer(ephemeral=True)
-    
-    try:
-        # Get monthly completion count
-        completion_days, total_days = await quests.get_monthly_completion_count(db_helpers, interaction.user.id)
-        
-        # Create embed
-        embed = quests.create_monthly_progress_embed(
-            completion_days,
-            total_days,
-            interaction.user.display_name,
-            config
-        )
-        
-        # Add current month info
-        now = datetime.now(timezone.utc)
-        embed.add_field(
-            name="Aktueller Monat",
-            value=f"{now.strftime('%B %Y')}",
-            inline=False
-        )
-        
-        await interaction.followup.send(embed=embed, ephemeral=True)
-        
-    except Exception as e:
-        logger.error(f"Error in /monthly command: {e}", exc_info=True)
-        await interaction.followup.send(f"❌ Fehler beim Laden des monatlichen Fortschritts: {str(e)}", ephemeral=True)
 # --- Game Commands & UI ---
 from modules.games import BlackjackGame, RouletteGame, MinesGame, RussianRouletteGame
 
