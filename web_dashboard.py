@@ -771,7 +771,6 @@ if __name__ == '__main__':
     print("[Web Dashboard] --- Access it at http://localhost:5000 ---")
     print("[Web Dashboard] --- Or from network: http://YOUR_IP:5000 ---")
     
-    # Check if port 5000 is available before starting
     import socket
     
     def find_process_on_port(port):
@@ -810,63 +809,73 @@ if __name__ == '__main__':
         
         return None
     
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    # Retry logic with exponential backoff for port binding issues
+    max_retries = 5
+    retry_delay = 2  # Initial delay in seconds
     
-    try:
-        # Try to bind to port 5000 to check if it's available
-        sock.bind(('0.0.0.0', 5000))
-        sock.close()
-        print("[Web Dashboard] Port 5000 is available, starting server...")
-    except OSError as e:
-        if e.errno == 98 or e.errno == 48:  # Address already in use (Linux: 98, macOS: 48)
-            print(f"[Web Dashboard] FATAL ERROR: Port 5000 is already in use by another process")
-            print(f"[Web Dashboard] Error details: {e}")
+    for attempt in range(max_retries):
+        try:
+            # Use socketio.run() which handles both HTTP and WebSocket connections
+            if attempt > 0:
+                print(f"[Web Dashboard] Retry attempt {attempt + 1}/{max_retries} after {retry_delay}s delay...")
+                time.sleep(retry_delay)
+                retry_delay *= 2  # Exponential backoff
             
-            # Try to show which process is using the port
-            process_info = find_process_on_port(5000)
-            if process_info:
-                print(f"[Web Dashboard] Process using port 5000:")
-                for line in str(process_info).split('\n'):
-                    if line.strip():
-                        print(f"[Web Dashboard]   {line}")
+            print("[Web Dashboard] Starting Flask-SocketIO server...")
+            
+            # Configure Flask app to reuse address - this allows binding to ports in TIME_WAIT state
+            # This is safe because we're always running a single instance managed by maintain_bot.sh
+            import werkzeug.serving
+            original_make_server = werkzeug.serving.make_server
+            
+            def make_server_with_reuse(*args, **kwargs):
+                """Wrapper to set SO_REUSEADDR on the server socket."""
+                server = original_make_server(*args, **kwargs)
+                server.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                # Also set SO_REUSEPORT if available (Linux 3.9+, helps with rapid restarts)
+                try:
+                    server.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+                except (AttributeError, OSError):
+                    pass  # SO_REUSEPORT not available on this system
+                return server
+            
+            werkzeug.serving.make_server = make_server_with_reuse
+            
+            socketio.run(app, host='0.0.0.0', port=5000, debug=False, allow_unsafe_werkzeug=True)
+            break  # Success, exit retry loop
+            
+        except OSError as e:
+            if e.errno == 98 or e.errno == 48:  # Address already in use
+                print(f"[Web Dashboard] Port 5000 is in use (attempt {attempt + 1}/{max_retries})")
+                print(f"[Web Dashboard] Error details: {e}")
+                
+                if attempt == 0:
+                    # Only show detailed diagnostics on first attempt
+                    process_info = find_process_on_port(5000)
+                    if process_info:
+                        print(f"[Web Dashboard] Process using port 5000:")
+                        for line in str(process_info).split('\n')[:10]:  # Limit output
+                            if line.strip():
+                                print(f"[Web Dashboard]   {line}")
+                
+                if attempt == max_retries - 1:
+                    # Final attempt failed
+                    print(f"[Web Dashboard] FATAL ERROR: Port 5000 is still in use after {max_retries} attempts")
+                    print(f"[Web Dashboard] Please stop the other process or change the port in web_dashboard.py")
+                    print(f"[Web Dashboard] To find the process: lsof -i:5000 or ss -tlnp | grep :5000 or fuser 5000/tcp")
+                    print(f"[Web Dashboard] To kill it: kill -9 $(lsof -ti:5000)")
+                    import traceback
+                    traceback.print_exc()
+                    exit(1)
+                # Continue to next retry
             else:
-                print(f"[Web Dashboard] Could not identify the process using port 5000")
-            
-            print(f"[Web Dashboard] Please stop the other process or change the port in web_dashboard.py")
-            print(f"[Web Dashboard] To find the process: lsof -i:5000 or ss -tlnp | grep :5000 or fuser 5000/tcp")
-            print(f"[Web Dashboard] To kill it: kill -9 $(lsof -ti:5000)")
-            exit(1)
-        else:
-            print(f"[Web Dashboard] WARNING: Port check failed with error: {e}")
-            # Continue anyway, let the actual server startup handle it
-    
-    try:
-        # Use socketio.run() which handles both HTTP and WebSocket connections
-        print("[Web Dashboard] Starting Flask-SocketIO server...")
-        socketio.run(app, host='0.0.0.0', port=5000, debug=False, allow_unsafe_werkzeug=True)
-    except OSError as e:
-        if e.errno == 98 or e.errno == 48:  # Address already in use
-            print(f"[Web Dashboard] FATAL ERROR: Port 5000 is already in use by another process")
-            print(f"[Web Dashboard] Error details: {e}")
-            
-            # Try to show which process is using the port
-            process_info = find_process_on_port(5000)
-            if process_info:
-                print(f"[Web Dashboard] Process using port 5000:")
-                for line in str(process_info).split('\n'):
-                    if line.strip():
-                        print(f"[Web Dashboard]   {line}")
-            
-            print(f"[Web Dashboard] The maintenance script should have freed this port before starting.")
-            print(f"[Web Dashboard] This indicates a bug in the port cleanup logic or a race condition.")
-        else:
+                print(f"[Web Dashboard] FATAL: Server startup failed with error: {e}")
+                import traceback
+                traceback.print_exc()
+                exit(1)
+                
+        except Exception as e:
             print(f"[Web Dashboard] FATAL: Failed to start web server: {e}")
-        import traceback
-        traceback.print_exc()
-        exit(1)
-    except Exception as e:
-        print(f"[Web Dashboard] FATAL: Failed to start web server: {e}")
-        import traceback
-        traceback.print_exc()
-        exit(1)
+            import traceback
+            traceback.print_exc()
+            exit(1)
