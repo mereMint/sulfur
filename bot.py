@@ -394,14 +394,15 @@ async def split_message(text, limit=2000):
 def sanitize_malformed_emojis(text):
     """
     Fixes malformed emoji patterns that the AI might generate.
-    Examples: <<:name:id>id> -> <:name:id> or <<:name:id>> -> <:name:id>
+    Handles both static (<:name:id>) and animated (<a:name:id>) emojis.
+    Examples: <<:name:id>id> -> <:name:id>, <<a:name:id>id> -> <a:name:id>
     """
-    # Fix pattern like <<:emoji_name:emoji_id>emoji_id>
-    text = re.sub(r'<<:(\w+):(\d+)>\2>', r'<:\1:\2>', text)
-    # Fix pattern like <<:emoji_name:emoji_id>>
-    text = re.sub(r'<<:(\w+):(\d+)>>', r'<:\1:\2>', text)
-    # Fix pattern like <:emoji_name:emoji_id>emoji_id (trailing ID)
-    text = re.sub(r'<:(\w+):(\d+)>\2', r'<:\1:\2>', text)
+    # Fix pattern like <<:emoji_name:emoji_id>emoji_id> or <<a:emoji_name:emoji_id>emoji_id>
+    text = re.sub(r'<<(a?):(\w+):(\d+)>\3>', r'<\1:\2:\3>', text)
+    # Fix pattern like <<:emoji_name:emoji_id>> or <<a:emoji_name:emoji_id>>
+    text = re.sub(r'<<(a?):(\w+):(\d+)>>', r'<\1:\2:\3>', text)
+    # Fix pattern like <:emoji_name:emoji_id>emoji_id or <a:emoji_name:emoji_id>emoji_id (trailing ID)
+    text = re.sub(r'<(a?):(\w+):(\d+)>\3', r'<\1:\2:\3>', text)
     return text
 
 async def replace_emoji_tags(text, client):
