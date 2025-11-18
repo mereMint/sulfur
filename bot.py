@@ -3589,6 +3589,7 @@ async def on_message(message):
         channel_name = f"DM with {message.author.name}" if isinstance(message.channel, discord.DMChannel) else f"#{message.channel.name}"
         logger.info(f"[CHATBOT] Triggered by {message.author.name} in {channel_name}")
         print(f"[CHATBOT] === Starting chatbot handler for {message.author.name} in {channel_name} ===")
+        print(f"[CHATBOT] Message content: '{message.content}'")
         
         if not isinstance(message.channel, discord.DMChannel):
             stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
@@ -3670,11 +3671,24 @@ async def on_message(message):
         if response_text:
             logger.info(f"[CHATBOT] Got response, saving to history and sending")
             print(f"[CHATBOT] Response received - saving and sending...")
-            if len(updated_history) >= 2:
-                # --- FIX: Use updated_history to get the correct user message ---
-                user_message_content = updated_history[-2]['parts'][0]['text']
-                await save_message_to_history(message.channel.id, "user", user_message_content)
-            await save_message_to_history(message.channel.id, "model", response_text)
+            print(f"[CHATBOT] Response preview: '{response_text[:100]}...'")
+            
+            try:
+                if len(updated_history) >= 2:
+                    # --- FIX: Use updated_history to get the correct user message ---
+                    user_message_content = updated_history[-2]['parts'][0]['text']
+                    logger.debug(f"[CHATBOT] Saving user message to history")
+                    print(f"[CHATBOT] Saving user message to history...")
+                    await save_message_to_history(message.channel.id, "user", user_message_content)
+                
+                logger.debug(f"[CHATBOT] Saving bot response to history")
+                print(f"[CHATBOT] Saving bot response to history...")
+                await save_message_to_history(message.channel.id, "model", response_text)
+                print(f"[CHATBOT] Successfully saved messages to history")
+            except Exception as e:
+                logger.error(f"[CHATBOT] Failed to save to history: {e}", exc_info=True)
+                print(f"[CHATBOT] Error saving to history: {e}")
+                # Continue anyway - we still want to send the response
 
             # --- NEW: Persist conversation snippet for quick follow-up ---
             try:
@@ -3701,11 +3715,21 @@ async def on_message(message):
             final_response = await replace_emoji_tags(response_text, client)
             logger.info(f"[CHATBOT] Sending response to {message.author.name}")
             print(f"[CHATBOT] Sending response chunks to channel...")
+            
+            chunks_sent = 0
             for chunk in await split_message(final_response):
-                if chunk: 
-                    await message.channel.send(chunk)
-                    logger.debug(f"[CHATBOT] Sent chunk of {len(chunk)} chars")
-            print(f"[CHATBOT] === Response sent successfully to {message.author.name} ===")
+                if chunk:
+                    try:
+                        await message.channel.send(chunk)
+                        chunks_sent += 1
+                        logger.debug(f"[CHATBOT] Sent chunk {chunks_sent} of {len(chunk)} chars")
+                        print(f"[CHATBOT] Sent chunk {chunks_sent} ({len(chunk)} chars)")
+                    except Exception as e:
+                        logger.error(f"[CHATBOT] Failed to send chunk: {e}", exc_info=True)
+                        print(f"[CHATBOT] Error sending chunk: {e}")
+                        
+            print(f"[CHATBOT] === Response sent successfully to {message.author.name} ({chunks_sent} chunks) ===")
+            logger.info(f"[CHATBOT] Sent {chunks_sent} message chunks to {message.author.name}")
 
             # --- NEW: Track AI usage (model + feature) ---
             try:
