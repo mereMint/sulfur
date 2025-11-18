@@ -1,16 +1,35 @@
 # 🤖 Sulfur Discord Bot
 
-A feature-rich Discord bot with AI capabilities, mini-games, and comprehensive management tools.
+A feature-rich Discord bot with AI capabilities, economy system, mini-games, and comprehensive management tools.
+
+[![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Discord.py](https://img.shields.io/badge/discord.py-2.0+-blue.svg)](https://github.com/Rapptz/discord.py)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
+**[Installation Guide](INSTALL.md)** • **[Quick Start](QUICKSTART.md)** • **[Features](#-features)** • **[Documentation](#-project-structure)**
+
+---
+
+## ⚡ Highlights
+
+- 🎮 **Complete Game Suite** - Werwolf, Blackjack, Roulette, Mines, Russian Roulette
+- 💰 **Full Economy System** - Virtual currency, shop, daily quests, rewards
+- 🤖 **Advanced AI** - Multi-model support (Gemini, OpenAI, GPT-5), vision capabilities
+- 📊 **Web Dashboard** - Real-time monitoring, AI usage tracking, database management
+- 🔧 **Zero Maintenance** - Auto-updates, auto-backups, self-healing scripts
+- 📱 **Cross-Platform** - Windows, Linux, Android/Termux support
+
+---
 
 ## 📋 Table of Contents
 
 - [Features](#-features)
 - [Prerequisites](#-prerequisites)
-- [Installation](#-installation)
-  - [Windows Installation](#windows-installation)
-  - [Termux/Android Installation](#termuxandroid-installation)
-  - [Linux Installation](#linux-installation)
-  - [One-Command Termux Setup](#one-command-termux-setup)
+- [Quick Start](#-quick-start---get-running-in-5-minutes)
+  - [Windows - One-Click Installation](#-windows---one-click-installation-recommended)
+  - [Linux - Automated Setup](#-linux---automated-setup)
+  - [Termux/Android - One Command](#-termuxandroid---one-command-setup)
+- [Manual Installation](#-manual-installation)
 - [Configuration](#-configuration)
 - [Running the Bot](#-running-the-bot)
 - [Web Dashboard](#-web-dashboard)
@@ -18,6 +37,8 @@ A feature-rich Discord bot with AI capabilities, mini-games, and comprehensive m
 - [Troubleshooting](#-troubleshooting)
 - [FAQ](#-faq)
 - [Project Structure](#-project-structure)
+
+> 🚀 **New to the bot?** Check out our [Installation Guide](INSTALL.md) or [Quick Start Guide](QUICKSTART.md)!
 
 ## 🌟 Features
 
