@@ -26,7 +26,7 @@
     }
   },
   "api": {
-    "provider": "gemini",
+    "provider": "openai",
     "timeout": 30,
     "vision_model": "gemini-2.0-flash-exp",
     "gemini": {
