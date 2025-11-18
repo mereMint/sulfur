@@ -212,7 +212,8 @@ async def claim_quest_reward(db_helpers, user_id: int, display_name: str, quest_
                     SELECT 'messages' as type, %s as reward UNION ALL
                     SELECT 'vc_minutes', %s UNION ALL
                     SELECT 'reactions', %s UNION ALL
-                    SELECT 'game_minutes', %s
+                    SELECT 'game_minutes', %s UNION ALL
+                    SELECT 'daily_media', %s
                 ) qt ON dq.quest_type = qt.type
                 WHERE dq.id = %s AND dq.user_id = %s AND dq.completed = TRUE AND dq.reward_claimed = FALSE
                 """,
@@ -221,6 +222,7 @@ async def claim_quest_reward(db_helpers, user_id: int, display_name: str, quest_
                     config['modules']['economy']['quests']['quest_types']['vc_minutes']['reward'],
                     config['modules']['economy']['quests']['quest_types']['reactions']['reward'],
                     config['modules']['economy']['quests']['quest_types']['game_minutes']['reward'],
+                    config['modules']['economy']['quests']['quest_types']['daily_media']['reward'],
                     quest_id,
                     user_id
                 )
@@ -594,14 +596,16 @@ def create_quests_embed(quests: list, user_name: str, config: dict):
         'messages': '💬',
         'vc_minutes': '🎤',
         'reactions': '👍',
-        'game_minutes': '🎮'
+        'game_minutes': '🎮',
+        'daily_media': '📸'
     }
     
     quest_names = {
         'messages': 'Send Messages',
         'vc_minutes': 'Voice Chat Time',
         'reactions': 'React to Messages',
-        'game_minutes': 'Play Games'
+        'game_minutes': 'Play Games',
+        'daily_media': 'Share Media of the Day'
     }
     
     for i, quest in enumerate(quests, 1):

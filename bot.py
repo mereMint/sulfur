@@ -4769,6 +4769,21 @@ async def on_message(message):
                 # Only notify on quest completion, not on every message
             except Exception as e:
                 logger.error(f"Error updating message quest progress: {e}", exc_info=True)
+            
+            # --- NEW: Track daily_media quest (images/videos) ---
+            if message.attachments:
+                has_media = any(
+                    attachment.content_type and (
+                        attachment.content_type.startswith('image/') or 
+                        attachment.content_type.startswith('video/')
+                    )
+                    for attachment in message.attachments
+                )
+                if has_media:
+                    try:
+                        quest_completed, _ = await quests.update_quest_progress(db_helpers, message.author.id, 'daily_media', 1)
+                    except Exception as e:
+                        logger.error(f"Error updating daily_media quest progress: {e}", exc_info=True)
 
             new_level = await grant_xp(message.author.id, message.author.display_name, db_helpers.add_xp, config)
             if new_level:

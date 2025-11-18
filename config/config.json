@@ -161,6 +161,10 @@
           "game_minutes": {
             "target": 15,
             "reward": 300
+          },
+          "daily_media": {
+            "target": 1,
+            "reward": 200
           }
         }
       }
@@ -186,10 +190,10 @@
         "tts_char_limit": 150
       },
       "pacing": {
-        "after_morning_announcement": 1.0,
-        "after_victim_reveal": 2.5,
-        "after_no_victim_announcement": 1.0,
-        "after_lynch_reveal": 2.5
+        "after_morning_announcement": 0.5,
+        "after_victim_reveal": 1.5,
+        "after_no_victim_announcement": 0.5,
+        "after_lynch_reveal": 1.5
       }
     },
     "wrapped": {
