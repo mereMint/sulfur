@@ -20,6 +20,7 @@ class MurderCase:
         self.suspects = case_data.get('suspects', [])  # List of suspect dicts
         self.murderer_index = case_data.get('murderer_index', 0)
         self.evidence = case_data.get('evidence', [])
+        self.hints = case_data.get('hints', [])  # Hints/codes pointing to the murderer
     
     def get_suspect(self, index: int):
         """Get suspect details by index."""
@@ -34,7 +35,7 @@ class MurderCase:
 
 async def generate_murder_case(api_helpers, config: dict, gemini_api_key: str, openai_api_key: str):
     """
-    Generate a murder mystery case using AI.
+    Generate a murder mystery case using AI with a single API call.
     
     Returns:
         MurderCase object
@@ -43,27 +44,48 @@ async def generate_murder_case(api_helpers, config: dict, gemini_api_key: str, o
 
 Create a JSON object with:
 - title: A catchy case title (max 50 chars)
-- description: Brief overview of the murder scene and circumstances (max 300 chars)
-- location: Where the murder took place (max 50 chars)
-- victim: Name and brief description of victim (max 100 chars)
+- description: Brief overview of the murder scene and circumstances (max 200 chars)
+- location: Where the murder took place (max 40 chars)
+- victim: Name and brief description of victim (max 80 chars)
 - suspects: Array of exactly 4 suspects, each with:
   - name: Suspect's name
   - occupation: Their job/role
-  - alibi: Their claimed whereabouts
-  - motive: Potential reason for murder
-  - suspicious_details: Clues that may point to or away from guilt
+  - alibi: Their claimed whereabouts (max 80 chars)
+  - motive: Potential reason for murder (max 80 chars)
+  - suspicious_details: Clues that may point to or away from guilt (max 120 chars)
 - murderer_index: Index (0-3) of which suspect is actually guilty
 - evidence: Array of 3-4 pieces of evidence found at scene
+- hints: Array of 2-3 subtle hints that point to the murderer (these should be codes, patterns, or clues)
 
-Make it interesting, creative, and solvable with careful reading of the suspect details."""
+Make the case:
+1. Entertaining and intriguing but concise
+2. Moderately difficult to solve (not obvious but solvable)
+3. Include clever hints/codes that point to the murderer
+4. Add tricky details that make other suspects also seem suspicious
+5. Keep all text brief but engaging"""
 
     try:
-        response = await api_helpers.get_game_details_from_api(
+        # Use the proper API function with a specific model
+        # Get the utility model from config
+        provider = config.get('api', {}).get('provider', 'gemini')
+        if provider == 'gemini':
+            model = config.get('api', {}).get('gemini', {}).get('utility_model', 'gemini-2.0-flash-exp')
+        else:
+            model = config.get('api', {}).get('openai', {}).get('utility_model', 'gpt-4o-mini')
+        
+        # Make a single API call
+        response, error = await api_helpers.get_ai_response_with_model(
             prompt,
+            model,
             config,
             gemini_api_key,
-            openai_api_key
+            openai_api_key,
+            system_prompt="You are a creative detective story writer. Return ONLY valid JSON, no additional text."
         )
+        
+        if error or not response:
+            logger.error(f"Error from AI API: {error}")
+            return create_fallback_case()
         
         # Parse the AI response
         import json
@@ -126,6 +148,11 @@ def create_fallback_case():
             '🔑 Keine Anzeichen von Einbruch',
             '📋 Notiz über geplante Gehaltssenkungen',
             '💊 Spuren eines seltenen Gifts im Kaffee'
+        ],
+        'hints': [
+            '🔍 Die Kaffeetasse hatte Lippenstiftspuren - Eva trägt denselben Farbton',
+            '📝 Eine Notiz mit Evas Handschrift wurde im Papierkorb gefunden',
+            '⏰ Eva war die letzte Person, die das Büro vor dem Tod betrat'
         ]
     }
     return MurderCase(case_data)
