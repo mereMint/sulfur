@@ -2356,7 +2356,155 @@ async def profile(interaction: discord.Interaction, user: discord.Member = None)
     features_text = "\n".join(features) if features else "*Keine Features freigeschaltet.*"
     embed.add_field(name="🎯 Freigeschaltene Features", value=features_text, inline=False)
 
-    await interaction.followup.send(embed=embed)
+    # Add pagination view for game stats
+    view = ProfilePageView(target_user, config)
+    await interaction.followup.send(embed=embed, view=view)
+
+
+class ProfilePageView(discord.ui.View):
+    """View for paginated profile with game stats."""
+    
+    def __init__(self, user: discord.Member, config: dict):
+        super().__init__(timeout=180)
+        self.user = user
+        self.config = config
+    
+    @discord.ui.button(label="🐺 Werwolf Stats", style=discord.ButtonStyle.secondary, row=0)
+    async def werwolf_stats_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        embed = await self._create_werwolf_stats_embed()
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="🎮 Game Stats", style=discord.ButtonStyle.secondary, row=0)
+    async def game_stats_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        embed = await self._create_game_stats_embed()
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    
+    async def _create_werwolf_stats_embed(self):
+        """Create embed with Werwolf-specific stats."""
+        profile_data, error = await db_helpers.get_player_profile(self.user.id)
+        
+        if error or not profile_data:
+            return discord.Embed(
+                title="Keine Daten",
+                description="Keine Werwolf-Statistiken verfügbar.",
+                color=discord.Color.red()
+            )
+        
+        wins = profile_data.get('wins', 0)
+        losses = profile_data.get('losses', 0)
+        total_games = wins + losses
+        win_rate = (wins / total_games * 100) if total_games > 0 else 0
+        
+        embed = discord.Embed(
+            title=f"🐺 Werwolf Stats - {self.user.display_name}",
+            color=discord.Color.dark_red()
+        )
+        embed.set_thumbnail(url=self.user.display_avatar.url)
+        
+        embed.add_field(name="Spiele gesamt", value=f"`{total_games}`", inline=True)
+        embed.add_field(name="Siege", value=f"`{wins}`", inline=True)
+        embed.add_field(name="Niederlagen", value=f"`{losses}`", inline=True)
+        embed.add_field(name="Win-Rate", value=f"`{win_rate:.1f}%`", inline=True)
+        
+        # Progress bar for win rate
+        bar_length = 20
+        filled = int((win_rate / 100) * bar_length)
+        bar = '█' * filled + '░' * (bar_length - filled)
+        embed.add_field(name="Win-Rate Fortschritt", value=f"`{bar}`", inline=False)
+        
+        return embed
+    
+    async def _create_game_stats_embed(self):
+        """Create embed with all game stats (Blackjack, Roulette, Mines, Detective, etc.)."""
+        try:
+            if not db_helpers.db_pool:
+                return discord.Embed(
+                    title="Fehler",
+                    description="Datenbankverbindung nicht verfügbar.",
+                    color=discord.Color.red()
+                )
+            
+            cnx = db_helpers.db_pool.get_connection()
+            if not cnx:
+                return discord.Embed(
+                    title="Fehler",
+                    description="Datenbankverbindung fehlgeschlagen.",
+                    color=discord.Color.red()
+                )
+            
+            cursor = cnx.cursor(dictionary=True)
+            try:
+                stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+                cursor.execute(
+                    """
+                    SELECT games_played, games_won, total_bet, total_won
+                    FROM user_stats
+                    WHERE user_id = %s AND stat_period = %s
+                    """,
+                    (self.user.id, stat_period)
+                )
+                stats = cursor.fetchone()
+                
+                if not stats:
+                    embed = discord.Embed(
+                        title=f"🎮 Game Stats - {self.user.display_name}",
+                        description="Noch keine Spiele gespielt diesen Monat!",
+                        color=discord.Color.blue()
+                    )
+                    embed.set_thumbnail(url=self.user.display_avatar.url)
+                    return embed
+                
+                games_played = stats['games_played'] or 0
+                games_won = stats['games_won'] or 0
+                total_bet = stats['total_bet'] or 0
+                total_won = stats['total_won'] or 0
+                
+                win_rate = (games_won / games_played * 100) if games_played > 0 else 0
+                net_profit = total_won - total_bet
+                
+                embed = discord.Embed(
+                    title=f"🎮 Game Stats - {self.user.display_name}",
+                    description=f"Statistiken für {stat_period}",
+                    color=discord.Color.blue()
+                )
+                embed.set_thumbnail(url=self.user.display_avatar.url)
+                
+                embed.add_field(name="Spiele gespielt", value=f"`{games_played}`", inline=True)
+                embed.add_field(name="Spiele gewonnen", value=f"`{games_won}`", inline=True)
+                embed.add_field(name="Win-Rate", value=f"`{win_rate:.1f}%`", inline=True)
+                
+                currency = self.config['modules']['economy']['currency_symbol']
+                embed.add_field(name="Gesamt eingesetzt", value=f"`{total_bet}` {currency}", inline=True)
+                embed.add_field(name="Gesamt gewonnen", value=f"`{total_won}` {currency}", inline=True)
+                
+                profit_color = "🟢" if net_profit >= 0 else "🔴"
+                embed.add_field(
+                    name="Nettogewinn",
+                    value=f"{profit_color} `{net_profit:+d}` {currency}",
+                    inline=True
+                )
+                
+                # Win rate progress bar
+                bar_length = 20
+                filled = int((win_rate / 100) * bar_length)
+                bar = '█' * filled + '░' * (bar_length - filled)
+                embed.add_field(name="Win-Rate Fortschritt", value=f"`{bar}`", inline=False)
+                
+                return embed
+                
+            finally:
+                cursor.close()
+                cnx.close()
+                
+        except Exception as e:
+            logger.error(f"Error creating game stats embed: {e}", exc_info=True)
+            return discord.Embed(
+                title="Fehler",
+                description=f"Fehler beim Laden der Statistiken: {str(e)}",
+                color=discord.Color.red()
+            )
 
 @tree.command(name="leaderboard", description="Zeigt das globale Level-Leaderboard an.")
 async def leaderboard(interaction: discord.Interaction):
