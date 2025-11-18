@@ -376,9 +376,31 @@ start_web_dashboard() {
     
     # Quick validation - check if Flask is importable
     if ! "$python_exe" -c "import flask, flask_socketio" 2>/dev/null; then
-        log_error "Web Dashboard dependencies (Flask/Flask-SocketIO) not installed in Python environment"
-        log_warning "Run: $python_exe -m pip install -r requirements.txt"
-        return 1
+        log_warning "Flask dependencies not installed, attempting to install..."
+        
+        # Try to install Flask dependencies
+        local pip_exe="$python_exe"
+        if [ -f "venv/bin/pip" ]; then
+            pip_exe="venv/bin/pip"
+        else
+            pip_exe="$python_exe -m pip"
+        fi
+        
+        if $pip_exe install -r requirements.txt >>"$MAIN_LOG" 2>&1; then
+            log_success "Flask dependencies installed successfully"
+        else
+            log_error "Failed to install Flask dependencies"
+            log_warning "Web Dashboard cannot start without Flask and Flask-SocketIO"
+            log_warning "Try manually: $python_exe -m pip install -r requirements.txt"
+            return 1
+        fi
+        
+        # Verify installation
+        if ! "$python_exe" -c "import flask, flask_socketio" 2>/dev/null; then
+            log_error "Flask dependencies still not available after installation"
+            log_warning "Check $MAIN_LOG for details"
+            return 1
+        fi
     fi
     
     # Start web dashboard in background
