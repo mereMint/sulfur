@@ -16,12 +16,18 @@ from modules.logger_utils import bot_logger as logger
 
 # --- NEW: Library Version Check ---
 # This code requires discord.py version 2.0 or higher for slash commands.
-if discord.__version__.split('.')[0] < '2':
-    logger.error(f"discord.py version {discord.__version__} is too old. Requires 2.0.0+")
-    print("Error: Your discord.py version is too old.")
-    print(f"You have version {discord.__version__}, but this bot requires version 2.0.0 or higher.")
-    print("Please update it by running: pip install -U discord.py")
-    exit()
+try:
+    version_parts = tuple(int(x) for x in discord.__version__.split('.'))
+    if version_parts[0] < 2:
+        logger.error(f"discord.py version {discord.__version__} is too old. Requires 2.0.0+")
+        print("Error: Your discord.py version is too old.")
+        print(f"You have version {discord.__version__}, but this bot requires version 2.0.0 or higher.")
+        print("Please update it by running: pip install -U discord.py")
+        exit()
+except (ValueError, IndexError) as e:
+    logger.error(f"Could not parse discord.py version: {discord.__version__}")
+    print(f"Warning: Could not verify discord.py version ({discord.__version__}). Proceeding anyway...")
+    print("If you encounter issues, ensure you have discord.py 2.0.0 or higher installed.")
 
 # --- NEW: Load environment variables from .env file ---
 from dotenv import load_dotenv

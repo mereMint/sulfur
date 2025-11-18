@@ -24,20 +24,33 @@ async def get_balance(db_helpers, user_id: int):
         int: Current balance
     """
     try:
-        async with db_helpers.get_db_connection() as (conn, cursor):
+        if not db_helpers.db_pool:
+            logger.warning("Database pool not available in get_balance")
+            return 0
+            
+        cnx = db_helpers.db_pool.get_connection()
+        if not cnx:
+            logger.warning("Could not get DB connection in get_balance")
+            return 0
+            
+        cursor = cnx.cursor(dictionary=True)
+        try:
             # Get balance from user_stats table
             stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
-            await cursor.execute(
+            cursor.execute(
                 "SELECT balance FROM user_stats WHERE user_id = %s AND stat_period = %s",
                 (user_id, stat_period)
             )
-            result = await cursor.fetchone()
+            result = cursor.fetchone()
             
             if result:
                 return result['balance'] or 0
             
             # User doesn't exist, return starting balance
             return 0
+        finally:
+            cursor.close()
+            cnx.close()
     except Exception as e:
         logger.error(f"Error getting balance for user {user_id}: {e}", exc_info=True)
         return 0
@@ -57,13 +70,23 @@ async def grant_daily_reward(db_helpers, user_id: int, display_name: str, config
         (success, amount, message) tuple
     """
     try:
-        async with db_helpers.get_db_connection() as (conn, cursor):
+        if not db_helpers.db_pool:
+            logger.warning("Database pool not available in grant_daily_reward")
+            return False, 0, "Database connection error."
+            
+        cnx = db_helpers.db_pool.get_connection()
+        if not cnx:
+            logger.warning("Could not get DB connection in grant_daily_reward")
+            return False, 0, "Database connection error."
+            
+        cursor = cnx.cursor(dictionary=True)
+        try:
             # Check last daily claim
-            await cursor.execute(
+            cursor.execute(
                 "SELECT last_daily_claim FROM user_economy WHERE user_id = %s",
                 (user_id,)
             )
-            result = await cursor.fetchone()
+            result = cursor.fetchone()
             
             now = datetime.now(timezone.utc)
             can_claim = True
@@ -87,7 +110,7 @@ async def grant_daily_reward(db_helpers, user_id: int, display_name: str, config
             await db_helpers.add_balance(user_id, display_name, amount, config, stat_period)
             
             # Update last claim time
-            await cursor.execute(
+            cursor.execute(
                 """
                 INSERT INTO user_economy (user_id, last_daily_claim)
                 VALUES (%s, %s)
@@ -95,10 +118,13 @@ async def grant_daily_reward(db_helpers, user_id: int, display_name: str, config
                 """,
                 (user_id, now, now)
             )
-            await conn.commit()
+            cnx.commit()
             
             currency = config['modules']['economy']['currency_symbol']
             return True, amount, f"Daily reward claimed! +{amount} {currency}"
+        finally:
+            cursor.close()
+            cnx.close()
             
     except Exception as e:
         logger.error(f"Error granting daily reward: {e}", exc_info=True)
@@ -160,9 +186,19 @@ async def get_leaderboard(db_helpers, limit: int = 10):
         List of (user_id, display_name, balance) tuples
     """
     try:
-        async with db_helpers.get_db_connection() as (conn, cursor):
+        if not db_helpers.db_pool:
+            logger.warning("Database pool not available in get_leaderboard")
+            return []
+            
+        cnx = db_helpers.db_pool.get_connection()
+        if not cnx:
+            logger.warning("Could not get DB connection in get_leaderboard")
+            return []
+            
+        cursor = cnx.cursor(dictionary=True)
+        try:
             stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
-            await cursor.execute(
+            cursor.execute(
                 """
                 SELECT user_id, display_name, balance
                 FROM user_stats
@@ -172,8 +208,11 @@ async def get_leaderboard(db_helpers, limit: int = 10):
                 """,
                 (stat_period, limit)
             )
-            results = await cursor.fetchall()
+            results = cursor.fetchall()
             return [(r['user_id'], r['display_name'], r['balance']) for r in results]
+        finally:
+            cursor.close()
+            cnx.close()
     except Exception as e:
         logger.error(f"Error getting leaderboard: {e}", exc_info=True)
         return []
