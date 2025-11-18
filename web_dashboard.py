@@ -773,6 +773,17 @@ if __name__ == '__main__':
     try:
         # Use socketio.run() which handles both HTTP and WebSocket connections
         socketio.run(app, host='0.0.0.0', port=5000, debug=False, allow_unsafe_werkzeug=True)
+    except OSError as e:
+        if "Address already in use" in str(e) or "Errno 98" in str(e):
+            print(f"[Web Dashboard] FATAL ERROR: Port 5000 is already in use!")
+            print(f"[Web Dashboard] This usually means another instance of the web dashboard is running.")
+            print(f"[Web Dashboard] Error details: {e}")
+            print(f"[Web Dashboard] Exiting...")
+        else:
+            print(f"[Web Dashboard] FATAL: Failed to start web server: {e}")
+            import traceback
+            traceback.print_exc()
+        exit(1)
     except Exception as e:
         print(f"[Web Dashboard] FATAL: Failed to start web server: {e}")
         import traceback

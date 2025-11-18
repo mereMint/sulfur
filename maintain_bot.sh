@@ -160,10 +160,16 @@ cleanup() {
             log_web "Stopping web dashboard (PID: $WEB_PID)..."
             kill "$WEB_PID" 2>/dev/null
             sleep 2
-            kill -9 "$WEB_PID" 2>/dev/null
+            # Force kill if still running
+            if kill -0 "$WEB_PID" 2>/dev/null; then
+                kill -9 "$WEB_PID" 2>/dev/null
+            fi
         fi
         rm -f "$WEB_PID_FILE"
     fi
+    
+    # Also clean up any orphaned web dashboard processes on port 5000
+    cleanup_port_5000 2>/dev/null || true
     
     # Final backup and commit
     if [ "$SKIP_BACKUP" != true ]; then
@@ -359,8 +365,59 @@ apply_updates() {
 # Process Management
 # ==============================================================================
 
+cleanup_port_5000() {
+    log_web "Checking if port 5000 is already in use..."
+    
+    # Find process using port 5000
+    local port_pid=""
+    
+    # Try different methods to find the process
+    if command -v lsof >/dev/null 2>&1; then
+        port_pid=$(lsof -ti:5000 2>/dev/null || true)
+    elif command -v ss >/dev/null 2>&1; then
+        # Use ss to find the process
+        port_pid=$(ss -lptn 'sport = :5000' 2>/dev/null | grep -oP 'pid=\K[0-9]+' | head -n1 || true)
+    elif command -v netstat >/dev/null 2>&1; then
+        # Fallback to netstat
+        port_pid=$(netstat -tlnp 2>/dev/null | grep ':5000 ' | awk '{print $7}' | cut -d'/' -f1 || true)
+    fi
+    
+    if [ -n "$port_pid" ]; then
+        log_warning "Port 5000 is in use by PID: $port_pid"
+        
+        # Check if it's an old web dashboard process
+        if ps -p "$port_pid" -o comm= 2>/dev/null | grep -q python; then
+            log_warning "Killing old web dashboard process (PID: $port_pid)..."
+            kill -9 "$port_pid" 2>/dev/null || true
+            sleep 1
+            
+            # Verify port is now free
+            if nc -z 127.0.0.1 5000 2>/dev/null; then
+                log_error "Failed to free port 5000"
+                return 1
+            else
+                log_success "Port 5000 is now available"
+            fi
+        else
+            log_error "Port 5000 is in use by a non-Python process (PID: $port_pid)"
+            log_error "Please manually stop the process or use a different port"
+            return 1
+        fi
+    else
+        log_web "Port 5000 is available"
+    fi
+    
+    return 0
+}
+
 start_web_dashboard() {
     log_web "Starting Web Dashboard..."
+    
+    # Clean up port 5000 if it's already in use
+    if ! cleanup_port_5000; then
+        log_error "Cannot start web dashboard - port 5000 is not available"
+        return 1
+    fi
     
     # Find Python
     local python_exe="$PYTHON_CMD"
@@ -389,6 +446,15 @@ start_web_dashboard() {
         
         if ! kill -0 "$web_pid" 2>/dev/null; then
             log_error "Web Dashboard failed to start"
+            
+            # Check the last few lines of the web log for errors
+            if [ -f "$WEB_LOG" ]; then
+                log_error "Last 10 lines from web dashboard log:"
+                tail -n 10 "$WEB_LOG" | while IFS= read -r line; do
+                    log_error "  $line"
+                done
+            fi
+            
             rm -f "$WEB_PID_FILE"
             return 1
         fi
