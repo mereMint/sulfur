@@ -11,7 +11,7 @@ function ensure_venv {
         echo "Python virtual environment not found. Creating one now..."
         if ! command -v python &> /dev/null; then
             echo "Error: 'python' command not found. Cannot create virtual environment."
-            read -p "Press Enter to exit."
+            read -r -p "Press Enter to exit."
             exit 1
         fi
         python -m venv "$venv_path"

@@ -6,7 +6,7 @@
 LOG_FILE="$1"
 # --- Set the working directory to project root (parent of scripts) ---
 SCRIPT_DIR="$(dirname "$0")"
-cd "$SCRIPT_DIR/.."
+cd "$SCRIPT_DIR/.." || exit 1
 
 # --- Import shared functions ---
 source ./scripts/shared_functions.sh
@@ -19,9 +19,9 @@ DB_USER=${DB_USER:-"sulfur_bot_user"}
 # --- Check for Python executable before proceeding ---
 if ! command -v python &> /dev/null; then
     echo -e "\033[0;31m--------------------------------------------------------\033[0m"
-    echo -e "\03f[0;31mError: 'python' command not found.\033[0m"
+    echo -e "\033[0;31mError: 'python' command not found.\033[0m"
     echo -e "\033[0;33mPlease ensure Python is installed in Termux (pkg install python).\033[0m"
-    read -p "Press Enter to exit."
+    read -r -p "Press Enter to exit."
     exit 1
 fi
 
@@ -33,7 +33,7 @@ if ! pgrep -x "mysqld\|mariadbd" > /dev/null; then
     echo "MariaDB not running. Starting it now..."
     # Prefer mariadb commands in Termux, fall back to mysql commands
     if command -v mariadbd-safe &> /dev/null; then
-        mariadbd-safe --datadir=$PREFIX/var/lib/mysql &
+        mariadbd-safe --datadir="$PREFIX/var/lib/mysql" &
     elif command -v mysqld_safe &> /dev/null; then
         mysqld_safe -u root &
     else

@@ -58,7 +58,7 @@ else
             echo -e "${YELLOW}⚠ MariaDB not installed in Termux${NC}"
             echo -e "${GRAY}  Install with: pkg install mariadb${NC}"
             echo -e "${GRAY}  Then run: mysql_install_db${NC}"
-            read -p "Press Enter to continue anyway or Ctrl+C to exit"
+            read -r -p "Press Enter to continue anyway or Ctrl+C to exit"
         fi
     else
         # Try to start MySQL service on Linux
@@ -71,12 +71,12 @@ else
             else
                 echo -e "${YELLOW}⚠ Could not start MySQL service${NC}"
                 echo -e "${GRAY}  Try manually: sudo systemctl start mysql${NC}"
-                read -p "Press Enter to continue anyway or Ctrl+C to exit"
+                read -r -p "Press Enter to continue anyway or Ctrl+C to exit"
             fi
         else
             echo -e "${YELLOW}⚠ Could not auto-start MySQL${NC}"
             echo -e "${GRAY}  Please start MySQL manually and run this script again${NC}"
-            read -p "Press Enter to continue anyway or Ctrl+C to exit"
+            read -r -p "Press Enter to continue anyway or Ctrl+C to exit"
         fi
     fi
 fi
