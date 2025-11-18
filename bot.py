@@ -155,6 +155,11 @@ active_werwolf_games = {}
 # We create a lightweight lock file with the primary process PID.
 INSTANCE_LOCK_FILE = "bot_instance.lock"
 SECONDARY_INSTANCE = False
+
+current_pid = os.getpid()
+logger.info(f"Bot starting with PID {current_pid}")
+print(f"[GUARD] Bot starting with PID {current_pid}")
+
 try:
     if os.path.exists(INSTANCE_LOCK_FILE):
         try:
@@ -162,8 +167,12 @@ try:
                 existing_pid_line = f.readline().strip()
                 existing_pid = int(existing_pid_line) if existing_pid_line.isdigit() else None
             
-            if existing_pid and existing_pid != os.getpid():
+            logger.info(f"Found lock file with PID {existing_pid}")
+            print(f"[GUARD] Found existing lock file with PID {existing_pid}")
+            
+            if existing_pid and existing_pid != current_pid:
                 # Check if the process is actually still running
+                process_exists = False
                 try:
                     # Try to send signal 0 to check if process exists (works on Unix and Windows)
                     if sys.platform == "win32":
@@ -172,15 +181,20 @@ try:
                         result = subprocess.run(['tasklist', '/FI', f'PID eq {existing_pid}'], 
                                                capture_output=True, text=True, timeout=5)
                         process_exists = str(existing_pid) in result.stdout
+                        logger.debug(f"Windows process check for PID {existing_pid}: {process_exists}")
                     else:
                         # On Unix, use os.kill with signal 0
-                        os.kill(existing_pid, 0)
-                        process_exists = True
-                except (OSError, subprocess.TimeoutExpired, subprocess.SubprocessError):
-                    # Process doesn't exist
+                        try:
+                            os.kill(existing_pid, 0)
+                            process_exists = True
+                            logger.debug(f"Unix process check for PID {existing_pid}: exists")
+                        except OSError:
+                            process_exists = False
+                            logger.debug(f"Unix process check for PID {existing_pid}: does not exist")
+                except (subprocess.TimeoutExpired, subprocess.SubprocessError) as e:
+                    # Process doesn't exist or error checking
                     process_exists = False
-                    logger.info(f"Stale lock file found (PID {existing_pid} no longer running), claiming primary instance")
-                    print(f"[GUARD] Stale lock file found - PID {existing_pid} is not running. This will be the primary instance.")
+                    logger.debug(f"Error checking process {existing_pid}: {e}")
                 
                 if process_exists:
                     SECONDARY_INSTANCE = True
@@ -189,19 +203,52 @@ try:
                 else:
                     # Stale lock file, we become primary
                     SECONDARY_INSTANCE = False
+                    logger.info(f"Stale lock file found (PID {existing_pid} no longer running), claiming primary instance")
+                    print(f"[GUARD] Stale lock file found - PID {existing_pid} is not running. This will be the PRIMARY instance.")
+            elif existing_pid == current_pid:
+                # Lock file has our own PID (shouldn't happen but handle it)
+                SECONDARY_INSTANCE = False
+                logger.warning(f"Lock file contains our own PID {current_pid}, assuming primary")
+                print(f"[GUARD] Lock file has our own PID - claiming PRIMARY instance")
+            else:
+                # Invalid PID in lock file
+                SECONDARY_INSTANCE = False
+                logger.warning(f"Invalid PID in lock file: {existing_pid_line}, assuming primary")
+                print(f"[GUARD] Invalid PID in lock file - claiming PRIMARY instance")
         except Exception as e:
             # If we cannot read/parse we assume primary ownership
-            logger.warning(f"Failed to read lock file: {e}, assuming primary ownership")
             SECONDARY_INSTANCE = False
+            logger.warning(f"Failed to read lock file: {e}, assuming primary ownership")
+            print(f"[GUARD] Error reading lock file: {e} - claiming PRIMARY instance")
+    else:
+        logger.info("No existing lock file found")
+        print("[GUARD] No existing lock file - will be PRIMARY instance")
     
     if not SECONDARY_INSTANCE:
+        # Remove old lock file if it exists
+        if os.path.exists(INSTANCE_LOCK_FILE):
+            os.remove(INSTANCE_LOCK_FILE)
+            logger.info("Removed old lock file")
+        
+        # Create new lock file with our PID
         with open(INSTANCE_LOCK_FILE, 'w', encoding='utf-8') as f:
-            f.write(str(os.getpid()))
-        logger.info(f"Created lock file with PID {os.getpid()} - this is the PRIMARY instance")
-        print(f"[GUARD] Created lock file with PID {os.getpid()} - this is the PRIMARY instance")
+            f.write(str(current_pid))
+        logger.info(f"Created lock file with PID {current_pid} - this is the PRIMARY instance")
+        print(f"[GUARD] Created lock file with PID {current_pid} - this is the PRIMARY instance")
+    else:
+        logger.warning("Running as SECONDARY instance - will not process messages")
+        print("[GUARD] Running as SECONDARY instance - will NOT process messages")
+        
 except Exception as e:
     logger.error(f"Lock file handling failed: {e}, assuming primary ownership")
+    print(f"[GUARD] Lock file error: {e} - defaulting to PRIMARY instance")
     SECONDARY_INSTANCE = False
+    # Try to create lock file anyway
+    try:
+        with open(INSTANCE_LOCK_FILE, 'w', encoding='utf-8') as f:
+            f.write(str(current_pid))
+    except:
+        pass
 
 # In-memory caches for duplicate suppression
 last_processed_message_ids = deque(maxlen=500)
