@@ -335,6 +335,63 @@ def initialize_database():
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             )
         """)
+        
+        # --- NEW: Quest System Tables ---
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS daily_quests (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                quest_date DATE NOT NULL,
+                quest_type VARCHAR(50) NOT NULL,
+                target_value INT NOT NULL,
+                current_progress INT NOT NULL DEFAULT 0,
+                completed BOOLEAN NOT NULL DEFAULT FALSE,
+                reward_claimed BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_user_date (user_id, quest_date),
+                INDEX idx_user_type_date (user_id, quest_type, quest_date)
+            )
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_economy (
+                user_id BIGINT PRIMARY KEY,
+                last_daily_claim TIMESTAMP NULL,
+                total_earned BIGINT NOT NULL DEFAULT 0,
+                total_spent BIGINT NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_stats (
+                user_id BIGINT NOT NULL,
+                stat_period VARCHAR(7) NOT NULL,
+                balance BIGINT NOT NULL DEFAULT 0,
+                messages_sent INT NOT NULL DEFAULT 0,
+                voice_minutes INT NOT NULL DEFAULT 0,
+                quests_completed INT NOT NULL DEFAULT 0,
+                games_played INT NOT NULL DEFAULT 0,
+                games_won INT NOT NULL DEFAULT 0,
+                total_bet INT NOT NULL DEFAULT 0,
+                total_won INT NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, stat_period),
+                INDEX idx_period (stat_period)
+            )
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS monthly_quest_completion (
+                user_id BIGINT NOT NULL,
+                completion_date DATE NOT NULL,
+                bonus_claimed BOOLEAN NOT NULL DEFAULT FALSE,
+                PRIMARY KEY (user_id, completion_date),
+                INDEX idx_user_month (user_id, completion_date)
+            )
+        """)
 
         logger.info("Database tables checked/created successfully")
     except mysql.connector.Error as err:
