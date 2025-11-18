@@ -125,6 +125,9 @@ async def purchase_color_role(db_helpers, member: discord.Member, color: str, ti
         f"Purchased {tier} color role ({color})"
     )
     
+    # Store equipped color in database
+    await db_helpers.set_user_equipped_color(member.id, color)
+    
     currency = config['modules']['economy']['currency_symbol']
     return True, f"Successfully purchased {tier} color role for {price} {currency}!", role
 

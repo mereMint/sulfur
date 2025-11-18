@@ -433,6 +433,27 @@ def get_embed_color(config_obj):
     hex_color = config_obj.get('bot', {}).get('embed_color', '#7289DA') # Default to blurple
     return discord.Color(int(hex_color.lstrip('#'), 16))
 
+
+async def get_user_embed_color(user_id, config_obj):
+    """
+    Get the embed color for a specific user.
+    Uses the user's equipped color if they have one, otherwise uses the default.
+    """
+    # Try to get user's equipped color
+    equipped_color = await db_helpers.get_user_equipped_color(user_id)
+    
+    if equipped_color:
+        try:
+            # Convert hex color to discord.Color
+            return discord.Color(int(equipped_color.lstrip('#'), 16))
+        except (ValueError, AttributeError):
+            # If color is invalid, fall back to default
+            pass
+    
+    # Fall back to default config color
+    return get_embed_color(config_obj)
+
+
 @client.event
 async def on_ready():
     """Fires when the bot logs in."""
@@ -2033,10 +2054,21 @@ class AIDashboardView(discord.ui.View):
     @discord.ui.select(
         placeholder="Wähle ein neues KI-Modell...",
         options=[
+            # Gemini Models
+            discord.SelectOption(label="Gemini 2.5 Pro (Most Capable)", value="gemini:gemini-2.5-pro", emoji="💎"),
             discord.SelectOption(label="Gemini 2.5 Flash (Schnell & Modern)", value="gemini:gemini-2.5-flash", emoji="⚡"),
-            discord.SelectOption(label="Gemini 1.0 Pro (Stabil)", value="gemini:gemini-1.0-pro", emoji="💎"),
-            discord.SelectOption(label="OpenAI GPT-4o Mini (Schnell)", value="openai:gpt-4o-mini", emoji="🚀"),
-            discord.SelectOption(label="OpenAI GPT-4o (Leistungsstark)", value="openai:gpt-4o", emoji="🧠"),
+            discord.SelectOption(label="Gemini 2.0 Flash Exp (Experimental)", value="gemini:gemini-2.0-flash-exp", emoji="🧪"),
+            discord.SelectOption(label="Gemini 1.5 Pro (Stabil)", value="gemini:gemini-1.5-pro", emoji="🏆"),
+            # OpenAI Models
+            discord.SelectOption(label="GPT-5 Nano (Newest Nano)", value="openai:gpt-5-nano", emoji="🆕"),
+            discord.SelectOption(label="GPT-5 Mini (Newest Mini)", value="openai:gpt-5-mini", emoji="✨"),
+            discord.SelectOption(label="GPT-4.1 Nano (Efficient)", value="openai:gpt-4.1-nano", emoji="⚙️"),
+            discord.SelectOption(label="GPT-4o Mini (Schnell)", value="openai:gpt-4o-mini", emoji="🚀"),
+            discord.SelectOption(label="GPT-4o (Leistungsstark)", value="openai:gpt-4o", emoji="🧠"),
+            discord.SelectOption(label="GPT-4 Turbo", value="openai:gpt-4-turbo", emoji="💨"),
+            discord.SelectOption(label="O1 (Reasoning)", value="openai:o1", emoji="🤔"),
+            discord.SelectOption(label="O1 Mini", value="openai:o1-mini", emoji="💭"),
+            discord.SelectOption(label="O3 Mini", value="openai:o3-mini", emoji="🎯"),
         ]
     )
     async def model_select_callback(self, interaction: discord.Interaction, select: discord.ui.Select):
@@ -2117,7 +2149,10 @@ async def rank(interaction: discord.Interaction, user: discord.Member = None):
     progress = int((xp / xp_for_next_level) * 20) # 20 characters for the bar
     progress_bar = '█' * progress + '░' * (20 - progress)
 
-    embed = discord.Embed(color=get_embed_color(config))
+    # Get user's equipped color or default
+    embed_color = await get_user_embed_color(target_user.id, config)
+
+    embed = discord.Embed(color=embed_color)
     embed.set_author(name=f"Rang von {target_user.display_name}", icon_url=target_user.display_avatar.url) 
     embed.add_field(name="Level", value=f"```{level}```", inline=True) 
     embed.add_field(name="Global Rang", value=f"```#{rank}```", inline=True) 
@@ -2142,9 +2177,12 @@ async def profile(interaction: discord.Interaction, user: discord.Member = None)
         await interaction.followup.send(f"{target_user.display_name} hat noch keine Aktivitäten gezeigt und daher kein Profil.", ephemeral=True)
         return
 
+    # Get user's equipped color or default
+    embed_color = await get_user_embed_color(target_user.id, config)
+
     embed = discord.Embed(
         title=f"Profil von {target_user.display_name}",
-        color=get_embed_color(config)
+        color=embed_color
     )
     embed.set_thumbnail(url=target_user.display_avatar.url)
 
@@ -2152,6 +2190,11 @@ async def profile(interaction: discord.Interaction, user: discord.Member = None)
     embed.add_field(name="Level", value=f"**{profile_data.get('level', 1)}**", inline=True)
     embed.add_field(name="Guthaben", value=f"**{profile_data.get('balance', 0)}** 🪙", inline=True)
     embed.add_field(name="Globaler Rang", value=f"**#{profile_data.get('rank', 'N/A')}**", inline=True)
+
+    # Get equipped color display
+    equipped_color = await db_helpers.get_user_equipped_color(target_user.id)
+    color_display = equipped_color if equipped_color else "Keine Farbe ausgerüstet"
+    embed.add_field(name="🎨 Farbe", value=f"`{color_display}`", inline=True)
 
     # Werwolf Stats
     wins = profile_data.get('wins', 0)
@@ -2164,8 +2207,20 @@ async def profile(interaction: discord.Interaction, user: discord.Member = None)
         inline=False
     )
 
-    # Placeholder for items
-    embed.add_field(name="🎒 Inventar", value="*Keine Items im Inventar.*", inline=False)
+    # Show purchased items/features
+    has_dm = await db_helpers.has_feature_unlock(target_user.id, 'dm_access')
+    has_games = await db_helpers.has_feature_unlock(target_user.id, 'games_access')
+    has_ww_special = await db_helpers.has_feature_unlock(target_user.id, 'werwolf_special_roles')
+    has_custom_status = await db_helpers.has_feature_unlock(target_user.id, 'custom_status')
+    
+    features = []
+    if has_dm: features.append("✉️ DM Access")
+    if has_games: features.append("🎮 Games Access")
+    if has_ww_special: features.append("🐺 Werwolf Special Roles")
+    if has_custom_status: features.append("✨ Custom Status")
+    
+    features_text = "\n".join(features) if features else "*Keine Features freigeschaltet.*"
+    embed.add_field(name="🎯 Freigeschaltene Features", value=features_text, inline=False)
 
     await interaction.followup.send(embed=embed)
 
@@ -3491,52 +3546,71 @@ async def roulette(interaction: discord.Interaction, bet_type: app_commands.Choi
 @app_commands.describe(bet="Dein Einsatz")
 async def mines(interaction: discord.Interaction, bet: int):
     """Start a Mines game."""
-    await interaction.response.defer(ephemeral=True)
-    
-    user_id = interaction.user.id
-    
-    # Check if user already has an active game
-    if user_id in active_mines_games:
-        await interaction.followup.send("Du hast bereits ein aktives Mines-Spiel!", ephemeral=True)
-        return
-    
-    # Validate bet amount
-    min_bet = config['modules']['economy']['games']['mines']['min_bet']
-    max_bet = config['modules']['economy']['games']['mines']['max_bet']
-    currency = config['modules']['economy']['currency_symbol']
-    
-    if bet < min_bet or bet > max_bet:
-        await interaction.followup.send(
-            f"Ungültiger Einsatz! Minimum: {min_bet} {currency}, Maximum: {max_bet} {currency}",
-            ephemeral=True
+    try:
+        await interaction.response.defer(ephemeral=True)
+        
+        user_id = interaction.user.id
+        
+        # Check if user already has an active game
+        if user_id in active_mines_games:
+            await interaction.followup.send("Du hast bereits ein aktives Mines-Spiel!", ephemeral=True)
+            return
+        
+        # Validate bet amount
+        min_bet = config['modules']['economy']['games']['mines']['min_bet']
+        max_bet = config['modules']['economy']['games']['mines']['max_bet']
+        currency = config['modules']['economy']['currency_symbol']
+        
+        if bet < min_bet or bet > max_bet:
+            await interaction.followup.send(
+                f"Ungültiger Einsatz! Minimum: {min_bet} {currency}, Maximum: {max_bet} {currency}",
+                ephemeral=True
+            )
+            return
+        
+        # Check balance
+        try:
+            balance = await db_helpers.get_balance(user_id)
+        except Exception as e:
+            logger.error(f"Error getting balance for user {user_id} in mines command: {e}")
+            await interaction.followup.send(
+                "Ein Fehler ist beim Abrufen deines Guthabens aufgetreten. Bitte versuche es später erneut.",
+                ephemeral=True
+            )
+            return
+            
+        if balance < bet:
+            await interaction.followup.send(
+                f"Nicht genug Guthaben! Du hast {balance} {currency}, brauchst aber {bet} {currency}.",
+                ephemeral=True
+            )
+            return
+        
+        # Create game
+        grid_size = config['modules']['economy']['games']['mines']['grid_size']
+        mine_count = config['modules']['economy']['games']['mines']['mine_count']
+        game = MinesGame(user_id, bet, grid_size, mine_count)
+        active_mines_games[user_id] = game
+        
+        # Create view
+        view = MinesView(game, user_id)
+        embed = game.create_embed()
+        embed.add_field(
+            name="ℹ️ Anleitung",
+            value="Klicke auf Felder um sie aufzudecken. Vermeide die Minen! Cash out jederzeit für den aktuellen Multiplikator.",
+            inline=False
         )
-        return
-    
-    # Check balance
-    balance = await db_helpers.get_balance(user_id)
-    if balance < bet:
-        await interaction.followup.send(
-            f"Nicht genug Guthaben! Du hast {balance} {currency}, brauchst aber {bet} {currency}.",
-            ephemeral=True
-        )
-        return
-    
-    # Create game
-    grid_size = config['modules']['economy']['games']['mines']['grid_size']
-    mine_count = config['modules']['economy']['games']['mines']['mine_count']
-    game = MinesGame(user_id, bet, grid_size, mine_count)
-    active_mines_games[user_id] = game
-    
-    # Create view
-    view = MinesView(game, user_id)
-    embed = game.create_embed()
-    embed.add_field(
-        name="ℹ️ Anleitung",
-        value="Klicke auf Felder um sie aufzudecken. Vermeide die Minen! Cash out jederzeit für den aktuellen Multiplikator.",
-        inline=False
-    )
-    
-    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+    except Exception as e:
+        logger.error(f"Unexpected error in mines command: {e}", exc_info=True)
+        try:
+            await interaction.followup.send(
+                "Ein unerwarteter Fehler ist aufgetreten. Bitte versuche es später erneut.",
+                ephemeral=True
+            )
+        except:
+            pass  # Interaction might already have been responded to
 
 
 class RussianRouletteView(discord.ui.View):

@@ -1,0 +1,41 @@
+{% extends "layout.html" %}
+{% block title %}System Prompt Editor{% endblock %}
+
+{% block content %}
+<h3>System Prompt Editor</h3>
+<p class="text-muted">Edit the bot's personality and behavior.</p>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        {% for category, message in messages %}
+            <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        {% endfor %}
+    {% endif %}
+{% endwith %}
+
+<form method="POST">
+    <div class="mb-3">
+        <label for="prompt_text" class="form-label">System Prompt:</label>
+        <textarea class="form-control" id="prompt_text" name="prompt_text" rows="20" style="font-family: monospace;">{{ prompt_content }}</textarea>
+        <div class="form-text">
+            This is the system prompt that defines the bot's personality and behavior. 
+            Changes will take effect after restarting the bot.
+        </div>
+    </div>
+    <button type="submit" class="btn btn-primary">Save Changes</button>
+    <a href="/" class="btn btn-secondary">Cancel</a>
+</form>
+
+<div class="mt-4">
+    <h5>Tips:</h5>
+    <ul>
+        <li>Keep the prompt focused and clear</li>
+        <li>Define the bot's personality, tone, and speaking style</li>
+        <li>Specify any constraints or guidelines for responses</li>
+        <li>Restart the bot after making changes to apply them</li>
+    </ul>
+</div>
+{% endblock %}

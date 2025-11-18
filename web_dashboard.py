@@ -164,34 +164,96 @@ def config_editor():
     
     return render_template('config.html', config_content=config_content)
 
+
+@app.route('/system_prompt', methods=['GET', 'POST'])
+def system_prompt_editor():
+    """Renders the system prompt editor and handles saving changes."""
+    prompt_path = 'config/system_prompt.txt'
+    if request.method == 'POST':
+        try:
+            # Get raw text from the form
+            prompt_text = request.form['prompt_text']
+            
+            # Write the text back to the file
+            with open(prompt_path, 'w', encoding='utf-8') as f:
+                f.write(prompt_text)
+            
+            flash('System prompt saved successfully!', 'success')
+        except Exception as e:
+            flash(f'An error occurred: {e}', 'danger')
+        return redirect(url_for('system_prompt_editor'))
+
+    # For GET request
+    try:
+        with open(prompt_path, 'r', encoding='utf-8') as f:
+            prompt_content = f.read()
+    except FileNotFoundError:
+        prompt_content = ""
+        flash(f"Warning: '{prompt_path}' not found. A new one will be created on save.", 'warning')
+    
+    return render_template('system_prompt.html', prompt_content=prompt_content)
+
 @app.route('/database', methods=['GET'])
 def database_viewer():
-    """Renders the database viewer page."""
-    tables_to_show = ['players', 'user_monthly_stats', 'managed_voice_channels', 'chat_history', 'api_usage']
-    table_data = {}
-    if not db_helpers.db_pool:
-        for table_name in tables_to_show:
-            table_data[table_name] = [{'error': 'Database pool not initialized'}]
-        return render_template('database.html', table_data=table_data)
+    """Renders the database viewer page with dynamic table selection."""
+    selected_table = request.args.get('table', None)
+    page = int(request.args.get('page', 1))
+    per_page = int(request.args.get('per_page', 50))
     
-    for table_name in tables_to_show:
-        conn = None
-        cursor = None
-        try:
-            query = f"SELECT * FROM {table_name} ORDER BY 1 DESC LIMIT 50"
-            conn = db_helpers.db_pool.get_connection()
-            cursor = conn.cursor(dictionary=True)
-            cursor.execute(query)
-            table_data[table_name] = cursor.fetchall()
-        except Exception as e:
-            table_data[table_name] = [{'error': str(e)}]
-        finally:
-            if cursor:
-                cursor.close()
-            if conn:
-                conn.close()
+    all_tables = []
+    table_data = None
+    total_rows = 0
+    total_pages = 0
+    
+    if not db_helpers.db_pool:
+        return render_template('database.html', 
+                             all_tables=[], 
+                             selected_table=None, 
+                             table_data=None,
+                             error='Database pool not initialized')
+    
+    conn = None
+    cursor = None
+    try:
+        # Get all tables
+        conn = db_helpers.db_pool.get_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SHOW TABLES")
+        all_tables = [list(row.values())[0] for row in cursor.fetchall()]
+        
+        # If a table is selected, fetch its data
+        if selected_table and selected_table in all_tables:
+            # Get total row count
+            cursor.execute(f"SELECT COUNT(*) as count FROM {selected_table}")
+            total_rows = cursor.fetchone()['count']
+            total_pages = (total_rows + per_page - 1) // per_page
             
-    return render_template('database.html', table_data=table_data)
+            # Fetch paginated data
+            offset = (page - 1) * per_page
+            query = f"SELECT * FROM {selected_table} LIMIT {per_page} OFFSET {offset}"
+            cursor.execute(query)
+            table_data = cursor.fetchall()
+    except Exception as e:
+        logger.error(f"Error in database viewer: {e}")
+        return render_template('database.html', 
+                             all_tables=all_tables, 
+                             selected_table=selected_table, 
+                             table_data=None,
+                             error=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+    
+    return render_template('database.html', 
+                         all_tables=all_tables, 
+                         selected_table=selected_table, 
+                         table_data=table_data,
+                         total_rows=total_rows,
+                         total_pages=total_pages,
+                         current_page=page,
+                         per_page=per_page)
 
 @app.route('/ai_usage', methods=['GET'])
 def ai_usage_viewer():
