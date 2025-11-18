@@ -3589,6 +3589,7 @@ async def on_message(message):
         channel_name = f"DM with {message.author.name}" if isinstance(message.channel, discord.DMChannel) else f"#{message.channel.name}"
         logger.info(f"[CHATBOT] Triggered by {message.author.name} in {channel_name}")
         print(f"[CHATBOT] === Starting chatbot handler for {message.author.name} in {channel_name} ===")
+        print(f"[CHATBOT] Message content: '{message.content}'")
         
         if not isinstance(message.channel, discord.DMChannel):
             stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
@@ -3670,11 +3671,24 @@ async def on_message(message):
         if response_text:
             logger.info(f"[CHATBOT] Got response, saving to history and sending")
             print(f"[CHATBOT] Response received - saving and sending...")
-            if len(updated_history) >= 2:
-                # --- FIX: Use updated_history to get the correct user message ---
-                user_message_content = updated_history[-2]['parts'][0]['text']
-                await save_message_to_history(message.channel.id, "user", user_message_content)
-            await save_message_to_history(message.channel.id, "model", response_text)
+            print(f"[CHATBOT] Response preview: '{response_text[:100]}...'")
+            
+            try:
+                if len(updated_history) >= 2:
+                    # --- FIX: Use updated_history to get the correct user message ---
+                    user_message_content = updated_history[-2]['parts'][0]['text']
+                    logger.debug(f"[CHATBOT] Saving user message to history")
+                    print(f"[CHATBOT] Saving user message to history...")
+                    await save_message_to_history(message.channel.id, "user", user_message_content)
+                
+                logger.debug(f"[CHATBOT] Saving bot response to history")
+                print(f"[CHATBOT] Saving bot response to history...")
+                await save_message_to_history(message.channel.id, "model", response_text)
+                print(f"[CHATBOT] Successfully saved messages to history")
+            except Exception as e:
+                logger.error(f"[CHATBOT] Failed to save to history: {e}", exc_info=True)
+                print(f"[CHATBOT] Error saving to history: {e}")
+                # Continue anyway - we still want to send the response
 
             # --- NEW: Persist conversation snippet for quick follow-up ---
             try:
@@ -3701,11 +3715,21 @@ async def on_message(message):
             final_response = await replace_emoji_tags(response_text, client)
             logger.info(f"[CHATBOT] Sending response to {message.author.name}")
             print(f"[CHATBOT] Sending response chunks to channel...")
+            
+            chunks_sent = 0
             for chunk in await split_message(final_response):
-                if chunk: 
-                    await message.channel.send(chunk)
-                    logger.debug(f"[CHATBOT] Sent chunk of {len(chunk)} chars")
-            print(f"[CHATBOT] === Response sent successfully to {message.author.name} ===")
+                if chunk:
+                    try:
+                        await message.channel.send(chunk)
+                        chunks_sent += 1
+                        logger.debug(f"[CHATBOT] Sent chunk {chunks_sent} of {len(chunk)} chars")
+                        print(f"[CHATBOT] Sent chunk {chunks_sent} ({len(chunk)} chars)")
+                    except Exception as e:
+                        logger.error(f"[CHATBOT] Failed to send chunk: {e}", exc_info=True)
+                        print(f"[CHATBOT] Error sending chunk: {e}")
+                        
+            print(f"[CHATBOT] === Response sent successfully to {message.author.name} ({chunks_sent} chunks) ===")
+            logger.info(f"[CHATBOT] Sent {chunks_sent} message chunks to {message.author.name}")
 
             # --- NEW: Track AI usage (model + feature) ---
             try:
@@ -3764,6 +3788,103 @@ async def on_message(message):
         if message.author == client.user:
             logger.debug(f"[FILTER] Ignoring DM from bot itself")
             return
+        
+        # --- FIX: Check if the user is in an active Werwolf game and handle game commands ---
+        # Find if this user is a player in any active game
+        user_game = None
+        user_player = None
+        for game in active_werwolf_games.values():
+            if message.author.id in game.players:
+                user_game = game
+                user_player = game.players[message.author.id]
+                break
+        
+        if user_game and user_player:
+            logger.info(f"[WERWOLF DM] User {message.author.name} is in an active Werwolf game")
+            print(f"[WERWOLF DM] Processing Werwolf command from {message.author.name}")
+            
+            # Parse the command
+            content = message.content.strip().lower()
+            parts = content.split()
+            
+            if not parts:
+                await message.channel.send("Bitte gib einen gültigen Befehl ein.")
+                return
+            
+            command = parts[0]
+            
+            # Handle Werwolf night actions
+            if command == "kill":
+                if len(parts) < 2:
+                    await message.channel.send("Verwendung: `kill <name>`")
+                    return
+                target_name = " ".join(parts[1:])
+                target_player = user_game.get_player_by_name(target_name)
+                if not target_player:
+                    await message.channel.send(f"Spieler '{target_name}' nicht gefunden oder bereits tot.")
+                    return
+                result = await user_game.handle_night_action(user_player, "kill", target_player, config, GEMINI_API_KEY, OPENAI_API_KEY)
+                if result:
+                    await message.channel.send(result)
+                return
+                
+            elif command == "see":
+                if len(parts) < 2:
+                    await message.channel.send("Verwendung: `see <name>`")
+                    return
+                target_name = " ".join(parts[1:])
+                target_player = user_game.get_player_by_name(target_name)
+                if not target_player:
+                    await message.channel.send(f"Spieler '{target_name}' nicht gefunden oder bereits tot.")
+                    return
+                result = await user_game.handle_night_action(user_player, "see", target_player, config, GEMINI_API_KEY, OPENAI_API_KEY)
+                if result:
+                    await message.channel.send(result)
+                return
+                
+            elif command == "heal":
+                result = await user_game.handle_night_action(user_player, "heal", None, config, GEMINI_API_KEY, OPENAI_API_KEY)
+                if result:
+                    await message.channel.send(result)
+                else:
+                    await message.channel.send("Du hast deinen Heiltrank benutzt.")
+                return
+                
+            elif command == "poison":
+                if len(parts) < 2:
+                    await message.channel.send("Verwendung: `poison <name>`")
+                    return
+                target_name = " ".join(parts[1:])
+                target_player = user_game.get_player_by_name(target_name)
+                if not target_player:
+                    await message.channel.send(f"Spieler '{target_name}' nicht gefunden oder bereits tot.")
+                    return
+                result = await user_game.handle_night_action(user_player, "poison", target_player, config, GEMINI_API_KEY, OPENAI_API_KEY)
+                if result:
+                    await message.channel.send(result)
+                else:
+                    await message.channel.send(f"Du hast {target_player.user.display_name} vergiftet.")
+                return
+                
+            elif command == "mute":
+                if len(parts) < 2:
+                    await message.channel.send("Verwendung: `mute <name>`")
+                    return
+                target_name = " ".join(parts[1:])
+                target_player = user_game.get_player_by_name(target_name)
+                if not target_player:
+                    await message.channel.send(f"Spieler '{target_name}' nicht gefunden oder bereits tot.")
+                    return
+                result = await user_game.handle_night_action(user_player, "mute", target_player, config, GEMINI_API_KEY, OPENAI_API_KEY)
+                if result:
+                    await message.channel.send(result)
+                else:
+                    await message.channel.send(f"Du wirst {target_player.user.display_name} morgen das Maul stopfen.")
+                return
+            
+            # If we get here, it's not a recognized game command, treat as chatbot
+            logger.info(f"[DM] Unrecognized Werwolf command, treating as chatbot message")
+            print(f"[DM] Not a Werwolf command, running chatbot handler")
         
         # If it's not a game command, treat it as a chatbot message.
         logger.info(f"[DM] Triggering chatbot for DM from {message.author.name}")
