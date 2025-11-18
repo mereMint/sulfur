@@ -472,6 +472,123 @@ function Update-BotStatus {
     [IO.File]::WriteAllText($statusFile,($statusData|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
 }
 
+function Test-DatabaseServer {
+    Write-ColorLog 'Checking database server status...' 'Cyan' '[DB] '
+    
+    # Find MySQL/MariaDB client
+    $mysqlCmd = $null
+    if (Get-Command mysql -ErrorAction SilentlyContinue) {
+        $mysqlCmd = 'mysql'
+    } elseif (Get-Command mariadb -ErrorAction SilentlyContinue) {
+        $mysqlCmd = 'mariadb'
+    } else {
+        Write-ColorLog 'MySQL/MariaDB client not found' 'Red' '[DB] '
+        return $false
+    }
+    
+    # Test connection
+    $user = $env:DB_USER
+    if (-not $user) { $user = 'sulfur_bot_user' }
+    $pass = $env:DB_PASS
+    
+    try {
+        if ($pass) {
+            $testResult = & $mysqlCmd -u $user -p"$pass" -e "SELECT 1;" 2>&1
+        } else {
+            $testResult = & $mysqlCmd -u $user -e "SELECT 1;" 2>&1
+        }
+        
+        if ($LASTEXITCODE -eq 0) {
+            Write-ColorLog 'Database server is running and accessible' 'Green' '[DB] '
+            return $true
+        }
+    } catch {
+        # Connection failed
+    }
+    
+    Write-ColorLog 'Database server is not accessible' 'Yellow' '[DB] '
+    return $false
+}
+
+function Start-DatabaseServer {
+    Write-ColorLog 'Attempting to start database server...' 'Cyan' '[DB] '
+    
+    # Check if MySQL service exists and try to start it
+    $mysqlService = Get-Service -Name 'MySQL*' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($mysqlService) {
+        if ($mysqlService.Status -eq 'Running') {
+            Write-ColorLog 'MySQL service is already running' 'Green' '[DB] '
+            return $true
+        }
+        
+        try {
+            Write-ColorLog "Starting $($mysqlService.Name) service..." 'Cyan' '[DB] '
+            Start-Service $mysqlService.Name -ErrorAction Stop
+            Start-Sleep -Seconds 2
+            
+            $mysqlService.Refresh()
+            if ($mysqlService.Status -eq 'Running') {
+                Write-ColorLog 'MySQL service started successfully' 'Green' '[DB] '
+                return $true
+            }
+        } catch {
+            Write-ColorLog "Failed to start MySQL service: $($_.Exception.Message)" 'Yellow' '[DB] '
+        }
+    }
+    
+    # Try MariaDB service
+    $mariadbService = Get-Service -Name 'MariaDB*' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($mariadbService) {
+        if ($mariadbService.Status -eq 'Running') {
+            Write-ColorLog 'MariaDB service is already running' 'Green' '[DB] '
+            return $true
+        }
+        
+        try {
+            Write-ColorLog "Starting $($mariadbService.Name) service..." 'Cyan' '[DB] '
+            Start-Service $mariadbService.Name -ErrorAction Stop
+            Start-Sleep -Seconds 2
+            
+            $mariadbService.Refresh()
+            if ($mariadbService.Status -eq 'Running') {
+                Write-ColorLog 'MariaDB service started successfully' 'Green' '[DB] '
+                return $true
+            }
+        } catch {
+            Write-ColorLog "Failed to start MariaDB service: $($_.Exception.Message)" 'Yellow' '[DB] '
+        }
+    }
+    
+    Write-ColorLog 'Failed to start database server' 'Red' '[DB] '
+    Write-ColorLog 'Please start the database server manually:' 'Yellow' '[DB] '
+    Write-ColorLog '  - Start-Service MySQL80 (or your MySQL/MariaDB service name)' 'White' '[DB] '
+    Write-ColorLog '  - Or use MySQL Workbench or similar GUI tool' 'White' '[DB] '
+    return $false
+}
+
+function Start-DatabaseServerIfNeeded {
+    Write-ColorLog 'Ensuring database server is running...' 'Cyan' '[DB] '
+    
+    # First check if it's already running
+    if (Test-DatabaseServer) {
+        return $true
+    }
+    
+    # If not running, try to start it
+    Write-ColorLog 'Database server is not running, attempting to start...' 'Yellow' '[DB] '
+    if (Start-DatabaseServer) {
+        # Verify it's now accessible
+        Start-Sleep -Seconds 1
+        if (Test-DatabaseServer) {
+            Write-ColorLog 'Database server started and verified' 'Green' '[DB] '
+            return $true
+        }
+    }
+    
+    Write-ColorLog 'Could not ensure database server is running' 'Red' '[DB] '
+    Write-ColorLog 'Bot may experience database connection issues' 'Yellow' '[DB] '
+    return $false
+}
 function Invoke-DatabaseBackup {
     Write-ColorLog 'Creating database backup...' 'Cyan' '[DB] '
     try {
@@ -864,6 +981,13 @@ Write-Host ''
 
 if(-not $SkipDatabaseBackup){
     Invoke-DatabaseBackup
+}
+
+# Ensure database server is running
+try {
+    Start-DatabaseServerIfNeeded | Out-Null
+} catch {
+    Write-ColorLog "Warning: Database server check error: $($_.Exception.Message)" 'Yellow'
 }
 
 try {

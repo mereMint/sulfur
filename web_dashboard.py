@@ -4,12 +4,21 @@ import platform
 import subprocess
 import threading
 import time
+import logging
 from flask import Flask, render_template, jsonify, request, flash, redirect, url_for
 from flask_socketio import SocketIO, emit
 
 # --- Local Imports ---
 from modules import db_helpers
 from modules.controls import stop_bot_processes, restart_bot, sync_database_changes, update_bot_from_git
+
+# Setup logging
+logger = logging.getLogger('WebDashboard')
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter('[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s'))
+    logger.addHandler(handler)
 
 # --- Configuration ---
 
