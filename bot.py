@@ -392,12 +392,15 @@ async def split_message(text, limit=2000):
 
 async def replace_emoji_tags(text, client):
     """
-    Replaces :emoji_name: style tags with the actual Discord emoji object.
+    Replaces :emoji_name: and <:emoji_name:emoji_id> style tags with the actual Discord emoji object.
     Prioritizes application emojis (bot's own emojis) over server emojis.
     """
     # Find all :emoji_name: tags in the text
     emoji_tags = re.findall(r':(\w+):', text)
-    if not emoji_tags:
+    # Also find <:emoji_name:emoji_id> tags
+    full_emoji_tags = re.findall(r'<:(\w+):(\d+)>', text)
+    
+    if not emoji_tags and not full_emoji_tags:
         return text
 
     # Create a global mapping of all available emoji names to their string representation
@@ -415,10 +418,14 @@ async def replace_emoji_tags(text, client):
     except Exception as e:
         logger.debug(f"Could not fetch application emojis for replacement: {e}")
 
-    # Replace the tags found in the message
+    # Replace :emoji_name: tags
     for tag in set(emoji_tags): # Use set to avoid replacing the same tag multiple times
         if tag in emoji_map:
             text = text.replace(f":{tag}:", emoji_map[tag])
+    
+    # <:emoji_name:emoji_id> tags are already valid Discord emoji format, no replacement needed
+    # They will be displayed correctly by Discord
+    
     return text
 
 def get_embed_color(config_obj):
@@ -3532,12 +3539,34 @@ async def mines(interaction: discord.Interaction, bet: int):
 
 
 @tree.command(name="rr", description="Spiele Russian Roulette!")
-async def russian_roulette(interaction: discord.Interaction):
+@app_commands.describe(bet="Einsatz (optional, Standard: 100)")
+async def russian_roulette(interaction: discord.Interaction, bet: int = None):
     """Play Russian Roulette."""
     await interaction.response.defer(ephemeral=True)
     
     user_id = interaction.user.id
-    entry_fee = config['modules']['economy']['games']['russian_roulette']['entry_fee']
+    default_entry_fee = config['modules']['economy']['games']['russian_roulette']['entry_fee']
+    
+    # Use custom bet if provided, otherwise use default
+    if bet is not None:
+        # Validate bet amount
+        min_bet = 10
+        max_bet = 1000
+        if bet < min_bet:
+            await interaction.followup.send(
+                f"Einsatz zu niedrig! Mindestens {min_bet} {config['modules']['economy']['currency_symbol']} erforderlich.",
+                ephemeral=True
+            )
+            return
+        if bet > max_bet:
+            await interaction.followup.send(
+                f"Einsatz zu hoch! Maximal {max_bet} {config['modules']['economy']['currency_symbol']} erlaubt.",
+                ephemeral=True
+            )
+            return
+        entry_fee = bet
+    else:
+        entry_fee = default_entry_fee
     reward_multiplier = config['modules']['economy']['games']['russian_roulette']['reward_multiplier']
     currency = config['modules']['economy']['currency_symbol']
     

@@ -131,30 +131,54 @@ class WerwolfGame:
         if self.phase in ["joining", "finished", "stopping"]:
             return
 
-        title = "Werwolf"
+        title = "🐺 Werwolf"
         color = discord.Color(int(self.config.get('bot', {}).get('embed_color', '#7289DA').lstrip('#'), 16))
 
         if self.phase == "night":
-            title = f"Werwolf - Nacht {self.day_number}"
+            title = f"🌙 Werwolf - Nacht {self.day_number}"
+            color = discord.Color.dark_blue()
         elif self.phase == "day":
-            title = f"Werwolf - Tag {self.day_number}"
+            title = f"☀️ Werwolf - Tag {self.day_number}"
+            color = discord.Color.gold()
         elif self.phase == "finished":
-            title = f"Werwolf - Spiel beendet"
+            title = f"🏁 Werwolf - Spiel beendet"
+            color = discord.Color.green()
+        
         description = status_text or (self.event_log[-1] if self.event_log else "Das Spiel beginnt...")
 
         embed = discord.Embed(title=title, description=description, color=color)
+        
         alive_players = self.get_alive_players()
         if alive_players:
-            embed.add_field(name=f"Lebende Spieler ({len(alive_players)})", value="\n".join([p.user.display_name for p in alive_players]), inline=False)
+            # Format player list with emojis
+            player_list = []
+            for p in alive_players:
+                player_emoji = "🤖" if self.is_bot_player(p) else "👤"
+                player_list.append(f"{player_emoji} {p.user.display_name}")
+            embed.add_field(
+                name=f"💚 Lebende Spieler ({len(alive_players)})", 
+                value="\n".join(player_list), 
+                inline=False
+            )
         
-        # Add the event log to the embed
+        # Add the event log to the embed with better formatting
         if self.event_log:
-            log_text = "\n".join(f"- {msg}" for msg in reversed(self.event_log))
-            embed.add_field(name="Letzte Ereignisse", value=log_text, inline=False)
+            log_text = "\n".join(f"• {msg}" for msg in reversed(self.event_log))
+            # Truncate if too long (Discord limit is 1024 characters per field)
+            if len(log_text) > 1000:
+                log_text = log_text[:997] + "..."
+            embed.add_field(name="📜 Letzte Ereignisse", value=log_text, inline=False)
+        
         # During the day, add vote counts
         if self.phase == "day" and self.voting_view:
             leaderboard = self.voting_view.get_leaderboard_text()
-            embed.add_field(name="Aktuelle Stimmen", value=leaderboard, inline=False)
+            embed.add_field(name="🗳️ Aktuelle Stimmen", value=leaderboard, inline=False)
+
+        # Add footer with helpful info
+        if self.phase == "night":
+            embed.set_footer(text="🌙 Die Nacht ist hereingebrochen. Spezielle Rollen agieren jetzt...")
+        elif self.phase == "day":
+            embed.set_footer(text="☀️ Der Tag ist angebrochen. Diskutiert und stimmt ab!")
 
         # If a view is not explicitly passed, use the one from the game object or an empty one
         if view is None and self.phase != "finished":
@@ -954,7 +978,20 @@ class VotingView(View):
             if p.voted_for:
                 vote_counts[p.voted_for] = vote_counts.get(p.voted_for, 0) + 1
         
-        return "\n".join([f"**{self.game.players[uid].user.display_name if uid != 'skip' else 'Überspringen'}**: {count} Stimme(n)" for uid, count in vote_counts.items()]) or "Noch keine Stimmen."
+        if not vote_counts:
+            return "🔸 Noch keine Stimmen."
+        
+        # Sort by vote count (descending)
+        sorted_votes = sorted(vote_counts.items(), key=lambda x: x[1], reverse=True)
+        
+        leaderboard_lines = []
+        for uid, count in sorted_votes:
+            player_name = self.game.players[uid].user.display_name if uid != 'skip' else '⏭️ Überspringen'
+            # Use emoji indicators for vote counts
+            vote_bar = "🔴" * count
+            leaderboard_lines.append(f"{vote_bar} **{player_name}**: {count} Stimme(n)")
+        
+        return "\n".join(leaderboard_lines)
 
     def get_vote_counts(self):
         """Helper to get a dictionary of vote counts."""

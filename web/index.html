@@ -382,9 +382,21 @@
                 <div class="mb-3">
                     <label for="model-select" class="form-label">Model</label>
                     <select class="form-select" id="model-select">
+                        <!-- Gemini Models -->
                         <option value="gemini-2.5-flash">gemini-2.5-flash</option>
                         <option value="gemini-2.0-flash-exp">gemini-2.0-flash-exp</option>
                         <option value="gemini-1.5-pro">gemini-1.5-pro</option>
+                        <option value="gemini-1.5-flash">gemini-1.5-flash</option>
+                        <option value="gemini-pro">gemini-pro</option>
+                        <!-- OpenAI Models -->
+                        <option value="gpt-4o">gpt-4o</option>
+                        <option value="gpt-4o-mini">gpt-4o-mini</option>
+                        <option value="gpt-4-turbo">gpt-4-turbo</option>
+                        <option value="o1">o1</option>
+                        <option value="o1-mini">o1-mini</option>
+                        <option value="o3-mini">o3-mini</option>
+                        <option value="gpt-5">gpt-5</option>
+                        <option value="gpt-5-turbo">gpt-5-turbo</option>
                     </select>
                 </div>
                 <button class="btn btn-primary w-100 mb-3" onclick="changeModel()">
@@ -692,7 +704,14 @@
         modelSelect.innerHTML = '';
         
         if (provider === 'gemini') {
-            const models = ['gemini-2.5-flash', 'gemini-2.0-flash-exp', 'gemini-1.5-pro'];
+            // Include all Gemini models
+            const models = [
+                'gemini-2.5-flash',
+                'gemini-2.0-flash-exp',
+                'gemini-1.5-pro',
+                'gemini-1.5-flash',
+                'gemini-pro'
+            ];
             models.forEach(model => {
                 const option = document.createElement('option');
                 option.value = model;
@@ -700,7 +719,17 @@
                 modelSelect.appendChild(option);
             });
         } else if (provider === 'openai') {
-            const models = ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'];
+            // Include all OpenAI models from config
+            const models = [
+                'gpt-4o',
+                'gpt-4o-mini',
+                'gpt-4-turbo',
+                'o1',
+                'o1-mini',
+                'o3-mini',
+                'gpt-5',
+                'gpt-5-turbo'
+            ];
             models.forEach(model => {
                 const option = document.createElement('option');
                 option.value = model;
