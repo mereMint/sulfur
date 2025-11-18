@@ -220,7 +220,7 @@ def create_shop_embed(config: dict):
     
     embed.add_field(name="✨ Feature Unlocks", value=feature_text, inline=False)
     
-    embed.set_footer(text="Use /shop buy to purchase items!")
+    embed.set_footer(text="Use /shopbuy to purchase items!")
     
     return embed
 
