@@ -2567,7 +2567,7 @@ async def ww_start(interaction: discord.Interaction, ziel_spieler: int = None):
         await interaction.followup.send(f"Konnte die Spiel-Channels nicht erstellen. Berechtigungen prüfen? Fehler: {e}", ephemeral=True)
         return
 
-    game = WerwolfGame(game_text_channel, author, original_channel)
+    game = WerwolfGame(game_text_channel, author, original_channel, bot_client=client)
     game.lobby_vc = lobby_vc
     game.category = category
     game.join_message = None # Initialize join_message attribute
@@ -2640,6 +2640,102 @@ async def ww_start(interaction: discord.Interaction, ziel_spieler: int = None):
         except Exception:
             pass
         active_werwolf_games.pop(game_text_channel.id, None)
+
+@ww_group.command(name="rules", description="Zeigt die Werwolf-Spielregeln und Rollenbeschreibungen an.")
+async def ww_rules(interaction: discord.Interaction):
+    """Displays Werwolf game rules and role descriptions."""
+    await interaction.response.defer(ephemeral=True)
+    
+    # Get user's equipped color or default
+    embed_color = await get_user_embed_color(interaction.user.id, config)
+    
+    # Main rules embed
+    rules_embed = discord.Embed(
+        title="🐺 Werwolf - Spielregeln",
+        description="Ein klassisches Deduktionsspiel, in dem Dorfbewohner gegen Werwölfe antreten!",
+        color=embed_color
+    )
+    
+    rules_embed.add_field(
+        name="📖 Spielablauf",
+        value=(
+            "**Nachtphase:** Werwölfe wählen ein Opfer. Spezielle Rollen führen ihre Aktionen aus.\n"
+            "**Tagesphase:** Das Dorf wacht auf und erfährt, wer gestorben ist. Dann wird abgestimmt, wen man lynchen möchte.\n"
+            "Das Spiel endet, wenn entweder alle Werwölfe oder alle Dorfbewohner eliminiert sind."
+        ),
+        inline=False
+    )
+    
+    rules_embed.add_field(
+        name="🎯 Siegbedingungen",
+        value=(
+            "**Dorfbewohner gewinnen:** Wenn alle Werwölfe eliminiert wurden.\n"
+            "**Werwölfe gewinnen:** Wenn sie mindestens so viele Spieler sind wie die Dorfbewohner."
+        ),
+        inline=False
+    )
+    
+    # Role descriptions embed
+    roles_embed = discord.Embed(
+        title="🎭 Rollenbeschreibungen",
+        color=embed_color
+    )
+    
+    roles_embed.add_field(
+        name="🐺 Werwolf",
+        value="**Team:** Werwölfe\n**Fähigkeit:** Wählt jede Nacht ein Opfer zum Töten.\n**Aktionen:** `kill <name>` per DM an den Bot",
+        inline=False
+    )
+    
+    roles_embed.add_field(
+        name="🔮 Seherin",
+        value="**Team:** Dorfbewohner\n**Fähigkeit:** Kann jede Nacht die Rolle eines Spielers erfahren.\n**Aktionen:** `see <name>` per DM an den Bot",
+        inline=False
+    )
+    
+    roles_embed.add_field(
+        name="🧪 Hexe",
+        value="**Team:** Dorfbewohner\n**Fähigkeit:** Hat einen Heiltrank (einmalig) und einen Gifttrank (einmalig).\n**Aktionen:** `heal` oder `poison <name>` per DM an den Bot",
+        inline=False
+    )
+    
+    roles_embed.add_field(
+        name="🥙 Dönerstopfer",
+        value="**Team:** Dorfbewohner\n**Fähigkeit:** Kann jede Nacht einen Spieler stumm schalten.\n**Aktionen:** `mute <name>` per DM an den Bot",
+        inline=False
+    )
+    
+    roles_embed.add_field(
+        name="🏹 Jäger",
+        value="**Team:** Dorfbewohner\n**Fähigkeit:** Stirbt der Jäger, darf er noch eine Person mit in den Tod nehmen.\n**Aktionen:** Automatisch beim Tod - du wirst per DM nach deinem Ziel gefragt",
+        inline=False
+    )
+    
+    roles_embed.add_field(
+        name="👤 Dorfbewohner",
+        value="**Team:** Dorfbewohner\n**Fähigkeit:** Keine besonderen Fähigkeiten.\n**Aufgabe:** Diskutiere und stimme ab, um die Werwölfe zu finden!",
+        inline=False
+    )
+    
+    # Tips embed
+    tips_embed = discord.Embed(
+        title="💡 Tipps",
+        color=embed_color
+    )
+    
+    tips_embed.add_field(
+        name="Für Dorfbewohner",
+        value="• Achte auf Widersprüche in Aussagen\n• Nutze Informationen der Seherin weise\n• Koordiniere dich mit anderen Dorfbewohnern",
+        inline=True
+    )
+    
+    tips_embed.add_field(
+        name="Für Werwölfe",
+        value="• Bleibt als Team koordiniert\n• Tarnt euch als normale Dorfbewohner\n• Lenkt Verdacht auf andere",
+        inline=True
+    )
+    
+    await interaction.followup.send(embeds=[rules_embed, roles_embed, tips_embed], ephemeral=True)
 
 # --- NEW: Add the voice command group to the tree ---
 tree.add_command(voice_group)

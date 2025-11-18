@@ -31,11 +31,12 @@ class WerwolfPlayer:
 class WerwolfGame:
     """Manages the state and logic of a single Werwolf game."""
 
-    def __init__(self, game_channel, starter, original_channel):
+    def __init__(self, game_channel, starter, original_channel, bot_client=None):
         self.api_url = None # Will be set from bot.py
         self.game_channel = game_channel # This is now the dedicated text channel
         self.starter = starter
         self.original_channel = original_channel # Channel where game was started
+        self.bot_client = bot_client # Reference to the bot client for wait_for
         self.players = {} # Maps user.id to WerwolfPlayer object
         self.phase = "joining" # joining -> night -> day
         self.day_number = 0
@@ -794,6 +795,56 @@ class WerwolfGame:
             return
 
         player_to_kill.is_alive = False
+
+        # --- NEW: Handle Jäger's death ability ---
+        if player_to_kill.role == JÄGER and not self.is_bot_player(player_to_kill):
+            await self.log_event(f"Der Jäger {player_to_kill.user.display_name} ist gestorben! Er darf noch jemanden mit in den Tod nehmen.")
+            try:
+                alive_players = self.get_alive_players()
+                target_options = [p.user.display_name for p in alive_players if p.user.id != player_to_kill.user.id]
+                
+                if target_options:
+                    await player_to_kill.user.send(
+                        f"Du wurdest {reason}! Als Jäger darfst du noch eine Person mit in den Tod nehmen.\n"
+                        f"Schreibe den Namen der Person, die du mitnehmen möchtest:\n"
+                        f"Verfügbare Ziele: {', '.join(target_options)}\n\n"
+                        f"Du hast 60 Sekunden Zeit."
+                    )
+                    
+                    def check(m):
+                        return m.author.id == player_to_kill.user.id and isinstance(m.channel, discord.DMChannel)
+                    
+                    try:
+                        msg = await self.bot_client.wait_for('message', timeout=60.0, check=check)
+                        target_name = msg.content.strip()
+                        
+                        # Find the target player
+                        target_player = None
+                        for p in alive_players:
+                            if p.user.display_name.lower() == target_name.lower():
+                                target_player = p
+                                break
+                        
+                        if target_player:
+                            await self.log_event(f"💀 Der Jäger {player_to_kill.user.display_name} nimmt {target_player.user.display_name} mit in den Tod!", send_tts=True)
+                            target_player.is_alive = False
+                            
+                            # Unmute the target if they're in voice
+                            if self.discussion_vc and not self.is_bot_player(target_player):
+                                member = self.discussion_vc.guild.get_member(target_player.user.id)
+                                if member and member.voice and member.voice.channel == self.discussion_vc:
+                                    try:
+                                        await member.edit(mute=False, deafen=False, reason="Vom Jäger getötet")
+                                    except (discord.Forbidden, discord.HTTPException):
+                                        pass
+                        else:
+                            await player_to_kill.user.send(f"Ziel '{target_name}' nicht gefunden. Keine Aktion durchgeführt.")
+                            await self.log_event(f"Der Jäger {player_to_kill.user.display_name} konnte niemanden mitnehmen.")
+                    except asyncio.TimeoutError:
+                        await player_to_kill.user.send("⏰ Zeit abgelaufen! Du konntest niemanden mitnehmen.")
+                        await self.log_event(f"Der Jäger {player_to_kill.user.display_name} hat seine Chance verpasst.")
+            except discord.Forbidden:
+                await self.log_event(f"Der Jäger {player_to_kill.user.display_name} konnte keine DM erhalten für seine letzte Aktion.")
 
         # --- REFACTORED: Unmute dead players so they can talk at night ---
         if self.discussion_vc and not self.is_bot_player(player_to_kill):
