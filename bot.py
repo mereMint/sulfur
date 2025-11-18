@@ -33,6 +33,7 @@ from modules.werwolf import WerwolfGame
 from modules.api_helpers import get_chat_response, get_relationship_summary_from_api, get_wrapped_summary_from_api, get_game_details_from_api
 from modules.bot_enhancements import (
     handle_image_attachment,
+    handle_unknown_emojis_in_message,
     enhance_prompt_with_context,
     save_ai_conversation,
     track_api_call,
@@ -3606,6 +3607,17 @@ async def on_message(message):
         except Exception as _e:
             logger.warning(f"[CHATBOT] Vision error: {_e}")
             print(f"[CHATBOT] [Vision] Skipping image analysis due to error: {_e}")
+
+        # --- NEW: Unknown emoji detection and analysis ---
+        try:
+            emoji_context = await handle_unknown_emojis_in_message(message, config, GEMINI_API_KEY, OPENAI_API_KEY)
+            if emoji_context:
+                user_prompt = f"{emoji_context}\n{user_prompt}".strip()
+                logger.debug(f"[CHATBOT] Added emoji context to prompt")
+                print(f"[CHATBOT] Emoji context added")
+        except Exception as _e:
+            logger.warning(f"[CHATBOT] Emoji analysis error: {_e}")
+            print(f"[CHATBOT] [Emoji] Skipping emoji analysis due to error: {_e}")
 
         # --- NEW: Add short-term conversation context (2-minute window) ---
         try:

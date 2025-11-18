@@ -599,7 +599,9 @@ async def get_ai_usage_stats(days: int = 30):
                    SUM(call_count) AS total_calls,
                    SUM(input_tokens) AS total_input_tokens,
                    SUM(output_tokens) AS total_output_tokens,
-                   SUM(total_cost) AS total_cost
+                   SUM(total_cost) AS total_cost,
+                   MIN(usage_date) AS first_use,
+                   MAX(usage_date) AS last_use
             FROM ai_model_usage
             WHERE usage_date >= (CURDATE() - INTERVAL %s DAY)
             GROUP BY model_name, feature

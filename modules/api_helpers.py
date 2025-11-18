@@ -610,16 +610,37 @@ async def get_vision_analysis(image_url, prompt, config, gemini_key, openai_key)
 
     if provider == 'gemini':
         # Gemini Vision API
+        # Handle data URLs - extract mime type and base64 data
+        if image_url.startswith('data:'):
+            # Parse data URL: data:image/png;base64,<base64-data>
+            parts = image_url.split(',', 1)
+            if len(parts) == 2:
+                mime_part = parts[0].split(':')[1].split(';')[0]  # Extract mime type
+                base64_data = parts[1]  # Get base64 data without prefix
+                
+                image_part = {
+                    "inline_data": {
+                        "mime_type": mime_part,
+                        "data": base64_data
+                    }
+                }
+            else:
+                # Fallback if parsing fails
+                image_part = {
+                    "inline_data": {
+                        "mime_type": "image/jpeg",
+                        "data": image_url
+                    }
+                }
+        else:
+            # For regular URLs, use image_url field (not supported by all models)
+            image_part = {"image_url": {"url": image_url}}
+        
         payload = {
             "contents": [{
                 "parts": [
                     {"text": prompt},
-                    {
-                        "inline_data": {
-                            "mime_type": "image/jpeg",
-                            "data": image_url  # This should be base64 encoded image data
-                        }
-                    } if image_url.startswith('data:') else {"image_url": {"url": image_url}}
+                    image_part
                 ]
             }],
             "generationConfig": {
