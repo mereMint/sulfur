@@ -161,15 +161,46 @@ try:
             with open(INSTANCE_LOCK_FILE, 'r', encoding='utf-8') as f:
                 existing_pid_line = f.readline().strip()
                 existing_pid = int(existing_pid_line) if existing_pid_line.isdigit() else None
+            
             if existing_pid and existing_pid != os.getpid():
-                SECONDARY_INSTANCE = True
-        except Exception:
+                # Check if the process is actually still running
+                try:
+                    # Try to send signal 0 to check if process exists (works on Unix and Windows)
+                    if sys.platform == "win32":
+                        # On Windows, use tasklist to check if PID exists
+                        import subprocess
+                        result = subprocess.run(['tasklist', '/FI', f'PID eq {existing_pid}'], 
+                                               capture_output=True, text=True, timeout=5)
+                        process_exists = str(existing_pid) in result.stdout
+                    else:
+                        # On Unix, use os.kill with signal 0
+                        os.kill(existing_pid, 0)
+                        process_exists = True
+                except (OSError, subprocess.TimeoutExpired, subprocess.SubprocessError):
+                    # Process doesn't exist
+                    process_exists = False
+                    logger.info(f"Stale lock file found (PID {existing_pid} no longer running), claiming primary instance")
+                    print(f"[GUARD] Stale lock file found - PID {existing_pid} is not running. This will be the primary instance.")
+                
+                if process_exists:
+                    SECONDARY_INSTANCE = True
+                    logger.warning(f"Another instance is running (PID {existing_pid}), this will be a secondary instance")
+                    print(f"[GUARD] Another instance detected (PID {existing_pid}). This is a SECONDARY instance and will NOT process messages.")
+                else:
+                    # Stale lock file, we become primary
+                    SECONDARY_INSTANCE = False
+        except Exception as e:
             # If we cannot read/parse we assume primary ownership
+            logger.warning(f"Failed to read lock file: {e}, assuming primary ownership")
             SECONDARY_INSTANCE = False
+    
     if not SECONDARY_INSTANCE:
         with open(INSTANCE_LOCK_FILE, 'w', encoding='utf-8') as f:
             f.write(str(os.getpid()))
-except Exception:
+        logger.info(f"Created lock file with PID {os.getpid()} - this is the PRIMARY instance")
+        print(f"[GUARD] Created lock file with PID {os.getpid()} - this is the PRIMARY instance")
+except Exception as e:
+    logger.error(f"Lock file handling failed: {e}, assuming primary ownership")
     SECONDARY_INSTANCE = False
 
 # In-memory caches for duplicate suppression
@@ -4016,6 +4047,16 @@ async def graceful_shutdown(signal_name=None):
         print("[Shutdown] Closing Discord connection...")
         await client.close()
         
+        # Clean up lock file
+        if not SECONDARY_INSTANCE and os.path.exists(INSTANCE_LOCK_FILE):
+            try:
+                os.remove(INSTANCE_LOCK_FILE)
+                logger.info("Removed instance lock file")
+                print("[Shutdown] Removed instance lock file")
+            except Exception as e:
+                logger.warning(f"Failed to remove lock file: {e}")
+                print(f"[Shutdown] Warning: Failed to remove lock file: {e}")
+        
         logger.info("Bot shutdown complete.")
         print("[Shutdown] Bot shutdown complete.")
     except Exception as e:
@@ -4054,3 +4095,11 @@ if __name__ == "__main__":
                 asyncio.run(graceful_shutdown())
             except Exception as e:
                 logger.error(f"Error during final shutdown: {e}")
+        
+        # Clean up lock file if we haven't already
+        if not SECONDARY_INSTANCE and os.path.exists(INSTANCE_LOCK_FILE):
+            try:
+                os.remove(INSTANCE_LOCK_FILE)
+                print("[Shutdown] Cleaned up lock file")
+            except Exception as e:
+                print(f"[Shutdown] Warning: Failed to remove lock file: {e}")
