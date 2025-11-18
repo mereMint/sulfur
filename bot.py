@@ -412,7 +412,7 @@ async def replace_emoji_tags(text, client):
     
     # Then, prioritize application emojis (they will override server emojis with the same name)
     try:
-        app_emojis = await client.application.fetch_emojis()
+        app_emojis = await client.fetch_application_emojis()
         for emoji in app_emojis:
             emoji_map[emoji.name] = str(emoji)
     except Exception as e:

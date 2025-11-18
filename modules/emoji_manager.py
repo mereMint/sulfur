@@ -45,7 +45,7 @@ async def analyze_application_emojis(client, config, gemini_key, openai_key):
     
     try:
         # Fetch application emojis (these are emojis uploaded to the bot application)
-        app_emojis = await client.application.fetch_emojis()
+        app_emojis = await client.fetch_application_emojis()
         total_emojis = len(app_emojis)
         
         if total_emojis == 0:
