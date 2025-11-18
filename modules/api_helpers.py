@@ -713,7 +713,8 @@ async def get_vision_analysis(image_url, prompt, config, gemini_key, openai_key)
 async def get_ai_response_with_model(prompt, model_name, config, gemini_key, openai_key, system_prompt=None):
     """
     Gets a response from a specific AI model.
-    Supports: gemini-2.0-flash-exp, gemini-1.5-pro, gpt-4o, gpt-4-turbo, claude-3-opus, etc.
+    Supports: gemini-2.0-flash-exp, gemini-1.5-pro, gpt-4o, gpt-4-turbo, o1, o3-mini, claude-3-opus, etc.
+    Note: o1 and o3 models are reasoning models and don't support temperature or system prompts.
     """
     timeout = config.get('api', {}).get('timeout', 30)
     
@@ -745,19 +746,30 @@ async def get_ai_response_with_model(prompt, model_name, config, gemini_key, ope
         
         return response_text, error
         
-    elif model_name.startswith('gpt'):
-        # OpenAI models
+    elif model_name.startswith('gpt') or model_name.startswith('o'):
+        # OpenAI models (including o1, o3 reasoning models)
         messages = []
-        if system_prompt:
+        
+        # o1 and o3 models don't support system prompts or temperature
+        is_reasoning_model = model_name.startswith('o1') or model_name.startswith('o3')
+        
+        if system_prompt and not is_reasoning_model:
             messages.append({"role": "system", "content": system_prompt})
+        elif system_prompt and is_reasoning_model:
+            # For reasoning models, include system prompt as part of user message
+            prompt = f"{system_prompt}\n\n{prompt}"
+        
         messages.append({"role": "user", "content": prompt})
         
         payload = {
             "model": model_name,
             "messages": messages,
-            "temperature": 0.7,
             "max_tokens": 2048
         }
+        
+        # Only add temperature for non-reasoning models
+        if not is_reasoning_model:
+            payload["temperature"] = 0.7
         
         try:
             async with aiohttp.ClientSession() as session:
