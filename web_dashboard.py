@@ -773,18 +773,68 @@ if __name__ == '__main__':
     
     # Check if port 5000 is available before starting
     import socket
+    
+    def find_process_on_port(port):
+        """Try to identify which process is using a port."""
+        try:
+            import subprocess
+            # Try lsof first
+            result = subprocess.run(['lsof', '-i', f':{port}'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0 and result.stdout:
+                return result.stdout
+        except:
+            pass
+        
+        try:
+            # Try ss
+            result = subprocess.run(['ss', '-tlnp'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0 and result.stdout:
+                for line in result.stdout.split('\n'):
+                    if f':{port}' in line:
+                        return line
+        except:
+            pass
+        
+        try:
+            # Try netstat
+            result = subprocess.run(['netstat', '-tulnp'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0 and result.stdout:
+                for line in result.stdout.split('\n'):
+                    if f':{port}' in line:
+                        return line
+        except:
+            pass
+        
+        return None
+    
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    
     try:
         # Try to bind to port 5000 to check if it's available
         sock.bind(('0.0.0.0', 5000))
         sock.close()
-        print("[Web Dashboard] Port 5000 is available")
+        print("[Web Dashboard] Port 5000 is available, starting server...")
     except OSError as e:
         if e.errno == 98 or e.errno == 48:  # Address already in use (Linux: 98, macOS: 48)
             print(f"[Web Dashboard] FATAL ERROR: Port 5000 is already in use by another process")
             print(f"[Web Dashboard] Error details: {e}")
+            
+            # Try to show which process is using the port
+            process_info = find_process_on_port(5000)
+            if process_info:
+                print(f"[Web Dashboard] Process using port 5000:")
+                for line in str(process_info).split('\n'):
+                    if line.strip():
+                        print(f"[Web Dashboard]   {line}")
+            else:
+                print(f"[Web Dashboard] Could not identify the process using port 5000")
+            
             print(f"[Web Dashboard] Please stop the other process or change the port in web_dashboard.py")
-            print(f"[Web Dashboard] To find the process: lsof -ti:5000 or fuser 5000/tcp")
+            print(f"[Web Dashboard] To find the process: lsof -i:5000 or ss -tlnp | grep :5000 or fuser 5000/tcp")
             print(f"[Web Dashboard] To kill it: kill -9 $(lsof -ti:5000)")
             exit(1)
         else:
@@ -793,13 +843,23 @@ if __name__ == '__main__':
     
     try:
         # Use socketio.run() which handles both HTTP and WebSocket connections
+        print("[Web Dashboard] Starting Flask-SocketIO server...")
         socketio.run(app, host='0.0.0.0', port=5000, debug=False, allow_unsafe_werkzeug=True)
     except OSError as e:
         if e.errno == 98 or e.errno == 48:  # Address already in use
             print(f"[Web Dashboard] FATAL ERROR: Port 5000 is already in use by another process")
             print(f"[Web Dashboard] Error details: {e}")
+            
+            # Try to show which process is using the port
+            process_info = find_process_on_port(5000)
+            if process_info:
+                print(f"[Web Dashboard] Process using port 5000:")
+                for line in str(process_info).split('\n'):
+                    if line.strip():
+                        print(f"[Web Dashboard]   {line}")
+            
             print(f"[Web Dashboard] The maintenance script should have freed this port before starting.")
-            print(f"[Web Dashboard] This indicates a bug in the port cleanup logic.")
+            print(f"[Web Dashboard] This indicates a bug in the port cleanup logic or a race condition.")
         else:
             print(f"[Web Dashboard] FATAL: Failed to start web server: {e}")
         import traceback

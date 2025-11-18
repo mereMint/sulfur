@@ -416,6 +416,40 @@ apply_updates() {
 # Process Management
 # ==============================================================================
 
+show_port_info() {
+    local port=$1
+    log_info "Checking port $port status..."
+    
+    # Show which processes are using the port
+    if command -v lsof >/dev/null 2>&1; then
+        local port_info=$(lsof -i:$port 2>/dev/null)
+        if [ -n "$port_info" ]; then
+            log_warning "Processes using port $port:"
+            echo "$port_info" | sed 's/^/  | /' | tee -a "$MAIN_LOG"
+        fi
+    elif command -v ss >/dev/null 2>&1; then
+        local port_info=$(ss -tlnp 2>/dev/null | grep ":$port ")
+        if [ -n "$port_info" ]; then
+            log_warning "Processes using port $port:"
+            echo "$port_info" | sed 's/^/  | /' | tee -a "$MAIN_LOG"
+        fi
+    elif command -v netstat >/dev/null 2>&1; then
+        local port_info=$(netstat -tulnp 2>/dev/null | grep ":$port ")
+        if [ -n "$port_info" ]; then
+            log_warning "Processes using port $port:"
+            echo "$port_info" | sed 's/^/  | /' | tee -a "$MAIN_LOG"
+        fi
+    fi
+    
+    # Also show if port is in TIME_WAIT state
+    if command -v ss >/dev/null 2>&1; then
+        local timewait=$(ss -tan 2>/dev/null | grep ":$port " | grep TIME-WAIT)
+        if [ -n "$timewait" ]; then
+            log_info "Port $port has connections in TIME-WAIT state"
+        fi
+    fi
+}
+
 check_port_available() {
     local port=$1
     
@@ -453,87 +487,151 @@ check_port_available() {
 
 free_port() {
     local port=$1
+    local max_attempts=${2:-3}
+    local attempt=1
+    
     log_warning "Attempting to free port $port..."
     
-    local pids=""
-    
-    # Try to find PIDs using the port
-    if command -v lsof >/dev/null 2>&1; then
-        pids=$(lsof -ti:$port 2>/dev/null)
-    elif command -v fuser >/dev/null 2>&1; then
-        pids=$(fuser $port/tcp 2>/dev/null | sed 's/^ *//')
-    fi
-    
-    if [ -n "$pids" ]; then
-        log_warning "Found processes using port $port: $pids"
-        for pid in $pids; do
-            # If this PID matches our web dashboard PID file, clean up the stale PID file
-            # We're freeing the port, so any process using it needs to be terminated
-            if [ -f "$WEB_PID_FILE" ] && [ "$(cat "$WEB_PID_FILE" 2>/dev/null)" = "$pid" ]; then
-                log_warning "PID $pid matches web dashboard PID file - cleaning up stale reference"
-                rm -f "$WEB_PID_FILE"
+    while [ $attempt -le $max_attempts ]; do
+        local pids=""
+        
+        # Try to find PIDs using the port
+        if command -v lsof >/dev/null 2>&1; then
+            pids=$(lsof -ti:$port 2>/dev/null)
+        elif command -v fuser >/dev/null 2>&1; then
+            pids=$(fuser $port/tcp 2>/dev/null | sed 's/^ *//')
+        fi
+        
+        if [ -n "$pids" ]; then
+            if [ $attempt -eq 1 ]; then
+                log_warning "Found processes using port $port: $pids"
+                # Show detailed info on first attempt
+                show_port_info $port
+            else
+                log_warning "Attempt $attempt/$max_attempts: Processes still on port $port: $pids"
             fi
             
-            # Try graceful shutdown first
-            if kill -0 "$pid" 2>/dev/null; then
-                log_warning "Sending TERM signal to PID $pid..."
-                kill -TERM "$pid" 2>/dev/null
-                
-                # Wait up to 3 seconds for graceful shutdown
-                local wait_count=0
-                while [ $wait_count -lt 3 ]; do
-                    if ! kill -0 "$pid" 2>/dev/null; then
-                        log_success "Process $pid terminated gracefully"
-                        break
-                    fi
-                    sleep 1
-                    wait_count=$((wait_count + 1))
-                done
-                
-                # Force kill if still running
-                if kill -0 "$pid" 2>/dev/null; then
-                    log_warning "Force killing PID $pid..."
-                    kill -9 "$pid" 2>/dev/null
-                    sleep 1
+            for pid in $pids; do
+                # Get process command for better logging
+                local proc_cmd=""
+                if [ -f "/proc/$pid/cmdline" ]; then
+                    proc_cmd=$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | cut -c1-60)
+                elif command -v ps >/dev/null 2>&1; then
+                    proc_cmd=$(ps -p $pid -o comm= 2>/dev/null)
                 fi
+                
+                if [ -n "$proc_cmd" ]; then
+                    log_info "  PID $pid: $proc_cmd"
+                fi
+                
+                # If this PID matches our web dashboard PID file, clean up the stale PID file
+                if [ -f "$WEB_PID_FILE" ] && [ "$(cat "$WEB_PID_FILE" 2>/dev/null)" = "$pid" ]; then
+                    log_warning "  PID $pid matches web dashboard PID file - cleaning up stale reference"
+                    rm -f "$WEB_PID_FILE"
+                fi
+                
+                # Try graceful shutdown first on first attempt, force kill on retries
+                if kill -0 "$pid" 2>/dev/null; then
+                    if [ $attempt -eq 1 ]; then
+                        log_info "  Sending TERM signal to PID $pid..."
+                        kill -TERM "$pid" 2>/dev/null
+                        
+                        # Wait up to 3 seconds for graceful shutdown
+                        local wait_count=0
+                        while [ $wait_count -lt 3 ]; do
+                            if ! kill -0 "$pid" 2>/dev/null; then
+                                log_success "  Process $pid terminated gracefully"
+                                break
+                            fi
+                            sleep 1
+                            wait_count=$((wait_count + 1))
+                        done
+                    fi
+                    
+                    # Force kill if still running or on retry attempts
+                    if kill -0 "$pid" 2>/dev/null; then
+                        log_warning "  Force killing PID $pid..."
+                        kill -9 "$pid" 2>/dev/null
+                        sleep 1
+                    fi
+                fi
+            done
+            
+            # Wait for port to be released (exponential backoff)
+            local wait_time=$((2 * attempt))
+            log_info "Waiting ${wait_time}s for port to be released..."
+            sleep $wait_time
+            
+            # Check if port is now free
+            if check_port_available $port; then
+                log_success "Port $port is now available"
+                return 0
             fi
-        done
-        
-        # Wait a bit for the port to be released
-        sleep 2
-        
-        # Verify port is now free
-        if check_port_available $port; then
-            log_success "Port $port is now available"
-            return 0
+            
+            # Not free yet, try again
+            attempt=$((attempt + 1))
         else
-            log_error "Port $port is still in use after cleanup attempt"
-            return 1
+            # No PIDs found, but port might be in TIME_WAIT state
+            if ! check_port_available $port; then
+                log_warning "No processes found using port $port, but port still reports as in use"
+                log_info "Port might be in TIME-WAIT state, waiting..."
+                sleep $((2 * attempt))
+                
+                # Check again after waiting
+                if check_port_available $port; then
+                    log_success "Port $port is now available"
+                    return 0
+                fi
+                attempt=$((attempt + 1))
+            else
+                log_success "Port $port is available"
+                return 0
+            fi
         fi
-    else
-        log_warning "No processes found using port $port (port might be in TIME_WAIT state)"
-        # Port might be in TIME_WAIT state, wait a bit
-        sleep 2
-        return 0
-    fi
+    done
+    
+    # Failed after all attempts
+    log_error "Failed to free port $port after $max_attempts attempts"
+    show_port_info $port
+    return 1
 }
 
 start_web_dashboard() {
     log_web "Starting Web Dashboard..."
     
+    # Always clean up any stale PID file first
+    if [ -f "$WEB_PID_FILE" ]; then
+        local old_pid=$(cat "$WEB_PID_FILE" 2>/dev/null)
+        if [ -n "$old_pid" ] && ! kill -0 "$old_pid" 2>/dev/null; then
+            log_warning "Removing stale web dashboard PID file (PID $old_pid is not running)"
+            rm -f "$WEB_PID_FILE"
+        fi
+    fi
+    
     # Check if port 5000 is available
     if ! check_port_available 5000; then
         log_warning "Port 5000 is already in use"
+        show_port_info 5000
         
-        # Try to free the port
-        if ! free_port 5000; then
-            log_error "Failed to free port 5000. Web Dashboard cannot start."
-            log_warning "You may need to manually kill processes using port 5000:"
-            log_warning "  - Find processes: lsof -ti:5000 or fuser 5000/tcp"
-            log_warning "  - Kill process: kill -9 <PID>"
+        # Try to free the port with up to 3 attempts
+        if ! free_port 5000 3; then
+            log_error "Failed to free port 5000 after multiple attempts. Web Dashboard cannot start."
+            log_warning "Manual intervention required. You can:"
+            log_warning "  1. Find processes: lsof -ti:5000 or fuser 5000/tcp or ss -tlnp | grep :5000"
+            log_warning "  2. Kill process: kill -9 <PID>"
+            log_warning "  3. Check for TIME_WAIT: ss -tan | grep :5000"
             return 1
         fi
     fi
+    
+    # Double-check port is really available before starting
+    if ! check_port_available 5000; then
+        log_error "Port 5000 is still not available after cleanup. Cannot start web dashboard."
+        show_port_info 5000
+        return 1
+    fi
+    
+    log_success "Port 5000 is confirmed available"
     
     # Find Python
     local python_exe="$PYTHON_CMD"
@@ -577,9 +675,12 @@ start_web_dashboard() {
     fi
     
     # Start web dashboard in background
+    log_info "Starting web dashboard process..."
     nohup "$python_exe" -u web_dashboard.py >> "$WEB_LOG" 2>&1 &
     local web_pid=$!
     echo "$web_pid" > "$WEB_PID_FILE"
+    
+    log_info "Web dashboard process started with PID: $web_pid"
     
     # Wait for it to start
     local retries=0
@@ -612,29 +713,23 @@ start_web_dashboard() {
             return 0
         fi
         
+        # Check if process is still alive
         if ! kill -0 "$web_pid" 2>/dev/null; then
-            log_error "Web Dashboard process died during startup"
+            log_error "Web Dashboard process died during startup (PID: $web_pid)"
             
             # Check if it was due to port conflict
             if [ -f "$WEB_LOG" ]; then
                 if grep -q "Port 5000 is already in use" "$WEB_LOG" 2>/dev/null || \
                    grep -q "Address already in use" "$WEB_LOG" 2>/dev/null; then
-                    log_error "Port 5000 is in use by another process - this should not happen"
-                    log_warning "The port cleanup failed. Attempting emergency port cleanup..."
+                    log_error "Port 5000 conflict detected - this indicates a race condition or port cleanup failure"
+                    show_port_info 5000
                     
-                    # Force cleanup of port 5000
-                    if command -v lsof >/dev/null 2>&1; then
-                        local emergency_pids=$(lsof -ti:5000 2>/dev/null)
-                        if [ -n "$emergency_pids" ]; then
-                            log_warning "Emergency: killing PIDs on port 5000: $emergency_pids"
-                            kill -9 $emergency_pids 2>/dev/null || true
-                            sleep 2
-                        fi
-                    fi
+                    log_warning "Last 20 lines from web dashboard log:"
+                    tail -n 20 "$WEB_LOG" | sed 's/^/  | /' | tee -a "$MAIN_LOG"
+                else
+                    log_warning "Last 10 lines from web dashboard log:"
+                    tail -n 10 "$WEB_LOG" | sed 's/^/  | /' | tee -a "$MAIN_LOG"
                 fi
-                
-                log_warning "Last 10 lines from web dashboard log:"
-                tail -n 10 "$WEB_LOG" | sed 's/^/  | /' | tee -a "$MAIN_LOG"
             fi
             
             rm -f "$WEB_PID_FILE"
@@ -642,10 +737,20 @@ start_web_dashboard() {
         fi
         
         retries=$((retries + 1))
+        log_info "Waiting for web dashboard to respond... (attempt $retries/$max_retries)"
     done
     
     log_warning "Web Dashboard start timeout - process running but not responding on port 5000"
-    log_warning "Check $WEB_LOG for details"
+    log_warning "Process PID: $web_pid, Check $WEB_LOG for details"
+    
+    # Check if port is actually listening
+    if check_port_available 5000; then
+        log_error "Port 5000 is not being listened on by the web dashboard process"
+        show_port_info 5000
+    else
+        log_info "Port 5000 appears to be in use, but not responding to HTTP requests"
+    fi
+    
     return 1
 }
 
