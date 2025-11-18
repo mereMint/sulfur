@@ -27,13 +27,23 @@ async def generate_daily_quests(db_helpers, user_id: int, config: dict):
     try:
         today = datetime.now(timezone.utc).date()
         
-        async with db_helpers.get_db_connection() as (conn, cursor):
+        if not db_helpers.db_pool:
+            logger.warning("Database pool not available in generate_daily_quests")
+            return []
+            
+        cnx = db_helpers.db_pool.get_connection()
+        if not cnx:
+            logger.warning("Could not get DB connection in generate_daily_quests")
+            return []
+            
+        cursor = cnx.cursor(dictionary=True)
+        try:
             # Check if quests already exist for today
-            await cursor.execute(
+            cursor.execute(
                 "SELECT * FROM daily_quests WHERE user_id = %s AND quest_date = %s",
                 (user_id, today)
             )
-            existing_quests = await cursor.fetchall()
+            existing_quests = cursor.fetchall()
             
             if existing_quests:
                 return existing_quests
@@ -50,7 +60,7 @@ async def generate_daily_quests(db_helpers, user_id: int, config: dict):
             for quest_type in selected_types:
                 quest_data = quest_config[quest_type]
                 
-                await cursor.execute(
+                cursor.execute(
                     """
                     INSERT INTO daily_quests (user_id, quest_date, quest_type, target_value, current_progress)
                     VALUES (%s, %s, %s, %s, 0)
@@ -66,9 +76,12 @@ async def generate_daily_quests(db_helpers, user_id: int, config: dict):
                     'completed': False
                 })
             
-            await conn.commit()
+            cnx.commit()
             logger.info(f"Generated {len(created_quests)} daily quests for user {user_id}")
             return created_quests
+        finally:
+            cursor.close()
+            cnx.close()
             
     except Exception as e:
         logger.error(f"Error generating daily quests: {e}", exc_info=True)
@@ -91,23 +104,33 @@ async def update_quest_progress(db_helpers, user_id: int, quest_type: str, incre
     try:
         today = datetime.now(timezone.utc).date()
         
-        async with db_helpers.get_db_connection() as (conn, cursor):
+        if not db_helpers.db_pool:
+            logger.warning("Database pool not available in update_quest_progress")
+            return False, 0
+            
+        cnx = db_helpers.db_pool.get_connection()
+        if not cnx:
+            logger.warning("Could not get DB connection in update_quest_progress")
+            return False, 0
+            
+        cursor = cnx.cursor(dictionary=True)
+        try:
             # Get current quest
-            await cursor.execute(
+            cursor.execute(
                 """
                 SELECT * FROM daily_quests 
                 WHERE user_id = %s AND quest_date = %s AND quest_type = %s AND completed = FALSE
                 """,
                 (user_id, today, quest_type)
             )
-            quest = await cursor.fetchone()
+            quest = cursor.fetchone()
             
             if not quest:
                 return False, 0
             
             # Update progress
             new_progress = quest['current_progress'] + increment
-            await cursor.execute(
+            cursor.execute(
                 """
                 UPDATE daily_quests
                 SET current_progress = %s
@@ -118,7 +141,7 @@ async def update_quest_progress(db_helpers, user_id: int, quest_type: str, incre
             
             # Check if quest completed
             if new_progress >= quest['target_value'] and not quest['completed']:
-                await cursor.execute(
+                cursor.execute(
                     """
                     UPDATE daily_quests
                     SET completed = TRUE
@@ -126,14 +149,17 @@ async def update_quest_progress(db_helpers, user_id: int, quest_type: str, incre
                     """,
                     (quest['id'],)
                 )
-                await conn.commit()
+                cnx.commit()
                 
                 # Return completion status - reward will be claimed separately
                 logger.info(f"Quest {quest_type} completed for user {user_id}")
                 return True, 0  # Reward amount is 0 until claimed
             
-            await conn.commit()
+            cnx.commit()
             return False, 0
+        finally:
+            cursor.close()
+            cnx.close()
             
     except Exception as e:
         logger.error(f"Error updating quest progress: {e}", exc_info=True)
@@ -155,9 +181,19 @@ async def claim_quest_reward(db_helpers, user_id: int, display_name: str, quest_
         (success, reward_amount, message) tuple
     """
     try:
-        async with db_helpers.get_db_connection() as (conn, cursor):
+        if not db_helpers.db_pool:
+            logger.warning("Database pool not available in claim_quest_reward")
+            return False, 0, "Database connection error."
+            
+        cnx = db_helpers.db_pool.get_connection()
+        if not cnx:
+            logger.warning("Could not get DB connection in claim_quest_reward")
+            return False, 0, "Database connection error."
+            
+        cursor = cnx.cursor(dictionary=True)
+        try:
             # Get quest details
-            await cursor.execute(
+            cursor.execute(
                 """
                 SELECT dq.*, qt.reward
                 FROM daily_quests dq
@@ -178,7 +214,7 @@ async def claim_quest_reward(db_helpers, user_id: int, display_name: str, quest_
                     user_id
                 )
             )
-            quest = await cursor.fetchone()
+            quest = cursor.fetchone()
             
             if not quest:
                 return False, 0, "Quest not found, already claimed, or not completed."
@@ -191,7 +227,7 @@ async def claim_quest_reward(db_helpers, user_id: int, display_name: str, quest_
             reward = quest_config['reward']
             
             # Mark as claimed
-            await cursor.execute(
+            cursor.execute(
                 """
                 UPDATE daily_quests
                 SET reward_claimed = TRUE
@@ -204,10 +240,13 @@ async def claim_quest_reward(db_helpers, user_id: int, display_name: str, quest_
             stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
             await db_helpers.add_balance(user_id, display_name, reward, config, stat_period)
             
-            await conn.commit()
+            cnx.commit()
             
             currency = config['modules']['economy']['currency_symbol']
             return True, reward, f"Quest reward claimed! +{reward} {currency}"
+        finally:
+            cursor.close()
+            cnx.close()
             
     except Exception as e:
         logger.error(f"Error claiming quest reward: {e}", exc_info=True)
@@ -229,8 +268,18 @@ async def get_user_quests(db_helpers, user_id: int, config: dict):
     try:
         today = datetime.now(timezone.utc).date()
         
-        async with db_helpers.get_db_connection() as (conn, cursor):
-            await cursor.execute(
+        if not db_helpers.db_pool:
+            logger.warning("Database pool not available in get_user_quests")
+            return []
+            
+        cnx = db_helpers.db_pool.get_connection()
+        if not cnx:
+            logger.warning("Could not get DB connection in get_user_quests")
+            return []
+            
+        cursor = cnx.cursor(dictionary=True)
+        try:
+            cursor.execute(
                 """
                 SELECT * FROM daily_quests
                 WHERE user_id = %s AND quest_date = %s
@@ -238,7 +287,7 @@ async def get_user_quests(db_helpers, user_id: int, config: dict):
                 """,
                 (user_id, today)
             )
-            quests = await cursor.fetchall()
+            quests = cursor.fetchall()
             
             # Add reward amounts from config
             quest_config = config['modules']['economy']['quests']['quest_types']
@@ -247,6 +296,9 @@ async def get_user_quests(db_helpers, user_id: int, config: dict):
                 quest['reward'] = quest_type_config.get('reward', 0)
             
             return quests
+        finally:
+            cursor.close()
+            cnx.close()
             
     except Exception as e:
         logger.error(f"Error getting user quests: {e}", exc_info=True)
@@ -267,8 +319,18 @@ async def check_all_quests_completed(db_helpers, user_id: int):
     try:
         today = datetime.now(timezone.utc).date()
         
-        async with db_helpers.get_db_connection() as (conn, cursor):
-            await cursor.execute(
+        if not db_helpers.db_pool:
+            logger.warning("Database pool not available in check_all_quests_completed")
+            return False, 0, 0
+            
+        cnx = db_helpers.db_pool.get_connection()
+        if not cnx:
+            logger.warning("Could not get DB connection in check_all_quests_completed")
+            return False, 0, 0
+            
+        cursor = cnx.cursor(dictionary=True)
+        try:
+            cursor.execute(
                 """
                 SELECT COUNT(*) as total, SUM(completed) as completed
                 FROM daily_quests
@@ -276,13 +338,16 @@ async def check_all_quests_completed(db_helpers, user_id: int):
                 """,
                 (user_id, today)
             )
-            result = await cursor.fetchone()
+            result = cursor.fetchone()
             
             total = result['total'] or 0
             completed = result['completed'] or 0
             
             all_completed = total > 0 and total == completed
             return all_completed, completed, total
+        finally:
+            cursor.close()
+            cnx.close()
             
     except Exception as e:
         logger.error(f"Error checking quest completion: {e}", exc_info=True)
@@ -305,16 +370,26 @@ async def grant_daily_completion_bonus(db_helpers, user_id: int, display_name: s
     try:
         today = datetime.now(timezone.utc).date()
         
-        async with db_helpers.get_db_connection() as (conn, cursor):
+        if not db_helpers.db_pool:
+            logger.warning("Database pool not available in grant_daily_completion_bonus")
+            return False, 0
+            
+        cnx = db_helpers.db_pool.get_connection()
+        if not cnx:
+            logger.warning("Could not get DB connection in grant_daily_completion_bonus")
+            return False, 0
+            
+        cursor = cnx.cursor(dictionary=True)
+        try:
             # Check if already claimed bonus today
-            await cursor.execute(
+            cursor.execute(
                 """
                 SELECT bonus_claimed FROM daily_quest_completions
                 WHERE user_id = %s AND completion_date = %s
                 """,
                 (user_id, today)
             )
-            result = await cursor.fetchone()
+            result = cursor.fetchone()
             
             if result and result['bonus_claimed']:
                 return False, 0
@@ -327,7 +402,7 @@ async def grant_daily_completion_bonus(db_helpers, user_id: int, display_name: s
             await db_helpers.add_balance(user_id, display_name, bonus, config, stat_period)
             
             # Mark as claimed
-            await cursor.execute(
+            cursor.execute(
                 """
                 INSERT INTO daily_quest_completions (user_id, completion_date, bonus_claimed)
                 VALUES (%s, %s, TRUE)
@@ -336,9 +411,12 @@ async def grant_daily_completion_bonus(db_helpers, user_id: int, display_name: s
                 (user_id, today)
             )
             
-            await conn.commit()
+            cnx.commit()
             logger.info(f"Granted daily completion bonus of {bonus} to user {user_id}")
             return True, bonus
+        finally:
+            cursor.close()
+            cnx.close()
             
     except Exception as e:
         logger.error(f"Error granting completion bonus: {e}", exc_info=True)
@@ -370,8 +448,18 @@ async def get_monthly_completion_count(db_helpers, user_id: int):
         else:
             last_day = now.replace(month=now.month + 1, day=1) - timedelta(days=1)
         
-        async with db_helpers.get_db_connection() as (conn, cursor):
-            await cursor.execute(
+        if not db_helpers.db_pool:
+            logger.warning("Database pool not available in get_monthly_completion_count")
+            return 0, 0
+            
+        cnx = db_helpers.db_pool.get_connection()
+        if not cnx:
+            logger.warning("Could not get DB connection in get_monthly_completion_count")
+            return 0, 0
+            
+        cursor = cnx.cursor(dictionary=True)
+        try:
+            cursor.execute(
                 """
                 SELECT COUNT(DISTINCT completion_date) as completion_days
                 FROM daily_quest_completions
@@ -382,12 +470,15 @@ async def get_monthly_completion_count(db_helpers, user_id: int):
                 """,
                 (user_id, first_day.date(), last_day.date())
             )
-            result = await cursor.fetchone()
+            result = cursor.fetchone()
             
             completion_days = result['completion_days'] or 0
             total_days = last_day.day
             
             return completion_days, total_days
+        finally:
+            cursor.close()
+            cnx.close()
             
     except Exception as e:
         logger.error(f"Error getting monthly completion count: {e}", exc_info=True)
@@ -425,16 +516,26 @@ async def grant_monthly_milestone_reward(db_helpers, user_id: int, display_name:
         now = datetime.now(timezone.utc)
         month_key = now.strftime('%Y-%m')
         
-        async with db_helpers.get_db_connection() as (conn, cursor):
+        if not db_helpers.db_pool:
+            logger.warning("Database pool not available in grant_monthly_milestone_reward")
+            return False, 0, None
+            
+        cnx = db_helpers.db_pool.get_connection()
+        if not cnx:
+            logger.warning("Could not get DB connection in grant_monthly_milestone_reward")
+            return False, 0, None
+            
+        cursor = cnx.cursor(dictionary=True)
+        try:
             # Check which milestones have been claimed this month
-            await cursor.execute(
+            cursor.execute(
                 """
                 SELECT milestone_day FROM monthly_milestones
                 WHERE user_id = %s AND month_key = %s
                 """,
                 (user_id, month_key)
             )
-            claimed_milestones = {row['milestone_day'] for row in await cursor.fetchall()}
+            claimed_milestones = {row['milestone_day'] for row in cursor.fetchall()}
             
             # Find the highest unclaimed milestone
             for days, (reward, name) in sorted(milestones.items(), reverse=True):
@@ -444,7 +545,7 @@ async def grant_monthly_milestone_reward(db_helpers, user_id: int, display_name:
                     await db_helpers.add_balance(user_id, display_name, reward, config, stat_period)
                     
                     # Mark milestone as claimed
-                    await cursor.execute(
+                    cursor.execute(
                         """
                         INSERT INTO monthly_milestones (user_id, month_key, milestone_day, reward_amount)
                         VALUES (%s, %s, %s, %s)
@@ -452,11 +553,14 @@ async def grant_monthly_milestone_reward(db_helpers, user_id: int, display_name:
                         (user_id, month_key, days, reward)
                     )
                     
-                    await conn.commit()
+                    cnx.commit()
                     logger.info(f"Granted {name} milestone ({days} days) reward of {reward} to user {user_id}")
                     return True, reward, name
             
             return False, 0, None
+        finally:
+            cursor.close()
+            cnx.close()
             
     except Exception as e:
         logger.error(f"Error granting monthly milestone: {e}", exc_info=True)
