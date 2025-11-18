@@ -133,20 +133,37 @@ function Invoke-Cleanup {
 }
 
 # Register cleanup handler for Ctrl+C and script termination
+# Only trap terminating errors, not all errors
 trap {
-    Write-Host 'Script terminated. Running cleanup...' -ForegroundColor Red
-    if ($_) {
-        try {
-            Write-Host ("Error: {0}" -f ($_.Exception.Message)) -ForegroundColor Red
-            if ($_.Exception) { Write-Host ($_.Exception.ToString()) -ForegroundColor DarkRed }
-            if ($_.ScriptStackTrace) { Write-Host '--- StackTrace ---' -ForegroundColor DarkYellow; Write-Host $_.ScriptStackTrace }
-        } catch {}
+    # Check if this is actually a terminating error
+    if ($_.Exception -is [System.Management.Automation.PipelineStoppedException]) {
+        # This is Ctrl+C or similar - run cleanup
+        Write-Host 'Script interrupted. Running cleanup...' -ForegroundColor Red
+        Invoke-Cleanup
+        Update-BotStatus 'Shutdown'
+        Write-Host 'Cleanup complete.' -ForegroundColor Green
+        Stop-Transcript
+        exit 1
     }
-    Invoke-Cleanup
-    Update-BotStatus 'Shutdown'
-    Write-Host 'Cleanup complete.' -ForegroundColor Green
-    Stop-Transcript
-    exit 1
+    elseif ($Error[0].CategoryInfo.Category -eq 'OperationStopped') {
+        # Pipeline stopped - run cleanup
+        Write-Host 'Script stopped. Running cleanup...' -ForegroundColor Red
+        Invoke-Cleanup
+        Update-BotStatus 'Shutdown'
+        Write-Host 'Cleanup complete.' -ForegroundColor Green
+        Stop-Transcript
+        exit 1
+    }
+    else {
+        # Non-terminating error - just log it and continue
+        if ($_) {
+            try {
+                Write-Host ("Non-terminating error: {0}" -f ($_.Exception.Message)) -ForegroundColor Yellow
+            } catch {}
+        }
+        # Don't call cleanup - let the script continue
+        continue
+    }
 }
 
 # Also register an exit handler
