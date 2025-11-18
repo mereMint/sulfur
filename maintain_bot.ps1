@@ -262,16 +262,16 @@ function Clear-Port {
             $pids = $connections | Select-Object -ExpandProperty OwningProcess -Unique
             Write-ColorLog "Found processes using port ${Port}: $($pids -join ', ')" 'Yellow' '[WEB] '
             
-            foreach($pid in $pids){
+            foreach($procId in $pids){
                 try {
-                    $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
+                    $proc = Get-Process -Id $procId -ErrorAction SilentlyContinue
                     if($proc){
-                        Write-ColorLog "Stopping process $pid ($($proc.ProcessName))..." 'Yellow' '[WEB] '
-                        Stop-Process -Id $pid -Force -ErrorAction Stop
+                        Write-ColorLog "Stopping process $procId ($($proc.ProcessName))..." 'Yellow' '[WEB] '
+                        Stop-Process -Id $procId -Force -ErrorAction Stop
                         Start-Sleep -Seconds 2
                     }
                 } catch {
-                    Write-ColorLog "Failed to stop process ${pid}: $($_.Exception.Message)" 'Red' '[WEB] '
+                    Write-ColorLog "Failed to stop process ${procId}: $($_.Exception.Message)" 'Red' '[WEB] '
                 }
             }
             
@@ -409,7 +409,7 @@ function Start-Bot {
     $script:botErrorFile = [System.IO.StreamWriter]::new($botErrFile, $true)
     
     $proc.add_OutputDataReceived({
-        param($sender, $e)
+        param($processObject, $e)
         if($e.Data -and $script:botOutputFile) {
             try {
                 $script:botOutputFile.WriteLine($e.Data)
@@ -419,7 +419,7 @@ function Start-Bot {
     })
     
     $proc.add_ErrorDataReceived({
-        param($sender, $e)
+        param($processObject, $e)
         if($e.Data -and $script:botErrorFile) {
             try {
                 $script:botErrorFile.WriteLine($e.Data)
