@@ -407,21 +407,36 @@ async def replace_emoji_tags(text, client):
     # First, add server emojis
     emoji_map = {}
     for emoji in client.emojis:
+        # Store both exact match and lowercase version for case-insensitive matching
         if emoji.name not in emoji_map:
             emoji_map[emoji.name] = str(emoji)
+        emoji_map[emoji.name.lower()] = str(emoji)
     
     # Then, prioritize application emojis (they will override server emojis with the same name)
     try:
         app_emojis = await client.fetch_application_emojis()
         for emoji in app_emojis:
             emoji_map[emoji.name] = str(emoji)
+            emoji_map[emoji.name.lower()] = str(emoji)
     except Exception as e:
         logger.debug(f"Could not fetch application emojis for replacement: {e}")
 
-    # Replace :emoji_name: tags
-    for tag in set(emoji_tags): # Use set to avoid replacing the same tag multiple times
+    # Replace :emoji_name: tags with case-insensitive matching
+    replaced_count = 0
+    for tag in set(emoji_tags):  # Use set to avoid replacing the same tag multiple times
+        # Try exact match first, then lowercase
         if tag in emoji_map:
             text = text.replace(f":{tag}:", emoji_map[tag])
+            replaced_count += 1
+        elif tag.lower() in emoji_map:
+            text = text.replace(f":{tag}:", emoji_map[tag.lower()])
+            replaced_count += 1
+        else:
+            # Log emojis that couldn't be found
+            logger.debug(f"Emoji not found: :{tag}:")
+    
+    if replaced_count > 0:
+        logger.debug(f"Replaced {replaced_count} emoji tags")
     
     # <:emoji_name:emoji_id> tags are already valid Discord emoji format, no replacement needed
     # They will be displayed correctly by Discord
@@ -579,6 +594,38 @@ async def on_ready():
     logger.info(f"Connected to {len(client.guilds)} guild(s)")
     print(f'Ayo, the bot is logged in and ready, fam! ({client.user})')
     print('Let\'s chat.')
+    
+    # --- NEW: Generate daily quests for all users on startup ---
+    print("Generating daily quests for all users...")
+    quest_generation_count = 0
+    try:
+        # Get all unique user IDs from the database
+        if db_helpers.db_pool:
+            cnx = db_helpers.db_pool.get_connection()
+            if cnx:
+                cursor = cnx.cursor(dictionary=True)
+                try:
+                    # Get all users who have activity in the last 30 days
+                    cursor.execute("""
+                        SELECT DISTINCT user_id FROM user_stats 
+                        WHERE stat_period >= DATE_FORMAT(DATE_SUB(NOW(), INTERVAL 30 DAY), '%Y-%m')
+                    """)
+                    users = cursor.fetchall()
+                    
+                    for user_row in users:
+                        user_id = user_row['user_id']
+                        # Generate quests for this user
+                        quest_list = await quests.generate_daily_quests(db_helpers, user_id, config)
+                        if quest_list:
+                            quest_generation_count += 1
+                    
+                    print(f"  -> Generated quests for {quest_generation_count} user(s)")
+                finally:
+                    cursor.close()
+                    cnx.close()
+    except Exception as e:
+        logger.error(f"Error generating startup quests: {e}", exc_info=True)
+        print(f"  -> Error generating quests: {e}")
 
     # --- NEW: Initialize Emoji System and enrich system prompt (optional) ---
     try:
@@ -1405,6 +1452,55 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
                 spotify_embed.set_footer(text="Basiert auf der Zeit, die du Songs über Discord gehört hast.")
                 pages.append(spotify_embed)
 
+    # --- NEW Page: Quest & Game Stats ---
+    if extra_stats.get('quests_completed', 0) > 0 or extra_stats.get('games_played', 0) > 0:
+        quest_game_embed = discord.Embed(title="Quests & Gambling", color=color)
+        
+        # Quest stats
+        if extra_stats.get('quests_completed', 0) > 0:
+            quest_text = f"**Abgeschlossene Quests:** {extra_stats.get('quests_completed', 0)}\n"
+            quest_text += f"**Tage mit allen Quests:** {extra_stats.get('total_quest_days', 0)}\n"
+            
+            if extra_stats.get('total_quest_days', 0) > 0:
+                completion_rate = (extra_stats.get('total_quest_days', 0) / 30) * 100
+                if completion_rate >= 90:
+                    quest_text += "\n🏆 **Quest-Master!** Du hast fast jeden Tag alle Quests abgeschlossen!"
+                elif completion_rate >= 50:
+                    quest_text += "\n⭐ **Fleißiger Quester!** Du bleibst dran!"
+                else:
+                    quest_text += "\n💪 **Guter Start!** Weiter so!"
+            
+            quest_game_embed.add_field(name="📋 Quest-Fortschritt", value=quest_text, inline=False)
+        
+        # Game stats
+        if extra_stats.get('games_played', 0) > 0:
+            games_played = extra_stats.get('games_played', 0)
+            games_won = extra_stats.get('games_won', 0)
+            total_bet = extra_stats.get('total_bet', 0)
+            total_won = extra_stats.get('total_won', 0)
+            
+            win_rate = (games_won / games_played * 100) if games_played > 0 else 0
+            net_profit = total_won - total_bet
+            
+            currency = config['modules']['economy']['currency_symbol']
+            game_text = f"**Spiele gespielt:** {games_played}\n"
+            game_text += f"**Spiele gewonnen:** {games_won}\n"
+            game_text += f"**Gewinnrate:** {win_rate:.1f}%\n\n"
+            game_text += f"**Gesamt gewettet:** {total_bet} {currency}\n"
+            game_text += f"**Gesamt gewonnen:** {total_won} {currency}\n"
+            
+            if net_profit > 0:
+                game_text += f"**Netto-Gewinn:** +{net_profit} {currency} 💰"
+            elif net_profit < 0:
+                game_text += f"**Netto-Verlust:** {net_profit} {currency} 📉"
+            else:
+                game_text += f"**Ausgeglichen** ⚖️"
+            
+            quest_game_embed.add_field(name="🎰 Gambling Stats", value=game_text, inline=False)
+        
+        quest_game_embed.set_footer(text="Quests & Mini-Games - Deine Aktivität im Bot")
+        pages.append(quest_game_embed)
+
     # --- Final Page: Gemini Summary ---
     # --- REFACTORED: Conditionally build the stats dictionary for the AI ---
     gemini_stats = {
@@ -1424,6 +1520,13 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
     # Add top song if it exists
     if 'sorted_songs' in locals() and sorted_songs:
         gemini_stats["top_song"] = sorted_songs[0][0]
+    # Add quest/game stats if they exist
+    if extra_stats.get('quests_completed', 0) > 0:
+        gemini_stats["quests_completed"] = extra_stats.get('quests_completed', 0)
+        gemini_stats["quest_days"] = extra_stats.get('total_quest_days', 0)
+    if extra_stats.get('games_played', 0) > 0:
+        gemini_stats["games_played"] = extra_stats.get('games_played', 0)
+        gemini_stats["win_rate"] = (extra_stats.get('games_won', 0) / extra_stats.get('games_played', 1) * 100)
 
     summary_text, _ = await get_wrapped_summary_from_api(user.display_name, gemini_stats, config, GEMINI_API_KEY, OPENAI_API_KEY)
     print(f"    - [Wrapped] Generated Gemini summary for {user.name}.")
@@ -2559,15 +2662,51 @@ tree.add_command(AdminGroup(name="admin"))
 # --- NEW: Shop Commands ---
 from modules import shop as shop_module
 
-@tree.command(name="shop", description="Zeigt den Shop an.")
+@tree.command(name="shop", description="Öffne den Shop.")
 async def shop_main(interaction: discord.Interaction):
-    """Main shop view."""
+    """Unified shop view with interactive purchase."""
     await interaction.response.defer(ephemeral=True)
+    
     try:
-        embed = shop_module.create_shop_embed(config)
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        # Show shop with interactive buttons
+        view = ShopBuyView(interaction.user, config)
+        embed = discord.Embed(
+            title="🛒 Shop",
+            description="Willkommen im Shop! Wähle eine Kategorie aus:",
+            color=discord.Color.blue()
+        )
+        
+        currency = config['modules']['economy']['currency_symbol']
+        
+        # Add info about color roles
+        embed.add_field(
+            name="🎨 Farbrollen",
+            value=f"Kaufe dir eine eigene Farbrollel!\nPreise: Basic ({config['modules']['economy']['shop']['color_roles']['prices']['basic']} {currency}), Premium ({config['modules']['economy']['shop']['color_roles']['prices']['premium']} {currency}), Legendary ({config['modules']['economy']['shop']['color_roles']['prices']['legendary']} {currency})",
+            inline=False
+        )
+        
+        # Add info about features
+        embed.add_field(
+            name="✨ Features",
+            value="Schalte spezielle Features frei!",
+            inline=False
+        )
+        
+        # Show current balance
+        balance = await db_helpers.get_balance(interaction.user.id)
+        embed.add_field(
+            name="💰 Dein Guthaben",
+            value=f"{balance} {currency}",
+            inline=False
+        )
+        
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
     except Exception as e:
+        logger.error(f"Error in shop command: {e}", exc_info=True)
         await interaction.followup.send(f"Fehler beim Anzeigen des Shops: {e}", ephemeral=True)
+
+
+# Remove old /shopbuy command - it's now integrated into /shop
 
 
 class ShopBuyView(discord.ui.View):
@@ -2740,22 +2879,6 @@ class FeatureSelectView(discord.ui.View):
             await interaction.followup.send(f"Fehler beim Kauf: {str(e)}", ephemeral=True)
 
 
-@tree.command(name="shopbuy", description="Öffne das Kaufmenü für den Shop")
-async def shop_buy(interaction: discord.Interaction):
-    """Interactive shop purchase menu."""
-    await interaction.response.defer(ephemeral=True)
-    
-    view = ShopBuyView(interaction.user, config)
-    embed = discord.Embed(
-        title="🛒 Shop",
-        description="Was möchtest du kaufen?",
-        color=discord.Color.blue()
-    )
-    
-    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-
-
-
 class ColorSelectView(discord.ui.View):
     def __init__(self, tier: str, config: dict, member: discord.Member):
         super().__init__(timeout=60)
@@ -2894,33 +3017,199 @@ async def view_transactions(interaction: discord.Interaction, limit: int = 10):
 # QUEST SYSTEM SLASH COMMANDS
 # ============================================================================
 
+class QuestMenuView(discord.ui.View):
+    """Interactive menu for viewing quest progress."""
+    
+    def __init__(self, user_id: int, config: dict):
+        super().__init__(timeout=180)
+        self.user_id = user_id
+        self.config = config
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Du kannst dieses Menü nicht bedienen.", ephemeral=True)
+            return False
+        return True
+    
+    @discord.ui.button(label="📋 Tägliche Quests", style=discord.ButtonStyle.primary, row=0)
+    async def daily_quests_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Show daily quests."""
+        await interaction.response.defer()
+        
+        try:
+            # Generate quests for today if they don't exist
+            quest_list = await quests.generate_daily_quests(db_helpers, self.user_id, self.config)
+            
+            if not quest_list:
+                # If generation failed, try to fetch existing quests
+                quest_list = await quests.get_user_quests(db_helpers, self.user_id, self.config)
+            
+            if not quest_list:
+                await interaction.followup.send("❌ Fehler beim Laden der Quests.", ephemeral=True)
+                return
+            
+            # Create embed showing quests
+            embed = quests.create_quests_embed(quest_list, interaction.user.display_name, self.config)
+            
+            # Check if all quests are completed
+            all_completed, completed_count, total_count = await quests.check_all_quests_completed(db_helpers, self.user_id)
+            
+            if all_completed:
+                embed.set_footer(text="✅ Alle Quests abgeschlossen! Klicke auf 'Belohnungen abholen' um sie einzusammeln.")
+            else:
+                embed.set_footer(text=f"Quest-Fortschritt: {completed_count}/{total_count} abgeschlossen")
+            
+            await interaction.edit_original_response(embed=embed, view=self)
+        except Exception as e:
+            logger.error(f"Error in daily quests button: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Fehler: {str(e)}", ephemeral=True)
+    
+    @discord.ui.button(label="📊 Monatlicher Fortschritt", style=discord.ButtonStyle.secondary, row=0)
+    async def monthly_progress_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Show monthly progress."""
+        await interaction.response.defer()
+        
+        try:
+            completion_days, total_days = await quests.get_monthly_completion_count(db_helpers, self.user_id)
+            embed = quests.create_monthly_progress_embed(completion_days, total_days, interaction.user.display_name, self.config)
+            await interaction.edit_original_response(embed=embed, view=self)
+        except Exception as e:
+            logger.error(f"Error in monthly progress button: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Fehler: {str(e)}", ephemeral=True)
+    
+    @discord.ui.button(label="💰 Belohnungen abholen", style=discord.ButtonStyle.success, row=1)
+    async def claim_rewards_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Claim completed quest rewards."""
+        await interaction.response.defer()
+        
+        try:
+            # Get user's quests
+            quest_list = await quests.get_user_quests(db_helpers, self.user_id, self.config)
+            
+            if not quest_list:
+                await interaction.followup.send("❌ Du hast heute noch keine Quests.", ephemeral=True)
+                return
+            
+            # Find completed but unclaimed quests
+            unclaimed_quests = [q for q in quest_list if q['completed'] and not q.get('reward_claimed', False)]
+            
+            if not unclaimed_quests:
+                await interaction.followup.send("❌ Du hast keine abgeschlossenen Quests zum Einsammeln.", ephemeral=True)
+                return
+            
+            # Claim all unclaimed quests
+            total_reward = 0
+            claimed_count = 0
+            
+            for quest in unclaimed_quests:
+                success, reward, message = await quests.claim_quest_reward(
+                    db_helpers,
+                    self.user_id,
+                    interaction.user.display_name,
+                    quest['id'],
+                    self.config
+                )
+                
+                if success:
+                    total_reward += reward
+                    claimed_count += 1
+            
+            currency = self.config['modules']['economy']['currency_symbol']
+            
+            if claimed_count > 0:
+                embed = discord.Embed(
+                    title="✅ Quest-Belohnungen eingesammelt!",
+                    description=f"Du hast {claimed_count} Quest(s) abgeschlossen!",
+                    color=discord.Color.green()
+                )
+                embed.add_field(
+                    name="Belohnung",
+                    value=f"**+{total_reward} {currency}**",
+                    inline=False
+                )
+                
+                # Check if all quests are now completed and claimed
+                all_completed, completed_count, total_count = await quests.check_all_quests_completed(db_helpers, self.user_id)
+                
+                if all_completed:
+                    # Grant daily completion bonus
+                    bonus_success, bonus_amount = await quests.grant_daily_completion_bonus(
+                        db_helpers,
+                        self.user_id,
+                        interaction.user.display_name,
+                        self.config
+                    )
+                    
+                    if bonus_success:
+                        embed.add_field(
+                            name="🎉 Tagesbonus!",
+                            value=f"Alle Quests abgeschlossen! **+{bonus_amount} {currency}** Bonus!",
+                            inline=False
+                        )
+                        total_reward += bonus_amount
+                        
+                        # Check for monthly milestone
+                        completion_days, total_days = await quests.get_monthly_completion_count(db_helpers, self.user_id)
+                        milestone_reached, milestone_reward, milestone_name = await quests.grant_monthly_milestone_reward(
+                            db_helpers,
+                            self.user_id,
+                            interaction.user.display_name,
+                            completion_days,
+                            self.config
+                        )
+                        
+                        if milestone_reached:
+                            embed.add_field(
+                                name=f"🏆 Monatlicher Meilenstein erreicht!",
+                                value=f"**{milestone_name}** ({completion_days} Tage)\n**+{milestone_reward} {currency}**",
+                                inline=False
+                            )
+                
+                await interaction.edit_original_response(embed=embed, view=self)
+            else:
+                await interaction.followup.send("❌ Keine Belohnungen konnten eingesammelt werden.", ephemeral=True)
+            
+        except Exception as e:
+            logger.error(f"Error in claim rewards button: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Fehler: {str(e)}", ephemeral=True)
+
 @tree.command(name="quests", description="Zeigt deine täglichen Quests an.")
 async def view_quests(interaction: discord.Interaction):
-    """Display the user's daily quests."""
+    """Display the interactive quest menu."""
     await interaction.response.defer(ephemeral=True)
     
     try:
-        # Generate quests for today if they don't exist
-        quest_list = await quests.generate_daily_quests(db_helpers, interaction.user.id, config)
+        # Create menu view
+        view = QuestMenuView(interaction.user.id, config)
         
-        if not quest_list:
-            # If generation failed, try to fetch existing quests
-            quest_list = await quests.get_user_quests(db_helpers, interaction.user.id, config)
+        # Create initial embed
+        embed = discord.Embed(
+            title="📋 Quest-Menü",
+            description="Wähle eine Option aus dem Menü:",
+            color=discord.Color.blue()
+        )
         
-        if not quest_list:
-            await interaction.followup.send("❌ Fehler beim Laden der Quests.", ephemeral=True)
-            return
+        embed.add_field(
+            name="📋 Tägliche Quests",
+            value="Zeigt deine heutigen Quests und deren Fortschritt",
+            inline=False
+        )
+        embed.add_field(
+            name="📊 Monatlicher Fortschritt",
+            value="Zeigt wie viele Tage du diesen Monat Quests abgeschlossen hast",
+            inline=False
+        )
+        embed.add_field(
+            name="💰 Belohnungen abholen",
+            value="Sammle Belohnungen für abgeschlossene Quests ein",
+            inline=False
+        )
         
-        # Create embed showing quests
-        embed = quests.create_quests_embed(quest_list, interaction.user.display_name, config)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         
-        # Check if all quests are completed
-        all_completed, completed_count, total_count = await quests.check_all_quests_completed(db_helpers, interaction.user.id)
-        
-        if all_completed:
-            embed.set_footer(text="✅ Alle Quests abgeschlossen! Nutze /questclaim um deine Belohnungen einzusammeln.")
-        else:
-            embed.set_footer(text=f"Quest-Fortschritt: {completed_count}/{total_count} abgeschlossen")
+    except Exception as e:
+        logger.error(f"Error in /quests command: {e}", exc_info=True)
+        await interaction.followup.send(f"❌ Fehler beim Laden der Quests: {str(e)}", ephemeral=True)
         
         await interaction.followup.send(embed=embed, ephemeral=True)
         
@@ -3172,8 +3461,21 @@ class MinesView(discord.ui.View):
     
     def _build_grid(self):
         """Builds the button grid for the mines game."""
-        for row in range(self.game.grid_size):
-            for col in range(self.game.grid_size):
+        # Discord allows max 5 rows with 5 buttons each (25 total)
+        # We need room for the cashout button, so use 4x5 grid (20 cells + 5 buttons in last row)
+        
+        # Calculate actual grid size to fit Discord limits
+        # With cashout button, we can have max 24 grid cells (4 rows of 5, last row has 4 cells + cashout)
+        actual_grid_size = min(self.game.grid_size, 5)
+        
+        button_count = 0
+        for row in range(actual_grid_size):
+            row_buttons = 0
+            for col in range(actual_grid_size):
+                # On the last row, leave space for cashout button
+                if row == actual_grid_size - 1 and col == actual_grid_size - 1:
+                    break  # Skip last cell to make room for cashout
+                    
                 button = discord.ui.Button(
                     label="⬜",
                     style=discord.ButtonStyle.secondary,
@@ -3182,12 +3484,15 @@ class MinesView(discord.ui.View):
                 )
                 button.callback = self._create_callback(row, col)
                 self.add_item(button)
+                button_count += 1
+                row_buttons += 1
         
-        # Add cashout button
+        # Add cashout button in the last row
         cashout_button = discord.ui.Button(
             label="💰 Cash Out",
             style=discord.ButtonStyle.success,
-            custom_id="cashout"
+            custom_id="cashout",
+            row=actual_grid_size - 1  # Last row
         )
         cashout_button.callback = self._cashout_callback
         self.add_item(cashout_button)
@@ -3409,7 +3714,298 @@ async def blackjack(interaction: discord.Interaction, bet: int):
     await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 
+class RouletteView(discord.ui.View):
+    """Interactive view for Roulette with dropdown menus."""
+    
+    def __init__(self, user_id: int, bet_amount: int):
+        super().__init__(timeout=180)
+        self.user_id = user_id
+        self.bet_amount = bet_amount
+        self.bets = []  # List of (bet_type, bet_value) tuples
+        
+        # Add bet type dropdown
+        self.add_item(RouletteBetTypeSelect(self))
+        
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht dein Spiel!", ephemeral=True)
+            return False
+        return True
+    
+    @discord.ui.button(label="🎰 Rad drehen", style=discord.ButtonStyle.success, row=2)
+    async def spin_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Spin the roulette wheel."""
+        await interaction.response.defer()
+        
+        if not self.bets:
+            await interaction.followup.send("❌ Wähle mindestens eine Wette aus!", ephemeral=True)
+            return
+        
+        # Spin the wheel
+        result_number = RouletteGame.spin()
+        
+        # Determine color
+        if result_number == 0:
+            result_color = "🟢 Grün"
+        elif result_number in RouletteGame.RED:
+            result_color = "🔴 Rot"
+        else:
+            result_color = "⚫ Schwarz"
+        
+        # Calculate winnings for all bets
+        total_winnings = 0
+        bet_results = []
+        
+        for bet_type, bet_value in self.bets:
+            won, multiplier = RouletteGame.check_bet(result_number, bet_type, bet_value)
+            
+            if won:
+                winnings = self.bet_amount * multiplier - self.bet_amount
+                total_winnings += winnings
+                bet_results.append(f"✅ {bet_value}: +{winnings} 🪙 ({multiplier}x)")
+            else:
+                bet_results.append(f"❌ {bet_value}: -{self.bet_amount} 🪙")
+        
+        # Update balance
+        stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+        await db_helpers.add_balance(
+            self.user_id,
+            interaction.user.display_name,
+            total_winnings - (self.bet_amount * len(self.bets)),
+            config,
+            stat_period
+        )
+        
+        # Get new balance
+        new_balance = await db_helpers.get_balance(self.user_id)
+        
+        # Log transaction
+        await db_helpers.log_transaction(
+            self.user_id,
+            'roulette',
+            total_winnings - (self.bet_amount * len(self.bets)),
+            new_balance,
+            f"Bets: {len(self.bets)}, Result: {result_number}"
+        )
+        
+        # Create result embed
+        currency = config['modules']['economy']['currency_symbol']
+        embed = discord.Embed(
+            title="🎰 Roulette",
+            color=discord.Color.green() if total_winnings > 0 else discord.Color.red()
+        )
+        
+        embed.add_field(name="Ergebnis", value=f"**{result_number}** {result_color}", inline=False)
+        embed.add_field(name="Deine Wetten", value="\n".join(bet_results), inline=False)
+        embed.add_field(
+            name="Gesamteinsatz",
+            value=f"{self.bet_amount * len(self.bets)} {currency}",
+            inline=True
+        )
+        embed.add_field(
+            name="Gesamt-Ergebnis",
+            value=f"**{total_winnings - (self.bet_amount * len(self.bets))} {currency}**",
+            inline=True
+        )
+        embed.add_field(name="Neues Guthaben", value=f"{new_balance} {currency}", inline=True)
+        
+        # Disable all buttons
+        for item in self.children:
+            item.disabled = True
+        
+        await interaction.edit_original_response(embed=embed, view=self)
+        self.stop()
+
+
+class RouletteBetTypeSelect(discord.ui.Select):
+    """Dropdown for selecting bet type."""
+    
+    def __init__(self, parent_view):
+        self.parent_view = parent_view
+        
+        options = [
+            discord.SelectOption(label="🔴 Rot", value="red", description="Setze auf rote Zahlen (2x)"),
+            discord.SelectOption(label="⚫ Schwarz", value="black", description="Setze auf schwarze Zahlen (2x)"),
+            discord.SelectOption(label="🔢 Ungerade", value="odd", description="Setze auf ungerade Zahlen (2x)"),
+            discord.SelectOption(label="🔢 Gerade", value="even", description="Setze auf gerade Zahlen (2x)"),
+            discord.SelectOption(label="⬆️ Hoch (19-36)", value="high", description="Zahlen von 19-36 (2x)"),
+            discord.SelectOption(label="⬇️ Niedrig (1-18)", value="low", description="Zahlen von 1-18 (2x)"),
+            discord.SelectOption(label="🎯 Einzelne Zahl", value="number", description="Wähle eine Zahl 0-36 (35x)")
+        ]
+        
+        super().__init__(
+            placeholder="Wähle deine Wette(n)...",
+            min_values=1,
+            max_values=2,  # Allow up to 2 simultaneous bets
+            options=options,
+            row=0
+        )
+    
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        
+        # Clear previous bets
+        self.parent_view.bets = []
+        
+        for selection in self.values:
+            if selection == "number":
+                # For number bets, show a number selector
+                await self._show_number_selector(interaction)
+                return
+            else:
+                # For other bets, map them directly
+                bet_type_map = {
+                    'red': ('color', 'red'),
+                    'black': ('color', 'black'),
+                    'odd': ('odd_even', 'odd'),
+                    'even': ('odd_even', 'even'),
+                    'high': ('high_low', 'high'),
+                    'low': ('high_low', 'low')
+                }
+                
+                if selection in bet_type_map:
+                    self.parent_view.bets.append(bet_type_map[selection])
+        
+        # Update embed
+        embed = discord.Embed(
+            title="🎰 Roulette",
+            description="Wette ausgewählt! Klicke auf 'Rad drehen' um zu spielen.",
+            color=discord.Color.blue()
+        )
+        
+        currency = config['modules']['economy']['currency_symbol']
+        bet_descriptions = []
+        for bet_type, bet_value in self.parent_view.bets:
+            bet_descriptions.append(f"• {bet_value}")
+        
+        embed.add_field(
+            name="Deine Wetten",
+            value="\n".join(bet_descriptions),
+            inline=False
+        )
+        embed.add_field(
+            name="Einsatz pro Wette",
+            value=f"{self.parent_view.bet_amount} {currency}",
+            inline=True
+        )
+        embed.add_field(
+            name="Gesamteinsatz",
+            value=f"{self.parent_view.bet_amount * len(self.parent_view.bets)} {currency}",
+            inline=True
+        )
+        
+        await interaction.edit_original_response(embed=embed, view=self.parent_view)
+    
+    async def _show_number_selector(self, interaction: discord.Interaction):
+        """Show a number selector for specific number bets."""
+        # Create a modal for number input
+        modal = RouletteNumberModal(self.parent_view)
+        await interaction.response.send_modal(modal)
+
+
+class RouletteNumberModal(discord.ui.Modal, title="Wähle eine Zahl"):
+    """Modal for entering a specific number bet."""
+    
+    number_input = discord.ui.TextInput(
+        label="Zahl (0-36)",
+        placeholder="Gib eine Zahl zwischen 0 und 36 ein",
+        required=True,
+        max_length=2
+    )
+    
+    def __init__(self, parent_view):
+        super().__init__()
+        self.parent_view = parent_view
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            number = int(self.number_input.value)
+            if number < 0 or number > 36:
+                await interaction.response.send_message("❌ Zahl muss zwischen 0 und 36 liegen!", ephemeral=True)
+                return
+            
+            # Add number bet
+            self.parent_view.bets = [('number', number)]
+            
+            # Update embed
+            embed = discord.Embed(
+                title="🎰 Roulette",
+                description="Wette ausgewählt! Klicke auf 'Rad drehen' um zu spielen.",
+                color=discord.Color.blue()
+            )
+            
+            currency = config['modules']['economy']['currency_symbol']
+            embed.add_field(
+                name="Deine Wette",
+                value=f"🎯 Zahl {number} (35x Multiplikator)",
+                inline=False
+            )
+            embed.add_field(
+                name="Einsatz",
+                value=f"{self.parent_view.bet_amount} {currency}",
+                inline=True
+            )
+            
+            await interaction.response.edit_message(embed=embed, view=self.parent_view)
+            
+        except ValueError:
+            await interaction.response.send_message("❌ Ungültige Zahl!", ephemeral=True)
+
+
 @tree.command(name="roulette", description="Spiele Roulette!")
+@app_commands.describe(bet="Dein Einsatz pro Wette")
+async def roulette(interaction: discord.Interaction, bet: int):
+    """Play Roulette with interactive bet selection."""
+    await interaction.response.defer(ephemeral=True)
+    
+    user_id = interaction.user.id
+    
+    # Validate bet amount
+    min_bet = config['modules']['economy']['games']['roulette']['min_bet']
+    max_bet = config['modules']['economy']['games']['roulette']['max_bet']
+    currency = config['modules']['economy']['currency_symbol']
+    
+    if bet < min_bet or bet > max_bet:
+        await interaction.followup.send(
+            f"Ungültiger Einsatz! Minimum: {min_bet} {currency}, Maximum: {max_bet} {currency}",
+            ephemeral=True
+        )
+        return
+    
+    # Check balance (max 2 bets, so check for 2x bet amount)
+    balance = await db_helpers.get_balance(user_id)
+    if balance < bet * 2:
+        await interaction.followup.send(
+            f"Nicht genug Guthaben! Du hast {balance} {currency}, brauchst aber mindestens {bet * 2} {currency} für 2 Wetten.",
+            ephemeral=True
+        )
+        return
+    
+    # Create view
+    view = RouletteView(user_id, bet)
+    
+    embed = discord.Embed(
+        title="🎰 Roulette",
+        description="Wähle deine Wette(n) aus dem Dropdown-Menü. Du kannst bis zu 2 Wetten gleichzeitig platzieren!",
+        color=discord.Color.blue()
+    )
+    
+    embed.add_field(
+        name="💡 Tipp",
+        value="Du kannst mehrere Wetten gleichzeitig platzieren, z.B. Rot + Gerade!",
+        inline=False
+    )
+    embed.add_field(
+        name="Einsatz pro Wette",
+        value=f"{bet} {currency}",
+        inline=True
+    )
+    
+    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+
+# Keep old roulette command but mark as deprecated
+@tree.command(name="roulette_old", description="[VERALTET] Alte Roulette-Version - Nutze /roulette stattdessen")
 @app_commands.describe(
     bet_type="Wettart (number/red/black/odd/even/high/low)",
     bet_value="Wert (z.B. Zahl 0-36, 'red', 'black', etc.)",
@@ -3424,7 +4020,7 @@ async def blackjack(interaction: discord.Interaction, bet: int):
     app_commands.Choice(name="Hoch (19-36)", value="high"),
     app_commands.Choice(name="Niedrig (1-18)", value="low")
 ])
-async def roulette(interaction: discord.Interaction, bet_type: app_commands.Choice[str], bet_value: str, amount: int):
+async def roulette_old(interaction: discord.Interaction, bet_type: app_commands.Choice[str], bet_value: str, amount: int):
     """Play Roulette."""
     await interaction.response.defer(ephemeral=True)
     
