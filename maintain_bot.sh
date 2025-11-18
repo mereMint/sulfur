@@ -416,8 +416,123 @@ apply_updates() {
 # Process Management
 # ==============================================================================
 
+check_port_available() {
+    local port=$1
+    
+    # Check if port is in use using multiple methods
+    # Method 1: Try using lsof (if available)
+    if command -v lsof >/dev/null 2>&1; then
+        if lsof -ti:$port >/dev/null 2>&1; then
+            return 1  # Port is in use
+        fi
+    fi
+    
+    # Method 2: Try using netstat (if available)
+    if command -v netstat >/dev/null 2>&1; then
+        if netstat -tuln 2>/dev/null | grep -q ":$port "; then
+            return 1  # Port is in use
+        fi
+    fi
+    
+    # Method 3: Try using ss (if available, more common on modern Linux)
+    if command -v ss >/dev/null 2>&1; then
+        if ss -tuln 2>/dev/null | grep -q ":$port "; then
+            return 1  # Port is in use
+        fi
+    fi
+    
+    # Method 4: Try to connect to the port (last resort)
+    if command -v nc >/dev/null 2>&1; then
+        if nc -z 127.0.0.1 $port 2>/dev/null; then
+            return 1  # Port is in use
+        fi
+    fi
+    
+    return 0  # Port is available
+}
+
+free_port() {
+    local port=$1
+    log_warning "Attempting to free port $port..."
+    
+    local pids=""
+    
+    # Try to find PIDs using the port
+    if command -v lsof >/dev/null 2>&1; then
+        pids=$(lsof -ti:$port 2>/dev/null)
+    elif command -v fuser >/dev/null 2>&1; then
+        pids=$(fuser $port/tcp 2>/dev/null | sed 's/^ *//')
+    fi
+    
+    if [ -n "$pids" ]; then
+        log_warning "Found processes using port $port: $pids"
+        for pid in $pids; do
+            # Check if this is our own web dashboard process
+            if [ -f "$WEB_PID_FILE" ] && [ "$(cat "$WEB_PID_FILE" 2>/dev/null)" = "$pid" ]; then
+                log_warning "Skipping PID $pid (our own web dashboard)"
+                continue
+            fi
+            
+            # Try graceful shutdown first
+            if kill -0 "$pid" 2>/dev/null; then
+                log_warning "Sending TERM signal to PID $pid..."
+                kill -TERM "$pid" 2>/dev/null
+                
+                # Wait up to 3 seconds for graceful shutdown
+                local wait_count=0
+                while [ $wait_count -lt 3 ]; do
+                    if ! kill -0 "$pid" 2>/dev/null; then
+                        log_success "Process $pid terminated gracefully"
+                        break
+                    fi
+                    sleep 1
+                    wait_count=$((wait_count + 1))
+                done
+                
+                # Force kill if still running
+                if kill -0 "$pid" 2>/dev/null; then
+                    log_warning "Force killing PID $pid..."
+                    kill -9 "$pid" 2>/dev/null
+                    sleep 1
+                fi
+            fi
+        done
+        
+        # Wait a bit for the port to be released
+        sleep 2
+        
+        # Verify port is now free
+        if check_port_available $port; then
+            log_success "Port $port is now available"
+            return 0
+        else
+            log_error "Port $port is still in use after cleanup attempt"
+            return 1
+        fi
+    else
+        log_warning "No processes found using port $port (port might be in TIME_WAIT state)"
+        # Port might be in TIME_WAIT state, wait a bit
+        sleep 2
+        return 0
+    fi
+}
+
 start_web_dashboard() {
     log_web "Starting Web Dashboard..."
+    
+    # Check if port 5000 is available
+    if ! check_port_available 5000; then
+        log_warning "Port 5000 is already in use"
+        
+        # Try to free the port
+        if ! free_port 5000; then
+            log_error "Failed to free port 5000. Web Dashboard cannot start."
+            log_warning "You may need to manually kill processes using port 5000:"
+            log_warning "  - Find processes: lsof -ti:5000 or fuser 5000/tcp"
+            log_warning "  - Kill process: kill -9 <PID>"
+            return 1
+        fi
+    fi
     
     # Find Python
     local python_exe="$PYTHON_CMD"
@@ -804,6 +919,13 @@ while true; do
                 if [ $WEB_RESTART_COUNT -lt $WEB_RESTART_THRESHOLD ]; then
                     if [ $time_since_last_restart -ge $WEB_RESTART_COOLDOWN ]; then
                         log_warning "Web Dashboard stopped, restarting... (attempt $((WEB_RESTART_COUNT + 1))/$WEB_RESTART_THRESHOLD)"
+                        
+                        # Show the last error from web log before restarting
+                        if [ -f "$WEB_LOG" ] && [ $WEB_RESTART_COUNT -gt 0 ]; then
+                            log_warning "Last error from Web Dashboard log:"
+                            tail -n 20 "$WEB_LOG" | grep -i -E "error|exception|traceback|failed|port.*in use" | tail -n 5 | sed 's/^/  | /' | tee -a "$MAIN_LOG"
+                        fi
+                        
                         LAST_WEB_RESTART=$current_time
                         WEB_RESTART_COUNT=$((WEB_RESTART_COUNT + 1))
                         
@@ -811,6 +933,11 @@ while true; do
                             log_success "Web Dashboard restarted successfully"
                         else
                             log_error "Failed to restart Web Dashboard"
+                            # Show more detailed error info
+                            if [ -f "$WEB_LOG" ]; then
+                                log_warning "Recent Web Dashboard log output:"
+                                tail -n 30 "$WEB_LOG" | sed 's/^/  | /' | tee -a "$MAIN_LOG"
+                            fi
                         fi
                     else
                         local wait_time=$((WEB_RESTART_COOLDOWN - time_since_last_restart))
