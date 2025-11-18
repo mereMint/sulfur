@@ -595,7 +595,13 @@ start_web_dashboard() {
             # Show network access info for Termux users
             if [ "$IS_TERMUX" = true ]; then
                 # Try to get local IP address
-                local local_ip=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -n1)
+                local local_ip=""
+                if command -v ip >/dev/null 2>&1; then
+                    local_ip=$(ip -4 addr show 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -n1)
+                elif command -v ifconfig >/dev/null 2>&1; then
+                    # Fallback to ifconfig for Termux
+                    local_ip=$(ifconfig 2>/dev/null | grep -oP 'inet\s+\K[\d.]+' | grep -v '127.0.0.1' | head -n1)
+                fi
                 if [ -n "$local_ip" ]; then
                     log_info "Access from network: http://${local_ip}:5000"
                 fi
@@ -896,8 +902,8 @@ while true; do
             WEB_PID=$(cat "$WEB_PID_FILE")
             if ! kill -0 "$WEB_PID" 2>/dev/null; then
                 # Web dashboard has stopped
-                local current_time=$(date +%s)
-                local time_since_last_restart=$((current_time - LAST_WEB_RESTART))
+                current_time=$(date +%s)
+                time_since_last_restart=$((current_time - LAST_WEB_RESTART))
                 
                 # Check if we've hit the restart threshold
                 if [ $WEB_RESTART_COUNT -ge $WEB_RESTART_THRESHOLD ]; then
@@ -940,7 +946,7 @@ while true; do
                             fi
                         fi
                     else
-                        local wait_time=$((WEB_RESTART_COOLDOWN - time_since_last_restart))
+                        wait_time=$((WEB_RESTART_COOLDOWN - time_since_last_restart))
                         log_warning "Web Dashboard stopped, but waiting ${wait_time}s before retry (cooldown period)"
                     fi
                 fi
