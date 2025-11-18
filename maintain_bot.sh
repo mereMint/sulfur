@@ -437,19 +437,25 @@ start_web_dashboard() {
             pip_exe="$python_exe -m pip"
         fi
         
-        if $pip_exe install -r requirements.txt >>"$MAIN_LOG" 2>&1; then
+        # Capture output for better error visibility
+        local pip_output_file="/tmp/sulfur_web_pip_install_$$.log"
+        if $pip_exe install -r requirements.txt >"$pip_output_file" 2>&1; then
+            rm -f "$pip_output_file"
             log_success "Flask dependencies installed successfully"
         else
             log_error "Failed to install Flask dependencies"
+            log_warning "Last 10 lines of pip install output:"
+            tail -n 10 "$pip_output_file" | sed 's/^/  | /'
+            rm -f "$pip_output_file"
             log_warning "Web Dashboard cannot start without Flask and Flask-SocketIO"
-            log_warning "Try manually: $python_exe -m pip install -r requirements.txt"
+            log_warning "Try manually: $python_exe -m pip install Flask Flask-SocketIO waitress"
             return 1
         fi
         
         # Verify installation
         if ! "$python_exe" -c "import flask, flask_socketio" 2>/dev/null; then
             log_error "Flask dependencies still not available after installation"
-            log_warning "Check $MAIN_LOG for details"
+            log_warning "Try manually: $python_exe -m pip install Flask Flask-SocketIO waitress"
             return 1
         fi
     fi
@@ -470,6 +476,16 @@ start_web_dashboard() {
         if curl -sf --max-time 2 -I http://127.0.0.1:5000 >/dev/null 2>&1 \
            || nc -z 127.0.0.1 5000 2>/dev/null; then
             log_success "Web Dashboard running at http://localhost:5000 (PID: $web_pid)"
+            
+            # Show network access info for Termux users
+            if [ "$IS_TERMUX" = true ]; then
+                # Try to get local IP address
+                local local_ip=$(ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '127.0.0.1' | head -n1)
+                if [ -n "$local_ip" ]; then
+                    log_info "Access from network: http://${local_ip}:5000"
+                fi
+            fi
+            
             WEB_RESTART_COUNT=0  # Reset counter on successful start
             return 0
         fi
@@ -555,6 +571,9 @@ echo ""
 # Environment info
 if [ "$IS_TERMUX" = true ]; then
     log_info "Running on Termux"
+    log_info "Logs: $LOG_DIR/maintenance_${LOG_TIMESTAMP}.log"
+    log_info "To view logs: tail -f $LOG_DIR/maintenance_*.log"
+    echo ""
 else
     log_info "Running on Linux"
 fi
@@ -652,13 +671,23 @@ ensure_python_env() {
     if [ -n "$missing_packages" ]; then
         log_error "Missing required packages: $missing_packages"
         log_warning "Attempting to install missing packages..."
-        if ! $venv_pip install -r requirements.txt >>"$MAIN_LOG" 2>&1; then
-            log_error "Failed to install dependencies. Check $MAIN_LOG for details."
+        
+        # Capture pip output for better error visibility
+        local pip_output_file="/tmp/sulfur_pip_install_$$.log"
+        if ! $venv_pip install -r requirements.txt >"$pip_output_file" 2>&1; then
+            log_error "Failed to install dependencies"
+            log_warning "Last 15 lines of pip install output:"
+            tail -n 15 "$pip_output_file" | sed 's/^/  | /' | tee -a "$MAIN_LOG"
+            rm -f "$pip_output_file"
+            log_warning "Full log available at: $MAIN_LOG"
             return 1
         fi
+        rm -f "$pip_output_file"
+        
         # Verify again after installation
         if ! $venv_python -c 'import discord, flask, flask_socketio' >/dev/null 2>&1; then
             log_error "Package installation failed. Manual intervention required."
+            log_warning "Try manually: $venv_pip install -r requirements.txt"
             return 1
         fi
     fi
@@ -674,10 +703,15 @@ until preflight_check; do
 done
 
 # Ensure venv/deps before starting services
-ensure_python_env || {
-    log_error "Cannot start without required Python packages. Check $MAIN_LOG for details."
+if ! ensure_python_env; then
+    log_error "Cannot start without required Python packages"
+    log_warning "Common fixes for Termux:"
+    log_warning "  1. Ensure you have enough storage space"
+    log_warning "  2. Try: pkg install python python-pip"
+    log_warning "  3. Check the error messages above for specific issues"
+    log_warning "Full log available at: $MAIN_LOG"
     exit 1
-}
+fi
 
 # Start web dashboard
 start_web_dashboard || log_warning "Web Dashboard failed to start, continuing anyway..."
