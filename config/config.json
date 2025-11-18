@@ -180,7 +180,7 @@
       "wolf_thread_name": "\ud83d\udc3a Werwolf-Beratung \ud83d\udc3a",
       "default_target_players": 6,
       "tts": {
-        "chars_per_second": 12,
+        "chars_per_second": 48,
         "min_duration": 3.0,
         "buffer_seconds": 2.0,
         "tts_char_limit": 150
