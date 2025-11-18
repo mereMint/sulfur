@@ -16,6 +16,7 @@ WERWOLF = "Werwolf"
 SEHERIN = "Seherin"
 HEXE = "Hexe"
 DÖNERSTOPFER = "Dönerstopfer"
+JÄGER = "Jäger"
 
 class WerwolfPlayer:
     """Represents a player in the game."""
@@ -30,11 +31,12 @@ class WerwolfPlayer:
 class WerwolfGame:
     """Manages the state and logic of a single Werwolf game."""
 
-    def __init__(self, game_channel, starter, original_channel):
+    def __init__(self, game_channel, starter, original_channel, bot_client=None):
         self.api_url = None # Will be set from bot.py
         self.game_channel = game_channel # This is now the dedicated text channel
         self.starter = starter
         self.original_channel = original_channel # Channel where game was started
+        self.bot_client = bot_client # Reference to the bot client for wait_for
         self.players = {} # Maps user.id to WerwolfPlayer object
         self.phase = "joining" # joining -> night -> day
         self.day_number = 0
@@ -269,21 +271,22 @@ class WerwolfGame:
         # Logic adjusted for small player counts
         if player_count == 1:
             num_werwolfe = 1
-            num_seherin, num_hexe, num_döner = 0, 0, 0
+            num_seherin, num_hexe, num_döner, num_jäger = 0, 0, 0, 0
         elif player_count == 2:
             num_werwolfe = 1
             num_seherin = 1
-            num_hexe, num_döner = 0, 0
+            num_hexe, num_döner, num_jäger = 0, 0, 0
         else:
             num_werwolfe = max(1, player_count // 3)
             num_seherin = 1 if player_count > 2 else 0
             num_hexe = 1 if player_count >= 7 else 0
             num_döner = 1 if player_count >= 9 else 0
+            num_jäger = 1 if player_count >= 5 else 0
         
-        num_dorfbewohner = player_count - num_werwolfe - num_seherin - num_hexe - num_döner
+        num_dorfbewohner = player_count - num_werwolfe - num_seherin - num_hexe - num_döner - num_jäger
 
         roles = ([WERWOLF] * num_werwolfe + [SEHERIN] * num_seherin + [HEXE] * num_hexe + 
-                 [DÖNERSTOPFER] * num_döner + [DORFBEWOHNER] * num_dorfbewohner)
+                 [DÖNERSTOPFER] * num_döner + [JÄGER] * num_jäger + [DORFBEWOHNER] * num_dorfbewohner)
         random.shuffle(roles)
 
         player_objects = list(self.players.values())
@@ -313,6 +316,8 @@ class WerwolfGame:
                     player.has_healing_potion = True
                     player.has_kill_potion = True
                     role_message += "\nDu hast einen Heiltrank und einen Gifttrank."
+                elif player.role == JÄGER:
+                    role_message += "\nStirbt der Jäger, darfst du noch eine Person mit in den Tod nehmen."
                 
                 await player.user.send(role_message)
             except discord.Forbidden:
@@ -791,6 +796,56 @@ class WerwolfGame:
 
         player_to_kill.is_alive = False
 
+        # --- NEW: Handle Jäger's death ability ---
+        if player_to_kill.role == JÄGER and not self.is_bot_player(player_to_kill):
+            await self.log_event(f"Der Jäger {player_to_kill.user.display_name} ist gestorben! Er darf noch jemanden mit in den Tod nehmen.")
+            try:
+                alive_players = self.get_alive_players()
+                target_options = [p.user.display_name for p in alive_players if p.user.id != player_to_kill.user.id]
+                
+                if target_options:
+                    await player_to_kill.user.send(
+                        f"Du wurdest {reason}! Als Jäger darfst du noch eine Person mit in den Tod nehmen.\n"
+                        f"Schreibe den Namen der Person, die du mitnehmen möchtest:\n"
+                        f"Verfügbare Ziele: {', '.join(target_options)}\n\n"
+                        f"Du hast 60 Sekunden Zeit."
+                    )
+                    
+                    def check(m):
+                        return m.author.id == player_to_kill.user.id and isinstance(m.channel, discord.DMChannel)
+                    
+                    try:
+                        msg = await self.bot_client.wait_for('message', timeout=60.0, check=check)
+                        target_name = msg.content.strip()
+                        
+                        # Find the target player
+                        target_player = None
+                        for p in alive_players:
+                            if p.user.display_name.lower() == target_name.lower():
+                                target_player = p
+                                break
+                        
+                        if target_player:
+                            await self.log_event(f"💀 Der Jäger {player_to_kill.user.display_name} nimmt {target_player.user.display_name} mit in den Tod!", send_tts=True)
+                            target_player.is_alive = False
+                            
+                            # Unmute the target if they're in voice
+                            if self.discussion_vc and not self.is_bot_player(target_player):
+                                member = self.discussion_vc.guild.get_member(target_player.user.id)
+                                if member and member.voice and member.voice.channel == self.discussion_vc:
+                                    try:
+                                        await member.edit(mute=False, deafen=False, reason="Vom Jäger getötet")
+                                    except (discord.Forbidden, discord.HTTPException):
+                                        pass
+                        else:
+                            await player_to_kill.user.send(f"Ziel '{target_name}' nicht gefunden. Keine Aktion durchgeführt.")
+                            await self.log_event(f"Der Jäger {player_to_kill.user.display_name} konnte niemanden mitnehmen.")
+                    except asyncio.TimeoutError:
+                        await player_to_kill.user.send("⏰ Zeit abgelaufen! Du konntest niemanden mitnehmen.")
+                        await self.log_event(f"Der Jäger {player_to_kill.user.display_name} hat seine Chance verpasst.")
+            except discord.Forbidden:
+                await self.log_event(f"Der Jäger {player_to_kill.user.display_name} konnte keine DM erhalten für seine letzte Aktion.")
+
         # --- REFACTORED: Unmute dead players so they can talk at night ---
         if self.discussion_vc and not self.is_bot_player(player_to_kill):
             member = self.discussion_vc.guild.get_member(player_to_kill.user.id)
@@ -835,7 +890,7 @@ class WerwolfGame:
         if winner_team and config:
             winning_roles = []
             if winner_team == "Dorfbewohner":
-                winning_roles = [DORFBEWOHNER, SEHERIN, HEXE, DÖNERSTOPFER]
+                winning_roles = [DORFBEWOHNER, SEHERIN, HEXE, DÖNERSTOPFER, JÄGER]
             elif winner_team == "Werwölfe":
                 winning_roles = [WERWOLF]
 
@@ -875,6 +930,16 @@ class WerwolfGame:
                 print(f"Could not send summary to original channel {self.original_channel.id}")
 
         self.phase = "finished" # Mark as finished before cleanup
+
+        # --- FIX: Unmute and undeafen all players before cleanup ---
+        if self.discussion_vc:
+            print(f"  [WW] Unmuting/undeafening all players before game end...")
+            for member in self.discussion_vc.members:
+                try:
+                    await member.edit(mute=False, deafen=False, reason="Spiel beendet")
+                    print(f"    - Unmuted/undeafened {member.display_name}")
+                except (discord.Forbidden, discord.HTTPException) as e:
+                    print(f"    - Could not unmute/undeafen {member.display_name}: {e}")
 
         # Delete the entire category, which cleans up all channels within it.
         if self.category:

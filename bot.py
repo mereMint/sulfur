@@ -390,11 +390,27 @@ async def split_message(text, limit=2000):
     chunks.append(current_chunk.strip()) # Add the last chunk
     return chunks
 
+def sanitize_malformed_emojis(text):
+    """
+    Fixes malformed emoji patterns that the AI might generate.
+    Examples: <<:name:id>id> -> <:name:id> or <<:name:id>> -> <:name:id>
+    """
+    # Fix pattern like <<:emoji_name:emoji_id>emoji_id>
+    text = re.sub(r'<<:(\w+):(\d+)>\2>', r'<:\1:\2>', text)
+    # Fix pattern like <<:emoji_name:emoji_id>>
+    text = re.sub(r'<<:(\w+):(\d+)>>', r'<:\1:\2>', text)
+    # Fix pattern like <:emoji_name:emoji_id>emoji_id (trailing ID)
+    text = re.sub(r'<:(\w+):(\d+)>\2', r'<:\1:\2>', text)
+    return text
+
 async def replace_emoji_tags(text, client):
     """
     Replaces :emoji_name: and <:emoji_name:emoji_id> style tags with the actual Discord emoji object.
     Prioritizes application emojis (bot's own emojis) over server emojis.
     """
+    # First, sanitize any malformed emoji patterns
+    text = sanitize_malformed_emojis(text)
+    
     # Find all :emoji_name: tags in the text
     emoji_tags = re.findall(r':(\w+):', text)
     # Also find <:emoji_name:emoji_id> tags
@@ -2224,44 +2240,7 @@ async def summary(interaction: discord.Interaction, user: discord.Member = None)
     )
     await interaction.followup.send(embed=embed)
 
-@tree.command(name="rank", description="Überprüfe deinen oder den Rang eines anderen Benutzers.")
-@app_commands.describe(user="Der Benutzer, dessen Rang du sehen möchtest (optional).")
-async def rank(interaction: discord.Interaction, user: discord.Member = None):
-    """Displays the level and rank of a user."""
-    target_user = user or interaction.user
-    await interaction.response.defer()
-
-    player_stats, error = await db_helpers.get_player_rank(target_user.id)
-
-    if error:
-        await interaction.followup.send(error, ephemeral=True)
-        return
-
-    if not player_stats:
-        await interaction.followup.send(f"{target_user.display_name} hat noch keine Nachrichten geschrieben und daher keinen Rang.", ephemeral=True)
-        return
-
-    level = player_stats['level'] or 1
-    xp = player_stats['xp']
-    rank = player_stats['rank']
-    xp_for_next_level = get_xp_for_level(level)
-    wins = player_stats.get('wins', 0)
-    losses = player_stats.get('losses', 0)
-    
-    # Create a progress bar
-    progress = int((xp / xp_for_next_level) * 20) # 20 characters for the bar
-    progress_bar = '█' * progress + '░' * (20 - progress)
-
-    # Get user's equipped color or default
-    embed_color = await get_user_embed_color(target_user.id, config)
-
-    embed = discord.Embed(color=embed_color)
-    embed.set_author(name=f"Rang von {target_user.display_name}", icon_url=target_user.display_avatar.url) 
-    embed.add_field(name="Level", value=f"```{level}```", inline=True) 
-    embed.add_field(name="Global Rang", value=f"```#{rank}```", inline=True) 
-    embed.add_field(name="Fortschritt", value=f"`{xp} / {xp_for_next_level} XP`\n`{progress_bar}`", inline=False) 
-
-    await interaction.followup.send(embed=embed)
+# REMOVED: /rank command - functionality integrated into /profile command
 
 @tree.command(name="profile", description="Zeigt dein Profil oder das eines anderen Benutzers an.")
 @app_commands.describe(user="Der Benutzer, dessen Profil du sehen möchtest (optional).")
@@ -2290,9 +2269,18 @@ async def profile(interaction: discord.Interaction, user: discord.Member = None)
     embed.set_thumbnail(url=target_user.display_avatar.url)
 
     # Leveling and Economy
-    embed.add_field(name="Level", value=f"**{profile_data.get('level', 1)}**", inline=True)
+    level = profile_data.get('level', 1)
+    xp = profile_data.get('xp', 0)
+    xp_for_next_level = get_xp_for_level(level)
+    
+    # Create a progress bar
+    progress = int((xp / xp_for_next_level) * 20) # 20 characters for the bar
+    progress_bar = '█' * progress + '░' * (20 - progress)
+    
+    embed.add_field(name="Level", value=f"**{level}**", inline=True)
     embed.add_field(name="Guthaben", value=f"**{profile_data.get('balance', 0)}** 🪙", inline=True)
     embed.add_field(name="Globaler Rang", value=f"**#{profile_data.get('rank', 'N/A')}**", inline=True)
+    embed.add_field(name="XP Fortschritt", value=f"`{xp} / {xp_for_next_level} XP`\n`{progress_bar}`", inline=False)
 
     # Get equipped color display
     equipped_color = await db_helpers.get_user_equipped_color(target_user.id)
@@ -2579,7 +2567,7 @@ async def ww_start(interaction: discord.Interaction, ziel_spieler: int = None):
         await interaction.followup.send(f"Konnte die Spiel-Channels nicht erstellen. Berechtigungen prüfen? Fehler: {e}", ephemeral=True)
         return
 
-    game = WerwolfGame(game_text_channel, author, original_channel)
+    game = WerwolfGame(game_text_channel, author, original_channel, bot_client=client)
     game.lobby_vc = lobby_vc
     game.category = category
     game.join_message = None # Initialize join_message attribute
@@ -2652,6 +2640,102 @@ async def ww_start(interaction: discord.Interaction, ziel_spieler: int = None):
         except Exception:
             pass
         active_werwolf_games.pop(game_text_channel.id, None)
+
+@ww_group.command(name="rules", description="Zeigt die Werwolf-Spielregeln und Rollenbeschreibungen an.")
+async def ww_rules(interaction: discord.Interaction):
+    """Displays Werwolf game rules and role descriptions."""
+    await interaction.response.defer(ephemeral=True)
+    
+    # Get user's equipped color or default
+    embed_color = await get_user_embed_color(interaction.user.id, config)
+    
+    # Main rules embed
+    rules_embed = discord.Embed(
+        title="🐺 Werwolf - Spielregeln",
+        description="Ein klassisches Deduktionsspiel, in dem Dorfbewohner gegen Werwölfe antreten!",
+        color=embed_color
+    )
+    
+    rules_embed.add_field(
+        name="📖 Spielablauf",
+        value=(
+            "**Nachtphase:** Werwölfe wählen ein Opfer. Spezielle Rollen führen ihre Aktionen aus.\n"
+            "**Tagesphase:** Das Dorf wacht auf und erfährt, wer gestorben ist. Dann wird abgestimmt, wen man lynchen möchte.\n"
+            "Das Spiel endet, wenn entweder alle Werwölfe oder alle Dorfbewohner eliminiert sind."
+        ),
+        inline=False
+    )
+    
+    rules_embed.add_field(
+        name="🎯 Siegbedingungen",
+        value=(
+            "**Dorfbewohner gewinnen:** Wenn alle Werwölfe eliminiert wurden.\n"
+            "**Werwölfe gewinnen:** Wenn sie mindestens so viele Spieler sind wie die Dorfbewohner."
+        ),
+        inline=False
+    )
+    
+    # Role descriptions embed
+    roles_embed = discord.Embed(
+        title="🎭 Rollenbeschreibungen",
+        color=embed_color
+    )
+    
+    roles_embed.add_field(
+        name="🐺 Werwolf",
+        value="**Team:** Werwölfe\n**Fähigkeit:** Wählt jede Nacht ein Opfer zum Töten.\n**Aktionen:** `kill <name>` per DM an den Bot",
+        inline=False
+    )
+    
+    roles_embed.add_field(
+        name="🔮 Seherin",
+        value="**Team:** Dorfbewohner\n**Fähigkeit:** Kann jede Nacht die Rolle eines Spielers erfahren.\n**Aktionen:** `see <name>` per DM an den Bot",
+        inline=False
+    )
+    
+    roles_embed.add_field(
+        name="🧪 Hexe",
+        value="**Team:** Dorfbewohner\n**Fähigkeit:** Hat einen Heiltrank (einmalig) und einen Gifttrank (einmalig).\n**Aktionen:** `heal` oder `poison <name>` per DM an den Bot",
+        inline=False
+    )
+    
+    roles_embed.add_field(
+        name="🥙 Dönerstopfer",
+        value="**Team:** Dorfbewohner\n**Fähigkeit:** Kann jede Nacht einen Spieler stumm schalten.\n**Aktionen:** `mute <name>` per DM an den Bot",
+        inline=False
+    )
+    
+    roles_embed.add_field(
+        name="🏹 Jäger",
+        value="**Team:** Dorfbewohner\n**Fähigkeit:** Stirbt der Jäger, darf er noch eine Person mit in den Tod nehmen.\n**Aktionen:** Automatisch beim Tod - du wirst per DM nach deinem Ziel gefragt",
+        inline=False
+    )
+    
+    roles_embed.add_field(
+        name="👤 Dorfbewohner",
+        value="**Team:** Dorfbewohner\n**Fähigkeit:** Keine besonderen Fähigkeiten.\n**Aufgabe:** Diskutiere und stimme ab, um die Werwölfe zu finden!",
+        inline=False
+    )
+    
+    # Tips embed
+    tips_embed = discord.Embed(
+        title="💡 Tipps",
+        color=embed_color
+    )
+    
+    tips_embed.add_field(
+        name="Für Dorfbewohner",
+        value="• Achte auf Widersprüche in Aussagen\n• Nutze Informationen der Seherin weise\n• Koordiniere dich mit anderen Dorfbewohnern",
+        inline=True
+    )
+    
+    tips_embed.add_field(
+        name="Für Werwölfe",
+        value="• Bleibt als Team koordiniert\n• Tarnt euch als normale Dorfbewohner\n• Lenkt Verdacht auf andere",
+        inline=True
+    )
+    
+    await interaction.followup.send(embeds=[rules_embed, roles_embed, tips_embed], ephemeral=True)
 
 # --- NEW: Add the voice command group to the tree ---
 tree.add_command(voice_group)
@@ -2753,22 +2837,40 @@ class ShopBuyView(discord.ui.View):
         view = FeatureSelectView(self.member, self.config)
         embed = discord.Embed(
             title="✨ Feature Unlocks",
-            description="Wähle ein Feature zum Kaufen:",
+            description="Schalte spezielle Features frei!",
             color=discord.Color.green()
         )
         
         currency = self.config['modules']['economy']['currency_symbol']
         features = self.config['modules']['economy']['shop']['features']
         
+        # Define detailed feature descriptions
+        feature_details = {
+            'dm_access': {
+                'name': '💬 DM Access',
+                'desc': 'Der Bot kann dir private Nachrichten senden.'
+            },
+            'games_access': {
+                'name': '🎮 Games Access',
+                'desc': 'Spiele Blackjack, Roulette, Mines und Russian Roulette!'
+            },
+            'werwolf_special_roles': {
+                'name': '🐺 Werwolf Special Roles',
+                'desc': 'Schalte spezielle Rollen für Werwolf frei:\n**Seherin** - Erfahre jede Nacht die Rolle eines Spielers\n**Hexe** - Heile oder vergifte Spieler\n**Dönerstopfer** - Mute Spieler nachts'
+            },
+            'custom_status': {
+                'name': '✨ Custom Status',
+                'desc': 'Setze einen benutzerdefinierten Status im Server.'
+            }
+        }
+        
         for feature, price in features.items():
-            name = {
-                'dm_access': 'DM Access',
-                'games_access': 'Games Access',
-                'werwolf_special_roles': 'Werwolf Special Roles',
-                'custom_status': 'Custom Status'
-            }.get(feature, feature)
-            
-            embed.add_field(name=name, value=f"{price} {currency}", inline=False)
+            details = feature_details.get(feature, {'name': feature, 'desc': 'Feature unlock'})
+            embed.add_field(
+                name=f"{details['name']} - {price} {currency}",
+                value=details['desc'],
+                inline=False
+            )
         
         await interaction.edit_original_response(embed=embed, view=view)
 
@@ -2817,21 +2919,33 @@ class FeatureSelectView(discord.ui.View):
         # Create select menu for features
         options = []
         features = config['modules']['economy']['shop']['features']
-        feature_names = {
-            'dm_access': 'DM Access',
-            'games_access': 'Games Access',
-            'werwolf_special_roles': 'Werwolf Special Roles',
-            'custom_status': 'Custom Status'
+        feature_info = {
+            'dm_access': {
+                'name': 'DM Access',
+                'description': 'Erlaube dem Bot, dir DMs zu senden'
+            },
+            'games_access': {
+                'name': 'Games Access',
+                'description': 'Spiele Blackjack, Roulette & mehr'
+            },
+            'werwolf_special_roles': {
+                'name': 'Werwolf Special Roles',
+                'description': 'Schalte Seherin, Hexe & Dönerstopfer frei'
+            },
+            'custom_status': {
+                'name': 'Custom Status',
+                'description': 'Setze einen benutzerdefinierten Status'
+            }
         }
         
         for feature, price in features.items():
-            name = feature_names.get(feature, feature)
+            info = feature_info.get(feature, {'name': feature, 'description': ''})
             currency = config['modules']['economy']['currency_symbol']
             options.append(
                 discord.SelectOption(
-                    label=name,
+                    label=info['name'],
                     value=feature,
-                    description=f"Preis: {price} {currency}"
+                    description=f"{price} {currency} - {info['description']}"[:100]  # Discord has a 100 char limit
                 )
             )
         
@@ -2919,13 +3033,8 @@ class ColorSelectView(discord.ui.View):
         self.stop()
 
 
-@tree.command(name="balance", description="Zeigt dein aktuelles Guthaben an.")
-async def balance(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
-    bal = await db_helpers.get_balance(interaction.user.id)
-    currency = config['modules']['economy']['currency_symbol']
-    await interaction.followup.send(f"Dein Guthaben: **{bal} {currency}**", ephemeral=True)
 
+# REMOVED: /balance command - functionality integrated into /profile command
 
 @tree.command(name="daily", description="Hole deine tägliche Belohnung ab.")
 async def daily(interaction: discord.Interaction):
@@ -3218,133 +3327,10 @@ async def view_quests(interaction: discord.Interaction):
         await interaction.followup.send(f"❌ Fehler beim Laden der Quests: {str(e)}", ephemeral=True)
 
 
-@tree.command(name="questclaim", description="Sammle die Belohnung für abgeschlossene Quests ein.")
-async def claim_quest(interaction: discord.Interaction):
-    """Claim rewards for completed quests."""
-    await interaction.response.defer(ephemeral=True)
-    
-    try:
-        # Get user's quests
-        quest_list = await quests.get_user_quests(db_helpers, interaction.user.id, config)
-        
-        if not quest_list:
-            await interaction.followup.send("❌ Du hast heute noch keine Quests.", ephemeral=True)
-            return
-        
-        # Find completed but unclaimed quests
-        unclaimed_quests = [q for q in quest_list if q['completed'] and not q.get('reward_claimed', False)]
-        
-        if not unclaimed_quests:
-            await interaction.followup.send("❌ Du hast keine abgeschlossenen Quests zum Einsammeln.", ephemeral=True)
-            return
-        
-        # Claim all unclaimed quests
-        total_reward = 0
-        claimed_count = 0
-        
-        for quest in unclaimed_quests:
-            success, reward, message = await quests.claim_quest_reward(
-                db_helpers,
-                interaction.user.id,
-                interaction.user.display_name,
-                quest['id'],
-                config
-            )
-            
-            if success:
-                total_reward += reward
-                claimed_count += 1
-        
-        currency = config['modules']['economy']['currency_symbol']
-        
-        if claimed_count > 0:
-            embed = discord.Embed(
-                title="✅ Quest-Belohnungen eingesammelt!",
-                description=f"Du hast {claimed_count} Quest(s) abgeschlossen!",
-                color=discord.Color.green()
-            )
-            embed.add_field(
-                name="Belohnung",
-                value=f"**+{total_reward} {currency}**",
-                inline=False
-            )
-            
-            # Check if all quests are now completed and claimed
-            all_completed, completed_count, total_count = await quests.check_all_quests_completed(db_helpers, interaction.user.id)
-            
-            if all_completed:
-                # Grant daily completion bonus
-                bonus_success, bonus_amount = await quests.grant_daily_completion_bonus(
-                    db_helpers,
-                    interaction.user.id,
-                    interaction.user.display_name,
-                    config
-                )
-                
-                if bonus_success:
-                    embed.add_field(
-                        name="🎉 Tagesbonus!",
-                        value=f"Alle Quests abgeschlossen! **+{bonus_amount} {currency}** Bonus!",
-                        inline=False
-                    )
-                    total_reward += bonus_amount
-                    
-                    # Check for monthly milestone
-                    completion_days, total_days = await quests.get_monthly_completion_count(db_helpers, interaction.user.id)
-                    milestone_reached, milestone_reward, milestone_name = await quests.grant_monthly_milestone_reward(
-                        db_helpers,
-                        interaction.user.id,
-                        interaction.user.display_name,
-                        completion_days,
-                        config
-                    )
-                    
-                    if milestone_reached:
-                        embed.add_field(
-                            name=f"🏆 Monatlicher Meilenstein erreicht!",
-                            value=f"**{milestone_name}** ({completion_days} Tage)\n**+{milestone_reward} {currency}**",
-                            inline=False
-                        )
-            
-            await interaction.followup.send(embed=embed, ephemeral=True)
-        else:
-            await interaction.followup.send("❌ Keine Belohnungen konnten eingesammelt werden.", ephemeral=True)
-        
-    except Exception as e:
-        logger.error(f"Error in /questclaim command: {e}", exc_info=True)
-        await interaction.followup.send(f"❌ Fehler beim Einsammeln der Belohnungen: {str(e)}", ephemeral=True)
+# REMOVED: /questclaim command - functionality exists as a button in /quests command
 
+# REMOVED: /monthly command - functionality exists as a button in /quests command
 
-@tree.command(name="monthly", description="Zeigt deinen monatlichen Quest-Fortschritt an.")
-async def monthly_progress(interaction: discord.Interaction):
-    """Display monthly quest progress and milestones."""
-    await interaction.response.defer(ephemeral=True)
-    
-    try:
-        # Get monthly completion count
-        completion_days, total_days = await quests.get_monthly_completion_count(db_helpers, interaction.user.id)
-        
-        # Create embed
-        embed = quests.create_monthly_progress_embed(
-            completion_days,
-            total_days,
-            interaction.user.display_name,
-            config
-        )
-        
-        # Add current month info
-        now = datetime.now(timezone.utc)
-        embed.add_field(
-            name="Aktueller Monat",
-            value=f"{now.strftime('%B %Y')}",
-            inline=False
-        )
-        
-        await interaction.followup.send(embed=embed, ephemeral=True)
-        
-    except Exception as e:
-        logger.error(f"Error in /monthly command: {e}", exc_info=True)
-        await interaction.followup.send(f"❌ Fehler beim Laden des monatlichen Fortschritts: {str(e)}", ephemeral=True)
 # --- Game Commands & UI ---
 from modules.games import BlackjackGame, RouletteGame, MinesGame, RussianRouletteGame
 
@@ -4688,6 +4674,10 @@ async def on_message(message):
         print(f"[AI] Getting relationship summary...")
         relationship_summary = await get_relationship_summary(message.author.id)
         dynamic_system_prompt = config['bot']['system_prompt']
+        
+        # Add language reminder to prevent language slips
+        dynamic_system_prompt += "\n\nREMINDER: Antworte IMMER auf Deutsch! Bleibe in der deutschen Sprache!"
+        
         if relationship_summary:
             logger.debug(f"[AI] Adding relationship context to system prompt")
             print(f"[AI] Relationship summary found, adding to prompt")
