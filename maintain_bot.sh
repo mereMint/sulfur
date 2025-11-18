@@ -467,10 +467,11 @@ free_port() {
     if [ -n "$pids" ]; then
         log_warning "Found processes using port $port: $pids"
         for pid in $pids; do
-            # Check if this is our own web dashboard process
+            # If this PID matches our web dashboard PID file, clean up the stale PID file
+            # We're freeing the port, so any process using it needs to be terminated
             if [ -f "$WEB_PID_FILE" ] && [ "$(cat "$WEB_PID_FILE" 2>/dev/null)" = "$pid" ]; then
-                log_warning "Skipping PID $pid (our own web dashboard)"
-                continue
+                log_warning "PID $pid matches web dashboard PID file - cleaning up stale reference"
+                rm -f "$WEB_PID_FILE"
             fi
             
             # Try graceful shutdown first
@@ -613,12 +614,29 @@ start_web_dashboard() {
         
         if ! kill -0 "$web_pid" 2>/dev/null; then
             log_error "Web Dashboard process died during startup"
-            log_warning "Check $WEB_LOG for errors"
-            # Show last few lines of the log for immediate debugging
+            
+            # Check if it was due to port conflict
             if [ -f "$WEB_LOG" ]; then
+                if grep -q "Port 5000 is already in use" "$WEB_LOG" 2>/dev/null || \
+                   grep -q "Address already in use" "$WEB_LOG" 2>/dev/null; then
+                    log_error "Port 5000 is in use by another process - this should not happen"
+                    log_warning "The port cleanup failed. Attempting emergency port cleanup..."
+                    
+                    # Force cleanup of port 5000
+                    if command -v lsof >/dev/null 2>&1; then
+                        local emergency_pids=$(lsof -ti:5000 2>/dev/null)
+                        if [ -n "$emergency_pids" ]; then
+                            log_warning "Emergency: killing PIDs on port 5000: $emergency_pids"
+                            kill -9 $emergency_pids 2>/dev/null || true
+                            sleep 2
+                        fi
+                    fi
+                fi
+                
                 log_warning "Last 10 lines from web dashboard log:"
                 tail -n 10 "$WEB_LOG" | sed 's/^/  | /' | tee -a "$MAIN_LOG"
             fi
+            
             rm -f "$WEB_PID_FILE"
             return 1
         fi
@@ -925,6 +943,9 @@ while true; do
                 if [ $WEB_RESTART_COUNT -lt $WEB_RESTART_THRESHOLD ]; then
                     if [ $time_since_last_restart -ge $WEB_RESTART_COOLDOWN ]; then
                         log_warning "Web Dashboard stopped, restarting... (attempt $((WEB_RESTART_COUNT + 1))/$WEB_RESTART_THRESHOLD)"
+                        
+                        # Clean up stale PID file before restart attempt
+                        rm -f "$WEB_PID_FILE"
                         
                         # Show the last error from web log before restarting
                         if [ -f "$WEB_LOG" ] && [ $WEB_RESTART_COUNT -gt 0 ]; then
