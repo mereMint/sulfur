@@ -159,16 +159,43 @@ cleanup() {
         rm -f "$BOT_PID_FILE"
     fi
     
+    # Also search for any bot.py processes that might have escaped
+    if command -v pgrep >/dev/null 2>&1; then
+        local bot_pids=$(pgrep -f "python.*bot\.py" || true)
+        if [ -n "$bot_pids" ]; then
+            log_warning "Found orphaned bot processes: $bot_pids"
+            for pid in $bot_pids; do
+                log_info "  Killing bot PID: $pid"
+                kill -9 "$pid" 2>/dev/null || true
+            done
+        fi
+    fi
+    
     # Stop web dashboard
     if [ -f "$WEB_PID_FILE" ]; then
         WEB_PID=$(cat "$WEB_PID_FILE")
         if kill -0 "$WEB_PID" 2>/dev/null; then
             log_web "Stopping web dashboard (PID: $WEB_PID)..."
-            kill "$WEB_PID" 2>/dev/null
+            kill -TERM "$WEB_PID" 2>/dev/null
             sleep 2
-            kill -9 "$WEB_PID" 2>/dev/null
+            # Force kill if still running
+            if kill -0 "$WEB_PID" 2>/dev/null; then
+                kill -9 "$WEB_PID" 2>/dev/null
+            fi
         fi
         rm -f "$WEB_PID_FILE"
+    fi
+    
+    # Also search for any web_dashboard.py processes that might have escaped
+    if command -v pgrep >/dev/null 2>&1; then
+        local web_pids=$(pgrep -f "python.*web_dashboard\.py" || true)
+        if [ -n "$web_pids" ]; then
+            log_warning "Found orphaned web dashboard processes: $web_pids"
+            for pid in $web_pids; do
+                log_info "  Killing web dashboard PID: $pid"
+                kill -9 "$pid" 2>/dev/null || true
+            done
+        fi
     fi
     
     # Final backup and commit
