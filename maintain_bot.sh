@@ -298,6 +298,138 @@ cleanup_orphans() {
 # Database Functions
 # ==============================================================================
 
+check_database_server() {
+    log_db "Checking database server status..."
+    
+    # Try to connect to MySQL/MariaDB to verify it's running
+    local mysql_cmd=""
+    if command -v mysql &> /dev/null; then
+        mysql_cmd="mysql"
+    elif command -v mariadb &> /dev/null; then
+        mysql_cmd="mariadb"
+    else
+        log_error "MySQL/MariaDB client not found"
+        return 1
+    fi
+    
+    # Test connection
+    if [ -n "$DB_PASS" ]; then
+        if $mysql_cmd -u "$DB_USER" -p"$DB_PASS" -e "SELECT 1;" &>/dev/null; then
+            log_success "Database server is running and accessible"
+            return 0
+        fi
+    else
+        if $mysql_cmd -u "$DB_USER" -e "SELECT 1;" &>/dev/null; then
+            log_success "Database server is running and accessible"
+            return 0
+        fi
+    fi
+    
+    log_warning "Database server is not accessible"
+    return 1
+}
+
+start_database_server() {
+    log_db "Attempting to start database server..."
+    
+    # Check which init system is in use
+    if command -v systemctl &> /dev/null; then
+        # systemd
+        if systemctl is-active --quiet mysql; then
+            log_success "MySQL service is already running"
+            return 0
+        elif systemctl is-active --quiet mariadb; then
+            log_success "MariaDB service is already running"
+            return 0
+        fi
+        
+        # Try to start MySQL
+        if systemctl list-unit-files mysql.service &>/dev/null; then
+            log_db "Starting MySQL via systemctl..."
+            if sudo systemctl start mysql 2>>"$MAIN_LOG"; then
+                sleep 2
+                if systemctl is-active --quiet mysql; then
+                    log_success "MySQL service started successfully"
+                    return 0
+                fi
+            fi
+        fi
+        
+        # Try to start MariaDB
+        if systemctl list-unit-files mariadb.service &>/dev/null; then
+            log_db "Starting MariaDB via systemctl..."
+            if sudo systemctl start mariadb 2>>"$MAIN_LOG"; then
+                sleep 2
+                if systemctl is-active --quiet mariadb; then
+                    log_success "MariaDB service started successfully"
+                    return 0
+                fi
+            fi
+        fi
+    elif command -v service &> /dev/null; then
+        # SysV init
+        log_db "Starting MySQL via service..."
+        if sudo service mysql start 2>>"$MAIN_LOG"; then
+            sleep 2
+            log_success "MySQL service started"
+            return 0
+        fi
+    fi
+    
+    # Try Termux-specific method
+    if [ "$IS_TERMUX" = true ]; then
+        log_db "Attempting Termux-specific database start..."
+        if command -v mysqld_safe &> /dev/null; then
+            log_db "Starting mysqld_safe in background..."
+            mysqld_safe --datadir="$PREFIX/var/lib/mysql" &>>"$MAIN_LOG" &
+            sleep 3
+            if check_database_server; then
+                log_success "MySQL started via mysqld_safe"
+                return 0
+            fi
+        elif command -v mariadbd-safe &> /dev/null; then
+            log_db "Starting mariadbd-safe in background..."
+            mariadbd-safe --datadir="$PREFIX/var/lib/mysql" &>>"$MAIN_LOG" &
+            sleep 3
+            if check_database_server; then
+                log_success "MariaDB started via mariadbd-safe"
+                return 0
+            fi
+        fi
+    fi
+    
+    log_error "Failed to start database server"
+    log_warning "Please start the database server manually:"
+    log_info "  - Systemd: sudo systemctl start mysql (or mariadb)"
+    log_info "  - SysV: sudo service mysql start"
+    log_info "  - Termux: mysqld_safe &"
+    return 1
+}
+
+ensure_database_running() {
+    log_db "Ensuring database server is running..."
+    
+    # First check if it's already running
+    if check_database_server; then
+        return 0
+    fi
+    
+    # If not running, try to start it
+    log_warning "Database server is not running, attempting to start..."
+    if start_database_server; then
+        # Verify it's now accessible
+        sleep 1
+        if check_database_server; then
+            log_success "Database server started and verified"
+            return 0
+        fi
+    fi
+    
+    log_error "Could not ensure database server is running"
+    log_warning "Bot may experience database connection issues"
+    return 1
+}
+
 backup_database() {
     log_db "Creating database backup..."
     
@@ -1105,6 +1237,9 @@ if ! ensure_python_env; then
     log_warning "Full log available at: $MAIN_LOG"
     exit 1
 fi
+
+# Ensure database server is running
+ensure_database_running || log_warning "Database server check failed, continuing anyway..."
 
 # Start web dashboard
 start_web_dashboard || log_warning "Web Dashboard failed to start, continuing anyway..."
