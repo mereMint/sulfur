@@ -18,5 +18,9 @@ config/bot_status.json
 last_check.txt
 last_update.txt
 
+# Test files (keep in repo for reference)
+# test_port_reuse.py
+# test_web_dashboard_restart.py
+
 # IDE / Editor specific
 .vscode/
