@@ -392,8 +392,8 @@ async def split_message(text, limit=2000):
 
 async def replace_emoji_tags(text, client):
     """
-    Replaces :emoji_name: style tags with the actual Discord emoji object
-    from any server the bot is in.
+    Replaces :emoji_name: style tags with the actual Discord emoji object.
+    Prioritizes application emojis (bot's own emojis) over server emojis.
     """
     # Find all :emoji_name: tags in the text
     emoji_tags = re.findall(r':(\w+):', text)
@@ -401,10 +401,19 @@ async def replace_emoji_tags(text, client):
         return text
 
     # Create a global mapping of all available emoji names to their string representation
+    # First, add server emojis
     emoji_map = {}
     for emoji in client.emojis:
         if emoji.name not in emoji_map:
             emoji_map[emoji.name] = str(emoji)
+    
+    # Then, prioritize application emojis (they will override server emojis with the same name)
+    try:
+        app_emojis = await client.application.fetch_emojis()
+        for emoji in app_emojis:
+            emoji_map[emoji.name] = str(emoji)
+    except Exception as e:
+        logger.debug(f"Could not fetch application emojis for replacement: {e}")
 
     # Replace the tags found in the message
     for tag in set(emoji_tags): # Use set to avoid replacing the same tag multiple times
@@ -555,6 +564,10 @@ async def on_ready():
     # --- NEW: Start periodic cleanup for old conversation contexts ---
     if not periodic_cleanup.is_running():
         periodic_cleanup.start()
+    
+    # --- NEW: Start periodic application emoji check ---
+    if not check_application_emojis.is_running():
+        check_application_emojis.start()
 
 @tasks.loop(minutes=15)
 async def update_presence_task():
@@ -703,6 +716,26 @@ async def cleanup_werwolf_categories():
                     pass
     except Exception as e:
         logger.error(f"Error in cleanup_werwolf_categories task: {e}")
+
+
+# --- NEW: Periodic Application Emoji Check ---
+@tasks.loop(hours=6)
+async def check_application_emojis():
+    """Periodically checks for new application emojis and analyzes them."""
+    try:
+        print("[Emoji System] Checking for new application emojis...")
+        from modules.emoji_manager import analyze_application_emojis
+        await analyze_application_emojis(client, config, GEMINI_API_KEY, OPENAI_API_KEY)
+        print("[Emoji System] Application emoji check complete.")
+    except Exception as e:
+        logger.error(f"Error in check_application_emojis task: {e}", exc_info=True)
+        print(f"[Emoji System] Error checking application emojis: {e}")
+
+
+@check_application_emojis.before_loop
+async def before_check_application_emojis():
+    await client.wait_until_ready()
+
 
 @client.event
 async def on_presence_update(before, after):
@@ -2677,7 +2710,10 @@ class ColorSelectView(discord.ui.View):
         for idx, hex_color in enumerate(color_map.get(tier, [])[:25], start=1):
             options.append(discord.SelectOption(label=f"{idx}. {hex_color}", value=hex_color))
 
-        self.add_item(discord.ui.Select(placeholder="Wähle eine Farbe...", options=options, custom_id="color_select"))
+        # Create the select menu with the callback
+        select = discord.ui.Select(placeholder="Wähle eine Farbe...", options=options)
+        select.callback = self.on_color_select
+        self.add_item(select)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         # Only the invoker can interact
@@ -2686,8 +2722,9 @@ class ColorSelectView(discord.ui.View):
             return False
         return True
 
-    @discord.ui.select(custom_id="color_select")
-    async def on_color_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+    async def on_color_select(self, interaction: discord.Interaction):
+        # Get the select component that triggered this
+        select = [item for item in self.children if isinstance(item, discord.ui.Select)][0]
         await interaction.response.defer(ephemeral=True)
         hex_color = select.values[0]
         prices = self.config['modules']['economy']['shop']['color_roles']['prices']
