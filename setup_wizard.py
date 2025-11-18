@@ -3,10 +3,28 @@ Interactive MySQL Setup Wizard for Sulfur Bot
 Handles multiple scenarios and provides step-by-step guidance
 """
 
-import mysql.connector
 import sys
 import os
 from getpass import getpass
+
+try:
+    import mysql.connector
+except ModuleNotFoundError:
+    print("\n" + "=" * 60)
+    print("ERROR: mysql-connector-python not installed".center(60))
+    print("=" * 60 + "\n")
+    print("The mysql-connector-python package is required to run this script.")
+    print()
+    print("To install it, run:")
+    print("  pip install mysql-connector-python")
+    print()
+    print("Or install all dependencies:")
+    print("  pip install -r requirements.txt")
+    print()
+    print("If running through install_wizard.ps1, this should not happen.")
+    print("Please ensure dependencies are installed before database setup.")
+    print()
+    sys.exit(1)
 
 def print_header(text):
     print("\n" + "=" * 60)
