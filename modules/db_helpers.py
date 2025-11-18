@@ -1532,7 +1532,7 @@ async def get_user_wrapped_stats(user_id, stat_period):
 
 async def get_wrapped_extra_stats(user_id, stat_period):
     """
-    Fetches the new Wrapped stats (Bestie, Prime Time, VC stats) for a user.
+    Fetches the new Wrapped stats (Bestie, Prime Time, VC stats, Quests, Games) for a user.
     """
     if not db_pool:
         logger.warning("Database pool not available, cannot get wrapped extra stats")
@@ -1551,7 +1551,13 @@ async def get_wrapped_extra_stats(user_id, stat_period):
         "server_bestie_id": None,
         "prime_time_hour": None,
         "temp_vcs_created": 0,
-        "longest_vc_session_seconds": 0
+        "longest_vc_session_seconds": 0,
+        "quests_completed": 0,
+        "total_quest_days": 0,
+        "games_played": 0,
+        "games_won": 0,
+        "total_bet": 0,
+        "total_won": 0
     }
 
     try:
@@ -1590,6 +1596,39 @@ async def get_wrapped_extra_stats(user_id, stat_period):
         longest_session_result = cursor.fetchone()
         if longest_session_result and longest_session_result['longest_session']:
             stats["longest_vc_session_seconds"] = longest_session_result['longest_session']
+
+        # 5. Quest Stats
+        # Get completed quests count
+        quest_count_query = "SELECT COUNT(*) as count FROM daily_quests WHERE user_id = %s AND quest_date BETWEEN %s AND %s AND completed = TRUE;"
+        cursor.execute(quest_count_query, (user_id, start_date, end_date))
+        quest_count_result = cursor.fetchone()
+        if quest_count_result:
+            stats["quests_completed"] = quest_count_result['count']
+        
+        # Get days where all quests were completed (from monthly_quest_completion)
+        quest_days_query = "SELECT COUNT(*) as count FROM monthly_quest_completion WHERE user_id = %s AND completion_date BETWEEN %s AND %s;"
+        cursor.execute(quest_days_query, (user_id, start_date, end_date))
+        quest_days_result = cursor.fetchone()
+        if quest_days_result:
+            stats["total_quest_days"] = quest_days_result['count']
+
+        # 6. Game Stats (from user_stats table)
+        game_stats_query = """
+            SELECT 
+                COALESCE(SUM(games_played), 0) as games_played,
+                COALESCE(SUM(games_won), 0) as games_won,
+                COALESCE(SUM(total_bet), 0) as total_bet,
+                COALESCE(SUM(total_won), 0) as total_won
+            FROM user_stats 
+            WHERE user_id = %s AND stat_period = %s;
+        """
+        cursor.execute(game_stats_query, (user_id, stat_period))
+        game_stats_result = cursor.fetchone()
+        if game_stats_result:
+            stats["games_played"] = game_stats_result['games_played'] or 0
+            stats["games_won"] = game_stats_result['games_won'] or 0
+            stats["total_bet"] = game_stats_result['total_bet'] or 0
+            stats["total_won"] = game_stats_result['total_won'] or 0
 
         return stats
     except mysql.connector.Error as err:

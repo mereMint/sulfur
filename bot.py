@@ -1452,6 +1452,55 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
                 spotify_embed.set_footer(text="Basiert auf der Zeit, die du Songs über Discord gehört hast.")
                 pages.append(spotify_embed)
 
+    # --- NEW Page: Quest & Game Stats ---
+    if extra_stats.get('quests_completed', 0) > 0 or extra_stats.get('games_played', 0) > 0:
+        quest_game_embed = discord.Embed(title="Quests & Gambling", color=color)
+        
+        # Quest stats
+        if extra_stats.get('quests_completed', 0) > 0:
+            quest_text = f"**Abgeschlossene Quests:** {extra_stats.get('quests_completed', 0)}\n"
+            quest_text += f"**Tage mit allen Quests:** {extra_stats.get('total_quest_days', 0)}\n"
+            
+            if extra_stats.get('total_quest_days', 0) > 0:
+                completion_rate = (extra_stats.get('total_quest_days', 0) / 30) * 100
+                if completion_rate >= 90:
+                    quest_text += "\n🏆 **Quest-Master!** Du hast fast jeden Tag alle Quests abgeschlossen!"
+                elif completion_rate >= 50:
+                    quest_text += "\n⭐ **Fleißiger Quester!** Du bleibst dran!"
+                else:
+                    quest_text += "\n💪 **Guter Start!** Weiter so!"
+            
+            quest_game_embed.add_field(name="📋 Quest-Fortschritt", value=quest_text, inline=False)
+        
+        # Game stats
+        if extra_stats.get('games_played', 0) > 0:
+            games_played = extra_stats.get('games_played', 0)
+            games_won = extra_stats.get('games_won', 0)
+            total_bet = extra_stats.get('total_bet', 0)
+            total_won = extra_stats.get('total_won', 0)
+            
+            win_rate = (games_won / games_played * 100) if games_played > 0 else 0
+            net_profit = total_won - total_bet
+            
+            currency = config['modules']['economy']['currency_symbol']
+            game_text = f"**Spiele gespielt:** {games_played}\n"
+            game_text += f"**Spiele gewonnen:** {games_won}\n"
+            game_text += f"**Gewinnrate:** {win_rate:.1f}%\n\n"
+            game_text += f"**Gesamt gewettet:** {total_bet} {currency}\n"
+            game_text += f"**Gesamt gewonnen:** {total_won} {currency}\n"
+            
+            if net_profit > 0:
+                game_text += f"**Netto-Gewinn:** +{net_profit} {currency} 💰"
+            elif net_profit < 0:
+                game_text += f"**Netto-Verlust:** {net_profit} {currency} 📉"
+            else:
+                game_text += f"**Ausgeglichen** ⚖️"
+            
+            quest_game_embed.add_field(name="🎰 Gambling Stats", value=game_text, inline=False)
+        
+        quest_game_embed.set_footer(text="Quests & Mini-Games - Deine Aktivität im Bot")
+        pages.append(quest_game_embed)
+
     # --- Final Page: Gemini Summary ---
     # --- REFACTORED: Conditionally build the stats dictionary for the AI ---
     gemini_stats = {
@@ -1471,6 +1520,13 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
     # Add top song if it exists
     if 'sorted_songs' in locals() and sorted_songs:
         gemini_stats["top_song"] = sorted_songs[0][0]
+    # Add quest/game stats if they exist
+    if extra_stats.get('quests_completed', 0) > 0:
+        gemini_stats["quests_completed"] = extra_stats.get('quests_completed', 0)
+        gemini_stats["quest_days"] = extra_stats.get('total_quest_days', 0)
+    if extra_stats.get('games_played', 0) > 0:
+        gemini_stats["games_played"] = extra_stats.get('games_played', 0)
+        gemini_stats["win_rate"] = (extra_stats.get('games_won', 0) / extra_stats.get('games_played', 1) * 100)
 
     summary_text, _ = await get_wrapped_summary_from_api(user.display_name, gemini_stats, config, GEMINI_API_KEY, OPENAI_API_KEY)
     print(f"    - [Wrapped] Generated Gemini summary for {user.name}.")
@@ -3405,8 +3461,21 @@ class MinesView(discord.ui.View):
     
     def _build_grid(self):
         """Builds the button grid for the mines game."""
-        for row in range(self.game.grid_size):
-            for col in range(self.game.grid_size):
+        # Discord allows max 5 rows with 5 buttons each (25 total)
+        # We need room for the cashout button, so use 4x5 grid (20 cells + 5 buttons in last row)
+        
+        # Calculate actual grid size to fit Discord limits
+        # With cashout button, we can have max 24 grid cells (4 rows of 5, last row has 4 cells + cashout)
+        actual_grid_size = min(self.game.grid_size, 5)
+        
+        button_count = 0
+        for row in range(actual_grid_size):
+            row_buttons = 0
+            for col in range(actual_grid_size):
+                # On the last row, leave space for cashout button
+                if row == actual_grid_size - 1 and col == actual_grid_size - 1:
+                    break  # Skip last cell to make room for cashout
+                    
                 button = discord.ui.Button(
                     label="⬜",
                     style=discord.ButtonStyle.secondary,
@@ -3415,12 +3484,15 @@ class MinesView(discord.ui.View):
                 )
                 button.callback = self._create_callback(row, col)
                 self.add_item(button)
+                button_count += 1
+                row_buttons += 1
         
-        # Add cashout button
+        # Add cashout button in the last row
         cashout_button = discord.ui.Button(
             label="💰 Cash Out",
             style=discord.ButtonStyle.success,
-            custom_id="cashout"
+            custom_id="cashout",
+            row=actual_grid_size - 1  # Last row
         )
         cashout_button.callback = self._cashout_callback
         self.add_item(cashout_button)
