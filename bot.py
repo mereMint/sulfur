@@ -399,6 +399,7 @@ def sanitize_malformed_emojis(text):
       - <<:name:id>id> -> <:name:id>
       - <<a:name:id>id> -> <a:name:id>
       - `<:name:id>` -> <:name:id> (removes inline code backticks, preserves code blocks)
+      - `:emoji:` -> :emoji: (removes backticks from short format too)
     """
     # Fix pattern like <<:emoji_name:emoji_id>emoji_id> or <<a:emoji_name:emoji_id>emoji_id>
     text = re.sub(r'<<(a?):(\w+):(\d+)>\3>', r'<\1:\2:\3>', text)
@@ -406,14 +407,16 @@ def sanitize_malformed_emojis(text):
     text = re.sub(r'<<(a?):(\w+):(\d+)>>', r'<\1:\2:\3>', text)
     # Fix pattern like <:emoji_name:emoji_id>emoji_id or <a:emoji_name:emoji_id>emoji_id (trailing ID)
     text = re.sub(r'<(a?):(\w+):(\d+)>\3', r'<\1:\2:\3>', text)
-    # Remove single backticks around emoji patterns (inline code), but not triple backticks (code blocks)
+    # Remove single backticks around full emoji format (inline code), but not triple backticks (code blocks)
     # Use negative lookbehind and lookahead to avoid matching triple backticks
     text = re.sub(r'(?<!`)`<(a?):(\w+):(\d+)>`(?!`)', r'<\1:\2:\3>', text)
+    # Remove single backticks around short emoji format too
+    text = re.sub(r'(?<!`)`:(\w+):`(?!`)', r':\1:', text)
     return text
 
 async def replace_emoji_tags(text, client):
     """
-    Replaces :emoji_name: and <:emoji_name:emoji_id> style tags with the actual Discord emoji object.
+    Replaces :emoji_name: tags and converts <:emoji_name:emoji_id> to :emoji_name: format.
     Prioritizes application emojis (bot's own emojis) over server emojis.
     """
     # First, sanitize any malformed emoji patterns
@@ -427,43 +430,45 @@ async def replace_emoji_tags(text, client):
     if not emoji_tags and not full_emoji_tags:
         return text
 
-    # Create a global mapping of all available emoji names to their string representation
+    # Create a global mapping of all available emoji names
     # First, add server emojis
     emoji_map = {}
     for emoji in client.emojis:
         # Store both exact match and lowercase version for case-insensitive matching
         if emoji.name not in emoji_map:
-            emoji_map[emoji.name] = str(emoji)
-        emoji_map[emoji.name.lower()] = str(emoji)
+            emoji_map[emoji.name] = emoji.name
+        emoji_map[emoji.name.lower()] = emoji.name
     
     # Then, prioritize application emojis (they will override server emojis with the same name)
     try:
         app_emojis = await client.fetch_application_emojis()
         for emoji in app_emojis:
-            emoji_map[emoji.name] = str(emoji)
-            emoji_map[emoji.name.lower()] = str(emoji)
+            emoji_map[emoji.name] = emoji.name
+            emoji_map[emoji.name.lower()] = emoji.name
     except Exception as e:
         logger.debug(f"Could not fetch application emojis for replacement: {e}")
 
-    # Replace :emoji_name: tags with case-insensitive matching
+    # Replace :emoji_name: tags with case-insensitive matching (keep in short format)
     replaced_count = 0
     for tag in set(emoji_tags):  # Use set to avoid replacing the same tag multiple times
         # Try exact match first, then lowercase
         if tag in emoji_map:
-            text = text.replace(f":{tag}:", emoji_map[tag])
+            # Already in correct format, just validate it exists
             replaced_count += 1
         elif tag.lower() in emoji_map:
-            text = text.replace(f":{tag}:", emoji_map[tag.lower()])
+            # Replace with the correct case
+            text = text.replace(f":{tag}:", f":{emoji_map[tag.lower()]}:")
             replaced_count += 1
         else:
             # Log emojis that couldn't be found
             logger.debug(f"Emoji not found: :{tag}:")
     
     if replaced_count > 0:
-        logger.debug(f"Replaced {replaced_count} emoji tags")
+        logger.debug(f"Validated {replaced_count} emoji tags")
     
-    # <:emoji_name:emoji_id> tags are already valid Discord emoji format, no replacement needed
-    # They will be displayed correctly by Discord
+    # Convert <:emoji_name:emoji_id> and <a:emoji_name:emoji_id> to :emoji_name: format
+    # This ensures emojis are displayed in their short form without the ID
+    text = re.sub(r'<a?:(\w+):\d+>', r':\1:', text)
     
     return text
 
