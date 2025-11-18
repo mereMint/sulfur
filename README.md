@@ -22,27 +22,44 @@ A feature-rich Discord bot with AI capabilities, mini-games, and comprehensive m
 ## 🌟 Features
 
 ### 🎮 Games & Entertainment
-- **Werwolf Game**: Multiplayer werewolf game with dynamic voice channels
-- **Mini-games**: Various interactive games for server engagement
+- **Werwolf Game**: Multiplayer werewolf game with dynamic voice channels and multiple roles
+- **Gambling Games**: 
+  - 🃏 Blackjack - Classic card game with hit/stand mechanics
+  - 🎰 Roulette - Number, color, and betting options
+  - 🔫 Russian Roulette - High-risk, high-reward challenge
+  - 💣 Mines - Grid-based multiplier game
+- **Daily Quests**: Earn rewards by completing daily challenges (messages, voice time, reactions, gaming)
+- **Voice Manager**: Advanced voice channel management and tracking
+
+### 💰 Economy System
+- **Virtual Currency**: Earn coins through activities and complete quests
+- **Shop System**: 
+  - 🎨 Custom color roles (Basic, Premium, Legendary tiers)
+  - 🔓 Feature unlocks (DM access, games, special permissions)
+  - 📊 Purchase history and transaction tracking
+- **Daily Rewards**: Claim daily coins and bonuses
+- **Leaderboards**: Track top earners and active members
+- **Monthly Milestones**: Bonus rewards for consistent participation
 
 ### 🤖 AI Capabilities
-- **Multi-Model Support**: Gemini (2.0-flash-exp, 1.5-pro, 2.5-flash) and OpenAI (GPT-4o, GPT-4-turbo)
-- **AI Vision**: Image analysis and understanding
-- **Conversation Follow-up**: Remembers context within 2-minute windows
-- **Smart Emoji Analysis**: AI-powered custom emoji descriptions
+- **Multi-Model Support**: Gemini (2.0-flash-exp, 1.5-pro, 2.5-flash), OpenAI (GPT-4o, GPT-4-turbo, GPT-5)
+- **AI Vision**: Image analysis and understanding with vision models
+- **Conversation Follow-up**: Remembers context within 2-minute windows for natural conversations
+- **Smart Emoji Analysis**: AI-powered custom emoji descriptions and contextual usage
 
 ### 📊 Management & Analytics
 - **Web Dashboard**: Real-time bot monitoring at http://localhost:5000
 - **AI Usage Tracking**: Monitor token usage and costs across all models with grouped totals by model and feature
-- **Transaction Logging**: Full audit trail for all economy operations (shop purchases, daily rewards, etc.)
-- **Wrapped Statistics**: Discord Wrapped-style yearly summaries
+- **Transaction Logging**: Full audit trail for all economy operations (shop purchases, daily rewards, gambling)
+- **Wrapped Statistics**: Discord Wrapped-style yearly summaries with opt-in system
 - **Auto-backup**: Database backups every 30 minutes
+- **Level System**: XP tracking and automatic role assignment
 
 ### 🔧 Automation
 - **Auto-update**: Checks for updates every minute
 - **Auto-commit**: Commits database changes every 5 minutes
 - **Auto-restart**: Gracefully restarts on updates
-- **24/7 Operation**: Self-healing maintenance scripts
+- **24/7 Operation**: Self-healing maintenance scripts with comprehensive logging
 
 ## 📦 Prerequisites
 
@@ -69,126 +86,13 @@ A feature-rich Discord bot with AI capabilities, mini-games, and comprehensive m
 - Ubuntu 20.04+ / Debian 10+ / Other modern Linux distribution
 - Bash shell
 
-## 💿 Installation
+## ⚡ Quick Start - Get Running in 5 Minutes!
 
-## ⚡ Quick Start
+> **Choose your platform** and follow the automated setup - no technical knowledge required!
 
-> **Important:** You need Discord Bot Token and API keys before starting. See [Prerequisites](#-prerequisites).
+### 🪟 Windows - One-Click Installation (Recommended)
 
-### 🪟 Windows - Installation Wizard (Easiest!)
-
-**New!** We now have a comprehensive installation wizard that makes setup a breeze:
-
-```powershell
-# 1) Clone the repository
-git clone https://github.com/mereMint/sulfur.git
-cd sulfur
-
-# 2) Run the installation wizard
-.\INSTALL.bat
-# Or: .\install_wizard.ps1
-```
-
-The wizard will:
-- ✅ Check all prerequisites (Python, Git, MySQL)
-- ✅ Guide you through obtaining API keys
-- ✅ Configure your .env file interactively
-- ✅ Set up the database automatically
-- ✅ Install all dependencies
-- ✅ Test your setup
-- ✅ Create desktop shortcuts
-
-**📖 Detailed Guide:** See [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md) for complete instructions.
-
-### Windows (Manual PowerShell Setup)
-
-If you prefer manual setup:
-
-```powershell
-# 1) Clone and enter the repo
-git clone https://github.com/mereMint/sulfur.git
-cd sulfur
-
-# 2) Install MySQL (if not already installed)
-# Download and install XAMPP from https://www.apachefriends.org/
-# Or MySQL from https://dev.mysql.com/downloads/installer/
-
-# 3) Create database
-# Open MySQL command line or phpMyAdmin and run:
-# CREATE DATABASE sulfur_bot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-# CREATE USER 'sulfur_bot_user'@'localhost' IDENTIFIED BY 'your_password';
-# GRANT ALL PRIVILEGES ON sulfur_bot.* TO 'sulfur_bot_user'@'localhost';
-# FLUSH PRIVILEGES;
-
-# 4) Create .env file from template
-Copy-Item .env.example .env
-# Edit .env and add your tokens:
-# - DISCORD_BOT_TOKEN (from Discord Developer Portal)
-# - GEMINI_API_KEY (from Google AI Studio)
-# - DB_PASS (your MySQL password from step 3)
-
-# 5) Create venv + install deps
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-
-# 6) Run the maintenance system (starts bot + web dashboard)
-.\maintain_bot.ps1
-```
-
-Open http://localhost:5000 for the dashboard. Press Q in the maintenance window to shut down cleanly.
-
-### Termux/Linux (bash)
-
-```bash
-# 1) Clone and enter the repo
-git clone https://github.com/mereMint/sulfur.git
-cd sulfur
-
-# 2) Install MySQL/MariaDB (if not already installed)
-# Ubuntu/Debian: sudo apt install mysql-server
-# Termux: pkg install mariadb && mariadb-install-db
-
-# 3) Start MySQL/MariaDB
-# Ubuntu/Debian: sudo systemctl start mysql
-# Termux: mysqld_safe & (wait 10 seconds)
-
-# 4) Create database
-# Run: mysql -u root -p (or 'mariadb -u root' on Termux)
-# Then execute:
-# CREATE DATABASE sulfur_bot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-# CREATE USER 'sulfur_bot_user'@'localhost' IDENTIFIED BY '';
-# GRANT ALL PRIVILEGES ON sulfur_bot.* TO 'sulfur_bot_user'@'localhost';
-# FLUSH PRIVILEGES;
-# EXIT;
-
-# 5) Create .env file from template
-cp .env.example .env
-# Edit .env and add your tokens:
-nano .env
-# - DISCORD_BOT_TOKEN (from Discord Developer Portal)
-# - GEMINI_API_KEY (from Google AI Studio)
-# Save with Ctrl+O, Enter, Ctrl+X
-
-# 6) Create venv + install deps
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# 7) Start (wrapper runs the maintenance script)
-chmod +x start.sh maintain_bot.sh
-./start.sh
-```
-
-Dashboard: http://localhost:5000 (served by Waitress). Stop with Ctrl+C or create `stop.flag`.
-
-### Windows Installation
-
-> **🎯 Recommended:** Use the **Installation Wizard** for the easiest setup experience!
-> 
-> Simply run `.\INSTALL.bat` or see [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md) for detailed instructions.
-
-#### Using the Installation Wizard (Recommended)
+**The easiest way to get started!** Our installation wizard handles everything automatically:
 
 1. **Clone the repository:**
    ```powershell
@@ -197,496 +101,216 @@ Dashboard: http://localhost:5000 (served by Waitress). Stop with Ctrl+C or creat
    ```
 
 2. **Run the wizard:**
-   - **Easy way:** Double-click `INSTALL.bat`
-   - **PowerShell:** Run `.\install_wizard.ps1`
+   - **Double-click** `INSTALL.bat` (easiest!)
+   - Or run in PowerShell: `.\install_wizard.ps1`
 
 3. **Follow the prompts** - The wizard will:
-   - Check prerequisites (Python, Git, MySQL)
-   - Help you get API keys
-   - Configure everything automatically
-   - Create desktop shortcuts
-   - Test the setup
+   - ✅ Check & install prerequisites (Python, Git, MySQL)
+   - ✅ Help you get Discord Bot Token & API keys
+   - ✅ Configure everything automatically (.env, database, dependencies)
+   - ✅ Test your setup to ensure everything works
+   - ✅ Create desktop shortcuts for easy access
+   - ✅ Offer to start the bot immediately
 
-#### Manual Installation (Advanced)
+**That's it!** 🎉 Your bot will be running in minutes.
 
-If you prefer manual setup:
+**📖 Need help?** See [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md) for detailed instructions and troubleshooting.
 
-#### Step 1: Install Prerequisites
+---
 
-1. **Install Python**
-   - Download from [python.org](https://www.python.org/downloads/)
-   - ✅ Check "Add Python to PATH" during installation
-   - Verify: Open PowerShell and run `python --version`
+### 🐧 Linux - Automated Setup
 
-2. **Install MySQL**
-   - Option A: [MySQL Server](https://dev.mysql.com/downloads/installer/)
-   - Option B: [XAMPP](https://www.apachefriends.org/) (easier for beginners)
-   - During setup, remember your root password
+Quick and easy command-line setup:
 
-3. **Install Git**
-   - Download from [git-scm.com](https://git-scm.com/download/win)
-   - Use default settings during installation
-   - Verify: `git --version`
-
-#### Step 2: Clone Repository
-
-```powershell
-cd C:\
+```bash
+# Clone the repository
 git clone https://github.com/mereMint/sulfur.git
 cd sulfur
+
+# Run the quick setup script
+chmod +x quick_setup.sh
+./quick_setup.sh
 ```
 
-#### Step 3: Setup Database
-
-1. **Start MySQL** (if using XAMPP, start from control panel)
-
-2. **Create Database User**
-```sql
--- Open MySQL command line or phpMyAdmin
-CREATE DATABASE sulfur_bot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
-CREATE USER 'sulfur_bot_user'@'localhost' IDENTIFIED BY 'your_secure_password';
-
-GRANT ALL PRIVILEGES ON sulfur_bot.* TO 'sulfur_bot_user'@'localhost';
-
-FLUSH PRIVILEGES;
-```
-
-3. **Initialize Database Schema**
-```powershell
-# No manual schema file needed — tables are created automatically on first run.
-# Optional: if you have an existing backup, you can import it:
-mysql -u sulfur_bot_user -p sulfur_bot < backups\latest_backup.sql
-
-# Optional: apply specific migrations later if needed:
-# mysql -u sulfur_bot_user -p sulfur_bot < scripts\db_migrations\002_medium_priority_features.sql
-```
-
-#### Step 4: Configure Environment
-
-1. **Create `.env` file** in the project root (or copy from `.env.example`):
-```env
-# Discord Bot Token (from https://discord.com/developers/applications)
-DISCORD_BOT_TOKEN=your_discord_bot_token_here
-
-# Database Configuration
-DB_HOST=localhost
-DB_USER=sulfur_bot_user
-DB_PASS=your_secure_password
-DB_NAME=sulfur_bot
-
-# AI API Keys
-GEMINI_API_KEY=your_gemini_api_key_here
-OPENAI_API_KEY=your_openai_api_key_here
-
-# Bot Configuration
-BOT_PREFIX=!
-OWNER_ID=your_discord_user_id
-```
-
-2. **Get Your Discord User ID**
-   - Enable Developer Mode in Discord (Settings > Advanced > Developer Mode)
-   - Right-click your username > Copy ID
-
-#### Step 5: Install Python Dependencies
-
-```powershell
-# Create virtual environment
-python -m venv venv
-
-# Activate virtual environment
-.\venv\Scripts\Activate.ps1
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-#### Step 6: First Run Test
-
-```powershell
-# Test bot startup
-python bot.py
-```
-
-If you see "Bot is ready!" in the console, press Ctrl+C and proceed to start the maintenance script (it will handle 24/7 operation).
-
-#### Step 7: Start Maintenance System
-
-```powershell
-# Run the maintenance script (handles auto-restart, updates, backups)
-.\maintain_bot.ps1
-```
-
-The script will:
-- ✅ Start the web dashboard at http://localhost:5000
-- ✅ Start the bot
-- ✅ Check for updates every minute
-- ✅ Auto-commit changes every 5 minutes
-- ✅ Backup database every 30 minutes
-- ✅ Auto-restart on updates
-
-Press **Q** to gracefully shutdown.
+The script handles: Prerequisites ✓ Database ✓ Dependencies ✓ Configuration ✓
 
 ---
 
-### Termux/Android Installation
+### 📱 Termux/Android - One-Command Setup
 
-> **🚀 NEW: One-Command Setup!** Skip manual steps with our automated installer:
-> ```bash
-> pkg update && pkg install -y git && git clone https://github.com/mereMint/sulfur.git sulfur && cd sulfur && bash termux_quickstart.sh
-> ```
-> **📖 For detailed Termux guide, see [TERMUX_GUIDE.md](TERMUX_GUIDE.md)**
-
-#### Manual Installation
-
-#### Step 1: Install Termux
-
-1. **Download Termux** from [F-Droid](https://f-droid.org/en/packages/com.termux/) (NOT Google Play)
-2. Open Termux
-
-#### Step 2: Install Prerequisites
+**Run everything in one command!**
 
 ```bash
-# Update package list
-pkg update && pkg upgrade
-
-# Install required packages
-pkg install python git mariadb tmux openssh
-
-# Verify installations
-python --version
-git --version
-mariadb --version
+pkg update && pkg install -y git && \
+git clone https://github.com/mereMint/sulfur.git sulfur && \
+cd sulfur && bash termux_quickstart.sh
 ```
 
-#### Step 3: Setup Git SSH Keys (for pushing to GitHub)
+The automated script will:
+- ✅ Install all required packages (Python, MariaDB, Git)
+- ✅ Set up and start MariaDB database
+- ✅ Configure SSH keys (optional)
+- ✅ Create virtual environment and install dependencies
+- ✅ Guide you through .env configuration
+- ✅ Create startup shortcuts
+- ✅ Verify the complete setup
 
-```bash
-# Generate SSH key (press Enter to accept defaults)
-ssh-keygen -t ed25519 -C "your_email@example.com"
+**📖 Detailed Termux Guide:** See [TERMUX_GUIDE.md](TERMUX_GUIDE.md)
 
-# Start SSH agent
-eval "$(ssh-agent -s)"
+---
 
-# Add your SSH key
-ssh-add ~/.ssh/id_ed25519
+## 💿 Manual Installation
 
-# Display your public key
-cat ~/.ssh/id_ed25519.pub
+<details>
+<summary><b>🪟 Windows Manual Setup</b> (Click to expand)</summary>
 
-# Copy the output and add it to GitHub:
-# Go to GitHub → Settings → SSH and GPG keys → New SSH key
-# Paste the key and save
+### Prerequisites
+1. **Install Python 3.8+** from [python.org](https://www.python.org/downloads/) (✅ Check "Add to PATH")
+2. **Install MySQL** - Choose one:
+   - [XAMPP](https://www.apachefriends.org/) (Recommended for beginners)
+   - [MySQL Server](https://dev.mysql.com/downloads/installer/)
+3. **Install Git** from [git-scm.com](https://git-scm.com/download/win)
 
-# Test SSH connection
-ssh -T git@github.com
-```
+### Setup Steps
 
-#### Step 4: Setup MariaDB
-
-```bash
-# Initialize MariaDB
-mariadb-install-db
-
-# Start MariaDB server
-mariadbd-safe --datadir=$PREFIX/var/lib/mysql &
-
-# Wait a few seconds, then press Enter to get prompt back
-
-# IMPORTANT: Check if MariaDB socket is running
-ls -la $PREFIX/var/run/mysqld.sock 2>/dev/null || echo "Socket not found - MariaDB may still be starting"
-
-# Wait for MariaDB to fully start (usually takes 10-15 seconds)
-sleep 10
-```
-
-#### Step 5: Clone Repository
-
-```bash
-# Navigate to home directory
-cd ~
-
-# Clone repository (use SSH if you added SSH keys, or HTTPS)
-git clone git@github.com:yourusername/sulfur.git
-# Or use HTTPS: git clone https://github.com/yourusername/sulfur.git
+```powershell
+# 1. Clone repository
+git clone https://github.com/mereMint/sulfur.git
 cd sulfur
-```
 
-#### Step 6: Setup Database
-
-```bash
-# Login to MariaDB (use 'mariadb' command, not 'mysql')
-# Note: On first login, there may be no password set (just press Enter)
-mariadb -u root -p
-
-# In MariaDB prompt:
+# 2. Create database (in MySQL command line or phpMyAdmin)
 CREATE DATABASE sulfur_bot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
-CREATE USER 'sulfur_bot_user'@'localhost' IDENTIFIED BY 'your_secure_password';
-
+CREATE USER 'sulfur_bot_user'@'localhost' IDENTIFIED BY 'your_password';
 GRANT ALL PRIVILEGES ON sulfur_bot.* TO 'sulfur_bot_user'@'localhost';
-
 FLUSH PRIVILEGES;
 
-EXIT;
+# 3. Configure environment
+Copy-Item .env.example .env
+notepad .env  # Add your Discord token, API keys, and database password
 
-# Note: If you prefer no password for local development:
-# CREATE USER 'sulfur_bot_user'@'localhost' IDENTIFIED BY '';
-# Then set DB_PASS='' in your .env file
-
-# Initialize schema (auto-created on first run)
-# No manual schema import required.
-# Optional: import an existing backup instead:
-# mariadb -u sulfur_bot_user -p sulfur_bot < backups/latest_backup.sql
-```
-
-#### Step 7: Configure Environment
-
-```bash
-# Create .env file
-nano .env
-```
-
-Add the following (paste by long-pressing):
-```env
-DISCORD_BOT_TOKEN=your_discord_bot_token_here
-DB_HOST=localhost
-DB_USER=sulfur_bot_user
-DB_PASS=your_secure_password
-DB_NAME=sulfur_bot
-GEMINI_API_KEY=your_gemini_api_key_here
-OPENAI_API_KEY=your_openai_api_key_here
-BOT_PREFIX=!
-OWNER_ID=your_discord_user_id
-```
-
-**Important:** Set `DB_PASS` to match what you used in Step 6. If you chose no password, use `DB_PASS=`
-
-Save with **Ctrl+O**, **Enter**, then **Ctrl+X**
-
-#### Step 8: Install Python Dependencies
-
-```bash
-# Create virtual environment
+# 4. Install dependencies
 python -m venv venv
-
-# Activate virtual environment
-source venv/bin/activate
-
-# Install dependencies
+.\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+
+# 5. Start the bot
+.\start.ps1
 ```
 
-#### Step 9: Start Bot and Web Dashboard
+**Access Dashboard:** http://localhost:5000
 
-```bash
-# Make scripts executable
-chmod +x start.sh maintain_bot.sh
+</details>
 
-# Start the bot
-./start.sh
-```
+<details>
+<summary><b>🐧 Linux Manual Setup</b> (Click to expand)</summary>
 
-That's it! The bot is now running on your Android device.
-
-#### Step 10: Access Web Dashboard
-
-The web dashboard runs on port 5000. To access it:
-
-**From the same Android device:**
-- Open a browser on your Android device
-- Navigate to: `http://localhost:5000` or `http://127.0.0.1:5000`
-
-**From another device on the same network:**
-- Find your Android device's IP address: `ifconfig` or `ip addr show`
-- On the other device, navigate to: `http://YOUR_ANDROID_IP:5000`
-- Example: `http://192.168.1.100:5000`
-
-**Troubleshooting Dashboard Access:**
-- If the dashboard doesn't load, ensure the web_dashboard.py is binding to `0.0.0.0` instead of `localhost`
-- Check that port 5000 is not blocked by any firewall
-
-**Tips for Termux:**
-- Keep Termux running in the background (use Termux:Boot for auto-start)
-- Use Termux:Widget to add start/stop shortcuts to home screen
-- Press **Ctrl+C** to stop the bot gracefully
-- To run in background (tmux): Already installed in Step 2, use:
-   - `tmux new -s sulfur`
-   - `./start.sh`
-   - Detach: `Ctrl+B`, then `D`; Reattach: `tmux attach -t sulfur`
-- Alternative (screen): Install `screen` with `pkg install screen`, then `screen ./start.sh`
-
----
-
-### Linux Installation
-
-#### Step 1: Install Prerequisites
+### Prerequisites
 
 ```bash
 # Ubuntu/Debian
-sudo apt update
-sudo apt install python3 python3-pip python3-venv git mysql-server
+sudo apt update && sudo apt install -y python3 python3-pip python3-venv git mariadb-server
 
 # Fedora/RHEL
-sudo dnf install python3 python3-pip git mariadb-server
+sudo dnf install -y python3 python3-pip git mariadb-server
 
-# Arch Linux
-sudo pacman -S python python-pip git mariadb
-
-# Start MySQL
-sudo systemctl start mysql
-sudo systemctl enable mysql
+# Start MariaDB
+sudo systemctl start mariadb && sudo systemctl enable mariadb
 ```
 
-#### Step 2: Setup Database
+### Setup Steps
 
 ```bash
-# Secure MySQL installation
-sudo mysql_secure_installation
-
-# Login to MySQL
-sudo mysql
-
-# Create database and user
-CREATE DATABASE sulfur_bot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
-CREATE USER 'sulfur_bot_user'@'localhost' IDENTIFIED BY 'your_secure_password';
-
-GRANT ALL PRIVILEGES ON sulfur_bot.* TO 'sulfur_bot_user'@'localhost';
-
-FLUSH PRIVILEGES;
-
-EXIT;
-
-# Initialize schema (auto-created on first run)
-# No manual schema import required.
-# Optional: import an existing backup instead:
-# mysql -u sulfur_bot_user -p sulfur_bot < backups/latest_backup.sql
-```
-
-#### Step 3: Clone and Configure
-
-```bash
-# Clone repository
-cd /opt  # or wherever you want to install
-sudo git clone https://github.com/yourusername/sulfur.git
+# 1. Clone repository
+git clone https://github.com/mereMint/sulfur.git
 cd sulfur
 
-# Create .env file
-sudo nano .env
-```
+# 2. Create database
+sudo mysql
+# Then in MySQL:
+CREATE DATABASE sulfur_bot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'sulfur_bot_user'@'localhost' IDENTIFIED BY 'your_password';
+GRANT ALL PRIVILEGES ON sulfur_bot.* TO 'sulfur_bot_user'@'localhost';
+FLUSH PRIVILEGES;
+EXIT;
 
-Add configuration (same as Termux section above)
+# 3. Configure environment
+cp .env.example .env
+nano .env  # Add your tokens and keys
 
-#### Step 4: Install Dependencies
-
-```bash
-# Create virtual environment
+# 4. Install dependencies
 python3 -m venv venv
-
-# Activate
 source venv/bin/activate
-
-# Install dependencies
 pip install -r requirements.txt
-```
 
-#### Step 5: Start Bot
-
-```bash
-# Make scripts executable
-chmod +x start.sh maintain_bot.sh
-
-# Start
+# 5. Start the bot
+chmod +x start.sh
 ./start.sh
 ```
 
-**Optional: Create systemd service for auto-start**
+**Access Dashboard:** http://localhost:5000
+
+</details>
+
+<details>
+<summary><b>📱 Termux Manual Setup</b> (Click to expand)</summary>
+
+### Prerequisites
 
 ```bash
-sudo nano /etc/systemd/system/sulfur-bot.service
+# Update and install packages
+pkg update && pkg upgrade -y
+pkg install -y python git mariadb
+
+# Initialize and start MariaDB
+mariadb-install-db
+mariadbd-safe --datadir=$PREFIX/var/lib/mysql &
+sleep 10  # Wait for MariaDB to start
 ```
 
-Add:
-```ini
-[Unit]
-Description=Sulfur Discord Bot
-After=network.target mysql.service
-
-[Service]
-Type=simple
-User=your_username
-WorkingDirectory=/opt/sulfur
-ExecStart=/opt/sulfur/start.sh
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable and start:
-```bash
-sudo systemctl enable sulfur-bot
-sudo systemctl start sulfur-bot
-
-# Check status
-sudo systemctl status sulfur-bot
-```
-
----
-
-### One-Command Termux Setup
-
-🚀 **The Fastest Way to Get Started on Android!**
-
-**📌 Note**: This is a private repository. You have two options:
-
-1. **Fork this repo** to your GitHub account (recommended)
-2. Use GitHub credentials when prompted
-
-Our automated Termux setup script handles **everything** in one command:
+### Setup Steps
 
 ```bash
-pkg update && pkg install -y git && git clone --depth 1 https://github.com/YOUR_USERNAME/sulfur.git sulfur && cd sulfur && bash termux_quickstart.sh
+# 1. Clone repository
+git clone https://github.com/mereMint/sulfur.git
+cd sulfur
+
+# 2. Create database
+mariadb -u root
+# Then in MariaDB:
+CREATE DATABASE sulfur_bot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'sulfur_bot_user'@'localhost' IDENTIFIED BY '';
+GRANT ALL PRIVILEGES ON sulfur_bot.* TO 'sulfur_bot_user'@'localhost';
+FLUSH PRIVILEGES;
+EXIT;
+
+# 3. Configure environment
+cp .env.example .env
+nano .env  # Add your tokens (Ctrl+O to save, Ctrl+X to exit)
+
+# 4. Install dependencies
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# 5. Start the bot
+chmod +x start.sh
+./start.sh
 ```
 
-⚠️ **IMPORTANT**: 
-- Replace `YOUR_USERNAME` with your GitHub username (if you forked the repo)
-- Copy and paste the ENTIRE line above as ONE command
-- If using the original repo, you'll be asked for your GitHub username and a **Personal Access Token** (not password)
+**Access Dashboard:** 
+- From Android: http://localhost:5000
+- From other devices: http://YOUR_ANDROID_IP:5000
 
-**Creating a Personal Access Token**:
-1. Go to https://github.com/settings/tokens
-2. Click "Generate new token" → "Classic"
-3. Select `repo` scope
-4. Copy the token and use it as the password when prompted
-
-**Note**: The initial clone requires authentication for private repos. The script will then set up SSH for future git operations.
-
-**What it does:**
-- ✅ Updates Termux packages
-- ✅ Installs Python, MariaDB, Git, OpenSSH
-- ✅ Initializes and starts MariaDB
-- ✅ Creates database and user
-- ✅ Clones the repository
-- ✅ Generates SSH key (optional)
-- ✅ Sets up Python virtual environment
-- ✅ Installs all dependencies
-- ✅ Configures `.env` interactively
-- ✅ Initializes database tables
-- ✅ Creates startup helper script
-- ✅ Runs setup verification
-
-**After installation:**
+**Keep running in background:**
 ```bash
-cd ~/sulfur
-./start_sulfur.sh
+pkg install tmux
+tmux new -s sulfur
+./start.sh
+# Detach: Ctrl+B then D
+# Reattach: tmux attach -t sulfur
 ```
 
-📖 **For detailed Termux documentation:** See [TERMUX_GUIDE.md](TERMUX_GUIDE.md)
-
----
+</details>
 
 ## ⚙️ Configuration
 
