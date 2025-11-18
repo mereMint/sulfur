@@ -23,4 +23,5 @@ last_update.txt
 # test_web_dashboard_restart.py
 
 # IDE / Editor specific
-.vscode/
+.vscode/test_db_null_handling.py
+test_chatbot_without_db.py
