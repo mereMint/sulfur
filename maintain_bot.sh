@@ -474,6 +474,36 @@ apply_updates() {
     # Normal update
     git pull >>"$MAIN_LOG" 2>&1
     
+    # Initialize/update database tables after pulling updates
+    log_update "Updating database tables..."
+    local python_exe="$PYTHON_CMD"
+    if [ -f "venv/bin/python" ]; then
+        python_exe="venv/bin/python"
+    fi
+    
+    # Run database initialization
+    "$python_exe" -c "
+from modules.db_helpers import init_db_pool, initialize_database
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+DB_HOST = os.environ.get('DB_HOST', 'localhost')
+DB_USER = os.environ.get('DB_USER', 'sulfur_bot_user')
+DB_PASS = os.environ.get('DB_PASS', '')
+DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot')
+
+init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
+initialize_database()
+print('Database tables initialized successfully')
+" >>"$MAIN_LOG" 2>&1
+    
+    if [ $? -eq 0 ]; then
+        log_success "Database tables updated successfully"
+    else
+        log_warning "Database initialization had issues - check log"
+    fi
+    
     log_success "Update complete"
     date -u +"%Y-%m-%dT%H:%M:%SZ" > "last_update.txt"
 }

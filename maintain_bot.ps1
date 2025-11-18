@@ -819,6 +819,39 @@ function Invoke-Update {
         exit 0
     }
     git pull
+    
+    # Initialize/update database tables after pulling updates
+    Write-ColorLog 'Updating database tables...' 'Cyan' '[UPDATE] '
+    
+    $pythonExe = 'python'
+    if (Test-Path 'venv\Scripts\python.exe') {
+        $pythonExe = 'venv\Scripts\python.exe'
+    }
+    
+    # Run database initialization
+    $dbInitScript = @"
+from modules.db_helpers import init_db_pool, initialize_database
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+DB_HOST = os.environ.get('DB_HOST', 'localhost')
+DB_USER = os.environ.get('DB_USER', 'sulfur_bot_user')
+DB_PASS = os.environ.get('DB_PASS', '')
+DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot')
+
+init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
+initialize_database()
+print('Database tables initialized successfully')
+"@
+    
+    try {
+        & $pythonExe -c $dbInitScript 2>&1 | Out-Null
+        Write-ColorLog 'Database tables updated successfully' 'Green' '[UPDATE] '
+    } catch {
+        Write-ColorLog "Database initialization had issues: $($_.Exception.Message)" 'Yellow' '[UPDATE] '
+    }
+    
     Write-ColorLog 'Update complete' 'Green' '[UPDATE] '
     (Get-Date).ToUniversalTime().ToString('o') | Out-File -FilePath 'last_update.txt' -Encoding utf8
 }

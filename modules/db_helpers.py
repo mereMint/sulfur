@@ -323,6 +323,18 @@ def initialize_database():
                 last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             )
         """)
+        
+        # --- NEW: User Customization Table for equipped colors and profile settings ---
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_customization (
+                user_id BIGINT PRIMARY KEY,
+                equipped_color VARCHAR(7),
+                embed_color VARCHAR(7),
+                profile_background VARCHAR(255),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        """)
 
         logger.info("Database tables checked/created successfully")
     except mysql.connector.Error as err:
@@ -2054,3 +2066,77 @@ async def get_transaction_history(user_id, limit=20):
             (user_id, limit)
         )
         return await cursor.fetchall()
+
+
+# --- User Customization Functions ---
+
+@db_operation("Get User Equipped Color")
+async def get_user_equipped_color(user_id):
+    """Gets the user's equipped color."""
+    if not db_pool:
+        return None
+    
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return None
+    
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            "SELECT equipped_color FROM user_customization WHERE user_id = %s",
+            (user_id,)
+        )
+        result = cursor.fetchone()
+        return result['equipped_color'] if result else None
+    finally:
+        cursor.close()
+        cnx.close()
+
+
+@db_operation("Set User Equipped Color")
+async def set_user_equipped_color(user_id, color):
+    """Sets the user's equipped color."""
+    if not db_pool:
+        return False
+    
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return False
+    
+    cursor = cnx.cursor()
+    try:
+        cursor.execute(
+            """
+            INSERT INTO user_customization (user_id, equipped_color)
+            VALUES (%s, %s)
+            ON DUPLICATE KEY UPDATE equipped_color = %s
+            """,
+            (user_id, color, color)
+        )
+        cnx.commit()
+        return True
+    finally:
+        cursor.close()
+        cnx.close()
+
+
+@db_operation("Get User Customization")
+async def get_user_customization(user_id):
+    """Gets all customization settings for a user."""
+    if not db_pool:
+        return None
+    
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return None
+    
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            "SELECT * FROM user_customization WHERE user_id = %s",
+            (user_id,)
+        )
+        return cursor.fetchone()
+    finally:
+        cursor.close()
+        cnx.close()
