@@ -190,13 +190,45 @@ trap cleanup SIGINT SIGTERM
 # Kill orphaned python processes that originated in this project dir
 cleanup_orphans() {
     log_warning "Searching for orphaned Python processes..."
+    
+    # Get current bot and web PIDs to exclude them
+    local exclude_pids=""
+    if [ -f "$BOT_PID_FILE" ]; then
+        exclude_pids="$(cat "$BOT_PID_FILE" 2>/dev/null)"
+    fi
+    if [ -f "$WEB_PID_FILE" ]; then
+        local web_pid=$(cat "$WEB_PID_FILE" 2>/dev/null)
+        if [ -n "$web_pid" ]; then
+            exclude_pids="$exclude_pids $web_pid"
+        fi
+    fi
+    
     if command -v pgrep >/dev/null 2>&1; then
         # Match processes with this script directory in the command line
         local pids
         pids=$(pgrep -f "python.*${SCRIPT_DIR}" || true)
         if [ -n "$pids" ]; then
-            log_warning "Killing orphaned PIDs: $pids"
-            kill -9 $pids 2>/dev/null || true
+            # Filter out current bot and web dashboard PIDs
+            local pids_to_kill=""
+            for pid in $pids; do
+                local should_kill=true
+                for exclude_pid in $exclude_pids; do
+                    if [ "$pid" = "$exclude_pid" ]; then
+                        should_kill=false
+                        break
+                    fi
+                done
+                if [ "$should_kill" = true ]; then
+                    pids_to_kill="$pids_to_kill $pid"
+                fi
+            done
+            
+            if [ -n "$pids_to_kill" ]; then
+                log_warning "Killing orphaned PIDs:$pids_to_kill"
+                kill -9 $pids_to_kill 2>/dev/null || true
+            else
+                log_info "No orphaned Python processes found (excluding current bot/web)"
+            fi
         else
             log_info "No orphaned Python processes found"
         fi
@@ -205,8 +237,27 @@ cleanup_orphans() {
         local pids
         pids=$(ps aux | grep -E "python.*${SCRIPT_DIR}" | grep -v grep | awk '{print $2}')
         if [ -n "$pids" ]; then
-            log_warning "Killing orphaned PIDs: $pids"
-            kill -9 $pids 2>/dev/null || true
+            # Filter out current bot and web dashboard PIDs
+            local pids_to_kill=""
+            for pid in $pids; do
+                local should_kill=true
+                for exclude_pid in $exclude_pids; do
+                    if [ "$pid" = "$exclude_pid" ]; then
+                        should_kill=false
+                        break
+                    fi
+                done
+                if [ "$should_kill" = true ]; then
+                    pids_to_kill="$pids_to_kill $pid"
+                fi
+            done
+            
+            if [ -n "$pids_to_kill" ]; then
+                log_warning "Killing orphaned PIDs:$pids_to_kill"
+                kill -9 $pids_to_kill 2>/dev/null || true
+            else
+                log_info "No orphaned Python processes found (excluding current bot/web)"
+            fi
         else
             log_info "No orphaned Python processes found"
         fi
