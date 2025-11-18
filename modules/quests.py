@@ -46,6 +46,12 @@ async def generate_daily_quests(db_helpers, user_id: int, config: dict):
             existing_quests = cursor.fetchall()
             
             if existing_quests:
+                # Add reward information from config
+                quest_config = config['modules']['economy']['quests']['quest_types']
+                for quest in existing_quests:
+                    quest_type = quest.get('quest_type')
+                    if quest_type and quest_type in quest_config:
+                        quest['reward'] = quest_config[quest_type]['reward']
                 return existing_quests
             
             # Generate 3 new quests
@@ -68,12 +74,17 @@ async def generate_daily_quests(db_helpers, user_id: int, config: dict):
                     (user_id, today, quest_type, quest_data['target'])
                 )
                 
+                # Get the ID of the inserted quest
+                quest_id = cursor.lastrowid
+                
                 created_quests.append({
+                    'id': quest_id,
                     'quest_type': quest_type,
                     'target_value': quest_data['target'],
                     'reward': quest_data['reward'],
                     'current_progress': 0,
-                    'completed': False
+                    'completed': False,
+                    'reward_claimed': False
                 })
             
             cnx.commit()
