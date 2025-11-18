@@ -2,8 +2,24 @@
 """One-time migration applier for database schema updates"""
 import os
 import sys
-import mysql.connector
 from pathlib import Path
+
+try:
+    import mysql.connector
+except ModuleNotFoundError:
+    print("=" * 60)
+    print("ERROR: mysql-connector-python not installed")
+    print("=" * 60)
+    print()
+    print("The mysql-connector-python package is required to run this script.")
+    print()
+    print("To install it, run:")
+    print("  pip install mysql-connector-python")
+    print()
+    print("Or install all dependencies:")
+    print("  pip install -r requirements.txt")
+    print()
+    sys.exit(1)
 
 # Load environment variables
 from dotenv import load_dotenv

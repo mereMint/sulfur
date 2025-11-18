@@ -116,8 +116,8 @@ Write-Host "The process includes:" -ForegroundColor $ColorInfo
 Write-Host ""
 Write-Host "  1. Checking and installing prerequisites" -ForegroundColor Gray
 Write-Host "  2. Configuring your bot settings" -ForegroundColor Gray
-Write-Host "  3. Setting up the database" -ForegroundColor Gray
-Write-Host "  4. Installing dependencies" -ForegroundColor Gray
+Write-Host "  3. Installing dependencies" -ForegroundColor Gray
+Write-Host "  4. Setting up the database" -ForegroundColor Gray
 Write-Host "  5. Testing the setup" -ForegroundColor Gray
 Write-Host "  6. Creating shortcuts for easy access" -ForegroundColor Gray
 Write-Host ""
@@ -402,11 +402,93 @@ $(if (![string]::IsNullOrWhiteSpace($ownerId)) { "OWNER_ID=$ownerId" } else { "#
     $script:SetupSteps.Environment = $true
 }
 
-# Step 3: Database Setup
+# Step 3: Install Dependencies
+# ============================================================
+
+if (!$SkipDependencies) {
+    Write-Header "Step 3: Installing Dependencies"
+    
+    # Check for virtual environment
+    $venvPath = Join-Path $script:InstallPath "venv"
+    $venvActivate = Join-Path $venvPath "Scripts\Activate.ps1"
+    
+    if (!(Test-Path $venvPath)) {
+        Write-Step "Creating Python virtual environment..."
+        Write-Info "This keeps bot dependencies separate from your system Python"
+        Write-Host ""
+        
+        try {
+            python -m venv venv
+            if ($LASTEXITCODE -eq 0) {
+                Write-Success "Virtual environment created"
+            } else {
+                Write-Warning "Failed to create virtual environment"
+                Write-Info "Continuing without virtual environment..."
+            }
+        } catch {
+            Write-Warning "Could not create virtual environment: $_"
+            Write-Info "Continuing without virtual environment..."
+        }
+    } else {
+        Write-Success "Virtual environment already exists"
+    }
+    
+    # Activate virtual environment
+    if (Test-Path $venvActivate) {
+        Write-Step "Activating virtual environment..."
+        try {
+            & $venvActivate
+            Write-Success "Virtual environment activated"
+        } catch {
+            Write-Warning "Could not activate virtual environment: $_"
+        }
+    }
+    
+    # Install dependencies
+    Write-Step "Installing Python dependencies..."
+    Write-Info "This may take a few minutes depending on your internet connection..."
+    Write-Host ""
+    
+    $requirementsPath = Join-Path $script:InstallPath "requirements.txt"
+    if (Test-Path $requirementsPath) {
+        try {
+            # Upgrade pip first
+            Write-Host "  Upgrading pip..." -ForegroundColor DarkGray
+            python -m pip install --upgrade pip --quiet 2>&1 | Out-Null
+            
+            # Install requirements
+            Write-Host "  Installing packages..." -ForegroundColor DarkGray
+            pip install -r requirements.txt
+            
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host ""
+                Write-Success "All dependencies installed successfully"
+                $script:SetupSteps.Dependencies = $true
+            } else {
+                Write-Host ""
+                Write-Warning "Some dependencies may have failed to install"
+                Write-Info "The bot might still work, but some features may be unavailable"
+                if (!(Read-YesNo "Continue anyway?")) {
+                    exit 1
+                }
+            }
+        } catch {
+            Write-Error "Failed to install dependencies: $_"
+            if (!(Read-YesNo "Continue anyway?")) {
+                exit 1
+            }
+        }
+    } else {
+        Write-Error "requirements.txt not found!"
+        Write-Warning "Cannot install dependencies"
+    }
+}
+
+# Step 4: Database Setup
 # ============================================================
 
 if (!$SkipDatabase) {
-    Write-Header "Step 3: Database Setup"
+    Write-Header "Step 4: Database Setup"
     
     Write-Info "We'll now set up the MySQL/MariaDB database for the bot."
     Write-Host ""
@@ -497,88 +579,6 @@ except:
             Write-Warning "Database setup wizard not found"
             Write-Info "You can set up the database manually using setup_mysql.ps1"
         }
-    }
-}
-
-# Step 4: Install Dependencies
-# ============================================================
-
-if (!$SkipDependencies) {
-    Write-Header "Step 4: Installing Dependencies"
-    
-    # Check for virtual environment
-    $venvPath = Join-Path $script:InstallPath "venv"
-    $venvActivate = Join-Path $venvPath "Scripts\Activate.ps1"
-    
-    if (!(Test-Path $venvPath)) {
-        Write-Step "Creating Python virtual environment..."
-        Write-Info "This keeps bot dependencies separate from your system Python"
-        Write-Host ""
-        
-        try {
-            python -m venv venv
-            if ($LASTEXITCODE -eq 0) {
-                Write-Success "Virtual environment created"
-            } else {
-                Write-Warning "Failed to create virtual environment"
-                Write-Info "Continuing without virtual environment..."
-            }
-        } catch {
-            Write-Warning "Could not create virtual environment: $_"
-            Write-Info "Continuing without virtual environment..."
-        }
-    } else {
-        Write-Success "Virtual environment already exists"
-    }
-    
-    # Activate virtual environment
-    if (Test-Path $venvActivate) {
-        Write-Step "Activating virtual environment..."
-        try {
-            & $venvActivate
-            Write-Success "Virtual environment activated"
-        } catch {
-            Write-Warning "Could not activate virtual environment: $_"
-        }
-    }
-    
-    # Install dependencies
-    Write-Step "Installing Python dependencies..."
-    Write-Info "This may take a few minutes depending on your internet connection..."
-    Write-Host ""
-    
-    $requirementsPath = Join-Path $script:InstallPath "requirements.txt"
-    if (Test-Path $requirementsPath) {
-        try {
-            # Upgrade pip first
-            Write-Host "  Upgrading pip..." -ForegroundColor DarkGray
-            python -m pip install --upgrade pip --quiet 2>&1 | Out-Null
-            
-            # Install requirements
-            Write-Host "  Installing packages..." -ForegroundColor DarkGray
-            pip install -r requirements.txt
-            
-            if ($LASTEXITCODE -eq 0) {
-                Write-Host ""
-                Write-Success "All dependencies installed successfully"
-                $script:SetupSteps.Dependencies = $true
-            } else {
-                Write-Host ""
-                Write-Warning "Some dependencies may have failed to install"
-                Write-Info "The bot might still work, but some features may be unavailable"
-                if (!(Read-YesNo "Continue anyway?")) {
-                    exit 1
-                }
-            }
-        } catch {
-            Write-Error "Failed to install dependencies: $_"
-            if (!(Read-YesNo "Continue anyway?")) {
-                exit 1
-            }
-        }
-    } else {
-        Write-Error "requirements.txt not found!"
-        Write-Warning "Cannot install dependencies"
     }
 }
 
