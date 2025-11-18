@@ -483,9 +483,14 @@ if(-not $SkipDatabaseBackup){
     Invoke-DatabaseBackup
 }
 
-$script:webDashboardJob=Start-WebDashboard
-if(-not $script:webDashboardJob){
-    Write-ColorLog 'Warning: Web Dashboard failed to start' 'Yellow'
+try {
+    $script:webDashboardJob=Start-WebDashboard
+    if(-not $script:webDashboardJob){
+        Write-ColorLog 'Warning: Web Dashboard failed to start' 'Yellow'
+    }
+} catch {
+    Write-ColorLog "Warning: Web Dashboard startup error: $($_.Exception.Message)" 'Yellow'
+    $script:webDashboardJob = $null
 }
 
 # Web dashboard restart tracking
@@ -509,7 +514,21 @@ while($true){
         continue
     }
 
-    $script:botProcess=Start-Bot
+    try {
+        $script:botProcess=Start-Bot
+    } catch {
+        Write-ColorLog "Failed to start bot: $($_.Exception.Message)" 'Red'
+        Write-ColorLog "Waiting 10 seconds before retry..." 'Yellow'
+        Start-Sleep 10
+        continue
+    }
+    
+    if(-not $script:botProcess) {
+        Write-ColorLog "Bot process not created, retrying in 10 seconds..." 'Yellow'
+        Start-Sleep 10
+        continue
+    }
+    
     $botStartTime = Get-Date
     
     while($script:botProcess -and -not $script:botProcess.HasExited){
@@ -592,7 +611,7 @@ while($true){
             }
         }
         
-        if($script:webDashboardJob -and $script:webDashboardJob.State -ne 'Running'){
+        if($script:webDashboardJob -and (Get-Job -Id $script:webDashboardJob.Id -ErrorAction SilentlyContinue) -and $script:webDashboardJob.State -ne 'Running'){
             $currentTime = Get-Date
             
             # Calculate time since last restart
