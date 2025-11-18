@@ -608,30 +608,36 @@ start_web_dashboard() {
         fi
     fi
     
-    # Check if port 5000 is available
-    if ! check_port_available 5000; then
-        log_warning "Port 5000 is already in use"
+    # Check if there are active processes using port 5000 (not just TIME_WAIT)
+    local port_pids=""
+    if command -v lsof >/dev/null 2>&1; then
+        port_pids=$(lsof -ti:5000 2>/dev/null)
+    elif command -v fuser >/dev/null 2>&1; then
+        port_pids=$(fuser 5000/tcp 2>/dev/null | sed 's/^ *//')
+    fi
+    
+    if [ -n "$port_pids" ]; then
+        log_warning "Port 5000 is in use by process(es): $port_pids"
         show_port_info 5000
         
         # Try to free the port with up to 3 attempts
         if ! free_port 5000 3; then
-            log_error "Failed to free port 5000 after multiple attempts. Web Dashboard cannot start."
-            log_warning "Manual intervention required. You can:"
+            log_error "Failed to free port 5000 after multiple attempts."
+            log_warning "Web Dashboard has retry logic and will attempt to start anyway..."
+            log_warning "If startup fails, manual intervention may be required:"
             log_warning "  1. Find processes: lsof -ti:5000 or fuser 5000/tcp or ss -tlnp | grep :5000"
             log_warning "  2. Kill process: kill -9 <PID>"
-            log_warning "  3. Check for TIME_WAIT: ss -tan | grep :5000"
-            return 1
+            # Don't return 1 here - let the web dashboard's retry logic handle it
+        fi
+    else
+        # Port might be in TIME_WAIT, but web dashboard can handle that with SO_REUSEADDR
+        if ! check_port_available 5000; then
+            log_info "Port 5000 may be in TIME_WAIT state (no active process detected)"
+            log_info "Web Dashboard will use SO_REUSEADDR to bind anyway"
+        else
+            log_success "Port 5000 is available"
         fi
     fi
-    
-    # Double-check port is really available before starting
-    if ! check_port_available 5000; then
-        log_error "Port 5000 is still not available after cleanup. Cannot start web dashboard."
-        show_port_info 5000
-        return 1
-    fi
-    
-    log_success "Port 5000 is confirmed available"
     
     # Find Python
     local python_exe="$PYTHON_CMD"
