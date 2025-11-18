@@ -4708,6 +4708,15 @@ class DetectiveGameView(discord.ui.View):
                 inline=False
             )
         
+        # Hints (codes/clues)
+        if hasattr(self.case, 'hints') and self.case.hints:
+            hints_text = "\n".join(self.case.hints)
+            embed.add_field(
+                name="💡 Hinweise",
+                value=hints_text,
+                inline=False
+            )
+        
         # Suspects list
         suspects_list = "\n".join([
             f"{i+1}. **{s['name']}** - {s['occupation']}"
