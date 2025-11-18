@@ -572,8 +572,8 @@ def admin_reload_config():
         try:
             with open('config/reload_config.flag', 'w') as f:
                 f.write(str(time.time()))
-        except:
-            pass
+        except IOError as e:
+            print(f"[Web Dashboard] Could not create reload_config.flag: {e}")
         
         return jsonify({'success': True, 'message': 'Config reloaded successfully'})
     except Exception as e:
@@ -782,8 +782,8 @@ if __name__ == '__main__':
                                   capture_output=True, text=True, timeout=5)
             if result.returncode == 0 and result.stdout:
                 return result.stdout
-        except:
-            pass
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass  # lsof not available or timed out
         
         try:
             # Try ss
@@ -793,8 +793,8 @@ if __name__ == '__main__':
                 for line in result.stdout.split('\n'):
                     if f':{port}' in line:
                         return line
-        except:
-            pass
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass  # ss not available or timed out
         
         try:
             # Try netstat
@@ -804,8 +804,8 @@ if __name__ == '__main__':
                 for line in result.stdout.split('\n'):
                     if f':{port}' in line:
                         return line
-        except:
-            pass
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass  # netstat not available or timed out
         
         return None
     

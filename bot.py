@@ -3976,7 +3976,8 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
         user = await client.fetch_user(payload.user_id)
         if user.bot:
             return
-    except:
+    except discord.DiscordException as e:
+        logger.warning(f"Could not fetch user {payload.user_id}: {e}")
         return
     
     # Track reaction quest progress
@@ -4045,5 +4046,5 @@ if __name__ == "__main__":
         if not client.is_closed():
             try:
                 asyncio.run(graceful_shutdown())
-            except:
-                pass
+            except Exception as e:
+                logger.error(f"Error during final shutdown: {e}")
