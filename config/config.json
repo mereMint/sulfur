@@ -29,7 +29,7 @@
     "emoji_analysis_on_startup": true
   },
   "api": {
-    "provider": "openai",
+    "provider": "gemini",
     "timeout": 30,
     "vision_model": "gemini-2.0-flash-exp",
     "gemini": {
