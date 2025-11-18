@@ -2837,22 +2837,40 @@ class ShopBuyView(discord.ui.View):
         view = FeatureSelectView(self.member, self.config)
         embed = discord.Embed(
             title="✨ Feature Unlocks",
-            description="Wähle ein Feature zum Kaufen:",
+            description="Schalte spezielle Features frei!",
             color=discord.Color.green()
         )
         
         currency = self.config['modules']['economy']['currency_symbol']
         features = self.config['modules']['economy']['shop']['features']
         
+        # Define detailed feature descriptions
+        feature_details = {
+            'dm_access': {
+                'name': '💬 DM Access',
+                'desc': 'Der Bot kann dir private Nachrichten senden.'
+            },
+            'games_access': {
+                'name': '🎮 Games Access',
+                'desc': 'Spiele Blackjack, Roulette, Mines und Russian Roulette!'
+            },
+            'werwolf_special_roles': {
+                'name': '🐺 Werwolf Special Roles',
+                'desc': 'Schalte spezielle Rollen für Werwolf frei:\n**Seherin** - Erfahre jede Nacht die Rolle eines Spielers\n**Hexe** - Heile oder vergifte Spieler\n**Dönerstopfer** - Mute Spieler nachts'
+            },
+            'custom_status': {
+                'name': '✨ Custom Status',
+                'desc': 'Setze einen benutzerdefinierten Status im Server.'
+            }
+        }
+        
         for feature, price in features.items():
-            name = {
-                'dm_access': 'DM Access',
-                'games_access': 'Games Access',
-                'werwolf_special_roles': 'Werwolf Special Roles',
-                'custom_status': 'Custom Status'
-            }.get(feature, feature)
-            
-            embed.add_field(name=name, value=f"{price} {currency}", inline=False)
+            details = feature_details.get(feature, {'name': feature, 'desc': 'Feature unlock'})
+            embed.add_field(
+                name=f"{details['name']} - {price} {currency}",
+                value=details['desc'],
+                inline=False
+            )
         
         await interaction.edit_original_response(embed=embed, view=view)
 
@@ -2901,21 +2919,33 @@ class FeatureSelectView(discord.ui.View):
         # Create select menu for features
         options = []
         features = config['modules']['economy']['shop']['features']
-        feature_names = {
-            'dm_access': 'DM Access',
-            'games_access': 'Games Access',
-            'werwolf_special_roles': 'Werwolf Special Roles',
-            'custom_status': 'Custom Status'
+        feature_info = {
+            'dm_access': {
+                'name': 'DM Access',
+                'description': 'Erlaube dem Bot, dir DMs zu senden'
+            },
+            'games_access': {
+                'name': 'Games Access',
+                'description': 'Spiele Blackjack, Roulette & mehr'
+            },
+            'werwolf_special_roles': {
+                'name': 'Werwolf Special Roles',
+                'description': 'Schalte Seherin, Hexe & Dönerstopfer frei'
+            },
+            'custom_status': {
+                'name': 'Custom Status',
+                'description': 'Setze einen benutzerdefinierten Status'
+            }
         }
         
         for feature, price in features.items():
-            name = feature_names.get(feature, feature)
+            info = feature_info.get(feature, {'name': feature, 'description': ''})
             currency = config['modules']['economy']['currency_symbol']
             options.append(
                 discord.SelectOption(
-                    label=name,
+                    label=info['name'],
                     value=feature,
-                    description=f"Preis: {price} {currency}"
+                    description=f"{price} {currency} - {info['description']}"[:100]  # Discord has a 100 char limit
                 )
             )
         
@@ -4644,6 +4674,10 @@ async def on_message(message):
         print(f"[AI] Getting relationship summary...")
         relationship_summary = await get_relationship_summary(message.author.id)
         dynamic_system_prompt = config['bot']['system_prompt']
+        
+        # Add language reminder to prevent language slips
+        dynamic_system_prompt += "\n\nREMINDER: Antworte IMMER auf Deutsch! Bleibe in der deutschen Sprache!"
+        
         if relationship_summary:
             logger.debug(f"[AI] Adding relationship context to system prompt")
             print(f"[AI] Relationship summary found, adding to prompt")
