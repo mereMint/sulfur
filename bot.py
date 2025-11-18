@@ -37,6 +37,7 @@ from discord import app_commands
 from discord.ext import tasks
 from modules.werwolf import WerwolfGame
 from modules.api_helpers import get_chat_response, get_relationship_summary_from_api, get_wrapped_summary_from_api, get_game_details_from_api
+from modules import api_helpers
 from modules.bot_enhancements import (
     handle_image_attachment,
     handle_unknown_emojis_in_message,
@@ -4505,6 +4506,307 @@ class RussianRouletteView(discord.ui.View):
             del active_rr_games[self.user_id]
         
         self.stop()
+
+
+# --- Detective Game ---
+from modules import detective_game
+
+# Active detective games
+active_detective_games = {}
+
+
+class DetectiveGameView(discord.ui.View):
+    """UI view for Detective/Murder Mystery game."""
+    
+    def __init__(self, case: detective_game.MurderCase, user_id: int):
+        super().__init__(timeout=300)  # 5 minutes to solve
+        self.case = case
+        self.user_id = user_id
+        self.investigated_suspects = set()
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht dein Fall!", ephemeral=True)
+            return False
+        return True
+    
+    def create_case_embed(self):
+        """Create the main case embed."""
+        embed = discord.Embed(
+            title=f"🔍 {self.case.case_title}",
+            description=self.case.case_description,
+            color=discord.Color.dark_blue()
+        )
+        
+        embed.add_field(
+            name="📍 Tatort",
+            value=self.case.location,
+            inline=False
+        )
+        
+        embed.add_field(
+            name="💀 Opfer",
+            value=self.case.victim,
+            inline=False
+        )
+        
+        # Evidence
+        if self.case.evidence:
+            evidence_text = "\n".join(self.case.evidence)
+            embed.add_field(
+                name="🔬 Beweise",
+                value=evidence_text,
+                inline=False
+            )
+        
+        # Suspects list
+        suspects_list = "\n".join([
+            f"{i+1}. **{s['name']}** - {s['occupation']}"
+            for i, s in enumerate(self.case.suspects)
+        ])
+        embed.add_field(
+            name="👥 Verdächtige",
+            value=suspects_list,
+            inline=False
+        )
+        
+        embed.set_footer(text="🔍 Untersuche die Verdächtigen und wähle dann den Mörder aus!")
+        
+        return embed
+    
+    def create_suspect_embed(self, suspect_index: int):
+        """Create embed showing suspect details."""
+        suspect = self.case.get_suspect(suspect_index)
+        if not suspect:
+            return None
+        
+        embed = discord.Embed(
+            title=f"🔍 Untersuchung: {suspect['name']}",
+            color=discord.Color.blue()
+        )
+        
+        embed.add_field(name="💼 Beruf", value=suspect['occupation'], inline=True)
+        embed.add_field(name="⏰ Alibi", value=suspect['alibi'], inline=True)
+        embed.add_field(name="❗ Motiv", value=suspect['motive'], inline=False)
+        embed.add_field(
+            name="🔎 Verdächtige Details",
+            value=suspect['suspicious_details'],
+            inline=False
+        )
+        
+        embed.set_footer(text="Zurück zum Fall, um weitere Verdächtige zu untersuchen!")
+        
+        return embed
+    
+    @discord.ui.button(label="🔍 Verdächtige 1", style=discord.ButtonStyle.secondary, row=0)
+    async def suspect1_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._investigate_suspect(interaction, 0)
+    
+    @discord.ui.button(label="🔍 Verdächtige 2", style=discord.ButtonStyle.secondary, row=0)
+    async def suspect2_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._investigate_suspect(interaction, 1)
+    
+    @discord.ui.button(label="🔍 Verdächtige 3", style=discord.ButtonStyle.secondary, row=0)
+    async def suspect3_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._investigate_suspect(interaction, 2)
+    
+    @discord.ui.button(label="🔍 Verdächtige 4", style=discord.ButtonStyle.secondary, row=0)
+    async def suspect4_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._investigate_suspect(interaction, 3)
+    
+    async def _investigate_suspect(self, interaction: discord.Interaction, suspect_index: int):
+        """Show details about a specific suspect."""
+        await interaction.response.defer()
+        
+        self.investigated_suspects.add(suspect_index)
+        embed = self.create_suspect_embed(suspect_index)
+        
+        # Create a back button view
+        back_view = DetectiveBackView(self)
+        await interaction.followup.send(embed=embed, view=back_view, ephemeral=True)
+    
+    @discord.ui.button(label="👈 Zurück zum Fall", style=discord.ButtonStyle.primary, row=1)
+    async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Return to main case view."""
+        await interaction.response.defer()
+        embed = self.create_case_embed()
+        await interaction.edit_original_response(embed=embed, view=self)
+    
+    @discord.ui.button(label="⚖️ Mörder auswählen", style=discord.ButtonStyle.danger, row=1)
+    async def accuse_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Open suspect selection for accusation."""
+        await interaction.response.defer()
+        
+        # Create accusation view
+        accuse_view = DetectiveAccusationView(self.case, self.user_id)
+        
+        embed = discord.Embed(
+            title="⚖️ Wer ist der Mörder?",
+            description="Wähle den Verdächtigen aus, den du für schuldig hältst!",
+            color=discord.Color.red()
+        )
+        
+        suspects_list = "\n".join([
+            f"{i+1}. **{s['name']}** - {s['occupation']}"
+            for i, s in enumerate(self.case.suspects)
+        ])
+        embed.add_field(
+            name="Verdächtige",
+            value=suspects_list,
+            inline=False
+        )
+        
+        await interaction.edit_original_response(embed=embed, view=accuse_view)
+
+
+class DetectiveBackView(discord.ui.View):
+    """Simple view with just a back button."""
+    
+    def __init__(self, main_view: DetectiveGameView):
+        super().__init__(timeout=60)
+        self.main_view = main_view
+    
+    @discord.ui.button(label="👈 Zurück", style=discord.ButtonStyle.secondary)
+    async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        # This just dismisses the suspect detail message
+        await interaction.delete_original_response()
+
+
+class DetectiveAccusationView(discord.ui.View):
+    """View for selecting the murderer."""
+    
+    def __init__(self, case: detective_game.MurderCase, user_id: int):
+        super().__init__(timeout=60)
+        self.case = case
+        self.user_id = user_id
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht dein Fall!", ephemeral=True)
+            return False
+        return True
+    
+    @discord.ui.button(label="1", style=discord.ButtonStyle.danger, row=0)
+    async def suspect1_accuse(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._make_accusation(interaction, 0)
+    
+    @discord.ui.button(label="2", style=discord.ButtonStyle.danger, row=0)
+    async def suspect2_accuse(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._make_accusation(interaction, 1)
+    
+    @discord.ui.button(label="3", style=discord.ButtonStyle.danger, row=0)
+    async def suspect3_accuse(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._make_accusation(interaction, 2)
+    
+    @discord.ui.button(label="4", style=discord.ButtonStyle.danger, row=0)
+    async def suspect4_accuse(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._make_accusation(interaction, 3)
+    
+    async def _make_accusation(self, interaction: discord.Interaction, suspect_index: int):
+        """Process the player's accusation."""
+        await interaction.response.defer()
+        
+        suspect = self.case.get_suspect(suspect_index)
+        is_correct = self.case.is_correct_murderer(suspect_index)
+        actual_murderer = self.case.get_suspect(self.case.murderer_index)
+        
+        currency = config['modules']['economy']['currency_symbol']
+        
+        if is_correct:
+            # Player won!
+            reward = config['modules']['economy']['games']['detective']['reward_correct']
+            
+            await detective_game.grant_reward(
+                db_helpers,
+                interaction.user.id,
+                interaction.user.display_name,
+                reward,
+                config
+            )
+            
+            await detective_game.log_game_result(
+                db_helpers,
+                interaction.user.id,
+                interaction.user.display_name,
+                True
+            )
+            
+            embed = discord.Embed(
+                title="✅ Fall gelöst!",
+                description=f"**{suspect['name']}** war tatsächlich der Mörder! Du hast den Fall brillant gelöst!",
+                color=discord.Color.green()
+            )
+            embed.add_field(
+                name="💰 Belohnung",
+                value=f"+{reward} {currency}",
+                inline=False
+            )
+            embed.set_footer(text="Gut gemacht, Detektiv!")
+        else:
+            # Player lost
+            await detective_game.log_game_result(
+                db_helpers,
+                interaction.user.id,
+                interaction.user.display_name,
+                False
+            )
+            
+            embed = discord.Embed(
+                title="❌ Falsche Anschuldigung!",
+                description=f"**{suspect['name']}** war nicht der Mörder...\n\nDer wahre Mörder war **{actual_murderer['name']}**!",
+                color=discord.Color.red()
+            )
+            embed.set_footer(text="Beim nächsten Mal hast du mehr Glück!")
+        
+        # Clean up active game
+        if interaction.user.id in active_detective_games:
+            del active_detective_games[interaction.user.id]
+        
+        await interaction.edit_original_response(embed=embed, view=None)
+        self.stop()
+
+
+@tree.command(name="detective", description="Löse einen Mordfall!")
+async def detective(interaction: discord.Interaction):
+    """Start a detective murder mystery game."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        user_id = interaction.user.id
+        
+        # Check if user already has an active game
+        if user_id in active_detective_games:
+            await interaction.followup.send("Du hast bereits einen aktiven Fall!", ephemeral=True)
+            return
+        
+        # Generate a murder case
+        case = await detective_game.generate_murder_case(
+            api_helpers,
+            config,
+            GEMINI_API_KEY,
+            OPENAI_API_KEY
+        )
+        
+        # Create game view
+        view = DetectiveGameView(case, user_id)
+        embed = view.create_case_embed()
+        
+        # Store active game
+        active_detective_games[user_id] = {
+            'case': case,
+            'view': view,
+            'started_at': datetime.now(timezone.utc)
+        }
+        
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error starting detective game: {e}", exc_info=True)
+        await interaction.followup.send(
+            f"❌ Fehler beim Starten des Detektiv-Spiels: {str(e)}",
+            ephemeral=True
+        )
 
 
 @tree.command(name="rr", description="Spiele Russian Roulette!")

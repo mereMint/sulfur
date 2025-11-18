@@ -150,6 +150,10 @@
           "max_bet": 500,
           "grid_size": 5,
           "mine_count": 5
+        },
+        "detective": {
+          "reward_correct": 500,
+          "reward_wrong": 0
         }
       },
       "quests": {
