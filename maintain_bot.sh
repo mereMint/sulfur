@@ -67,6 +67,12 @@ CRASH_COUNT=0
 QUICK_CRASH_SECONDS=10
 CRASH_THRESHOLD=5
 
+# Web dashboard restart tracking
+WEB_RESTART_COUNT=0
+WEB_RESTART_THRESHOLD=3
+WEB_RESTART_COOLDOWN=30  # seconds between restart attempts
+LAST_WEB_RESTART=0
+
 # Detect environment
 if [ -n "$TERMUX_VERSION" ]; then
     IS_TERMUX=true
@@ -368,6 +374,13 @@ start_web_dashboard() {
         python_exe="venv/bin/python"
     fi
     
+    # Quick validation - check if Flask is importable
+    if ! "$python_exe" -c "import flask, flask_socketio" 2>/dev/null; then
+        log_error "Web Dashboard dependencies (Flask/Flask-SocketIO) not installed in Python environment"
+        log_warning "Run: $python_exe -m pip install -r requirements.txt"
+        return 1
+    fi
+    
     # Start web dashboard in background
     nohup "$python_exe" -u web_dashboard.py >> "$WEB_LOG" 2>&1 &
     local web_pid=$!
@@ -384,11 +397,18 @@ start_web_dashboard() {
         if curl -sf --max-time 2 -I http://127.0.0.1:5000 >/dev/null 2>&1 \
            || nc -z 127.0.0.1 5000 2>/dev/null; then
             log_success "Web Dashboard running at http://localhost:5000 (PID: $web_pid)"
+            WEB_RESTART_COUNT=0  # Reset counter on successful start
             return 0
         fi
         
         if ! kill -0 "$web_pid" 2>/dev/null; then
-            log_error "Web Dashboard failed to start"
+            log_error "Web Dashboard process died during startup"
+            log_warning "Check $WEB_LOG for errors"
+            # Show last few lines of the log for immediate debugging
+            if [ -f "$WEB_LOG" ]; then
+                log_warning "Last 10 lines from web dashboard log:"
+                tail -n 10 "$WEB_LOG" | sed 's/^/  | /' | tee -a "$MAIN_LOG"
+            fi
             rm -f "$WEB_PID_FILE"
             return 1
         fi
@@ -396,7 +416,8 @@ start_web_dashboard() {
         retries=$((retries + 1))
     done
     
-    log_warning "Web Dashboard start timeout"
+    log_warning "Web Dashboard start timeout - process running but not responding on port 5000"
+    log_warning "Check $WEB_LOG for details"
     return 1
 }
 
@@ -648,12 +669,47 @@ while true; do
             fi
         fi
         
-        # Check web dashboard
+        # Check web dashboard with cooldown and retry limit
         if [ -f "$WEB_PID_FILE" ]; then
             WEB_PID=$(cat "$WEB_PID_FILE")
             if ! kill -0 "$WEB_PID" 2>/dev/null; then
-                log_warning "Web Dashboard stopped, restarting..."
-                start_web_dashboard
+                # Web dashboard has stopped
+                local current_time=$(date +%s)
+                local time_since_last_restart=$((current_time - LAST_WEB_RESTART))
+                
+                # Check if we've hit the restart threshold
+                if [ $WEB_RESTART_COUNT -ge $WEB_RESTART_THRESHOLD ]; then
+                    if [ $time_since_last_restart -lt 300 ]; then
+                        # Multiple restarts in 5 minutes - something is wrong
+                        log_error "Web Dashboard has crashed $WEB_RESTART_COUNT times. Giving up on auto-restart."
+                        log_warning "Please check $WEB_LOG for errors and fix the issue manually."
+                        log_warning "You can try restarting it with: ./maintain_bot.sh"
+                        rm -f "$WEB_PID_FILE"
+                        WEB_RESTART_COUNT=$((WEB_RESTART_COUNT + 1))  # Increment to prevent further attempts
+                    else
+                        # It's been a while, reset the counter and try again
+                        log_warning "Resetting web dashboard restart counter (last restart was ${time_since_last_restart}s ago)"
+                        WEB_RESTART_COUNT=0
+                    fi
+                fi
+                
+                # Only try to restart if under threshold and cooldown has passed
+                if [ $WEB_RESTART_COUNT -lt $WEB_RESTART_THRESHOLD ]; then
+                    if [ $time_since_last_restart -ge $WEB_RESTART_COOLDOWN ]; then
+                        log_warning "Web Dashboard stopped, restarting... (attempt $((WEB_RESTART_COUNT + 1))/$WEB_RESTART_THRESHOLD)"
+                        LAST_WEB_RESTART=$current_time
+                        WEB_RESTART_COUNT=$((WEB_RESTART_COUNT + 1))
+                        
+                        if start_web_dashboard; then
+                            log_success "Web Dashboard restarted successfully"
+                        else
+                            log_error "Failed to restart Web Dashboard"
+                        fi
+                    else
+                        local wait_time=$((WEB_RESTART_COOLDOWN - time_since_last_restart))
+                        log_warning "Web Dashboard stopped, but waiting ${wait_time}s before retry (cooldown period)"
+                    fi
+                fi
             fi
         fi
     done
