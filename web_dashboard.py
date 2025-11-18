@@ -810,9 +810,11 @@ if __name__ == '__main__':
         return None
     
     def cleanup_port(port):
-        """Kill processes using the specified port."""
+        """Kill processes using the specified port (excluding ourselves)."""
         import subprocess
+        import os
         killed_any = False
+        our_pid = os.getpid()
         
         # Try lsof
         try:
@@ -820,33 +822,62 @@ if __name__ == '__main__':
                                   capture_output=True, text=True, timeout=5)
             if result.returncode == 0 and result.stdout.strip():
                 pids = result.stdout.strip().split('\n')
-                for pid in pids:
+                for pid_str in pids:
                     try:
-                        subprocess.run(['kill', '-9', pid], timeout=2)
+                        pid = int(pid_str.strip())
+                        # Don't kill ourselves!
+                        if pid == our_pid:
+                            print(f"[Web Dashboard] Skipping our own PID {pid}")
+                            continue
+                        subprocess.run(['kill', '-9', str(pid)], timeout=2)
                         print(f"[Web Dashboard] Killed process {pid} using port {port}")
                         killed_any = True
-                    except:
+                    except (ValueError, subprocess.TimeoutExpired):
                         pass
         except:
             pass
         
-        # Try fuser as fallback
+        # Try fuser as fallback (only if we didn't kill anything with lsof)
         if not killed_any:
             try:
-                subprocess.run(['fuser', '-k', f'{port}/tcp'], timeout=5, capture_output=True)
-                print(f"[Web Dashboard] Killed processes using port {port} via fuser")
-                killed_any = True
+                # fuser with -k kills all processes, so use it carefully
+                result = subprocess.run(['fuser', f'{port}/tcp'], 
+                                      capture_output=True, text=True, timeout=5)
+                if result.returncode == 0 and result.stdout.strip():
+                    # fuser found processes, kill them manually to avoid killing ourselves
+                    pids = result.stdout.strip().split()
+                    for pid_str in pids:
+                        try:
+                            pid = int(pid_str.strip())
+                            if pid == our_pid:
+                                print(f"[Web Dashboard] Skipping our own PID {pid}")
+                                continue
+                            subprocess.run(['kill', '-9', str(pid)], timeout=2)
+                            print(f"[Web Dashboard] Killed process {pid} using port {port}")
+                            killed_any = True
+                        except:
+                            pass
             except:
                 pass
         
         if killed_any:
-            time.sleep(2)  # Give OS time to release the port
+            print(f"[Web Dashboard] Waiting 3 seconds for port to be released...")
+            time.sleep(3)  # Give OS more time to release the port
         
         return killed_any
     
     # Retry logic with exponential backoff for port binding issues
-    max_retries = 5
-    retry_delay = 2  # Initial delay in seconds
+    # Termux needs more retries due to slower socket cleanup
+    max_retries = 10  # Increased from 5 for Termux compatibility
+    retry_delay = 1  # Start with 1 second (faster initial retry)
+    
+    # PROACTIVE: Try to clean up port 5000 before we even start
+    # This prevents issues with stale processes from previous crashes
+    print("[Web Dashboard] Checking for stale processes on port 5000...")
+    if cleanup_port(5000):
+        print("[Web Dashboard] Cleaned up stale processes, proceeding with startup...")
+    else:
+        print("[Web Dashboard] Port 5000 appears clean, proceeding with startup...")
     
     for attempt in range(max_retries):
         try:
@@ -854,7 +885,9 @@ if __name__ == '__main__':
             if attempt > 0:
                 print(f"[Web Dashboard] Retry attempt {attempt + 1}/{max_retries} after {retry_delay}s delay...")
                 time.sleep(retry_delay)
-                retry_delay *= 2  # Exponential backoff
+                
+                # Exponential backoff, but cap at 8 seconds
+                retry_delay = min(retry_delay * 1.5, 8)
             
             print("[Web Dashboard] Starting Flask-SocketIO server...")
             

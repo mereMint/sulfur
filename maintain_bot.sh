@@ -1100,6 +1100,12 @@ while true; do
                             tail -n 20 "$WEB_LOG" | grep -i -E "error|exception|traceback|failed|port.*in use" | tail -n 5 | sed 's/^/  | /' | tee -a "$MAIN_LOG"
                         fi
                         
+                        # CRITICAL: Add delay before restart to let port fully release
+                        # This is especially important on Termux where socket cleanup is slower
+                        local restart_delay=5
+                        log_info "Waiting ${restart_delay}s for port cleanup before restart..."
+                        sleep $restart_delay
+                        
                         LAST_WEB_RESTART=$current_time
                         WEB_RESTART_COUNT=$((WEB_RESTART_COUNT + 1))
                         
