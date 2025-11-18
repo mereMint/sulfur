@@ -37,9 +37,17 @@ function Invoke-Cleanup {
         if(-not $script:botProcess.HasExited){
             Write-Host "Stopping bot process (PID: $($script:botProcess.Id))..." -ForegroundColor Yellow
             try {
-                $script:botProcess.Kill()
-                $script:botProcess.WaitForExit(5000)
+                # Try graceful shutdown first (SIGTERM equivalent)
+                $script:botProcess.Kill($false)  # Don't force entire process tree
+                if(-not $script:botProcess.WaitForExit(5000)){
+                    # If still running after 5 seconds, force kill
+                    Write-Host "Bot didn't stop gracefully, force killing..." -ForegroundColor Yellow
+                    $script:botProcess.Kill($true)  # Force entire process tree
+                    $script:botProcess.WaitForExit(2000)
+                }
             } catch {
+                # Fallback to Stop-Process
+                Write-Host "Using Stop-Process as fallback..." -ForegroundColor Yellow
                 Stop-Process -Id $script:botProcess.Id -Force -ErrorAction SilentlyContinue
             }
         }
@@ -47,9 +55,57 @@ function Invoke-Cleanup {
         $script:botProcess = $null
     }
     
+    # Also search for any bot.py processes that might have escaped
+    $botProcesses = Get-Process -Name python* -ErrorAction SilentlyContinue | Where-Object {
+        try {
+            $cmdLine = (Get-CimInstance Win32_Process -Filter "ProcessId = $($_.Id)" -ErrorAction SilentlyContinue).CommandLine
+            $cmdLine -and ($cmdLine -like "*bot.py*")
+        } catch {
+            $false
+        }
+    }
+    
+    if($botProcesses){
+        Write-Host "Found $($botProcesses.Count) orphaned bot process(es) to kill..." -ForegroundColor Yellow
+        $botProcesses | ForEach-Object {
+            try {
+                Write-Host "  Killing orphaned bot PID: $($_.Id)" -ForegroundColor Yellow
+                $_.Kill()
+                $_.WaitForExit(2000)
+            } catch {
+                Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+    
     # Stop web dashboard
     if($script:webDashboardJob){
         Write-Host 'Stopping Web Dashboard...' -ForegroundColor Yellow
+        
+        # First, try to kill any Python processes running web_dashboard.py
+        $webProcesses = Get-Process -Name python* -ErrorAction SilentlyContinue | Where-Object {
+            try {
+                $cmdLine = (Get-CimInstance Win32_Process -Filter "ProcessId = $($_.Id)" -ErrorAction SilentlyContinue).CommandLine
+                $cmdLine -and ($cmdLine -like "*web_dashboard.py*")
+            } catch {
+                $false
+            }
+        }
+        
+        if($webProcesses){
+            Write-Host "Found $($webProcesses.Count) web dashboard process(es) to kill..." -ForegroundColor Yellow
+            $webProcesses | ForEach-Object {
+                try {
+                    Write-Host "  Killing web dashboard PID: $($_.Id)" -ForegroundColor Yellow
+                    $_.Kill()
+                    $_.WaitForExit(3000)
+                } catch {
+                    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
+        
+        # Then stop the PowerShell job
         Stop-Job $script:webDashboardJob -ErrorAction SilentlyContinue
         Remove-Job $script:webDashboardJob -Force -ErrorAction SilentlyContinue
         $script:webDashboardJob = $null
@@ -77,20 +133,37 @@ function Invoke-Cleanup {
 }
 
 # Register cleanup handler for Ctrl+C and script termination
+# Only trap terminating errors, not all errors
 trap {
-    Write-Host 'Script terminated. Running cleanup...' -ForegroundColor Red
-    if ($_) {
-        try {
-            Write-Host ("Error: {0}" -f ($_.Exception.Message)) -ForegroundColor Red
-            if ($_.Exception) { Write-Host ($_.Exception.ToString()) -ForegroundColor DarkRed }
-            if ($_.ScriptStackTrace) { Write-Host '--- StackTrace ---' -ForegroundColor DarkYellow; Write-Host $_.ScriptStackTrace }
-        } catch {}
+    # Check if this is actually a terminating error
+    if ($_.Exception -is [System.Management.Automation.PipelineStoppedException]) {
+        # This is Ctrl+C or similar - run cleanup
+        Write-Host 'Script interrupted. Running cleanup...' -ForegroundColor Red
+        Invoke-Cleanup
+        Update-BotStatus 'Shutdown'
+        Write-Host 'Cleanup complete.' -ForegroundColor Green
+        Stop-Transcript
+        exit 1
     }
-    Invoke-Cleanup
-    Update-BotStatus 'Shutdown'
-    Write-Host 'Cleanup complete.' -ForegroundColor Green
-    Stop-Transcript
-    exit 1
+    elseif ($Error[0].CategoryInfo.Category -eq 'OperationStopped') {
+        # Pipeline stopped - run cleanup
+        Write-Host 'Script stopped. Running cleanup...' -ForegroundColor Red
+        Invoke-Cleanup
+        Update-BotStatus 'Shutdown'
+        Write-Host 'Cleanup complete.' -ForegroundColor Green
+        Stop-Transcript
+        exit 1
+    }
+    else {
+        # Non-terminating error - just log it and continue
+        if ($_) {
+            try {
+                Write-Host ("Non-terminating error: {0}" -f ($_.Exception.Message)) -ForegroundColor Yellow
+            } catch {}
+        }
+        # Don't call cleanup - let the script continue
+        continue
+    }
 }
 
 # Also register an exit handler

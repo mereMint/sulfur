@@ -1,0 +1,68 @@
+{
+  "emojis": {
+    "Dichtung": {
+      "description": "a person that is thinking",
+      "usage": "when pondering or considering something"
+    },
+    "jigglejiggle": {
+      "description": "a jigglypuff that is cursed",
+      "usage": "for creepy or unsettling situations"
+    },
+    "dono": {
+      "description": "a donowall emote",
+      "usage": "when blocking or rejecting something"
+    },
+    "o7": {
+      "description": "a saluting emoji",
+      "usage": "to show respect or acknowledge something"
+    },
+    "o7D": {
+      "description": "an emoji that is flabbergasted",
+      "usage": "when shocked or surprised"
+    },
+    "YESS": {
+      "description": "a guy that does a thumbs up",
+      "usage": "to approve or agree with something"
+    },
+    "GRRR": {
+      "description": "an emoji that is mad",
+      "usage": "when angry or frustrated"
+    },
+    "HELP": {
+      "description": "an emoji that says WTF",
+      "usage": "when confused or bewildered"
+    },
+    "WHYY": {
+      "description": "an emoji that says bruh or why",
+      "usage": "questioning something or expressing disbelief"
+    },
+    "noway": {
+      "description": "a dude that says no way that's crazy",
+      "usage": "when something is unbelievable or shocking"
+    },
+    "erm": {
+      "description": "a dog that corrects someone",
+      "usage": "when correcting or pointing out a mistake"
+    },
+    "gege": {
+      "description": "a dude that smiles weird",
+      "usage": "for awkward or creepy smiling"
+    },
+    "xdx": {
+      "description": "a cat that is laughing annoyingly",
+      "usage": "when laughing at someone mockingly"
+    },
+    "Sui": {
+      "description": "a pepe that is hanging himself",
+      "usage": "when something is terrible or embarrassing (dark humor)"
+    },
+    "KMS": {
+      "description": "a smile that is smiling with dead eyes and pointing a gun at himself",
+      "usage": "for expressing extreme distress or cringe (dark humor)"
+    },
+    "tf": {
+      "description": "an emoji that throws bleach into his eyes",
+      "usage": "when seeing something disturbing or unwanted"
+    }
+  }
+}

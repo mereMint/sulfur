@@ -7,12 +7,33 @@ import discord
 import asyncio
 import base64
 import aiohttp
+import json
+import os
 from modules.db_helpers import (
     save_emoji_description, 
     get_all_emoji_descriptions,
     get_emoji_description
 )
 from modules.api_helpers import get_emoji_description as analyze_emoji
+
+
+def load_server_emojis():
+    """
+    Loads pre-configured server emojis from config/server_emojis.json.
+    Returns a dictionary of emoji definitions.
+    """
+    config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "server_emojis.json")
+    
+    try:
+        if os.path.exists(config_path):
+            with open(config_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        else:
+            print(f"[Emoji System] Warning: {config_path} not found")
+            return {"emojis": {}}
+    except Exception as e:
+        print(f"[Emoji System] Error loading server emojis: {e}")
+        return {"emojis": {}}
 
 
 async def analyze_application_emojis(client, config, gemini_key, openai_key):
@@ -201,19 +222,38 @@ async def analyze_server_emojis(guild, config, gemini_key, openai_key):
 async def get_emoji_context_for_ai():
     """
     Retrieves all emoji descriptions formatted for AI prompts.
+    Combines pre-configured emojis from server_emojis.json with dynamically analyzed ones.
     Returns a string that can be included in the system prompt.
     """
-    emojis = await get_all_emoji_descriptions()
+    # Load pre-configured server emojis
+    server_emoji_config = load_server_emojis()
+    configured_emojis = server_emoji_config.get('emojis', {})
     
-    if not emojis:
+    # Get dynamically analyzed emojis from database
+    db_emojis = await get_all_emoji_descriptions()
+    
+    if not configured_emojis and not db_emojis:
         return ""
     
     emoji_text = "\n\n**Available Custom Emojis:**\n"
     emoji_text += "You can use these custom emojis in your responses:\n\n"
     
-    for emoji in emojis:
-        emoji_text += f"- `<:{emoji['emoji_name']}:{emoji['emoji_id']}>` - {emoji['description']}\n"
-        emoji_text += f"  Usage: {emoji['usage_context']}\n"
+    # Add configured emojis (from server_emojis.json)
+    if configured_emojis:
+        for emoji_name, emoji_data in configured_emojis.items():
+            description = emoji_data.get('description', 'Custom emoji')
+            usage = emoji_data.get('usage', 'General use')
+            emoji_text += f"- `:{emoji_name}:` - {description}\n"
+            emoji_text += f"  Usage: {usage}\n"
+    
+    # Add dynamically analyzed emojis (from database)
+    if db_emojis:
+        for emoji in db_emojis:
+            # Skip if this emoji was already added from config (by name)
+            if emoji['emoji_name'] in configured_emojis:
+                continue
+            emoji_text += f"- `<:{emoji['emoji_name']}:{emoji['emoji_id']}>` - {emoji['description']}\n"
+            emoji_text += f"  Usage: {emoji['usage_context']}\n"
     
     emoji_text += "\nUse these emojis naturally in your responses when appropriate!"
     
