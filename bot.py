@@ -1733,29 +1733,6 @@ async def voice_setup(interaction: discord.Interaction):
     except discord.Forbidden:
         await interaction.followup.send("Error: The bot lacks the necessary permissions (Manage Channels) to perform this setup.")
 
-@voice_group.command(name="clearall", description="[Admin-Gefahr!] Löscht ALLE Sprachkanäle auf dem Server.")
-@app_commands.default_permissions(administrator=True)
-@app_commands.check(is_admin_or_authorised)
-async def voice_clearall(interaction: discord.Interaction):
-    """Deletes ALL voice channels on the server, regardless of DB state."""
-    await interaction.response.defer(ephemeral=True)
-    
-    guild = interaction.guild
-    voice_channels_to_delete = guild.voice_channels
-    if not voice_channels_to_delete:
-        await interaction.followup.send("Keine Sprachkanäle zum Löschen gefunden.")
-        return
-
-    deleted_count = 0
-    for channel in voice_channels_to_delete:
-        try:
-            await channel.delete(reason="Admin Massenlöschung")
-            deleted_count += 1
-        except Exception as e:
-            print(f"Konnte Channel {channel.name} nicht löschen: {e}")
-    
-    await interaction.followup.send(f"{deleted_count} Sprachkanäle wurden erfolgreich gelöscht.")
-
 # --- NEW: Voice Channel Config Commands ---
 config_group = app_commands.Group(name="config", parent=voice_group, description="Konfiguriere deinen persönlichen Sprachkanal.")
 
@@ -2155,6 +2132,60 @@ class AdminGroup(app_commands.Group):
             dashboard_url = "http://localhost:5000"
             message = f"Konnte die lokale IP-Adresse nicht automatisch ermitteln. Versuche, das Dashboard über den Host-PC hier aufzurufen:\n**{dashboard_url}**\n\n*Fehler: {e}*"
             await interaction.followup.send(message)
+
+    @app_commands.command(name="killvoice", description="[Admin-Gefahr!] Löscht ALLE Sprachkanäle auf dem Server.")
+    async def killvoice(self, interaction: discord.Interaction):
+        """Deletes ALL voice channels on the server, regardless of DB state."""
+        await interaction.response.defer(ephemeral=True)
+        
+        guild = interaction.guild
+        voice_channels_to_delete = guild.voice_channels
+        if not voice_channels_to_delete:
+            await interaction.followup.send("Keine Sprachkanäle zum Löschen gefunden.")
+            return
+
+        deleted_count = 0
+        for channel in voice_channels_to_delete:
+            try:
+                await channel.delete(reason="Admin Massenlöschung")
+                deleted_count += 1
+            except Exception as e:
+                print(f"Konnte Channel {channel.name} nicht löschen: {e}")
+        
+        await interaction.followup.send(f"{deleted_count} Sprachkanäle wurden erfolgreich gelöscht.")
+
+    @app_commands.command(name="addcurrency", description="[Test] Füge einem Benutzer Währung hinzu.")
+    @app_commands.describe(
+        user="Der Benutzer, der Währung erhalten soll",
+        amount="Menge der Währung (kann negativ sein)"
+    )
+    async def addcurrency(self, interaction: discord.Interaction, user: discord.Member, amount: int):
+        """Adds currency to a user's balance for testing purposes."""
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+            await db_helpers.add_balance(
+                user.id,
+                user.display_name,
+                amount,
+                config,
+                stat_period
+            )
+            
+            new_balance = await db_helpers.get_balance(user.id)
+            currency = config['modules']['economy']['currency_symbol']
+            
+            await interaction.followup.send(
+                f"✅ {user.mention} erhielt **{amount} {currency}**\n"
+                f"Neues Guthaben: **{new_balance} {currency}**"
+            )
+            
+            logger.info(f"Admin {interaction.user.name} added {amount} currency to {user.name}")
+            
+        except Exception as e:
+            logger.error(f"Error in addcurrency command: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Fehler beim Hinzufügen von Währung: {e}")
 
 
 # --- NEW: View for the AI Dashboard ---
@@ -3990,138 +4021,7 @@ async def roulette(interaction: discord.Interaction, bet: int):
     await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 
-# Keep old roulette command but mark as deprecated
-@tree.command(name="roulette_old", description="[VERALTET] Alte Roulette-Version - Nutze /roulette stattdessen")
-@app_commands.describe(
-    bet_type="Wettart (number/red/black/odd/even/high/low)",
-    bet_value="Wert (z.B. Zahl 0-36, 'red', 'black', etc.)",
-    amount="Einsatzbetrag"
-)
-@app_commands.choices(bet_type=[
-    app_commands.Choice(name="Einzelne Zahl (0-36)", value="number"),
-    app_commands.Choice(name="Rot", value="red"),
-    app_commands.Choice(name="Schwarz", value="black"),
-    app_commands.Choice(name="Ungerade", value="odd"),
-    app_commands.Choice(name="Gerade", value="even"),
-    app_commands.Choice(name="Hoch (19-36)", value="high"),
-    app_commands.Choice(name="Niedrig (1-18)", value="low")
-])
-async def roulette_old(interaction: discord.Interaction, bet_type: app_commands.Choice[str], bet_value: str, amount: int):
-    """Play Roulette."""
-    await interaction.response.defer(ephemeral=True)
-    
-    user_id = interaction.user.id
-    
-    # Validate bet amount
-    min_bet = config['modules']['economy']['games']['roulette']['min_bet']
-    max_bet = config['modules']['economy']['games']['roulette']['max_bet']
-    currency = config['modules']['economy']['currency_symbol']
-    
-    if amount < min_bet or amount > max_bet:
-        await interaction.followup.send(
-            f"Ungültiger Einsatz! Minimum: {min_bet} {currency}, Maximum: {max_bet} {currency}",
-            ephemeral=True
-        )
-        return
-    
-    # Check balance
-    balance = await db_helpers.get_balance(user_id)
-    if balance < amount:
-        await interaction.followup.send(
-            f"Nicht genug Guthaben! Du hast {balance} {currency}, brauchst aber {amount} {currency}.",
-            ephemeral=True
-        )
-        return
-    
-    # Parse bet value
-    bet_type_str = bet_type.value
-    parsed_bet_value = bet_value
-    
-    if bet_type_str == 'number':
-        try:
-            parsed_bet_value = int(bet_value)
-            if parsed_bet_value < 0 or parsed_bet_value > 36:
-                await interaction.followup.send("Zahl muss zwischen 0 und 36 liegen!", ephemeral=True)
-                return
-        except ValueError:
-            await interaction.followup.send("Ungültige Zahl!", ephemeral=True)
-            return
-    elif bet_type_str in ['red', 'black']:
-        parsed_bet_value = bet_type_str
-        bet_type_str = 'color'
-    elif bet_type_str in ['odd', 'even']:
-        parsed_bet_value = bet_type_str
-        bet_type_str = 'odd_even'
-    elif bet_type_str in ['high', 'low']:
-        parsed_bet_value = bet_type_str
-        bet_type_str = 'high_low'
-    
-    # Spin the wheel
-    result_number = RouletteGame.spin()
-    won, multiplier = RouletteGame.check_bet(result_number, bet_type_str, parsed_bet_value)
-    
-    # Determine color
-    if result_number == 0:
-        result_color = "🟢 Grün"
-    elif result_number in RouletteGame.RED:
-        result_color = "🔴 Rot"
-    else:
-        result_color = "⚫ Schwarz"
-    
-    # Calculate winnings
-    if won:
-        winnings = amount * multiplier - amount
-    else:
-        winnings = -amount
-    
-    # Update balance
-    stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
-    await db_helpers.add_balance(
-        user_id,
-        interaction.user.display_name,
-        winnings,
-        config,
-        stat_period
-    )
-    
-    # Get new balance
-    new_balance = await db_helpers.get_balance(user_id)
-    
-    # Log transaction
-    await db_helpers.log_transaction(
-        user_id,
-        'roulette',
-        winnings,
-        new_balance,
-        f"Bet: {bet_type.name} on {bet_value}, Result: {result_number}"
-    )
-    
-    # Create result embed
-    embed = discord.Embed(
-        title="🎰 Roulette",
-        color=discord.Color.green() if won else discord.Color.red()
-    )
-    
-    embed.add_field(name="Ergebnis", value=f"**{result_number}** {result_color}", inline=False)
-    embed.add_field(name="Deine Wette", value=f"{bet_type.name}: {bet_value}", inline=True)
-    embed.add_field(name="Einsatz", value=f"{amount} {currency}", inline=True)
-    
-    if won:
-        embed.add_field(
-            name="✅ Gewonnen!",
-            value=f"Gewinn: **{winnings} {currency}** ({multiplier}x)",
-            inline=False
-        )
-    else:
-        embed.add_field(
-            name="❌ Verloren!",
-            value=f"Verlust: **{amount} {currency}**",
-            inline=False
-        )
-    
-    embed.add_field(name="Neues Guthaben", value=f"{new_balance} {currency}", inline=True)
-    
-    await interaction.followup.send(embed=embed, ephemeral=True)
+
 
 
 @tree.command(name="mines", description="Spiele Mines!")
