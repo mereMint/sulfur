@@ -2372,11 +2372,6 @@ tree.add_command(AdminGroup(name="admin"))
 # --- NEW: Shop Commands ---
 from modules import shop as shop_module
 
-shop_group = app_commands.Group(
-    name="shop",
-    description="Kaufe Farben und Features."
-)
-
 @tree.command(name="shop", description="Zeigt den Shop an.")
 async def shop_main(interaction: discord.Interaction):
     """Main shop view."""
@@ -2558,7 +2553,7 @@ class FeatureSelectView(discord.ui.View):
             await interaction.followup.send(f"Fehler beim Kauf: {str(e)}", ephemeral=True)
 
 
-@shop_group.command(name="buy", description="Öffne das Kaufmenü für den Shop")
+@tree.command(name="shopbuy", description="Öffne das Kaufmenü für den Shop")
 async def shop_buy(interaction: discord.Interaction):
     """Interactive shop purchase menu."""
     await interaction.response.defer(ephemeral=True)
@@ -2701,8 +2696,7 @@ async def view_transactions(interaction: discord.Interaction, limit: int = 10):
         logger.error(f"Error viewing transactions: {e}", exc_info=True)
         await interaction.followup.send(f"Fehler beim Laden der Transaktionen: {str(e)}", ephemeral=True)
 
-# Register shop group
-tree.add_command(shop_group)
+# Shop commands registered above
 
 
 # ============================================================================
