@@ -3546,52 +3546,71 @@ async def roulette(interaction: discord.Interaction, bet_type: app_commands.Choi
 @app_commands.describe(bet="Dein Einsatz")
 async def mines(interaction: discord.Interaction, bet: int):
     """Start a Mines game."""
-    await interaction.response.defer(ephemeral=True)
-    
-    user_id = interaction.user.id
-    
-    # Check if user already has an active game
-    if user_id in active_mines_games:
-        await interaction.followup.send("Du hast bereits ein aktives Mines-Spiel!", ephemeral=True)
-        return
-    
-    # Validate bet amount
-    min_bet = config['modules']['economy']['games']['mines']['min_bet']
-    max_bet = config['modules']['economy']['games']['mines']['max_bet']
-    currency = config['modules']['economy']['currency_symbol']
-    
-    if bet < min_bet or bet > max_bet:
-        await interaction.followup.send(
-            f"Ungültiger Einsatz! Minimum: {min_bet} {currency}, Maximum: {max_bet} {currency}",
-            ephemeral=True
+    try:
+        await interaction.response.defer(ephemeral=True)
+        
+        user_id = interaction.user.id
+        
+        # Check if user already has an active game
+        if user_id in active_mines_games:
+            await interaction.followup.send("Du hast bereits ein aktives Mines-Spiel!", ephemeral=True)
+            return
+        
+        # Validate bet amount
+        min_bet = config['modules']['economy']['games']['mines']['min_bet']
+        max_bet = config['modules']['economy']['games']['mines']['max_bet']
+        currency = config['modules']['economy']['currency_symbol']
+        
+        if bet < min_bet or bet > max_bet:
+            await interaction.followup.send(
+                f"Ungültiger Einsatz! Minimum: {min_bet} {currency}, Maximum: {max_bet} {currency}",
+                ephemeral=True
+            )
+            return
+        
+        # Check balance
+        try:
+            balance = await db_helpers.get_balance(user_id)
+        except Exception as e:
+            logger.error(f"Error getting balance for user {user_id} in mines command: {e}")
+            await interaction.followup.send(
+                "Ein Fehler ist beim Abrufen deines Guthabens aufgetreten. Bitte versuche es später erneut.",
+                ephemeral=True
+            )
+            return
+            
+        if balance < bet:
+            await interaction.followup.send(
+                f"Nicht genug Guthaben! Du hast {balance} {currency}, brauchst aber {bet} {currency}.",
+                ephemeral=True
+            )
+            return
+        
+        # Create game
+        grid_size = config['modules']['economy']['games']['mines']['grid_size']
+        mine_count = config['modules']['economy']['games']['mines']['mine_count']
+        game = MinesGame(user_id, bet, grid_size, mine_count)
+        active_mines_games[user_id] = game
+        
+        # Create view
+        view = MinesView(game, user_id)
+        embed = game.create_embed()
+        embed.add_field(
+            name="ℹ️ Anleitung",
+            value="Klicke auf Felder um sie aufzudecken. Vermeide die Minen! Cash out jederzeit für den aktuellen Multiplikator.",
+            inline=False
         )
-        return
-    
-    # Check balance
-    balance = await db_helpers.get_balance(user_id)
-    if balance < bet:
-        await interaction.followup.send(
-            f"Nicht genug Guthaben! Du hast {balance} {currency}, brauchst aber {bet} {currency}.",
-            ephemeral=True
-        )
-        return
-    
-    # Create game
-    grid_size = config['modules']['economy']['games']['mines']['grid_size']
-    mine_count = config['modules']['economy']['games']['mines']['mine_count']
-    game = MinesGame(user_id, bet, grid_size, mine_count)
-    active_mines_games[user_id] = game
-    
-    # Create view
-    view = MinesView(game, user_id)
-    embed = game.create_embed()
-    embed.add_field(
-        name="ℹ️ Anleitung",
-        value="Klicke auf Felder um sie aufzudecken. Vermeide die Minen! Cash out jederzeit für den aktuellen Multiplikator.",
-        inline=False
-    )
-    
-    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+    except Exception as e:
+        logger.error(f"Unexpected error in mines command: {e}", exc_info=True)
+        try:
+            await interaction.followup.send(
+                "Ein unerwarteter Fehler ist aufgetreten. Bitte versuche es später erneut.",
+                ephemeral=True
+            )
+        except:
+            pass  # Interaction might already have been responded to
 
 
 class RussianRouletteView(discord.ui.View):
