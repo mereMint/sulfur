@@ -32,6 +32,7 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
                     if owned_channel:
                         # Move them to their existing channel instead of creating a new one
                         await member.move_to(owned_channel, reason="User already owns a channel.")
+                        logger.debug(f"Moved {member.display_name} to existing channel {owned_channel.name}")
                         return
                     else:
                         # The channel was deleted but the database still has a reference
@@ -42,7 +43,8 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
                         # Don't return - continue with channel creation
                 except (discord.Forbidden, discord.HTTPException) as e:
                     logger.error(f"Error checking owned channel for {member.display_name}: {e}")
-                    pass  # Ignore errors and allow creation to proceed
+                    # Return here to prevent duplicate channel creation on error
+                    return
 
             guild = member.guild
             # --- NEW: Use configured category name, fallback to current category ---
@@ -73,6 +75,15 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
                 reason=f"Created for {member.display_name}"
             )
 
+            # --- FIX: Verify user didn't leave during channel creation ---
+            if not member.voice or member.voice.channel != after.channel:
+                logger.debug(f"{member.display_name} left join channel during creation; cleaning up {new_channel.id}")
+                try:
+                    await new_channel.delete(reason="User left before channel was ready")
+                except Exception:
+                    pass
+                return
+
             # --- REORDERED: Add to DB BEFORE moving the user to prevent race condition ---
             await add_managed_channel(new_channel.id, member.id, guild.id)
             # --- NEW: Log the creation for Wrapped stats ---
@@ -81,28 +92,19 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
             logger.info(f"Created managed voice channel: {new_channel.name} ({new_channel.id}) for {member.display_name}")
             print(f"Created managed voice channel: {new_channel.name} ({new_channel.id})")
 
-            # --- FIX: Wait a moment before moving the user to avoid race conditions ---
-            await asyncio.sleep(config['modules']['voice_manager']['creation_move_delay_ms'] / 1000.0)
-
-            # FINAL CHECK: Ensure user is still connected and not already in another managed channel
-            if not member.voice or member.voice.channel == new_channel:
-                # Already moved by Discord automatically or user disconnected
-                pass
-            elif member.voice.channel != after.channel:
-                # User moved somewhere else meanwhile; clean up the just-created channel
-                try:
-                    await new_channel.delete(reason="User moved before being placed in new channel")
-                    await remove_managed_channel(new_channel.id, keep_owner_record=True)
-                    logger.debug(f"Aborted channel creation for {member.display_name}; cleaned up {new_channel.id}")
-                    return
-                except Exception:
-                    pass
-
-            # Move the user to their new channel
+            # Move the user to their new channel immediately (no delay)
             try:
+                # --- FIX: Final check before move ---
+                if not member.voice or member.voice.channel != after.channel:
+                    logger.debug(f"{member.display_name} left join channel before move; cleaning up {new_channel.id}")
+                    await new_channel.delete(reason="User left before being moved")
+                    await remove_managed_channel(new_channel.id, keep_owner_record=True)
+                    return
+
                 await member.move_to(new_channel, reason="Join to Create")
                 # --- NEW: Unmute and undeafen the user after moving them ---
                 await member.edit(mute=False, deafen=False, reason="User moved to their new channel")
+                logger.debug(f"Successfully moved {member.display_name} to {new_channel.name}")
             except discord.HTTPException as move_error:
                 # This can happen if the user disconnects while the channel is being created.
                 logger.warning(f"Failed to move {member.display_name}: {move_error}")
@@ -160,14 +162,10 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
                 # Save the current name and limit for the owner by passing their ID
                 await update_managed_channel_config((channel_config['owner_id'], member.guild.id), by_owner=True, name=fresh_channel.name, limit=fresh_channel.user_limit)
                 
-                # Check if the channel is old enough to delete
-                creation_grace_period = config['modules']['voice_manager']['empty_channel_delete_grace_period_seconds']
-                channel_age_seconds = (discord.utils.utcnow() - fresh_channel.created_at).total_seconds()
-                
-                if channel_age_seconds <= creation_grace_period:
-                    logger.debug(f"Channel {fresh_channel.name} is empty but only {channel_age_seconds:.1f}s old (grace period: {creation_grace_period}s)")
-                    return # Don't delete a channel that was just created
-                
+                # --- FIX: Delete empty channels immediately, no grace period needed ---
+                # The grace period was causing orphaned channels when users disconnected quickly.
+                # Since we now have better race condition handling during creation,
+                # we can safely delete empty channels immediately.
                 try:
                     await fresh_channel.delete(reason="Channel is empty")
                     # We keep the record in the DB for the user's settings by setting channel_id to NULL
