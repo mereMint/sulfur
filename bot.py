@@ -414,7 +414,10 @@ async def replace_emoji_tags(text, client):
     text = sanitize_malformed_emojis(text)
     
     # Find all :emoji_name: tags in the text
-    emoji_tags = re.findall(r':(\w+):', text)
+    # Use negative lookbehind to avoid matching emoji names inside complete emoji formats
+    # (?<!<a?)(?<!<) prevents matching :emoji_name: inside <:emoji_name:id> or <a:emoji_name:id>
+    # (?!:\d) prevents matching if followed by :digits (the ID part)
+    emoji_tags = re.findall(r'(?<!<a)(?<!<):(\w+):(?!:\d)', text)
     # Also find <:emoji_name:emoji_id> tags
     full_emoji_tags = re.findall(r'<:(\w+):(\d+)>', text)
     
