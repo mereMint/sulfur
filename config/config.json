@@ -117,9 +117,19 @@
         },
         "features": {
           "dm_access": 2000,
-          "games_access": 1500,
-          "werwolf_special_roles": 3000,
-          "custom_status": 1000
+          "games_access": 1500
+        },
+        "boosts": {
+          "xp_boost_1h": 500,
+          "xp_boost_24h": 3000,
+          "gambling_multiplier_1h": 800,
+          "gambling_multiplier_24h": 5000
+        },
+        "werwolf_roles": {
+          "seherin": 1500,
+          "hexe": 1500,
+          "dönerstopfer": 1200,
+          "jäger": 1200
         }
       },
       "games": {

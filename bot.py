@@ -2332,14 +2332,25 @@ async def profile(interaction: discord.Interaction, user: discord.Member = None)
     # Show purchased items/features
     has_dm = await db_helpers.has_feature_unlock(target_user.id, 'dm_access')
     has_games = await db_helpers.has_feature_unlock(target_user.id, 'games_access')
-    has_ww_special = await db_helpers.has_feature_unlock(target_user.id, 'werwolf_special_roles')
-    has_custom_status = await db_helpers.has_feature_unlock(target_user.id, 'custom_status')
+    
+    # Check for individual Werwolf roles
+    has_seherin = await db_helpers.has_feature_unlock(target_user.id, 'werwolf_role_seherin')
+    has_hexe = await db_helpers.has_feature_unlock(target_user.id, 'werwolf_role_hexe')
+    has_dönerstopfer = await db_helpers.has_feature_unlock(target_user.id, 'werwolf_role_dönerstopfer')
+    has_jäger = await db_helpers.has_feature_unlock(target_user.id, 'werwolf_role_jäger')
     
     features = []
     if has_dm: features.append("✉️ DM Access")
     if has_games: features.append("🎮 Games Access")
-    if has_ww_special: features.append("🐺 Werwolf Special Roles")
-    if has_custom_status: features.append("✨ Custom Status")
+    
+    werwolf_roles = []
+    if has_seherin: werwolf_roles.append("🔮 Seherin")
+    if has_hexe: werwolf_roles.append("🧪 Hexe")
+    if has_dönerstopfer: werwolf_roles.append("🌯 Dönerstopfer")
+    if has_jäger: werwolf_roles.append("🏹 Jäger")
+    
+    if werwolf_roles:
+        features.append(f"🐺 Werwolf: {', '.join(werwolf_roles)}")
     
     features_text = "\n".join(features) if features else "*Keine Features freigeschaltet.*"
     embed.add_field(name="🎯 Freigeschaltene Features", value=features_text, inline=False)
@@ -2884,19 +2895,101 @@ class ShopBuyView(discord.ui.View):
             'games_access': {
                 'name': '🎮 Games Access',
                 'desc': 'Spiele Blackjack, Roulette, Mines und Russian Roulette!'
-            },
-            'werwolf_special_roles': {
-                'name': '🐺 Werwolf Special Roles',
-                'desc': 'Schalte spezielle Rollen für Werwolf frei:\n**Seherin** - Erfahre jede Nacht die Rolle eines Spielers\n**Hexe** - Heile oder vergifte Spieler\n**Dönerstopfer** - Mute Spieler nachts'
-            },
-            'custom_status': {
-                'name': '✨ Custom Status',
-                'desc': 'Setze einen benutzerdefinierten Status im Server.'
             }
         }
         
         for feature, price in features.items():
             details = feature_details.get(feature, {'name': feature, 'desc': 'Feature unlock'})
+            embed.add_field(
+                name=f"{details['name']} - {price} {currency}",
+                value=details['desc'],
+                inline=False
+            )
+        
+        await interaction.edit_original_response(embed=embed, view=view)
+    
+    @discord.ui.button(label="⚡ Boosts", style=discord.ButtonStyle.blurple)
+    async def boosts_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Show temporary boost options."""
+        await interaction.response.defer()
+        
+        view = BoostSelectView(self.member, self.config)
+        embed = discord.Embed(
+            title="⚡ Temporary Boosts",
+            description="Kaufe temporäre Boosts um schneller voranzukommen!",
+            color=discord.Color.purple()
+        )
+        
+        currency = self.config['modules']['economy']['currency_symbol']
+        boosts = self.config['modules']['economy']['shop']['boosts']
+        
+        # Define boost descriptions
+        boost_details = {
+            'xp_boost_1h': {
+                'name': '⚡ XP Boost (1 Stunde)',
+                'desc': '2x XP für alle Aktivitäten für 1 Stunde'
+            },
+            'xp_boost_24h': {
+                'name': '⚡⚡ XP Boost (24 Stunden)',
+                'desc': '2x XP für alle Aktivitäten für 24 Stunden'
+            },
+            'gambling_multiplier_1h': {
+                'name': '🎰 Gambling Boost (1 Stunde)',
+                'desc': '1.5x Gewinnmultiplikator für alle Spiele für 1 Stunde'
+            },
+            'gambling_multiplier_24h': {
+                'name': '🎰🎰 Gambling Boost (24 Stunden)',
+                'desc': '1.5x Gewinnmultiplikator für alle Spiele für 24 Stunden'
+            }
+        }
+        
+        for boost, price in boosts.items():
+            details = boost_details.get(boost, {'name': boost, 'desc': 'Temporary boost'})
+            embed.add_field(
+                name=f"{details['name']} - {price} {currency}",
+                value=details['desc'],
+                inline=False
+            )
+        
+        await interaction.edit_original_response(embed=embed, view=view)
+    
+    @discord.ui.button(label="🐺 Werwolf Rollen", style=discord.ButtonStyle.red)
+    async def werwolf_roles_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Show Werwolf role unlock options."""
+        await interaction.response.defer()
+        
+        view = WerwolfRoleSelectView(self.member, self.config)
+        embed = discord.Embed(
+            title="🐺 Werwolf Rollen",
+            description="Schalte spezielle Rollen für das Werwolf-Spiel frei!",
+            color=discord.Color.dark_red()
+        )
+        
+        currency = self.config['modules']['economy']['currency_symbol']
+        roles = self.config['modules']['economy']['shop']['werwolf_roles']
+        
+        # Define role descriptions
+        role_details = {
+            'seherin': {
+                'name': '🔮 Seherin',
+                'desc': 'Erfahre jede Nacht die Rolle eines Spielers'
+            },
+            'hexe': {
+                'name': '🧪 Hexe',
+                'desc': 'Heile oder vergifte Spieler während der Nacht'
+            },
+            'dönerstopfer': {
+                'name': '🌯 Dönerstopfer',
+                'desc': 'Mute einen Spieler während der Diskussion'
+            },
+            'jäger': {
+                'name': '🏹 Jäger',
+                'desc': 'Nimm beim Tod einen Spieler mit ins Grab'
+            }
+        }
+        
+        for role, price in roles.items():
+            details = role_details.get(role, {'name': role, 'desc': 'Werwolf role'})
             embed.add_field(
                 name=f"{details['name']} - {price} {currency}",
                 value=details['desc'],
@@ -2958,14 +3051,6 @@ class FeatureSelectView(discord.ui.View):
             'games_access': {
                 'name': 'Games Access',
                 'description': 'Spiele Blackjack, Roulette & mehr'
-            },
-            'werwolf_special_roles': {
-                'name': 'Werwolf Special Roles',
-                'description': 'Schalte Seherin, Hexe & Dönerstopfer frei'
-            },
-            'custom_status': {
-                'name': 'Custom Status',
-                'description': 'Setze einen benutzerdefinierten Status'
             }
         }
         
@@ -3021,6 +3106,161 @@ class FeatureSelectView(discord.ui.View):
             await interaction.edit_original_response(embed=embed, view=None)
         except Exception as e:
             logger.error(f"Error purchasing feature: {e}", exc_info=True)
+            await interaction.followup.send(f"Fehler beim Kauf: {str(e)}", ephemeral=True)
+
+
+class BoostSelectView(discord.ui.View):
+    """View for selecting boosts to purchase."""
+    
+    def __init__(self, member: discord.Member, config: dict):
+        super().__init__(timeout=120)
+        self.member = member
+        self.config = config
+        
+        # Create select menu for boosts
+        options = []
+        boosts = config['modules']['economy']['shop']['boosts']
+        boost_info = {
+            'xp_boost_1h': {
+                'name': 'XP Boost 1h',
+                'description': '2x XP für 1 Stunde'
+            },
+            'xp_boost_24h': {
+                'name': 'XP Boost 24h',
+                'description': '2x XP für 24 Stunden'
+            },
+            'gambling_multiplier_1h': {
+                'name': 'Gambling Boost 1h',
+                'description': '1.5x Gewinnmultiplikator für 1 Stunde'
+            },
+            'gambling_multiplier_24h': {
+                'name': 'Gambling Boost 24h',
+                'description': '1.5x Gewinnmultiplikator für 24 Stunden'
+            }
+        }
+        
+        for boost, price in boosts.items():
+            info = boost_info.get(boost, {'name': boost, 'description': ''})
+            currency = config['modules']['economy']['currency_symbol']
+            options.append(
+                discord.SelectOption(
+                    label=info['name'],
+                    value=boost,
+                    description=f"{price} {currency} - {info['description']}"[:100]
+                )
+            )
+        
+        select = discord.ui.Select(placeholder="Wähle einen Boost...", options=options)
+        select.callback = self.on_boost_select
+        self.add_item(select)
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.member.id:
+            await interaction.response.send_message("Du kannst diese Auswahl nicht bedienen.", ephemeral=True)
+            return False
+        return True
+    
+    async def on_boost_select(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        
+        boost = interaction.data['values'][0]
+        price = self.config['modules']['economy']['shop']['boosts'][boost]
+        
+        # TODO: Implement boost purchase logic in shop module
+        # For now, show a placeholder message
+        embed = discord.Embed(
+            title="🚧 Coming Soon",
+            description=f"Boost-System wird bald implementiert!\nGewählter Boost: {boost}",
+            color=discord.Color.orange()
+        )
+        
+        await interaction.edit_original_response(embed=embed, view=None)
+
+
+class WerwolfRoleSelectView(discord.ui.View):
+    """View for selecting Werwolf roles to purchase."""
+    
+    def __init__(self, member: discord.Member, config: dict):
+        super().__init__(timeout=120)
+        self.member = member
+        self.config = config
+        
+        # Create select menu for Werwolf roles
+        options = []
+        roles = config['modules']['economy']['shop']['werwolf_roles']
+        role_info = {
+            'seherin': {
+                'name': 'Seherin',
+                'description': 'Erfahre jede Nacht eine Rolle'
+            },
+            'hexe': {
+                'name': 'Hexe',
+                'description': 'Heile oder vergifte Spieler'
+            },
+            'dönerstopfer': {
+                'name': 'Dönerstopfer',
+                'description': 'Mute einen Spieler'
+            },
+            'jäger': {
+                'name': 'Jäger',
+                'description': 'Nimm jemanden mit ins Grab'
+            }
+        }
+        
+        for role, price in roles.items():
+            info = role_info.get(role, {'name': role, 'description': ''})
+            currency = config['modules']['economy']['currency_symbol']
+            options.append(
+                discord.SelectOption(
+                    label=info['name'],
+                    value=role,
+                    description=f"{price} {currency} - {info['description']}"[:100]
+                )
+            )
+        
+        select = discord.ui.Select(placeholder="Wähle eine Rolle...", options=options)
+        select.callback = self.on_role_select
+        self.add_item(select)
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.member.id:
+            await interaction.response.send_message("Du kannst diese Auswahl nicht bedienen.", ephemeral=True)
+            return False
+        return True
+    
+    async def on_role_select(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        
+        role = interaction.data['values'][0]
+        price = self.config['modules']['economy']['shop']['werwolf_roles'][role]
+        
+        try:
+            # Purchase the role as a feature unlock with special naming
+            feature_name = f'werwolf_role_{role}'
+            success, message = await shop_module.purchase_feature(
+                db_helpers,
+                self.member,
+                feature_name,
+                price,
+                self.config
+            )
+            
+            if success:
+                embed = discord.Embed(
+                    title="✅ Kauf erfolgreich!",
+                    description=f"Du hast die Rolle **{role.capitalize()}** freigeschaltet!\nDiese Rolle ist nun im Werwolf-Spiel für dich verfügbar.",
+                    color=discord.Color.green()
+                )
+            else:
+                embed = discord.Embed(
+                    title="❌ Kauf fehlgeschlagen",
+                    description=message,
+                    color=discord.Color.red()
+                )
+            
+            await interaction.edit_original_response(embed=embed, view=None)
+        except Exception as e:
+            logger.error(f"Error purchasing Werwolf role: {e}", exc_info=True)
             await interaction.followup.send(f"Fehler beim Kauf: {str(e)}", ephemeral=True)
 
 
