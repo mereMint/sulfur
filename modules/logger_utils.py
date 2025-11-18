@@ -67,6 +67,10 @@ def setup_logger(name, log_file=None, level=logging.INFO):
     
     # File handler (if specified)
     if log_file:
+        # Create logs directory if it doesn't exist
+        log_dir = Path(log_file).parent
+        log_dir.mkdir(parents=True, exist_ok=True)
+        
         file_handler = logging.FileHandler(log_file, encoding='utf-8')
         file_handler.setLevel(level)
         file_format = logging.Formatter(
@@ -120,10 +124,14 @@ def log_error_with_context(logger, error, context):
     import traceback
     logger.error(f"Traceback:\n{traceback.format_exc()}")
 
-# Create default loggers for each component
-bot_logger = setup_logger('Bot')
-db_logger = setup_logger('Database')
-api_logger = setup_logger('API')
-web_logger = setup_logger('WebDashboard')
-voice_logger = setup_logger('VoiceManager')
-game_logger = setup_logger('WerwolfGame')
+# Create default loggers for each component with file output
+# Generate session-based log file name
+session_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+log_file_path = f'logs/session_{session_timestamp}.log'
+
+bot_logger = setup_logger('Bot', log_file=log_file_path)
+db_logger = setup_logger('Database', log_file=log_file_path)
+api_logger = setup_logger('API', log_file=log_file_path)
+web_logger = setup_logger('WebDashboard', log_file=log_file_path)
+voice_logger = setup_logger('VoiceManager', log_file=log_file_path)
+game_logger = setup_logger('WerwolfGame', log_file=log_file_path)

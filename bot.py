@@ -3765,6 +3765,103 @@ async def on_message(message):
             logger.debug(f"[FILTER] Ignoring DM from bot itself")
             return
         
+        # --- FIX: Check if the user is in an active Werwolf game and handle game commands ---
+        # Find if this user is a player in any active game
+        user_game = None
+        user_player = None
+        for game in active_werwolf_games.values():
+            if message.author.id in game.players:
+                user_game = game
+                user_player = game.players[message.author.id]
+                break
+        
+        if user_game and user_player:
+            logger.info(f"[WERWOLF DM] User {message.author.name} is in an active Werwolf game")
+            print(f"[WERWOLF DM] Processing Werwolf command from {message.author.name}")
+            
+            # Parse the command
+            content = message.content.strip().lower()
+            parts = content.split()
+            
+            if not parts:
+                await message.channel.send("Bitte gib einen gültigen Befehl ein.")
+                return
+            
+            command = parts[0]
+            
+            # Handle Werwolf night actions
+            if command == "kill":
+                if len(parts) < 2:
+                    await message.channel.send("Verwendung: `kill <name>`")
+                    return
+                target_name = " ".join(parts[1:])
+                target_player = user_game.get_player_by_name(target_name)
+                if not target_player:
+                    await message.channel.send(f"Spieler '{target_name}' nicht gefunden oder bereits tot.")
+                    return
+                result = await user_game.handle_night_action(user_player, "kill", target_player, config, GEMINI_API_KEY, OPENAI_API_KEY)
+                if result:
+                    await message.channel.send(result)
+                return
+                
+            elif command == "see":
+                if len(parts) < 2:
+                    await message.channel.send("Verwendung: `see <name>`")
+                    return
+                target_name = " ".join(parts[1:])
+                target_player = user_game.get_player_by_name(target_name)
+                if not target_player:
+                    await message.channel.send(f"Spieler '{target_name}' nicht gefunden oder bereits tot.")
+                    return
+                result = await user_game.handle_night_action(user_player, "see", target_player, config, GEMINI_API_KEY, OPENAI_API_KEY)
+                if result:
+                    await message.channel.send(result)
+                return
+                
+            elif command == "heal":
+                result = await user_game.handle_night_action(user_player, "heal", None, config, GEMINI_API_KEY, OPENAI_API_KEY)
+                if result:
+                    await message.channel.send(result)
+                else:
+                    await message.channel.send("Du hast deinen Heiltrank benutzt.")
+                return
+                
+            elif command == "poison":
+                if len(parts) < 2:
+                    await message.channel.send("Verwendung: `poison <name>`")
+                    return
+                target_name = " ".join(parts[1:])
+                target_player = user_game.get_player_by_name(target_name)
+                if not target_player:
+                    await message.channel.send(f"Spieler '{target_name}' nicht gefunden oder bereits tot.")
+                    return
+                result = await user_game.handle_night_action(user_player, "poison", target_player, config, GEMINI_API_KEY, OPENAI_API_KEY)
+                if result:
+                    await message.channel.send(result)
+                else:
+                    await message.channel.send(f"Du hast {target_player.user.display_name} vergiftet.")
+                return
+                
+            elif command == "mute":
+                if len(parts) < 2:
+                    await message.channel.send("Verwendung: `mute <name>`")
+                    return
+                target_name = " ".join(parts[1:])
+                target_player = user_game.get_player_by_name(target_name)
+                if not target_player:
+                    await message.channel.send(f"Spieler '{target_name}' nicht gefunden oder bereits tot.")
+                    return
+                result = await user_game.handle_night_action(user_player, "mute", target_player, config, GEMINI_API_KEY, OPENAI_API_KEY)
+                if result:
+                    await message.channel.send(result)
+                else:
+                    await message.channel.send(f"Du wirst {target_player.user.display_name} morgen das Maul stopfen.")
+                return
+            
+            # If we get here, it's not a recognized game command, treat as chatbot
+            logger.info(f"[DM] Unrecognized Werwolf command, treating as chatbot message")
+            print(f"[DM] Not a Werwolf command, running chatbot handler")
+        
         # If it's not a game command, treat it as a chatbot message.
         logger.info(f"[DM] Triggering chatbot for DM from {message.author.name}")
         print(f"[DM] Running chatbot handler for DM")
