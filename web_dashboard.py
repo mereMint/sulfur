@@ -563,10 +563,9 @@ def sync_database_changes():
 def admin_reload_config():
     """Reload bot configuration."""
     try:
-        # Reload config in the dashboard process
-        global config_data
+        # Reload config in the dashboard process (just verify it's valid)
         with open('config/config.json', 'r', encoding='utf-8') as f:
-            config_data = json.load(f)
+            _ = json.load(f)  # Just validate the JSON is parseable
         
         # Signal bot to reload config (if running)
         try:
