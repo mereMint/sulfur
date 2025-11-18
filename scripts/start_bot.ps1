@@ -52,9 +52,16 @@ $dbUser = "sulfur_bot_user"
 # --- FIX: Register an action to export the database on script exit (needs variables defined above) ---
 # --- FIX: Use Set-Content with explicit UTF8 encoding to prevent file corruption ---
 # --- FIX: Use utf8NoBOM to prevent null characters in the SQL file ---
-Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action {
-    & $mysqldumpPath --user=$dbUser --host=localhost --default-character-set=utf8mb4 $dbName | Set-Content -Path $syncFile -Encoding utf8
-    Write-Host "Database exported to $syncFile for synchronization."
+# --- FIX: Pass variables via MessageData to ensure they're in scope when event fires ---
+Register-EngineEvent -SourceIdentifier PowerShell.Exiting -MessageData @{
+    mysqldumpPath = $mysqldumpPath
+    dbUser = $dbUser
+    dbName = $dbName
+    syncFile = $syncFile
+} -Action {
+    $data = $event.MessageData
+    & $data.mysqldumpPath --user=$data.dbUser --host=localhost --default-character-set=utf8mb4 $data.dbName | Set-Content -Path $data.syncFile -Encoding utf8
+    Write-Host "Database exported to $($data.syncFile) for synchronization."
 } | Out-Null
 
 Write-Host "Checking for updates from the repository..."
@@ -162,6 +169,14 @@ try {
     Write-Host "Error starting bot: $_" -ForegroundColor Red
     Write-Host $_.Exception.Message
     $pythonExitCode = 1
+} finally {
+    # Dispose process object to prevent resource leaks
+    if($process) {
+        try {
+            $process.Close()
+            $process.Dispose()
+        } catch {}
+    }
 }
 
 # --- NEW: Pause on error to allow copying logs ---

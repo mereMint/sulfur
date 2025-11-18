@@ -23,11 +23,23 @@ function Invoke-VenvSetup {
             Read-Host "Press Enter to exit."
             exit 1
         }
+        
+        # Verify that the virtual environment was actually created
+        if (-not (Test-Path -Path $pythonExecutable)) {
+            Write-Host "Virtual environment creation appeared to succeed but python.exe not found." -ForegroundColor Red
+            Write-Host "Check permissions and path length limits." -ForegroundColor Yellow
+            Read-Host "Press Enter to exit."
+            exit 1
+        }
     }
 
     Write-Host "Installing/updating Python dependencies from requirements.txt..."
-    & $pythonExecutable -m pip install -r requirements.txt --quiet | Out-Host
-    Write-Host "Dependencies are up to date."
+    & $pythonExecutable -m pip install -r requirements.txt --quiet
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Failed to install dependencies. Check requirements.txt and internet connection." -ForegroundColor Yellow
+    } else {
+        Write-Host "Dependencies are up to date."
+    }
 
     return $pythonExecutable
 }

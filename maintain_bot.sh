@@ -191,6 +191,9 @@ trap cleanup SIGINT SIGTERM
 cleanup_orphans() {
     log_warning "Searching for orphaned Python processes..."
     
+    # Wait for any pending PID file writes to complete
+    sleep 0.5
+    
     # Get current bot and web PIDs to exclude them
     local exclude_pids=""
     if [ -f "$BOT_PID_FILE" ]; then
@@ -1032,7 +1035,7 @@ ensure_python_env() {
 # Ensure preflight passes before starting
 until preflight_check; do
     log_warning "Fix the issues above (edit .env), then press Enter to retry..."
-    read -r _
+    read -r _ || { log_error "Cannot read input in non-interactive mode"; sleep 60; }
 done
 
 # Ensure venv/deps before starting services
@@ -1053,6 +1056,9 @@ start_web_dashboard || log_warning "Web Dashboard failed to start, continuing an
 while true; do
     # Start bot with retry logic
     cleanup_orphans
+    
+    # Initialize bot start time for crash detection
+    BOT_START_TIME=$(date +%s)
     
     local start_attempts=0
     local max_start_attempts=3
@@ -1172,8 +1178,12 @@ while true; do
                         
                         # CRITICAL: Add delay before restart to let port fully release
                         # This is especially important on Termux where socket cleanup is slower
-                        # Increased to 8 seconds for Termux compatibility
-                        restart_delay=8
+                        # Adaptive delay based on environment
+                        if [ "$IS_TERMUX" = true ]; then
+                            restart_delay=12  # Longer for Termux (slower socket cleanup)
+                        else
+                            restart_delay=6   # Shorter for regular Linux
+                        fi
                         log_info "Waiting ${restart_delay}s for port cleanup before restart..."
                         sleep $restart_delay
                         
@@ -1202,13 +1212,6 @@ while true; do
     update_status "Stopped"
 
     # Crash-loop detection: if bot exits within QUICK_CRASH_SECONDS, increment; else reset
-    if [ -f "$BOT_LOG" ]; then
-        # If the log file last modified time is recent, we can approximate runtime
-        : # placeholder; we track time implicitly by sleeping 1s in loop
-    fi
-
-    # Use a timestamp file to measure run duration
-    : "${BOT_START_TIME:=$(date +%s)}"
     BOT_STOP_TIME=$(date +%s)
     RUN_SECONDS=$((BOT_STOP_TIME - BOT_START_TIME))
     if [ "$RUN_SECONDS" -lt "$QUICK_CRASH_SECONDS" ]; then
@@ -1224,16 +1227,15 @@ while true; do
             tail -n 50 "$BOT_LOG" || true
         fi
         log_warning "Fix configuration (e.g., token in .env), then press Enter to retry."
-        read -r _
+        read -r _ || { log_error "Cannot read input in non-interactive mode"; sleep 60; }
         CRASH_COUNT=0
         # Re-run preflight before restarting
         until preflight_check; do
             log_warning "Fix the issues above (edit .env), then press Enter to retry..."
-            read -r _
+            read -r _ || { log_error "Cannot read input in non-interactive mode"; sleep 60; }
         done
     fi
 
     log_warning "Bot stopped, restarting in 5 seconds..."
     sleep 5
-    BOT_START_TIME=$(date +%s)
 done

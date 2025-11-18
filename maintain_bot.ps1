@@ -404,38 +404,57 @@ function Start-Bot {
     $proc.StartInfo = $startInfo
     $proc.EnableRaisingEvents = $true
     
-    # Setup output redirection
-    $script:botOutputFile = [System.IO.StreamWriter]::new($botLogFile, $true)
-    $script:botErrorFile = [System.IO.StreamWriter]::new($botErrFile, $true)
-    
-    $proc.add_OutputDataReceived({
-        param($processObject, $e)
-        if($e.Data -and $script:botOutputFile) {
+    try {
+        # Setup output redirection
+        $script:botOutputFile = [System.IO.StreamWriter]::new($botLogFile, $true)
+        $script:botErrorFile = [System.IO.StreamWriter]::new($botErrFile, $true)
+        
+        $proc.add_OutputDataReceived({
+            param($processObject, $e)
+            if($e.Data -and $script:botOutputFile) {
+                try {
+                    $script:botOutputFile.WriteLine($e.Data)
+                    $script:botOutputFile.Flush()
+                } catch {}
+            }
+        })
+        
+        $proc.add_ErrorDataReceived({
+            param($processObject, $e)
+            if($e.Data -and $script:botErrorFile) {
+                try {
+                    $script:botErrorFile.WriteLine($e.Data)
+                    $script:botErrorFile.Flush()
+                } catch {}
+            }
+        })
+        
+        [void]$proc.Start()
+        $proc.BeginOutputReadLine()
+        $proc.BeginErrorReadLine()
+        
+        Start-Sleep -Seconds 2
+        Update-BotStatus 'Running' $proc.Id
+        Write-ColorLog "Bot started (PID: $($proc.Id))" 'Green' '[BOT] '
+        return $proc
+    } catch {
+        # Close file handles on error
+        if($script:botOutputFile) {
             try {
-                $script:botOutputFile.WriteLine($e.Data)
-                $script:botOutputFile.Flush()
+                $script:botOutputFile.Close()
+                $script:botOutputFile.Dispose()
             } catch {}
+            $script:botOutputFile = $null
         }
-    })
-    
-    $proc.add_ErrorDataReceived({
-        param($processObject, $e)
-        if($e.Data -and $script:botErrorFile) {
+        if($script:botErrorFile) {
             try {
-                $script:botErrorFile.WriteLine($e.Data)
-                $script:botErrorFile.Flush()
+                $script:botErrorFile.Close()
+                $script:botErrorFile.Dispose()
             } catch {}
+            $script:botErrorFile = $null
         }
-    })
-    
-    [void]$proc.Start()
-    $proc.BeginOutputReadLine()
-    $proc.BeginErrorReadLine()
-    
-    Start-Sleep -Seconds 2
-    Update-BotStatus 'Running' $proc.Id
-    Write-ColorLog "Bot started (PID: $($proc.Id))" 'Green' '[BOT] '
-    return $proc
+        throw
+    }
 }
 
 function Test-ForUpdates {
@@ -581,15 +600,27 @@ while($true){
                 $script:botErrorFile = $null
             }
             
-            # Kill process
+            # Kill process and ensure it's terminated
             if($script:botProcess -and -not $script:botProcess.HasExited){
                 try {
                     $script:botProcess.Kill()
-                    $script:botProcess.WaitForExit(3000)
+                    if(-not $script:botProcess.WaitForExit(5000)) {
+                        Stop-Process -Id $script:botProcess.Id -Force -ErrorAction SilentlyContinue
+                    }
                 } catch {
                     Stop-Process -Id $script:botProcess.Id -Force -ErrorAction SilentlyContinue
                 }
             }
+            
+            # Dispose process object
+            if($script:botProcess) {
+                try {
+                    $script:botProcess.Close()
+                    $script:botProcess.Dispose()
+                } catch {}
+                $script:botProcess = $null
+            }
+            
             break
         }
         
