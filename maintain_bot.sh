@@ -659,11 +659,17 @@ start_web_dashboard() {
         # Try to free the port with up to 3 attempts
         if ! free_port 5000 3; then
             log_error "Failed to free port 5000 after multiple attempts."
+            log_warning "Waiting additional 5 seconds for port to release naturally..."
+            sleep 5
             log_warning "Web Dashboard has retry logic and will attempt to start anyway..."
             log_warning "If startup fails, manual intervention may be required:"
             log_warning "  1. Find processes: lsof -ti:5000 or fuser 5000/tcp or ss -tlnp | grep :5000"
             log_warning "  2. Kill process: kill -9 <PID>"
             # Don't return 1 here - let the web dashboard's retry logic handle it
+        else
+            # Port was freed successfully, wait a moment for OS to fully release it
+            log_info "Port freed, waiting 3 seconds for OS to complete cleanup..."
+            sleep 3
         fi
     else
         # Port might be in TIME_WAIT, but web dashboard can handle that with SO_REUSEADDR
@@ -1102,7 +1108,8 @@ while true; do
                         
                         # CRITICAL: Add delay before restart to let port fully release
                         # This is especially important on Termux where socket cleanup is slower
-                        local restart_delay=5
+                        # Increased to 8 seconds for Termux compatibility
+                        restart_delay=8
                         log_info "Waiting ${restart_delay}s for port cleanup before restart..."
                         sleep $restart_delay
                         

@@ -816,7 +816,12 @@ if __name__ == '__main__':
         killed_any = False
         our_pid = os.getpid()
         
-        # Try lsof
+        # TERMUX FIX: Don't aggressively kill processes on startup
+        # Let the maintenance script handle cleanup instead
+        # This prevents race conditions where we kill ourselves during restart
+        print(f"[Web Dashboard] Checking for processes on port {port}...")
+        
+        # Try lsof (if available)
         try:
             result = subprocess.run(['lsof', '-ti', f':{port}'], 
                                   capture_output=True, text=True, timeout=5)
@@ -829,36 +834,18 @@ if __name__ == '__main__':
                         if pid == our_pid:
                             print(f"[Web Dashboard] Skipping our own PID {pid}")
                             continue
-                        subprocess.run(['kill', '-9', str(pid)], timeout=2)
-                        print(f"[Web Dashboard] Killed process {pid} using port {port}")
-                        killed_any = True
+                        # CRITICAL FIX: On Termux, don't kill other processes during startup
+                        # The maintenance script should have already cleaned up
+                        print(f"[Web Dashboard] Found process {pid} on port {port}, but not killing it")
+                        print(f"[Web Dashboard] If this causes issues, the maintenance script will handle cleanup")
                     except (ValueError, subprocess.TimeoutExpired):
                         pass
-        except:
-            pass
+        except FileNotFoundError:
+            print(f"[Web Dashboard] lsof not available (Termux?), skipping port check")
+        except Exception as e:
+            print(f"[Web Dashboard] Error checking port: {e}")
         
-        # Try fuser as fallback (only if we didn't kill anything with lsof)
-        if not killed_any:
-            try:
-                # fuser with -k kills all processes, so use it carefully
-                result = subprocess.run(['fuser', f'{port}/tcp'], 
-                                      capture_output=True, text=True, timeout=5)
-                if result.returncode == 0 and result.stdout.strip():
-                    # fuser found processes, kill them manually to avoid killing ourselves
-                    pids = result.stdout.strip().split()
-                    for pid_str in pids:
-                        try:
-                            pid = int(pid_str.strip())
-                            if pid == our_pid:
-                                print(f"[Web Dashboard] Skipping our own PID {pid}")
-                                continue
-                            subprocess.run(['kill', '-9', str(pid)], timeout=2)
-                            print(f"[Web Dashboard] Killed process {pid} using port {port}")
-                            killed_any = True
-                        except:
-                            pass
-            except:
-                pass
+        # Don't try fuser on Termux - it's often not available and can cause hangs
         
         if killed_any:
             print(f"[Web Dashboard] Waiting 3 seconds for port to be released...")
@@ -871,13 +858,11 @@ if __name__ == '__main__':
     max_retries = 10  # Increased from 5 for Termux compatibility
     retry_delay = 1  # Start with 1 second (faster initial retry)
     
-    # PROACTIVE: Try to clean up port 5000 before we even start
-    # This prevents issues with stale processes from previous crashes
-    print("[Web Dashboard] Checking for stale processes on port 5000...")
-    if cleanup_port(5000):
-        print("[Web Dashboard] Cleaned up stale processes, proceeding with startup...")
-    else:
-        print("[Web Dashboard] Port 5000 appears clean, proceeding with startup...")
+    # TERMUX FIX: Don't proactively kill processes on startup
+    # This was causing crash loops because the maintenance script restarts us immediately
+    # The maintenance script should handle cleanup before starting us
+    print("[Web Dashboard] Port cleanup is handled by maintenance script")
+    print("[Web Dashboard] Proceeding with startup...")
     
     for attempt in range(max_retries):
         try:
@@ -936,20 +921,14 @@ if __name__ == '__main__':
                             if line.strip():
                                 print(f"[Web Dashboard]   {line}")
                 
-                # Try to clean up the port before retry
+                # Don't try to clean up port - let it happen naturally
                 if attempt < max_retries - 1:
-                    print(f"[Web Dashboard] Attempting to clean up port 5000...")
-                    if cleanup_port(5000):
-                        print(f"[Web Dashboard] Port cleanup attempted, retrying immediately...")
-                        retry_delay = 1  # Quick retry after cleanup
-                    else:
-                        print(f"[Web Dashboard] Could not clean up port, waiting before retry...")
+                    print(f"[Web Dashboard] Will retry after {retry_delay}s delay...")
                 else:
                     # Final attempt failed
                     print(f"[Web Dashboard] FATAL ERROR: Port 5000 is still in use after {max_retries} attempts")
-                    print(f"[Web Dashboard] Please stop the other process or change the port in web_dashboard.py")
-                    print(f"[Web Dashboard] To find the process: lsof -i:5000 or ss -tlnp | grep :5000 or fuser 5000/tcp")
-                    print(f"[Web Dashboard] To kill it: kill -9 $(lsof -ti:5000)")
+                    print(f"[Web Dashboard] The maintenance script should have cleaned up the port")
+                    print(f"[Web Dashboard] This process will exit and the maintenance script will restart it")
                     import traceback
                     traceback.print_exc()
                     exit(1)

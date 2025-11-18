@@ -47,37 +47,37 @@ $script:SetupSteps = @{
 function Write-Header {
     param([string]$Text)
     Write-Host ""
-    Write-Host "╔════════════════════════════════════════════════════════════╗" -ForegroundColor $ColorHeader
-    Write-Host "║  $($Text.PadRight(56))  ║" -ForegroundColor $ColorHeader
-    Write-Host "╚════════════════════════════════════════════════════════════╝" -ForegroundColor $ColorHeader
+    Write-Host "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—" -ForegroundColor $ColorHeader
+    Write-Host "â•‘  $($Text.PadRight(56))  â•‘" -ForegroundColor $ColorHeader
+    Write-Host "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•" -ForegroundColor $ColorHeader
     Write-Host ""
 }
 
 function Write-Step {
     param([string]$Text)
     Write-Host ""
-    Write-Host "▶ $Text" -ForegroundColor $ColorInfo
-    Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor DarkGray
+    Write-Host "â–¶ $Text" -ForegroundColor $ColorInfo
+    Write-Host "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”" -ForegroundColor DarkGray
 }
 
 function Write-Success {
     param([string]$Text)
-    Write-Host "  ✓ $Text" -ForegroundColor $ColorSuccess
+    Write-Host "  [OK] $Text" -ForegroundColor $ColorSuccess
 }
 
 function Write-Warning {
     param([string]$Text)
-    Write-Host "  ⚠ $Text" -ForegroundColor $ColorWarning
+    Write-Host "  [!] $Text" -ForegroundColor $ColorWarning
 }
 
 function Write-Error {
     param([string]$Text)
-    Write-Host "  ✗ $Text" -ForegroundColor $ColorError
+    Write-Host "  [X] $Text" -ForegroundColor $ColorError
 }
 
 function Write-Info {
     param([string]$Text)
-    Write-Host "  ℹ $Text" -ForegroundColor $ColorInfo
+    Write-Host "  [i] $Text" -ForegroundColor $ColorInfo
 }
 
 function Read-YesNo {
@@ -281,9 +281,9 @@ if (!(Test-Path $envPath)) {
         Open-URL "https://discord.com/developers/applications"
         Write-Host ""
         Write-Info "Steps to get your bot token:"
-        Write-Host "     • Click 'New Application' (or select existing)" -ForegroundColor DarkGray
-        Write-Host "     • Go to 'Bot' section → 'Reset Token' → Copy" -ForegroundColor DarkGray
-        Write-Host "     • Enable these intents:" -ForegroundColor DarkGray
+        Write-Host "     â€¢ Click 'New Application' (or select existing)" -ForegroundColor DarkGray
+        Write-Host "     â€¢ Go to 'Bot' section -> 'Reset Token' -> Copy" -ForegroundColor DarkGray
+        Write-Host "     â€¢ Enable these intents:" -ForegroundColor DarkGray
         Write-Host "       - Message Content Intent" -ForegroundColor DarkGray
         Write-Host "       - Server Members Intent" -ForegroundColor DarkGray
         Write-Host "       - Presence Intent" -ForegroundColor DarkGray
@@ -361,7 +361,7 @@ if (!(Test-Path $envPath)) {
     # Optional: Owner ID
     Write-Host ""
     Write-Info "Your Discord User ID (optional - for owner-only commands)"
-    Write-Info "To find it: Enable Developer Mode in Discord → Right-click your name → Copy ID"
+    Write-Info "To find it: Enable Developer Mode in Discord -> Right-click your name -> Copy ID"
     $ownerId = Read-Host "  6. Your Discord User ID (or press Enter to skip)"
     
     # Create .env file
@@ -417,7 +417,7 @@ if (!$SkipDatabase) {
     $dbExists = $false
     try {
         # Try to connect to the database
-        $testScript = @"
+        $pythonScript = @"
 import mysql.connector
 import os
 from dotenv import load_dotenv
@@ -435,7 +435,7 @@ try:
 except:
     print('NOT_EXISTS')
 "@
-        $testResult = python -c $testScript 2>&1
+        $testResult = python -c $pythonScript 2>&1
         $dbExists = $testResult -match "EXISTS"
     } catch {
         $dbExists = $false
@@ -669,16 +669,16 @@ if (Read-YesNo "Would you like to create desktop shortcuts?") {
 # Completion Summary
 # ============================================================
 
-Write-Header "Setup Complete! 🎉"
+Write-Header "Setup Complete! ðŸŽ‰"
 
 Write-Host "Congratulations! Your Sulfur Discord Bot is ready to use!" -ForegroundColor $ColorSuccess
 Write-Host ""
 
 # Show completed steps
 Write-Host "Setup Summary:" -ForegroundColor $ColorInfo
-Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor DarkGray
+Write-Host "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”" -ForegroundColor DarkGray
 foreach ($step in $script:SetupSteps.Keys | Sort-Object) {
-    $status = if ($script:SetupSteps[$step]) { "✓" } else { "○" }
+    $status = if ($script:SetupSteps[$step]) { "[OK]" } else { "[ ]" }
     $color = if ($script:SetupSteps[$step]) { $ColorSuccess } else { $ColorWarning }
     Write-Host "  $status $step" -ForegroundColor $color
 }
@@ -688,23 +688,23 @@ Write-Host ""
 Write-Host "Next Steps:" -ForegroundColor $ColorPrompt
 Write-Host ""
 Write-Host "  1. Invite the bot to your Discord server:" -ForegroundColor $ColorInfo
-Write-Host "     • Go to: https://discord.com/developers/applications" -ForegroundColor DarkGray
-Write-Host "     • Select your application → OAuth2 → URL Generator" -ForegroundColor DarkGray
-Write-Host "     • Select scopes: bot, applications.commands" -ForegroundColor DarkGray
-Write-Host "     • Select permissions: Administrator (or specific permissions)" -ForegroundColor DarkGray
-Write-Host "     • Copy and open the generated URL" -ForegroundColor DarkGray
+Write-Host "     â€¢ Go to: https://discord.com/developers/applications" -ForegroundColor DarkGray
+Write-Host "     â€¢ Select your application -> OAuth2 -> URL Generator" -ForegroundColor DarkGray
+Write-Host "     â€¢ Select scopes: bot, applications.commands" -ForegroundColor DarkGray
+Write-Host "     â€¢ Select permissions: Administrator (or specific permissions)" -ForegroundColor DarkGray
+Write-Host "     â€¢ Copy and open the generated URL" -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "  2. Customize your bot:" -ForegroundColor $ColorInfo
-Write-Host "     • Edit config\system_prompt.txt for personality" -ForegroundColor DarkGray
-Write-Host "     • Edit config\config.json for settings" -ForegroundColor DarkGray
+Write-Host "     â€¢ Edit config\system_prompt.txt for personality" -ForegroundColor DarkGray
+Write-Host "     â€¢ Edit config\config.json for settings" -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "  3. Start the bot:" -ForegroundColor $ColorInfo
-Write-Host "     • Double-click 'Start Sulfur Bot' on your desktop" -ForegroundColor DarkGray
-Write-Host "     • Or run: .\start.ps1 or .\start.bat" -ForegroundColor DarkGray
+Write-Host "     â€¢ Double-click 'Start Sulfur Bot' on your desktop" -ForegroundColor DarkGray
+Write-Host "     â€¢ Or run: .\start.ps1 or .\start.bat" -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "  4. Monitor the bot:" -ForegroundColor $ColorInfo
-Write-Host "     • Web Dashboard: http://localhost:5000" -ForegroundColor DarkGray
-Write-Host "     • Logs are in the 'logs' folder" -ForegroundColor DarkGray
+Write-Host "     â€¢ Web Dashboard: http://localhost:5000" -ForegroundColor DarkGray
+Write-Host "     â€¢ Logs are in the 'logs' folder" -ForegroundColor DarkGray
 Write-Host ""
 
 # Offer to start now
@@ -724,7 +724,7 @@ if (Read-YesNo "Would you like to start the bot now?") {
     Write-Host ""
     Write-Info "You can start the bot anytime by running start.ps1 or using the desktop shortcut"
     Write-Host ""
-    Write-Host "Thank you for using Sulfur Discord Bot! 🎉" -ForegroundColor $ColorSuccess
+    Write-Host "Thank you for using Sulfur Discord Bot!" -ForegroundColor $ColorSuccess
     Write-Host ""
     Write-Host "Press any key to exit..." -ForegroundColor DarkGray
     $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
