@@ -185,6 +185,17 @@ function Invoke-DatabaseBackup {
 function Invoke-GitCommit {
     param([string]$Message='chore: Auto-commit from maintenance script')
     Write-ColorLog 'Checking for changes...' 'Cyan' '[GIT] '
+    
+    # Check if git user is configured
+    $gitUser = git config user.name 2>$null
+    $gitEmail = git config user.email 2>$null
+    
+    if([string]::IsNullOrWhiteSpace($gitUser) -or [string]::IsNullOrWhiteSpace($gitEmail)){
+        Write-ColorLog 'Git user not configured, setting default values...' 'Yellow' '[GIT] '
+        git config user.name "Sulfur Bot Maintenance" 2>&1 | Out-Null
+        git config user.email "sulfur-bot@localhost" 2>&1 | Out-Null
+    }
+    
     $hasChanges=$false
     $syncFile='config\database_sync.sql'
     if(Test-Path $syncFile){
@@ -230,10 +241,30 @@ function Invoke-GitCommit {
 
 function Start-WebDashboard {
     Write-ColorLog 'Starting Web Dashboard...' 'Cyan' '[WEB] '
+    
+    # Check if Flask dependencies are installed
     $pythonExe='python'
     if(Test-Path 'venv\Scripts\python.exe'){
         $pythonExe='venv\Scripts\python.exe'
     }
+    
+    # Verify Flask is installed
+    $flaskCheck = & $pythonExe -c "import flask, flask_socketio; print('ok')" 2>$null
+    if($LASTEXITCODE -ne 0 -or $flaskCheck -ne 'ok'){
+        Write-ColorLog 'Flask dependencies not installed, attempting to install...' 'Yellow' '[WEB] '
+        $pipExe = $pythonExe -replace 'python\.exe$','pip.exe'
+        if(Test-Path $pipExe){
+            & $pipExe install -r requirements.txt 2>&1 | Out-Null
+            if($LASTEXITCODE -ne 0){
+                Write-ColorLog 'Failed to install Flask dependencies. Web Dashboard cannot start.' 'Red' '[WEB] '
+                return $null
+            }
+        } else {
+            Write-ColorLog 'pip not found. Cannot install dependencies.' 'Red' '[WEB] '
+            return $null
+        }
+    }
+    
     $webLog=$logFile -replace '\.log$','_web.log'
     $job=Start-Job -ScriptBlock {
         param($Python,$Root,$Log)

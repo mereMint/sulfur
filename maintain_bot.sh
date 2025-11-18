@@ -270,6 +270,16 @@ git_commit() {
     
     log_git "Checking for changes to commit..."
     
+    # Check if git user is configured
+    local git_user=$(git config user.name 2>/dev/null || true)
+    local git_email=$(git config user.email 2>/dev/null || true)
+    
+    if [ -z "$git_user" ] || [ -z "$git_email" ]; then
+        log_warning "Git user not configured, setting default values..."
+        git config user.name "Sulfur Bot Maintenance" 2>>"$MAIN_LOG" || true
+        git config user.email "sulfur-bot@localhost" 2>>"$MAIN_LOG" || true
+    fi
+    
     # Check if there are any changes
     if [ -z "$(git status --porcelain)" ]; then
         log_git "No changes to commit"
@@ -528,15 +538,39 @@ ensure_python_env() {
         fi
     fi
 
-    # Final verification
-    if $venv_python -c 'import discord, flask, socketio; print("ok")' >/dev/null 2>&1 || \
-       $venv_python -c 'import discord; print("ok")' >/dev/null 2>&1; then
-        log_success "Python environment ready"
-        return 0
-    else
-        log_error "Python environment verification failed (discord.py still missing?)"
-        return 1
+    # Final verification - check for all required packages
+    local missing_packages=""
+    
+    # Check for discord.py (required for bot)
+    if ! $venv_python -c 'import discord' >/dev/null 2>&1; then
+        missing_packages="${missing_packages}discord.py "
     fi
+    
+    # Check for Flask dependencies (required for web dashboard)
+    if ! $venv_python -c 'import flask' >/dev/null 2>&1; then
+        missing_packages="${missing_packages}Flask "
+    fi
+    
+    if ! $venv_python -c 'import flask_socketio' >/dev/null 2>&1; then
+        missing_packages="${missing_packages}Flask-SocketIO "
+    fi
+    
+    if [ -n "$missing_packages" ]; then
+        log_error "Missing required packages: $missing_packages"
+        log_warning "Attempting to install missing packages..."
+        if ! $venv_pip install -r requirements.txt >>"$MAIN_LOG" 2>&1; then
+            log_error "Failed to install dependencies. Check $MAIN_LOG for details."
+            return 1
+        fi
+        # Verify again after installation
+        if ! $venv_python -c 'import discord, flask, flask_socketio' >/dev/null 2>&1; then
+            log_error "Package installation failed. Manual intervention required."
+            return 1
+        fi
+    fi
+    
+    log_success "Python environment ready (all required packages installed)"
+    return 0
 }
 
 # Ensure preflight passes before starting
