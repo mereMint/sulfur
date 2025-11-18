@@ -117,9 +117,19 @@
         },
         "features": {
           "dm_access": 2000,
-          "games_access": 1500,
-          "werwolf_special_roles": 3000,
-          "custom_status": 1000
+          "games_access": 1500
+        },
+        "boosts": {
+          "xp_boost_1h": 500,
+          "xp_boost_24h": 3000,
+          "gambling_multiplier_1h": 800,
+          "gambling_multiplier_24h": 5000
+        },
+        "werwolf_roles": {
+          "seherin": 1500,
+          "hexe": 1500,
+          "dönerstopfer": 1200,
+          "jäger": 1200
         }
       },
       "games": {
@@ -140,6 +150,10 @@
           "max_bet": 500,
           "grid_size": 5,
           "mine_count": 5
+        },
+        "detective": {
+          "reward_correct": 500,
+          "reward_wrong": 0
         }
       },
       "quests": {
@@ -161,6 +175,10 @@
           "game_minutes": {
             "target": 15,
             "reward": 300
+          },
+          "daily_media": {
+            "target": 1,
+            "reward": 200
           }
         }
       }
@@ -186,10 +204,10 @@
         "tts_char_limit": 150
       },
       "pacing": {
-        "after_morning_announcement": 1.0,
-        "after_victim_reveal": 2.5,
-        "after_no_victim_announcement": 1.0,
-        "after_lynch_reveal": 2.5
+        "after_morning_announcement": 0.5,
+        "after_victim_reveal": 1.5,
+        "after_no_victim_announcement": 0.5,
+        "after_lynch_reveal": 1.5
       }
     },
     "wrapped": {

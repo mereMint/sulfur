@@ -37,6 +37,7 @@ from discord import app_commands
 from discord.ext import tasks
 from modules.werwolf import WerwolfGame
 from modules.api_helpers import get_chat_response, get_relationship_summary_from_api, get_wrapped_summary_from_api, get_game_details_from_api
+from modules import api_helpers
 from modules.bot_enhancements import (
     handle_image_attachment,
     handle_unknown_emojis_in_message,
@@ -1733,29 +1734,6 @@ async def voice_setup(interaction: discord.Interaction):
     except discord.Forbidden:
         await interaction.followup.send("Error: The bot lacks the necessary permissions (Manage Channels) to perform this setup.")
 
-@voice_group.command(name="clearall", description="[Admin-Gefahr!] Löscht ALLE Sprachkanäle auf dem Server.")
-@app_commands.default_permissions(administrator=True)
-@app_commands.check(is_admin_or_authorised)
-async def voice_clearall(interaction: discord.Interaction):
-    """Deletes ALL voice channels on the server, regardless of DB state."""
-    await interaction.response.defer(ephemeral=True)
-    
-    guild = interaction.guild
-    voice_channels_to_delete = guild.voice_channels
-    if not voice_channels_to_delete:
-        await interaction.followup.send("Keine Sprachkanäle zum Löschen gefunden.")
-        return
-
-    deleted_count = 0
-    for channel in voice_channels_to_delete:
-        try:
-            await channel.delete(reason="Admin Massenlöschung")
-            deleted_count += 1
-        except Exception as e:
-            print(f"Konnte Channel {channel.name} nicht löschen: {e}")
-    
-    await interaction.followup.send(f"{deleted_count} Sprachkanäle wurden erfolgreich gelöscht.")
-
 # --- NEW: Voice Channel Config Commands ---
 config_group = app_commands.Group(name="config", parent=voice_group, description="Konfiguriere deinen persönlichen Sprachkanal.")
 
@@ -2156,6 +2134,60 @@ class AdminGroup(app_commands.Group):
             message = f"Konnte die lokale IP-Adresse nicht automatisch ermitteln. Versuche, das Dashboard über den Host-PC hier aufzurufen:\n**{dashboard_url}**\n\n*Fehler: {e}*"
             await interaction.followup.send(message)
 
+    @app_commands.command(name="killvoice", description="[Admin-Gefahr!] Löscht ALLE Sprachkanäle auf dem Server.")
+    async def killvoice(self, interaction: discord.Interaction):
+        """Deletes ALL voice channels on the server, regardless of DB state."""
+        await interaction.response.defer(ephemeral=True)
+        
+        guild = interaction.guild
+        voice_channels_to_delete = guild.voice_channels
+        if not voice_channels_to_delete:
+            await interaction.followup.send("Keine Sprachkanäle zum Löschen gefunden.")
+            return
+
+        deleted_count = 0
+        for channel in voice_channels_to_delete:
+            try:
+                await channel.delete(reason="Admin Massenlöschung")
+                deleted_count += 1
+            except Exception as e:
+                print(f"Konnte Channel {channel.name} nicht löschen: {e}")
+        
+        await interaction.followup.send(f"{deleted_count} Sprachkanäle wurden erfolgreich gelöscht.")
+
+    @app_commands.command(name="addcurrency", description="[Test] Füge einem Benutzer Währung hinzu.")
+    @app_commands.describe(
+        user="Der Benutzer, der Währung erhalten soll",
+        amount="Menge der Währung (kann negativ sein)"
+    )
+    async def addcurrency(self, interaction: discord.Interaction, user: discord.Member, amount: int):
+        """Adds currency to a user's balance for testing purposes."""
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+            await db_helpers.add_balance(
+                user.id,
+                user.display_name,
+                amount,
+                config,
+                stat_period
+            )
+            
+            new_balance = await db_helpers.get_balance(user.id)
+            currency = config['modules']['economy']['currency_symbol']
+            
+            await interaction.followup.send(
+                f"✅ {user.mention} erhielt **{amount} {currency}**\n"
+                f"Neues Guthaben: **{new_balance} {currency}**"
+            )
+            
+            logger.info(f"Admin {interaction.user.name} added {amount} currency to {user.name}")
+            
+        except Exception as e:
+            logger.error(f"Error in addcurrency command: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Fehler beim Hinzufügen von Währung: {e}")
+
 
 # --- NEW: View for the AI Dashboard ---
 class AIDashboardView(discord.ui.View):
@@ -2301,19 +2333,178 @@ async def profile(interaction: discord.Interaction, user: discord.Member = None)
     # Show purchased items/features
     has_dm = await db_helpers.has_feature_unlock(target_user.id, 'dm_access')
     has_games = await db_helpers.has_feature_unlock(target_user.id, 'games_access')
-    has_ww_special = await db_helpers.has_feature_unlock(target_user.id, 'werwolf_special_roles')
-    has_custom_status = await db_helpers.has_feature_unlock(target_user.id, 'custom_status')
+    
+    # Check for individual Werwolf roles
+    has_seherin = await db_helpers.has_feature_unlock(target_user.id, 'werwolf_role_seherin')
+    has_hexe = await db_helpers.has_feature_unlock(target_user.id, 'werwolf_role_hexe')
+    has_dönerstopfer = await db_helpers.has_feature_unlock(target_user.id, 'werwolf_role_dönerstopfer')
+    has_jäger = await db_helpers.has_feature_unlock(target_user.id, 'werwolf_role_jäger')
     
     features = []
     if has_dm: features.append("✉️ DM Access")
     if has_games: features.append("🎮 Games Access")
-    if has_ww_special: features.append("🐺 Werwolf Special Roles")
-    if has_custom_status: features.append("✨ Custom Status")
+    
+    werwolf_roles = []
+    if has_seherin: werwolf_roles.append("🔮 Seherin")
+    if has_hexe: werwolf_roles.append("🧪 Hexe")
+    if has_dönerstopfer: werwolf_roles.append("🌯 Dönerstopfer")
+    if has_jäger: werwolf_roles.append("🏹 Jäger")
+    
+    if werwolf_roles:
+        features.append(f"🐺 Werwolf: {', '.join(werwolf_roles)}")
     
     features_text = "\n".join(features) if features else "*Keine Features freigeschaltet.*"
     embed.add_field(name="🎯 Freigeschaltene Features", value=features_text, inline=False)
 
-    await interaction.followup.send(embed=embed)
+    # Add pagination view for game stats
+    view = ProfilePageView(target_user, config)
+    await interaction.followup.send(embed=embed, view=view)
+
+
+class ProfilePageView(discord.ui.View):
+    """View for paginated profile with game stats."""
+    
+    def __init__(self, user: discord.Member, config: dict):
+        super().__init__(timeout=180)
+        self.user = user
+        self.config = config
+    
+    @discord.ui.button(label="🐺 Werwolf Stats", style=discord.ButtonStyle.secondary, row=0)
+    async def werwolf_stats_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        embed = await self._create_werwolf_stats_embed()
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="🎮 Game Stats", style=discord.ButtonStyle.secondary, row=0)
+    async def game_stats_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        embed = await self._create_game_stats_embed()
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    
+    async def _create_werwolf_stats_embed(self):
+        """Create embed with Werwolf-specific stats."""
+        profile_data, error = await db_helpers.get_player_profile(self.user.id)
+        
+        if error or not profile_data:
+            return discord.Embed(
+                title="Keine Daten",
+                description="Keine Werwolf-Statistiken verfügbar.",
+                color=discord.Color.red()
+            )
+        
+        wins = profile_data.get('wins', 0)
+        losses = profile_data.get('losses', 0)
+        total_games = wins + losses
+        win_rate = (wins / total_games * 100) if total_games > 0 else 0
+        
+        embed = discord.Embed(
+            title=f"🐺 Werwolf Stats - {self.user.display_name}",
+            color=discord.Color.dark_red()
+        )
+        embed.set_thumbnail(url=self.user.display_avatar.url)
+        
+        embed.add_field(name="Spiele gesamt", value=f"`{total_games}`", inline=True)
+        embed.add_field(name="Siege", value=f"`{wins}`", inline=True)
+        embed.add_field(name="Niederlagen", value=f"`{losses}`", inline=True)
+        embed.add_field(name="Win-Rate", value=f"`{win_rate:.1f}%`", inline=True)
+        
+        # Progress bar for win rate
+        bar_length = 20
+        filled = int((win_rate / 100) * bar_length)
+        bar = '█' * filled + '░' * (bar_length - filled)
+        embed.add_field(name="Win-Rate Fortschritt", value=f"`{bar}`", inline=False)
+        
+        return embed
+    
+    async def _create_game_stats_embed(self):
+        """Create embed with all game stats (Blackjack, Roulette, Mines, Detective, etc.)."""
+        try:
+            if not db_helpers.db_pool:
+                return discord.Embed(
+                    title="Fehler",
+                    description="Datenbankverbindung nicht verfügbar.",
+                    color=discord.Color.red()
+                )
+            
+            cnx = db_helpers.db_pool.get_connection()
+            if not cnx:
+                return discord.Embed(
+                    title="Fehler",
+                    description="Datenbankverbindung fehlgeschlagen.",
+                    color=discord.Color.red()
+                )
+            
+            cursor = cnx.cursor(dictionary=True)
+            try:
+                stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+                cursor.execute(
+                    """
+                    SELECT games_played, games_won, total_bet, total_won
+                    FROM user_stats
+                    WHERE user_id = %s AND stat_period = %s
+                    """,
+                    (self.user.id, stat_period)
+                )
+                stats = cursor.fetchone()
+                
+                if not stats:
+                    embed = discord.Embed(
+                        title=f"🎮 Game Stats - {self.user.display_name}",
+                        description="Noch keine Spiele gespielt diesen Monat!",
+                        color=discord.Color.blue()
+                    )
+                    embed.set_thumbnail(url=self.user.display_avatar.url)
+                    return embed
+                
+                games_played = stats['games_played'] or 0
+                games_won = stats['games_won'] or 0
+                total_bet = stats['total_bet'] or 0
+                total_won = stats['total_won'] or 0
+                
+                win_rate = (games_won / games_played * 100) if games_played > 0 else 0
+                net_profit = total_won - total_bet
+                
+                embed = discord.Embed(
+                    title=f"🎮 Game Stats - {self.user.display_name}",
+                    description=f"Statistiken für {stat_period}",
+                    color=discord.Color.blue()
+                )
+                embed.set_thumbnail(url=self.user.display_avatar.url)
+                
+                embed.add_field(name="Spiele gespielt", value=f"`{games_played}`", inline=True)
+                embed.add_field(name="Spiele gewonnen", value=f"`{games_won}`", inline=True)
+                embed.add_field(name="Win-Rate", value=f"`{win_rate:.1f}%`", inline=True)
+                
+                currency = self.config['modules']['economy']['currency_symbol']
+                embed.add_field(name="Gesamt eingesetzt", value=f"`{total_bet}` {currency}", inline=True)
+                embed.add_field(name="Gesamt gewonnen", value=f"`{total_won}` {currency}", inline=True)
+                
+                profit_color = "🟢" if net_profit >= 0 else "🔴"
+                embed.add_field(
+                    name="Nettogewinn",
+                    value=f"{profit_color} `{net_profit:+d}` {currency}",
+                    inline=True
+                )
+                
+                # Win rate progress bar
+                bar_length = 20
+                filled = int((win_rate / 100) * bar_length)
+                bar = '█' * filled + '░' * (bar_length - filled)
+                embed.add_field(name="Win-Rate Fortschritt", value=f"`{bar}`", inline=False)
+                
+                return embed
+                
+            finally:
+                cursor.close()
+                cnx.close()
+                
+        except Exception as e:
+            logger.error(f"Error creating game stats embed: {e}", exc_info=True)
+            return discord.Embed(
+                title="Fehler",
+                description=f"Fehler beim Laden der Statistiken: {str(e)}",
+                color=discord.Color.red()
+            )
 
 @tree.command(name="leaderboard", description="Zeigt das globale Level-Leaderboard an.")
 async def leaderboard(interaction: discord.Interaction):
@@ -2853,19 +3044,101 @@ class ShopBuyView(discord.ui.View):
             'games_access': {
                 'name': '🎮 Games Access',
                 'desc': 'Spiele Blackjack, Roulette, Mines und Russian Roulette!'
-            },
-            'werwolf_special_roles': {
-                'name': '🐺 Werwolf Special Roles',
-                'desc': 'Schalte spezielle Rollen für Werwolf frei:\n**Seherin** - Erfahre jede Nacht die Rolle eines Spielers\n**Hexe** - Heile oder vergifte Spieler\n**Dönerstopfer** - Mute Spieler nachts'
-            },
-            'custom_status': {
-                'name': '✨ Custom Status',
-                'desc': 'Setze einen benutzerdefinierten Status im Server.'
             }
         }
         
         for feature, price in features.items():
             details = feature_details.get(feature, {'name': feature, 'desc': 'Feature unlock'})
+            embed.add_field(
+                name=f"{details['name']} - {price} {currency}",
+                value=details['desc'],
+                inline=False
+            )
+        
+        await interaction.edit_original_response(embed=embed, view=view)
+    
+    @discord.ui.button(label="⚡ Boosts", style=discord.ButtonStyle.blurple)
+    async def boosts_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Show temporary boost options."""
+        await interaction.response.defer()
+        
+        view = BoostSelectView(self.member, self.config)
+        embed = discord.Embed(
+            title="⚡ Temporary Boosts",
+            description="Kaufe temporäre Boosts um schneller voranzukommen!",
+            color=discord.Color.purple()
+        )
+        
+        currency = self.config['modules']['economy']['currency_symbol']
+        boosts = self.config['modules']['economy']['shop']['boosts']
+        
+        # Define boost descriptions
+        boost_details = {
+            'xp_boost_1h': {
+                'name': '⚡ XP Boost (1 Stunde)',
+                'desc': '2x XP für alle Aktivitäten für 1 Stunde'
+            },
+            'xp_boost_24h': {
+                'name': '⚡⚡ XP Boost (24 Stunden)',
+                'desc': '2x XP für alle Aktivitäten für 24 Stunden'
+            },
+            'gambling_multiplier_1h': {
+                'name': '🎰 Gambling Boost (1 Stunde)',
+                'desc': '1.5x Gewinnmultiplikator für alle Spiele für 1 Stunde'
+            },
+            'gambling_multiplier_24h': {
+                'name': '🎰🎰 Gambling Boost (24 Stunden)',
+                'desc': '1.5x Gewinnmultiplikator für alle Spiele für 24 Stunden'
+            }
+        }
+        
+        for boost, price in boosts.items():
+            details = boost_details.get(boost, {'name': boost, 'desc': 'Temporary boost'})
+            embed.add_field(
+                name=f"{details['name']} - {price} {currency}",
+                value=details['desc'],
+                inline=False
+            )
+        
+        await interaction.edit_original_response(embed=embed, view=view)
+    
+    @discord.ui.button(label="🐺 Werwolf Rollen", style=discord.ButtonStyle.red)
+    async def werwolf_roles_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Show Werwolf role unlock options."""
+        await interaction.response.defer()
+        
+        view = WerwolfRoleSelectView(self.member, self.config)
+        embed = discord.Embed(
+            title="🐺 Werwolf Rollen",
+            description="Schalte spezielle Rollen für das Werwolf-Spiel frei!",
+            color=discord.Color.dark_red()
+        )
+        
+        currency = self.config['modules']['economy']['currency_symbol']
+        roles = self.config['modules']['economy']['shop']['werwolf_roles']
+        
+        # Define role descriptions
+        role_details = {
+            'seherin': {
+                'name': '🔮 Seherin',
+                'desc': 'Erfahre jede Nacht die Rolle eines Spielers'
+            },
+            'hexe': {
+                'name': '🧪 Hexe',
+                'desc': 'Heile oder vergifte Spieler während der Nacht'
+            },
+            'dönerstopfer': {
+                'name': '🌯 Dönerstopfer',
+                'desc': 'Mute einen Spieler während der Diskussion'
+            },
+            'jäger': {
+                'name': '🏹 Jäger',
+                'desc': 'Nimm beim Tod einen Spieler mit ins Grab'
+            }
+        }
+        
+        for role, price in roles.items():
+            details = role_details.get(role, {'name': role, 'desc': 'Werwolf role'})
             embed.add_field(
                 name=f"{details['name']} - {price} {currency}",
                 value=details['desc'],
@@ -2927,14 +3200,6 @@ class FeatureSelectView(discord.ui.View):
             'games_access': {
                 'name': 'Games Access',
                 'description': 'Spiele Blackjack, Roulette & mehr'
-            },
-            'werwolf_special_roles': {
-                'name': 'Werwolf Special Roles',
-                'description': 'Schalte Seherin, Hexe & Dönerstopfer frei'
-            },
-            'custom_status': {
-                'name': 'Custom Status',
-                'description': 'Setze einen benutzerdefinierten Status'
             }
         }
         
@@ -2990,6 +3255,161 @@ class FeatureSelectView(discord.ui.View):
             await interaction.edit_original_response(embed=embed, view=None)
         except Exception as e:
             logger.error(f"Error purchasing feature: {e}", exc_info=True)
+            await interaction.followup.send(f"Fehler beim Kauf: {str(e)}", ephemeral=True)
+
+
+class BoostSelectView(discord.ui.View):
+    """View for selecting boosts to purchase."""
+    
+    def __init__(self, member: discord.Member, config: dict):
+        super().__init__(timeout=120)
+        self.member = member
+        self.config = config
+        
+        # Create select menu for boosts
+        options = []
+        boosts = config['modules']['economy']['shop']['boosts']
+        boost_info = {
+            'xp_boost_1h': {
+                'name': 'XP Boost 1h',
+                'description': '2x XP für 1 Stunde'
+            },
+            'xp_boost_24h': {
+                'name': 'XP Boost 24h',
+                'description': '2x XP für 24 Stunden'
+            },
+            'gambling_multiplier_1h': {
+                'name': 'Gambling Boost 1h',
+                'description': '1.5x Gewinnmultiplikator für 1 Stunde'
+            },
+            'gambling_multiplier_24h': {
+                'name': 'Gambling Boost 24h',
+                'description': '1.5x Gewinnmultiplikator für 24 Stunden'
+            }
+        }
+        
+        for boost, price in boosts.items():
+            info = boost_info.get(boost, {'name': boost, 'description': ''})
+            currency = config['modules']['economy']['currency_symbol']
+            options.append(
+                discord.SelectOption(
+                    label=info['name'],
+                    value=boost,
+                    description=f"{price} {currency} - {info['description']}"[:100]
+                )
+            )
+        
+        select = discord.ui.Select(placeholder="Wähle einen Boost...", options=options)
+        select.callback = self.on_boost_select
+        self.add_item(select)
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.member.id:
+            await interaction.response.send_message("Du kannst diese Auswahl nicht bedienen.", ephemeral=True)
+            return False
+        return True
+    
+    async def on_boost_select(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        
+        boost = interaction.data['values'][0]
+        price = self.config['modules']['economy']['shop']['boosts'][boost]
+        
+        # TODO: Implement boost purchase logic in shop module
+        # For now, show a placeholder message
+        embed = discord.Embed(
+            title="🚧 Coming Soon",
+            description=f"Boost-System wird bald implementiert!\nGewählter Boost: {boost}",
+            color=discord.Color.orange()
+        )
+        
+        await interaction.edit_original_response(embed=embed, view=None)
+
+
+class WerwolfRoleSelectView(discord.ui.View):
+    """View for selecting Werwolf roles to purchase."""
+    
+    def __init__(self, member: discord.Member, config: dict):
+        super().__init__(timeout=120)
+        self.member = member
+        self.config = config
+        
+        # Create select menu for Werwolf roles
+        options = []
+        roles = config['modules']['economy']['shop']['werwolf_roles']
+        role_info = {
+            'seherin': {
+                'name': 'Seherin',
+                'description': 'Erfahre jede Nacht eine Rolle'
+            },
+            'hexe': {
+                'name': 'Hexe',
+                'description': 'Heile oder vergifte Spieler'
+            },
+            'dönerstopfer': {
+                'name': 'Dönerstopfer',
+                'description': 'Mute einen Spieler'
+            },
+            'jäger': {
+                'name': 'Jäger',
+                'description': 'Nimm jemanden mit ins Grab'
+            }
+        }
+        
+        for role, price in roles.items():
+            info = role_info.get(role, {'name': role, 'description': ''})
+            currency = config['modules']['economy']['currency_symbol']
+            options.append(
+                discord.SelectOption(
+                    label=info['name'],
+                    value=role,
+                    description=f"{price} {currency} - {info['description']}"[:100]
+                )
+            )
+        
+        select = discord.ui.Select(placeholder="Wähle eine Rolle...", options=options)
+        select.callback = self.on_role_select
+        self.add_item(select)
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.member.id:
+            await interaction.response.send_message("Du kannst diese Auswahl nicht bedienen.", ephemeral=True)
+            return False
+        return True
+    
+    async def on_role_select(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        
+        role = interaction.data['values'][0]
+        price = self.config['modules']['economy']['shop']['werwolf_roles'][role]
+        
+        try:
+            # Purchase the role as a feature unlock with special naming
+            feature_name = f'werwolf_role_{role}'
+            success, message = await shop_module.purchase_feature(
+                db_helpers,
+                self.member,
+                feature_name,
+                price,
+                self.config
+            )
+            
+            if success:
+                embed = discord.Embed(
+                    title="✅ Kauf erfolgreich!",
+                    description=f"Du hast die Rolle **{role.capitalize()}** freigeschaltet!\nDiese Rolle ist nun im Werwolf-Spiel für dich verfügbar.",
+                    color=discord.Color.green()
+                )
+            else:
+                embed = discord.Embed(
+                    title="❌ Kauf fehlgeschlagen",
+                    description=message,
+                    color=discord.Color.red()
+                )
+            
+            await interaction.edit_original_response(embed=embed, view=None)
+        except Exception as e:
+            logger.error(f"Error purchasing Werwolf role: {e}", exc_info=True)
             await interaction.followup.send(f"Fehler beim Kauf: {str(e)}", ephemeral=True)
 
 
@@ -3990,138 +4410,7 @@ async def roulette(interaction: discord.Interaction, bet: int):
     await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 
-# Keep old roulette command but mark as deprecated
-@tree.command(name="roulette_old", description="[VERALTET] Alte Roulette-Version - Nutze /roulette stattdessen")
-@app_commands.describe(
-    bet_type="Wettart (number/red/black/odd/even/high/low)",
-    bet_value="Wert (z.B. Zahl 0-36, 'red', 'black', etc.)",
-    amount="Einsatzbetrag"
-)
-@app_commands.choices(bet_type=[
-    app_commands.Choice(name="Einzelne Zahl (0-36)", value="number"),
-    app_commands.Choice(name="Rot", value="red"),
-    app_commands.Choice(name="Schwarz", value="black"),
-    app_commands.Choice(name="Ungerade", value="odd"),
-    app_commands.Choice(name="Gerade", value="even"),
-    app_commands.Choice(name="Hoch (19-36)", value="high"),
-    app_commands.Choice(name="Niedrig (1-18)", value="low")
-])
-async def roulette_old(interaction: discord.Interaction, bet_type: app_commands.Choice[str], bet_value: str, amount: int):
-    """Play Roulette."""
-    await interaction.response.defer(ephemeral=True)
-    
-    user_id = interaction.user.id
-    
-    # Validate bet amount
-    min_bet = config['modules']['economy']['games']['roulette']['min_bet']
-    max_bet = config['modules']['economy']['games']['roulette']['max_bet']
-    currency = config['modules']['economy']['currency_symbol']
-    
-    if amount < min_bet or amount > max_bet:
-        await interaction.followup.send(
-            f"Ungültiger Einsatz! Minimum: {min_bet} {currency}, Maximum: {max_bet} {currency}",
-            ephemeral=True
-        )
-        return
-    
-    # Check balance
-    balance = await db_helpers.get_balance(user_id)
-    if balance < amount:
-        await interaction.followup.send(
-            f"Nicht genug Guthaben! Du hast {balance} {currency}, brauchst aber {amount} {currency}.",
-            ephemeral=True
-        )
-        return
-    
-    # Parse bet value
-    bet_type_str = bet_type.value
-    parsed_bet_value = bet_value
-    
-    if bet_type_str == 'number':
-        try:
-            parsed_bet_value = int(bet_value)
-            if parsed_bet_value < 0 or parsed_bet_value > 36:
-                await interaction.followup.send("Zahl muss zwischen 0 und 36 liegen!", ephemeral=True)
-                return
-        except ValueError:
-            await interaction.followup.send("Ungültige Zahl!", ephemeral=True)
-            return
-    elif bet_type_str in ['red', 'black']:
-        parsed_bet_value = bet_type_str
-        bet_type_str = 'color'
-    elif bet_type_str in ['odd', 'even']:
-        parsed_bet_value = bet_type_str
-        bet_type_str = 'odd_even'
-    elif bet_type_str in ['high', 'low']:
-        parsed_bet_value = bet_type_str
-        bet_type_str = 'high_low'
-    
-    # Spin the wheel
-    result_number = RouletteGame.spin()
-    won, multiplier = RouletteGame.check_bet(result_number, bet_type_str, parsed_bet_value)
-    
-    # Determine color
-    if result_number == 0:
-        result_color = "🟢 Grün"
-    elif result_number in RouletteGame.RED:
-        result_color = "🔴 Rot"
-    else:
-        result_color = "⚫ Schwarz"
-    
-    # Calculate winnings
-    if won:
-        winnings = amount * multiplier - amount
-    else:
-        winnings = -amount
-    
-    # Update balance
-    stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
-    await db_helpers.add_balance(
-        user_id,
-        interaction.user.display_name,
-        winnings,
-        config,
-        stat_period
-    )
-    
-    # Get new balance
-    new_balance = await db_helpers.get_balance(user_id)
-    
-    # Log transaction
-    await db_helpers.log_transaction(
-        user_id,
-        'roulette',
-        winnings,
-        new_balance,
-        f"Bet: {bet_type.name} on {bet_value}, Result: {result_number}"
-    )
-    
-    # Create result embed
-    embed = discord.Embed(
-        title="🎰 Roulette",
-        color=discord.Color.green() if won else discord.Color.red()
-    )
-    
-    embed.add_field(name="Ergebnis", value=f"**{result_number}** {result_color}", inline=False)
-    embed.add_field(name="Deine Wette", value=f"{bet_type.name}: {bet_value}", inline=True)
-    embed.add_field(name="Einsatz", value=f"{amount} {currency}", inline=True)
-    
-    if won:
-        embed.add_field(
-            name="✅ Gewonnen!",
-            value=f"Gewinn: **{winnings} {currency}** ({multiplier}x)",
-            inline=False
-        )
-    else:
-        embed.add_field(
-            name="❌ Verloren!",
-            value=f"Verlust: **{amount} {currency}**",
-            inline=False
-        )
-    
-    embed.add_field(name="Neues Guthaben", value=f"{new_balance} {currency}", inline=True)
-    
-    await interaction.followup.send(embed=embed, ephemeral=True)
+
 
 
 @tree.command(name="mines", description="Spiele Mines!")
@@ -4365,6 +4654,307 @@ class RussianRouletteView(discord.ui.View):
             del active_rr_games[self.user_id]
         
         self.stop()
+
+
+# --- Detective Game ---
+from modules import detective_game
+
+# Active detective games
+active_detective_games = {}
+
+
+class DetectiveGameView(discord.ui.View):
+    """UI view for Detective/Murder Mystery game."""
+    
+    def __init__(self, case: detective_game.MurderCase, user_id: int):
+        super().__init__(timeout=300)  # 5 minutes to solve
+        self.case = case
+        self.user_id = user_id
+        self.investigated_suspects = set()
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht dein Fall!", ephemeral=True)
+            return False
+        return True
+    
+    def create_case_embed(self):
+        """Create the main case embed."""
+        embed = discord.Embed(
+            title=f"🔍 {self.case.case_title}",
+            description=self.case.case_description,
+            color=discord.Color.dark_blue()
+        )
+        
+        embed.add_field(
+            name="📍 Tatort",
+            value=self.case.location,
+            inline=False
+        )
+        
+        embed.add_field(
+            name="💀 Opfer",
+            value=self.case.victim,
+            inline=False
+        )
+        
+        # Evidence
+        if self.case.evidence:
+            evidence_text = "\n".join(self.case.evidence)
+            embed.add_field(
+                name="🔬 Beweise",
+                value=evidence_text,
+                inline=False
+            )
+        
+        # Suspects list
+        suspects_list = "\n".join([
+            f"{i+1}. **{s['name']}** - {s['occupation']}"
+            for i, s in enumerate(self.case.suspects)
+        ])
+        embed.add_field(
+            name="👥 Verdächtige",
+            value=suspects_list,
+            inline=False
+        )
+        
+        embed.set_footer(text="🔍 Untersuche die Verdächtigen und wähle dann den Mörder aus!")
+        
+        return embed
+    
+    def create_suspect_embed(self, suspect_index: int):
+        """Create embed showing suspect details."""
+        suspect = self.case.get_suspect(suspect_index)
+        if not suspect:
+            return None
+        
+        embed = discord.Embed(
+            title=f"🔍 Untersuchung: {suspect['name']}",
+            color=discord.Color.blue()
+        )
+        
+        embed.add_field(name="💼 Beruf", value=suspect['occupation'], inline=True)
+        embed.add_field(name="⏰ Alibi", value=suspect['alibi'], inline=True)
+        embed.add_field(name="❗ Motiv", value=suspect['motive'], inline=False)
+        embed.add_field(
+            name="🔎 Verdächtige Details",
+            value=suspect['suspicious_details'],
+            inline=False
+        )
+        
+        embed.set_footer(text="Zurück zum Fall, um weitere Verdächtige zu untersuchen!")
+        
+        return embed
+    
+    @discord.ui.button(label="🔍 Verdächtige 1", style=discord.ButtonStyle.secondary, row=0)
+    async def suspect1_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._investigate_suspect(interaction, 0)
+    
+    @discord.ui.button(label="🔍 Verdächtige 2", style=discord.ButtonStyle.secondary, row=0)
+    async def suspect2_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._investigate_suspect(interaction, 1)
+    
+    @discord.ui.button(label="🔍 Verdächtige 3", style=discord.ButtonStyle.secondary, row=0)
+    async def suspect3_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._investigate_suspect(interaction, 2)
+    
+    @discord.ui.button(label="🔍 Verdächtige 4", style=discord.ButtonStyle.secondary, row=0)
+    async def suspect4_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._investigate_suspect(interaction, 3)
+    
+    async def _investigate_suspect(self, interaction: discord.Interaction, suspect_index: int):
+        """Show details about a specific suspect."""
+        await interaction.response.defer()
+        
+        self.investigated_suspects.add(suspect_index)
+        embed = self.create_suspect_embed(suspect_index)
+        
+        # Create a back button view
+        back_view = DetectiveBackView(self)
+        await interaction.followup.send(embed=embed, view=back_view, ephemeral=True)
+    
+    @discord.ui.button(label="👈 Zurück zum Fall", style=discord.ButtonStyle.primary, row=1)
+    async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Return to main case view."""
+        await interaction.response.defer()
+        embed = self.create_case_embed()
+        await interaction.edit_original_response(embed=embed, view=self)
+    
+    @discord.ui.button(label="⚖️ Mörder auswählen", style=discord.ButtonStyle.danger, row=1)
+    async def accuse_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Open suspect selection for accusation."""
+        await interaction.response.defer()
+        
+        # Create accusation view
+        accuse_view = DetectiveAccusationView(self.case, self.user_id)
+        
+        embed = discord.Embed(
+            title="⚖️ Wer ist der Mörder?",
+            description="Wähle den Verdächtigen aus, den du für schuldig hältst!",
+            color=discord.Color.red()
+        )
+        
+        suspects_list = "\n".join([
+            f"{i+1}. **{s['name']}** - {s['occupation']}"
+            for i, s in enumerate(self.case.suspects)
+        ])
+        embed.add_field(
+            name="Verdächtige",
+            value=suspects_list,
+            inline=False
+        )
+        
+        await interaction.edit_original_response(embed=embed, view=accuse_view)
+
+
+class DetectiveBackView(discord.ui.View):
+    """Simple view with just a back button."""
+    
+    def __init__(self, main_view: DetectiveGameView):
+        super().__init__(timeout=60)
+        self.main_view = main_view
+    
+    @discord.ui.button(label="👈 Zurück", style=discord.ButtonStyle.secondary)
+    async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        # This just dismisses the suspect detail message
+        await interaction.delete_original_response()
+
+
+class DetectiveAccusationView(discord.ui.View):
+    """View for selecting the murderer."""
+    
+    def __init__(self, case: detective_game.MurderCase, user_id: int):
+        super().__init__(timeout=60)
+        self.case = case
+        self.user_id = user_id
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht dein Fall!", ephemeral=True)
+            return False
+        return True
+    
+    @discord.ui.button(label="1", style=discord.ButtonStyle.danger, row=0)
+    async def suspect1_accuse(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._make_accusation(interaction, 0)
+    
+    @discord.ui.button(label="2", style=discord.ButtonStyle.danger, row=0)
+    async def suspect2_accuse(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._make_accusation(interaction, 1)
+    
+    @discord.ui.button(label="3", style=discord.ButtonStyle.danger, row=0)
+    async def suspect3_accuse(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._make_accusation(interaction, 2)
+    
+    @discord.ui.button(label="4", style=discord.ButtonStyle.danger, row=0)
+    async def suspect4_accuse(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._make_accusation(interaction, 3)
+    
+    async def _make_accusation(self, interaction: discord.Interaction, suspect_index: int):
+        """Process the player's accusation."""
+        await interaction.response.defer()
+        
+        suspect = self.case.get_suspect(suspect_index)
+        is_correct = self.case.is_correct_murderer(suspect_index)
+        actual_murderer = self.case.get_suspect(self.case.murderer_index)
+        
+        currency = config['modules']['economy']['currency_symbol']
+        
+        if is_correct:
+            # Player won!
+            reward = config['modules']['economy']['games']['detective']['reward_correct']
+            
+            await detective_game.grant_reward(
+                db_helpers,
+                interaction.user.id,
+                interaction.user.display_name,
+                reward,
+                config
+            )
+            
+            await detective_game.log_game_result(
+                db_helpers,
+                interaction.user.id,
+                interaction.user.display_name,
+                True
+            )
+            
+            embed = discord.Embed(
+                title="✅ Fall gelöst!",
+                description=f"**{suspect['name']}** war tatsächlich der Mörder! Du hast den Fall brillant gelöst!",
+                color=discord.Color.green()
+            )
+            embed.add_field(
+                name="💰 Belohnung",
+                value=f"+{reward} {currency}",
+                inline=False
+            )
+            embed.set_footer(text="Gut gemacht, Detektiv!")
+        else:
+            # Player lost
+            await detective_game.log_game_result(
+                db_helpers,
+                interaction.user.id,
+                interaction.user.display_name,
+                False
+            )
+            
+            embed = discord.Embed(
+                title="❌ Falsche Anschuldigung!",
+                description=f"**{suspect['name']}** war nicht der Mörder...\n\nDer wahre Mörder war **{actual_murderer['name']}**!",
+                color=discord.Color.red()
+            )
+            embed.set_footer(text="Beim nächsten Mal hast du mehr Glück!")
+        
+        # Clean up active game
+        if interaction.user.id in active_detective_games:
+            del active_detective_games[interaction.user.id]
+        
+        await interaction.edit_original_response(embed=embed, view=None)
+        self.stop()
+
+
+@tree.command(name="detective", description="Löse einen Mordfall!")
+async def detective(interaction: discord.Interaction):
+    """Start a detective murder mystery game."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        user_id = interaction.user.id
+        
+        # Check if user already has an active game
+        if user_id in active_detective_games:
+            await interaction.followup.send("Du hast bereits einen aktiven Fall!", ephemeral=True)
+            return
+        
+        # Generate a murder case
+        case = await detective_game.generate_murder_case(
+            api_helpers,
+            config,
+            GEMINI_API_KEY,
+            OPENAI_API_KEY
+        )
+        
+        # Create game view
+        view = DetectiveGameView(case, user_id)
+        embed = view.create_case_embed()
+        
+        # Store active game
+        active_detective_games[user_id] = {
+            'case': case,
+            'view': view,
+            'started_at': datetime.now(timezone.utc)
+        }
+        
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error starting detective game: {e}", exc_info=True)
+        await interaction.followup.send(
+            f"❌ Fehler beim Starten des Detektiv-Spiels: {str(e)}",
+            ephemeral=True
+        )
 
 
 @tree.command(name="rr", description="Spiele Russian Roulette!")
@@ -4869,6 +5459,21 @@ async def on_message(message):
                 # Only notify on quest completion, not on every message
             except Exception as e:
                 logger.error(f"Error updating message quest progress: {e}", exc_info=True)
+            
+            # --- NEW: Track daily_media quest (images/videos) ---
+            if message.attachments:
+                has_media = any(
+                    attachment.content_type and (
+                        attachment.content_type.startswith('image/') or 
+                        attachment.content_type.startswith('video/')
+                    )
+                    for attachment in message.attachments
+                )
+                if has_media:
+                    try:
+                        quest_completed, _ = await quests.update_quest_progress(db_helpers, message.author.id, 'daily_media', 1)
+                    except Exception as e:
+                        logger.error(f"Error updating daily_media quest progress: {e}", exc_info=True)
 
             new_level = await grant_xp(message.author.id, message.author.display_name, db_helpers.add_xp, config)
             if new_level:
