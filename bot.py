@@ -538,6 +538,7 @@ async def cleanup_empty_channels():
         print("Running periodic cleanup of empty voice channels...")
         managed_channel_ids = await db_helpers.get_all_managed_channels()
         deleted_count = 0
+        orphaned_count = 0
         if not managed_channel_ids:
             print("  -> No managed channels found in the database.")
             return
@@ -545,7 +546,13 @@ async def cleanup_empty_channels():
         for channel_id in managed_channel_ids:
             try:
                 channel = client.get_channel(channel_id)
-                if channel and isinstance(channel, discord.VoiceChannel) and not channel.members:
+                if not channel:
+                    # Channel doesn't exist in Discord anymore (manually deleted)
+                    await db_helpers.remove_managed_channel(channel_id, keep_owner_record=True)
+                    print(f"  -> Cleaned up orphaned DB record for channel {channel_id}")
+                    orphaned_count += 1
+                elif isinstance(channel, discord.VoiceChannel) and not channel.members:
+                    # Channel exists but is empty
                     try:
                         await channel.delete(reason="Periodic cleanup of empty channel")
                         await db_helpers.remove_managed_channel(channel_id, keep_owner_record=True)
@@ -558,8 +565,8 @@ async def cleanup_empty_channels():
                 logger.error(f"Error cleaning up channel {channel_id}: {e}")
                 continue
                 
-        if deleted_count > 0:
-            print(f"Periodic cleanup finished. Deleted {deleted_count} empty channel(s).")
+        if deleted_count > 0 or orphaned_count > 0:
+            print(f"Periodic cleanup finished. Deleted {deleted_count} empty channel(s), cleaned {orphaned_count} orphaned DB record(s).")
     except Exception as e:
         logger.error(f"Error in cleanup_empty_channels task: {e}", exc_info=True)
         print(f"[Channel Cleanup Task] Error: {e}")

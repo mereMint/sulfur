@@ -32,12 +32,17 @@ async def handle_voice_state_update(member: discord.Member, before: discord.Voic
                     if owned_channel:
                         # Move them to their existing channel instead of creating a new one
                         await member.move_to(owned_channel, reason="User already owns a channel.")
+                        return
                     else:
-                        # The channel was deleted but not cleaned from DB. Move them out.
-                        await member.move_to(None, reason="Owned channel not found.")
-                except (discord.Forbidden, discord.HTTPException):
-                    pass  # Ignore if we can't move them
-                return
+                        # The channel was deleted but the database still has a reference
+                        # Clean up the stale reference and allow creation to proceed
+                        logger.warning(f"Stale channel reference for {member.display_name}: channel {owned_channel_id} doesn't exist")
+                        await remove_managed_channel(owned_channel_id, keep_owner_record=True)
+                        print(f"Cleaned up stale channel reference for {member.display_name}")
+                        # Don't return - continue with channel creation
+                except (discord.Forbidden, discord.HTTPException) as e:
+                    logger.error(f"Error checking owned channel for {member.display_name}: {e}")
+                    pass  # Ignore errors and allow creation to proceed
 
             guild = member.guild
             # --- NEW: Use configured category name, fallback to current category ---
