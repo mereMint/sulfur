@@ -197,16 +197,31 @@ function Invoke-GitCommit {
     }
     if($hasChanges){
         Write-ColorLog 'Changes detected, committing...' 'Yellow' '[GIT] '
-        try {
-            git add -A
-            git commit -m $Message
-            git push
-            Write-ColorLog 'Changes committed & pushed' 'Green' '[GIT] '
-            return $true
-        } catch {
-            Write-ColorLog "Git commit failed: $_" 'Red' '[GIT] '
+        
+        # Stage all changes
+        git add -A 2>&1 | Out-Null
+        if($LASTEXITCODE -ne 0){
+            Write-ColorLog "Git add failed (exit code: $LASTEXITCODE)" 'Red' '[GIT] '
             return $false
         }
+        
+        # Commit changes
+        git commit -m $Message 2>&1 | Out-Null
+        if($LASTEXITCODE -ne 0){
+            Write-ColorLog "Git commit failed (exit code: $LASTEXITCODE)" 'Red' '[GIT] '
+            return $false
+        }
+        
+        # Try to push changes
+        git push 2>&1 | Out-Null
+        if($LASTEXITCODE -ne 0){
+            Write-ColorLog "Git push failed (exit code: $LASTEXITCODE) - commits are local only" 'Yellow' '[GIT] '
+            Write-ColorLog "Changes committed locally (push failed - check credentials/network)" 'Yellow' '[GIT] '
+            return $true  # Return true since commit succeeded, even if push failed
+        }
+        
+        Write-ColorLog 'Changes committed & pushed' 'Green' '[GIT] '
+        return $true
     } else {
         Write-ColorLog 'No changes to commit' 'Gray' '[GIT] '
         return $false

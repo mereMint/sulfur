@@ -278,18 +278,26 @@ git_commit() {
     
     log_warning "Changes detected, committing..."
     
-    git add -A 2>>"$MAIN_LOG"
-    if git commit -m "$message" >>"$MAIN_LOG" 2>&1; then
-        if git push >>"$MAIN_LOG" 2>&1; then
-            log_success "Changes committed and pushed"
-            return 0
-        else
-            log_error "Git push failed"
-            return 1
-        fi
-    else
+    # Stage all changes
+    if ! git add -A 2>>"$MAIN_LOG"; then
+        log_error "Git add failed"
+        return 1
+    fi
+    
+    # Commit changes
+    if ! git commit -m "$message" >>"$MAIN_LOG" 2>&1; then
         log_error "Git commit failed"
         return 1
+    fi
+    
+    # Try to push changes
+    if git push >>"$MAIN_LOG" 2>&1; then
+        log_success "Changes committed and pushed"
+        return 0
+    else
+        log_warning "Git push failed - commits are local only"
+        log_warning "Changes committed locally (push failed - check credentials/network)"
+        return 0  # Return success since commit succeeded, even if push failed
     fi
 }
 
