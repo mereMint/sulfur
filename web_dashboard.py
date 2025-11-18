@@ -770,9 +770,41 @@ if __name__ == '__main__':
     print("[Web Dashboard] --- Starting Sulfur Bot Web Dashboard ---")
     print("[Web Dashboard] --- Access it at http://localhost:5000 ---")
     print("[Web Dashboard] --- Or from network: http://YOUR_IP:5000 ---")
+    
+    # Check if port 5000 is available before starting
+    import socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        # Try to bind to port 5000 to check if it's available
+        sock.bind(('0.0.0.0', 5000))
+        sock.close()
+        print("[Web Dashboard] Port 5000 is available")
+    except OSError as e:
+        if e.errno == 98 or e.errno == 48:  # Address already in use (Linux: 98, macOS: 48)
+            print(f"[Web Dashboard] FATAL ERROR: Port 5000 is already in use by another process")
+            print(f"[Web Dashboard] Error details: {e}")
+            print(f"[Web Dashboard] Please stop the other process or change the port in web_dashboard.py")
+            print(f"[Web Dashboard] To find the process: lsof -ti:5000 or fuser 5000/tcp")
+            print(f"[Web Dashboard] To kill it: kill -9 $(lsof -ti:5000)")
+            exit(1)
+        else:
+            print(f"[Web Dashboard] WARNING: Port check failed with error: {e}")
+            # Continue anyway, let the actual server startup handle it
+    
     try:
         # Use socketio.run() which handles both HTTP and WebSocket connections
         socketio.run(app, host='0.0.0.0', port=5000, debug=False, allow_unsafe_werkzeug=True)
+    except OSError as e:
+        if e.errno == 98 or e.errno == 48:  # Address already in use
+            print(f"[Web Dashboard] FATAL ERROR: Port 5000 is already in use by another process")
+            print(f"[Web Dashboard] Error details: {e}")
+            print(f"[Web Dashboard] The maintenance script should have freed this port before starting.")
+            print(f"[Web Dashboard] This indicates a bug in the port cleanup logic.")
+        else:
+            print(f"[Web Dashboard] FATAL: Failed to start web server: {e}")
+        import traceback
+        traceback.print_exc()
+        exit(1)
     except Exception as e:
         print(f"[Web Dashboard] FATAL: Failed to start web server: {e}")
         import traceback
