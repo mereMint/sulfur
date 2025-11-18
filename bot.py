@@ -3007,6 +3007,7 @@ from modules.games import BlackjackGame, RouletteGame, MinesGame, RussianRoulett
 # Active game states
 active_blackjack_games = {}
 active_mines_games = {}
+active_rr_games = {}
 
 
 class BlackjackView(discord.ui.View):
@@ -3538,6 +3539,178 @@ async def mines(interaction: discord.Interaction, bet: int):
     await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 
+class RussianRouletteView(discord.ui.View):
+    """UI view for Russian Roulette game with Shoot and Cash Out buttons."""
+    
+    def __init__(self, game: RussianRouletteGame, user_id: int, entry_fee: int):
+        super().__init__(timeout=180)
+        self.game = game
+        self.user_id = user_id
+        self.entry_fee = entry_fee
+        self.results = []
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht dein Spiel!", ephemeral=True)
+            return False
+        return True
+    
+    @discord.ui.button(label="🔫 Shoot", style=discord.ButtonStyle.danger)
+    async def shoot_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        
+        alive, won, reward = self.game.pull_trigger()
+        
+        if not alive:
+            # Player died
+            self.results.append(f"**Schuss {self.game.current_shot}:** 💀 BANG!")
+            await self._end_game(interaction, died=True)
+        elif won:
+            # Player survived all 6 shots
+            self.results.append(f"**Schuss {self.game.current_shot}:** ✅ Click...")
+            await self._end_game(interaction, died=False, survived_all=True, reward=reward)
+        else:
+            # Continue game
+            self.results.append(f"**Schuss {self.game.current_shot}:** ✅ Click...")
+            
+            # Calculate progressive multiplier
+            multiplier = 1.0 + (self.game.current_shot / 6.0) * 1.5
+            potential_win = int(self.entry_fee * multiplier)
+            
+            embed = self._create_embed(potential_win)
+            await interaction.edit_original_response(embed=embed, view=self)
+    
+    @discord.ui.button(label="💰 Cash Out", style=discord.ButtonStyle.success)
+    async def cashout_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        
+        # Calculate cashout amount
+        multiplier = 1.0 + (self.game.current_shot / 6.0) * 1.5
+        winnings = int(self.entry_fee * multiplier)
+        
+        await self._end_game(interaction, died=False, cashed_out=True, reward=winnings)
+    
+    def _create_embed(self, potential_win: int):
+        """Creates the game embed."""
+        currency = config['modules']['economy']['currency_symbol']
+        embed = discord.Embed(
+            title="🔫 Russian Roulette",
+            description="Ziehst du den Abzug oder nimmst du das Geld?",
+            color=discord.Color.orange()
+        )
+        
+        embed.add_field(name="Einsatz", value=f"{self.entry_fee} {currency}", inline=True)
+        embed.add_field(name="Schüsse abgefeuert", value=f"{self.game.current_shot}/6", inline=True)
+        embed.add_field(name="Aktueller Gewinn", value=f"{potential_win} {currency}", inline=True)
+        
+        if self.results:
+            embed.add_field(name="Ergebnis", value="\n".join(self.results), inline=False)
+        
+        return embed
+    
+    async def _end_game(self, interaction: discord.Interaction, died: bool = False, survived_all: bool = False, cashed_out: bool = False, reward: int = 0):
+        """Ends the game and shows results."""
+        currency = config['modules']['economy']['currency_symbol']
+        stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+        
+        if died:
+            # Player died - lost entry fee (already deducted)
+            embed = self._create_embed(0)
+            embed.color = discord.Color.red()
+            embed.add_field(name="Ergebnis", value="\n".join(self.results), inline=False)
+            
+            new_balance = await db_helpers.get_balance(self.user_id)
+            
+            # Log transaction
+            await db_helpers.log_transaction(
+                self.user_id,
+                'russian_roulette',
+                -self.entry_fee,
+                new_balance,
+                f"Died on shot {self.game.current_shot}"
+            )
+            
+            embed.add_field(
+                name="❌ Du bist tot!",
+                value=f"Verlust: **{self.entry_fee} {currency}**\nNeues Guthaben: {new_balance} {currency}",
+                inline=False
+            )
+        elif survived_all:
+            # Survived all 6 shots
+            embed = self._create_embed(reward)
+            embed.color = discord.Color.gold()
+            embed.add_field(name="Ergebnis", value="\n".join(self.results), inline=False)
+            
+            # Award winnings
+            await db_helpers.add_balance(
+                self.user_id,
+                interaction.user.display_name,
+                reward,
+                config,
+                stat_period
+            )
+            
+            new_balance = await db_helpers.get_balance(self.user_id)
+            
+            # Log transaction
+            await db_helpers.log_transaction(
+                self.user_id,
+                'russian_roulette',
+                reward - self.entry_fee,
+                new_balance,
+                "Survived all 6 shots"
+            )
+            
+            embed.add_field(
+                name="🎉 Du hast überlebt!",
+                value=f"Gewinn: **{reward} {currency}**\nNeues Guthaben: {new_balance} {currency}",
+                inline=False
+            )
+        elif cashed_out:
+            # Cashed out early
+            embed = self._create_embed(reward)
+            embed.color = discord.Color.green()
+            
+            # Award winnings
+            profit = reward - self.entry_fee
+            await db_helpers.add_balance(
+                self.user_id,
+                interaction.user.display_name,
+                reward,
+                config,
+                stat_period
+            )
+            
+            new_balance = await db_helpers.get_balance(self.user_id)
+            
+            # Log transaction
+            await db_helpers.log_transaction(
+                self.user_id,
+                'russian_roulette',
+                profit,
+                new_balance,
+                f"Cashed out after {self.game.current_shot} shots"
+            )
+            
+            embed.add_field(
+                name="💰 Ausgezahlt!",
+                value=f"Gewinn: **{profit} {currency}**\nNeues Guthaben: {new_balance} {currency}",
+                inline=False
+            )
+        
+        # Disable all buttons
+        for item in self.children:
+            item.disabled = True
+        
+        await interaction.edit_original_response(embed=embed, view=self)
+        
+        # Remove from active games
+        if self.user_id in active_rr_games:
+            del active_rr_games[self.user_id]
+        
+        self.stop()
+
+
 @tree.command(name="rr", description="Spiele Russian Roulette!")
 @app_commands.describe(bet="Einsatz (optional, Standard: 100)")
 async def russian_roulette(interaction: discord.Interaction, bet: int = None):
@@ -3545,6 +3718,12 @@ async def russian_roulette(interaction: discord.Interaction, bet: int = None):
     await interaction.response.defer(ephemeral=True)
     
     user_id = interaction.user.id
+    
+    # Check if user already has an active game
+    if user_id in active_rr_games:
+        await interaction.followup.send("Du hast bereits ein aktives Russian Roulette Spiel!", ephemeral=True)
+        return
+    
     default_entry_fee = config['modules']['economy']['games']['russian_roulette']['entry_fee']
     
     # Use custom bet if provided, otherwise use default
@@ -3567,6 +3746,7 @@ async def russian_roulette(interaction: discord.Interaction, bet: int = None):
         entry_fee = bet
     else:
         entry_fee = default_entry_fee
+    
     reward_multiplier = config['modules']['economy']['games']['russian_roulette']['reward_multiplier']
     currency = config['modules']['economy']['currency_symbol']
     
@@ -3591,79 +3771,18 @@ async def russian_roulette(interaction: discord.Interaction, bet: int = None):
     
     # Create game
     game = RussianRouletteGame(user_id, entry_fee, reward_multiplier)
+    active_rr_games[user_id] = game
     
-    # Play the game
-    embed = discord.Embed(
-        title="🔫 Russian Roulette",
-        description="Du ziehst den Abzug...",
-        color=discord.Color.orange()
+    # Create view
+    view = RussianRouletteView(game, user_id, entry_fee)
+    embed = view._create_embed(entry_fee)
+    embed.add_field(
+        name="ℹ️ Anleitung",
+        value="Klicke auf 🔫 Shoot um zu schießen oder auf 💰 Cash Out um auszuzahlen.\nJeder Schuss erhöht deinen potenziellen Gewinn, aber ein Fehlschuss bedeutet den Tod!",
+        inline=False
     )
     
-    embed.add_field(name="Einsatz", value=f"{entry_fee} {currency}", inline=True)
-    embed.add_field(name="Möglicher Gewinn", value=f"{entry_fee * reward_multiplier} {currency}", inline=True)
-    
-    results = []
-    for shot in range(1, 7):
-        alive, won, reward = game.pull_trigger()
-        
-        if not alive:
-            results.append(f"**Schuss {shot}:** 💀 BANG!")
-            embed.add_field(name="Ergebnis", value="\n".join(results), inline=False)
-            embed.color = discord.Color.red()
-            
-            new_balance = await db_helpers.get_balance(user_id)
-            
-            # Log transaction
-            await db_helpers.log_transaction(
-                user_id,
-                'russian_roulette',
-                -entry_fee,
-                new_balance,
-                f"Died on shot {shot}"
-            )
-            
-            embed.add_field(
-                name="❌ Du bist tot!",
-                value=f"Verlust: **{entry_fee} {currency}**\nNeues Guthaben: {new_balance} {currency}",
-                inline=False
-            )
-            break
-        
-        results.append(f"**Schuss {shot}:** ✅ Click...")
-        
-        if won:
-            embed.add_field(name="Ergebnis", value="\n".join(results), inline=False)
-            embed.color = discord.Color.gold()
-            
-            # Award winnings
-            await db_helpers.add_balance(
-                user_id,
-                interaction.user.display_name,
-                reward,
-                config,
-                stat_period
-            )
-            
-            # Get new balance
-            new_balance = await db_helpers.get_balance(user_id)
-            
-            # Log transaction
-            await db_helpers.log_transaction(
-                user_id,
-                'russian_roulette',
-                reward - entry_fee,
-                new_balance,
-                "Survived all 6 shots"
-            )
-            
-            embed.add_field(
-                name="🎉 Du hast überlebt!",
-                value=f"Gewinn: **{reward} {currency}** ({reward_multiplier}x)\nNeues Guthaben: {new_balance} {currency}",
-                inline=False
-            )
-            break
-    
-    await interaction.followup.send(embed=embed, ephemeral=True)
+    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 
 class WerwolfJoinView(discord.ui.View):
