@@ -809,9 +809,75 @@ if __name__ == '__main__':
         
         return None
     
+    def cleanup_port(port):
+        """Kill processes using the specified port (excluding ourselves)."""
+        import subprocess
+        import os
+        killed_any = False
+        our_pid = os.getpid()
+        
+        # Try lsof
+        try:
+            result = subprocess.run(['lsof', '-ti', f':{port}'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0 and result.stdout.strip():
+                pids = result.stdout.strip().split('\n')
+                for pid_str in pids:
+                    try:
+                        pid = int(pid_str.strip())
+                        # Don't kill ourselves!
+                        if pid == our_pid:
+                            print(f"[Web Dashboard] Skipping our own PID {pid}")
+                            continue
+                        subprocess.run(['kill', '-9', str(pid)], timeout=2)
+                        print(f"[Web Dashboard] Killed process {pid} using port {port}")
+                        killed_any = True
+                    except (ValueError, subprocess.TimeoutExpired):
+                        pass
+        except:
+            pass
+        
+        # Try fuser as fallback (only if we didn't kill anything with lsof)
+        if not killed_any:
+            try:
+                # fuser with -k kills all processes, so use it carefully
+                result = subprocess.run(['fuser', f'{port}/tcp'], 
+                                      capture_output=True, text=True, timeout=5)
+                if result.returncode == 0 and result.stdout.strip():
+                    # fuser found processes, kill them manually to avoid killing ourselves
+                    pids = result.stdout.strip().split()
+                    for pid_str in pids:
+                        try:
+                            pid = int(pid_str.strip())
+                            if pid == our_pid:
+                                print(f"[Web Dashboard] Skipping our own PID {pid}")
+                                continue
+                            subprocess.run(['kill', '-9', str(pid)], timeout=2)
+                            print(f"[Web Dashboard] Killed process {pid} using port {port}")
+                            killed_any = True
+                        except:
+                            pass
+            except:
+                pass
+        
+        if killed_any:
+            print(f"[Web Dashboard] Waiting 3 seconds for port to be released...")
+            time.sleep(3)  # Give OS more time to release the port
+        
+        return killed_any
+    
     # Retry logic with exponential backoff for port binding issues
-    max_retries = 5
-    retry_delay = 2  # Initial delay in seconds
+    # Termux needs more retries due to slower socket cleanup
+    max_retries = 10  # Increased from 5 for Termux compatibility
+    retry_delay = 1  # Start with 1 second (faster initial retry)
+    
+    # PROACTIVE: Try to clean up port 5000 before we even start
+    # This prevents issues with stale processes from previous crashes
+    print("[Web Dashboard] Checking for stale processes on port 5000...")
+    if cleanup_port(5000):
+        print("[Web Dashboard] Cleaned up stale processes, proceeding with startup...")
+    else:
+        print("[Web Dashboard] Port 5000 appears clean, proceeding with startup...")
     
     for attempt in range(max_retries):
         try:
@@ -819,33 +885,45 @@ if __name__ == '__main__':
             if attempt > 0:
                 print(f"[Web Dashboard] Retry attempt {attempt + 1}/{max_retries} after {retry_delay}s delay...")
                 time.sleep(retry_delay)
-                retry_delay *= 2  # Exponential backoff
+                
+                # Exponential backoff, but cap at 8 seconds
+                retry_delay = min(retry_delay * 1.5, 8)
             
             print("[Web Dashboard] Starting Flask-SocketIO server...")
             
-            # Configure Flask app to reuse address - this allows binding to ports in TIME_WAIT state
-            # This is safe because we're always running a single instance managed by maintain_bot.sh
+            # FIX: Properly configure socket options for Flask-SocketIO with threading backend
+            # The threading backend uses werkzeug's built-in server, so we need to patch it correctly
             import werkzeug.serving
-            original_make_server = werkzeug.serving.make_server
+            
+            # Store original function to avoid multiple wrapping
+            if not hasattr(werkzeug.serving, '_original_make_server'):
+                werkzeug.serving._original_make_server = werkzeug.serving.make_server
             
             def make_server_with_reuse(*args, **kwargs):
-                """Wrapper to set SO_REUSEADDR on the server socket."""
-                server = original_make_server(*args, **kwargs)
+                """Wrapper to set SO_REUSEADDR and SO_REUSEPORT on the server socket."""
+                server = werkzeug.serving._original_make_server(*args, **kwargs)
+                
+                # Set SO_REUSEADDR to allow binding to ports in TIME_WAIT state
                 server.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                # Also set SO_REUSEPORT if available (Linux 3.9+, helps with rapid restarts)
+                print("[Web Dashboard] SO_REUSEADDR enabled on server socket")
+                
+                # Set SO_REUSEPORT if available (Linux 3.9+, helps with rapid restarts)
                 try:
                     server.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-                except (AttributeError, OSError):
-                    pass  # SO_REUSEPORT not available on this system
+                    print("[Web Dashboard] SO_REUSEPORT enabled on server socket")
+                except (AttributeError, OSError) as e:
+                    print(f"[Web Dashboard] SO_REUSEPORT not available: {e}")
+                
                 return server
             
             werkzeug.serving.make_server = make_server_with_reuse
             
+            # Start the server
             socketio.run(app, host='0.0.0.0', port=5000, debug=False, allow_unsafe_werkzeug=True)
             break  # Success, exit retry loop
             
         except OSError as e:
-            if e.errno == 98 or e.errno == 48:  # Address already in use
+            if e.errno == 98 or e.errno == 48 or 'Address already in use' in str(e):  # Address already in use
                 print(f"[Web Dashboard] Port 5000 is in use (attempt {attempt + 1}/{max_retries})")
                 print(f"[Web Dashboard] Error details: {e}")
                 
@@ -858,7 +936,15 @@ if __name__ == '__main__':
                             if line.strip():
                                 print(f"[Web Dashboard]   {line}")
                 
-                if attempt == max_retries - 1:
+                # Try to clean up the port before retry
+                if attempt < max_retries - 1:
+                    print(f"[Web Dashboard] Attempting to clean up port 5000...")
+                    if cleanup_port(5000):
+                        print(f"[Web Dashboard] Port cleanup attempted, retrying immediately...")
+                        retry_delay = 1  # Quick retry after cleanup
+                    else:
+                        print(f"[Web Dashboard] Could not clean up port, waiting before retry...")
+                else:
                     # Final attempt failed
                     print(f"[Web Dashboard] FATAL ERROR: Port 5000 is still in use after {max_retries} attempts")
                     print(f"[Web Dashboard] Please stop the other process or change the port in web_dashboard.py")

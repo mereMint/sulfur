@@ -337,33 +337,69 @@ git_commit() {
         git config user.email "sulfur-bot@localhost" 2>>"$MAIN_LOG" || true
     fi
     
-    # Check if there are any changes
-    if [ -z "$(git status --porcelain)" ]; then
-        log_git "No changes to commit"
+    # Check if there are any changes (excluding .gitignore'd files)
+    local status_output
+    status_output=$(git status --porcelain 2>&1)
+    
+    if [ -z "$status_output" ]; then
+        log_git "No changes to commit (all changes are in .gitignore)"
         return 1
     fi
     
-    log_warning "Changes detected, committing..."
+    # Show what will be committed (for debugging on Termux)
+    log_warning "Changes detected, files to commit:"
+    echo "$status_output" | head -10 | sed 's/^/  | /' | tee -a "$MAIN_LOG"
+    if [ $(echo "$status_output" | wc -l) -gt 10 ]; then
+        log_info "  ... and $(( $(echo "$status_output" | wc -l) - 10 )) more file(s)"
+    fi
     
-    # Stage all changes
+    # Stage all changes (respects .gitignore)
     if ! git add -A 2>>"$MAIN_LOG"; then
-        log_error "Git add failed"
+        log_error "Git add failed - check permissions and .gitignore"
+        log_warning "Git add output:" 
+        git add -A 2>&1 | tail -5 | sed 's/^/  | /' | tee -a "$MAIN_LOG"
         return 1
     fi
+    
+    # Verify something was actually staged
+    local staged_files
+    staged_files=$(git diff --cached --name-only 2>&1)
+    
+    if [ -z "$staged_files" ]; then
+        log_git "No files staged for commit (all changes are in .gitignore)"
+        log_info "Note: Logs, backups, and runtime files are excluded per .gitignore"
+        return 1
+    fi
+    
+    log_info "Staged files for commit:"
+    echo "$staged_files" | head -10 | sed 's/^/  | /' | tee -a "$MAIN_LOG"
     
     # Commit changes
     if ! git commit -m "$message" >>"$MAIN_LOG" 2>&1; then
         log_error "Git commit failed"
+        git status 2>&1 | tail -10 | sed 's/^/  | /' | tee -a "$MAIN_LOG"
         return 1
     fi
     
+    log_success "Changes committed locally"
+    
     # Try to push changes
     if git push >>"$MAIN_LOG" 2>&1; then
-        log_success "Changes committed and pushed"
+        log_success "Changes pushed to remote"
         return 0
     else
         log_warning "Git push failed - commits are local only"
-        log_warning "Changes committed locally (push failed - check credentials/network)"
+        log_warning "Reason: Network issue, credentials, or remote repository access"
+        log_info "To manually push: git push"
+        
+        # Show push error details for debugging (especially useful on Termux)
+        local push_error
+        push_error=$(git push 2>&1 | head -5)
+        if [ -n "$push_error" ]; then
+            log_info "Push error details:"
+            echo "$push_error" | sed 's/^/  | /' | tee -a "$MAIN_LOG"
+        fi
+        
         return 0  # Return success since commit succeeded, even if push failed
     fi
 }
@@ -1063,6 +1099,12 @@ while true; do
                             log_warning "Last error from Web Dashboard log:"
                             tail -n 20 "$WEB_LOG" | grep -i -E "error|exception|traceback|failed|port.*in use" | tail -n 5 | sed 's/^/  | /' | tee -a "$MAIN_LOG"
                         fi
+                        
+                        # CRITICAL: Add delay before restart to let port fully release
+                        # This is especially important on Termux where socket cleanup is slower
+                        local restart_delay=5
+                        log_info "Waiting ${restart_delay}s for port cleanup before restart..."
+                        sleep $restart_delay
                         
                         LAST_WEB_RESTART=$current_time
                         WEB_RESTART_COUNT=$((WEB_RESTART_COUNT + 1))
