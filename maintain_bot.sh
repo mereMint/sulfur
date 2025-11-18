@@ -64,8 +64,10 @@ done
 # Counters
 CHECK_COUNTER=0
 CRASH_COUNT=0
+WEB_CRASH_COUNT=0
 QUICK_CRASH_SECONDS=10
 CRASH_THRESHOLD=5
+WEB_CRASH_THRESHOLD=3
 
 # Detect environment
 if [ -n "$TERMUX_VERSION" ]; then
@@ -652,6 +654,7 @@ ensure_python_env || {
 }
 
 # Start web dashboard
+echo "$(date +%s)" > /tmp/web_last_start_time
 start_web_dashboard || log_warning "Web Dashboard failed to start, continuing anyway..."
 
 # Main loop
@@ -718,7 +721,43 @@ while true; do
         if [ -f "$WEB_PID_FILE" ]; then
             WEB_PID=$(cat "$WEB_PID_FILE")
             if ! kill -0 "$WEB_PID" 2>/dev/null; then
-                log_warning "Web Dashboard stopped, restarting..."
+                log_warning "Web Dashboard stopped, checking if it's crashing repeatedly..."
+                
+                # Track crash time
+                if [ ! -f "/tmp/web_last_start_time" ]; then
+                    echo "$(date +%s)" > /tmp/web_last_start_time
+                fi
+                
+                WEB_LAST_START=$(cat /tmp/web_last_start_time 2>/dev/null || echo 0)
+                WEB_CURRENT_TIME=$(date +%s)
+                WEB_RUN_TIME=$((WEB_CURRENT_TIME - WEB_LAST_START))
+                
+                # If it crashed within QUICK_CRASH_SECONDS, increment crash counter
+                if [ "$WEB_RUN_TIME" -lt "$QUICK_CRASH_SECONDS" ]; then
+                    WEB_CRASH_COUNT=$((WEB_CRASH_COUNT + 1))
+                    log_warning "Web Dashboard crash #$WEB_CRASH_COUNT (ran for only $WEB_RUN_TIME seconds)"
+                else
+                    WEB_CRASH_COUNT=0
+                fi
+                
+                # If crash threshold exceeded, show error logs and pause
+                if [ "$WEB_CRASH_COUNT" -ge "$WEB_CRASH_THRESHOLD" ]; then
+                    log_error "Web Dashboard is crashing repeatedly ($WEB_CRASH_COUNT times)"
+                    
+                    if [ -f "$WEB_LOG" ]; then
+                        log_error "Last 30 lines from web dashboard log:"
+                        tail -n 30 "$WEB_LOG" | while IFS= read -r line; do
+                            log_error "  $line"
+                        done
+                    fi
+                    
+                    log_warning "Pausing web dashboard restarts for 60 seconds..."
+                    sleep 60
+                    WEB_CRASH_COUNT=0
+                fi
+                
+                # Record new start time and restart
+                echo "$(date +%s)" > /tmp/web_last_start_time
                 start_web_dashboard
             fi
         fi
