@@ -255,6 +255,264 @@ function Invoke-DatabaseBackup {
     }
 }
 
+# (rest of script unchanged)
+<# Replaced with fixed process management variant. See maintain_bot_fixed.ps1 history for prior content. #>
+# ==============================================================================
+# Sulfur Bot - Maintenance Script (Fixed Process Management)
+# ==============================================================================
+param([switch]$SkipDatabaseBackup)
+$ErrorActionPreference='Continue'
+$statusFile=Join-Path $PSScriptRoot 'config\bot_status.json'
+$logDir=Join-Path $PSScriptRoot 'logs'
+if(-not(Test-Path $logDir)){New-Item -ItemType Directory -Path $logDir|Out-Null}
+$ts=Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'
+$logFile=Join-Path $logDir "maintenance_$ts.log"
+$botLogFile=Join-Path $logDir "bot_$ts.log"
+Start-Transcript -Path $logFile -Append | Out-Null
+
+# Cleanup function
+function Invoke-Cleanup {
+    Write-Host 'Cleaning up processes...' -ForegroundColor Yellow
+    
+    # Close file handles
+    if($script:botOutputFile) {
+        try {
+            $script:botOutputFile.Close()
+            $script:botOutputFile.Dispose()
+        } catch {}
+        $script:botOutputFile = $null
+    }
+    if($script:botErrorFile) {
+        try {
+            $script:botErrorFile.Close()
+            $script:botErrorFile.Dispose()
+        } catch {}
+        $script:botErrorFile = $null
+    }
+    
+    # Kill bot process
+    if($script:botProcess) {
+        if(-not $script:botProcess.HasExited){
+            Write-Host "Stopping bot process (PID: $($script:botProcess.Id))..." -ForegroundColor Yellow
+            try {
+                # Try graceful shutdown first (SIGTERM equivalent)
+                $script:botProcess.Kill($false)  # Don't force entire process tree
+                if(-not $script:botProcess.WaitForExit(5000)){
+                    # If still running after 5 seconds, force kill
+                    Write-Host "Bot didn't stop gracefully, force killing..." -ForegroundColor Yellow
+                    $script:botProcess.Kill($true)  # Force entire process tree
+                    $script:botProcess.WaitForExit(2000)
+                }
+            } catch {
+                # Fallback to Stop-Process
+                Write-Host "Using Stop-Process as fallback..." -ForegroundColor Yellow
+                Stop-Process -Id $script:botProcess.Id -Force -ErrorAction SilentlyContinue
+            }
+        }
+        try { $script:botProcess.Close() } catch {}
+        $script:botProcess = $null
+    }
+    
+    # Also search for any bot.py processes that might have escaped
+    $botProcesses = Get-Process -Name python* -ErrorAction SilentlyContinue | Where-Object {
+        try {
+            $cmdLine = (Get-CimInstance Win32_Process -Filter "ProcessId = $($_.Id)" -ErrorAction SilentlyContinue).CommandLine
+            $cmdLine -and ($cmdLine -like "*bot.py*")
+        } catch {
+            $false
+        }
+    }
+    
+    if($botProcesses){
+        Write-Host "Found $($botProcesses.Count) orphaned bot process(es) to kill..." -ForegroundColor Yellow
+        $botProcesses | ForEach-Object {
+            try {
+                Write-Host "  Killing orphaned bot PID: $($_.Id)" -ForegroundColor Yellow
+                $_.Kill()
+                $_.WaitForExit(2000)
+            } catch {
+                Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+    
+    # Stop web dashboard
+    if($script:webDashboardJob){
+        Write-Host 'Stopping Web Dashboard...' -ForegroundColor Yellow
+        
+        # First, try to kill any Python processes running web_dashboard.py
+        $webProcesses = Get-Process -Name python* -ErrorAction SilentlyContinue | Where-Object {
+            try {
+                $cmdLine = (Get-CimInstance Win32_Process -Filter "ProcessId = $($_.Id)" -ErrorAction SilentlyContinue).CommandLine
+                $cmdLine -and ($cmdLine -like "*web_dashboard.py*")
+            } catch {
+                $false
+            }
+        }
+        
+        if($webProcesses){
+            Write-Host "Found $($webProcesses.Count) web dashboard process(es) to kill..." -ForegroundColor Yellow
+            $webProcesses | ForEach-Object {
+                try {
+                    Write-Host "  Killing web dashboard PID: $($_.Id)" -ForegroundColor Yellow
+                    $_.Kill()
+                    $_.WaitForExit(3000)
+                } catch {
+                    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
+        
+        # Then stop the PowerShell job
+        Stop-Job $script:webDashboardJob -ErrorAction SilentlyContinue
+        Remove-Job $script:webDashboardJob -Force -ErrorAction SilentlyContinue
+        $script:webDashboardJob = $null
+    }
+    
+    # Kill orphaned Python processes from this directory
+    $orphans = Get-Process -Name python* -ErrorAction SilentlyContinue | Where-Object {
+        try {
+            $_.Path -and ($_.Path -like "*$PSScriptRoot*")
+        } catch {
+            $false
+        }
+    }
+    if($orphans){
+        Write-Host "Cleaning up $($orphans.Count) orphaned Python processes..." -ForegroundColor Yellow
+        $orphans | ForEach-Object {
+            try {
+                $_.Kill()
+                $_.WaitForExit(2000)
+            } catch {
+                Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+}
+
+# Register cleanup handler for Ctrl+C and script termination
+# Only trap terminating errors, not all errors
+trap {
+    # Check if this is actually a terminating error
+    if ($_.Exception -is [System.Management.Automation.PipelineStoppedException]) {
+        # This is Ctrl+C or similar - run cleanup
+        Write-Host 'Script interrupted. Running cleanup...' -ForegroundColor Red
+        Invoke-Cleanup
+        Update-BotStatus 'Shutdown'
+        Write-Host 'Cleanup complete.' -ForegroundColor Green
+        Stop-Transcript
+        exit 1
+    }
+    elseif ($Error[0].CategoryInfo.Category -eq 'OperationStopped') {
+        # Pipeline stopped - run cleanup
+        Write-Host 'Script stopped. Running cleanup...' -ForegroundColor Red
+        Invoke-Cleanup
+        Update-BotStatus 'Shutdown'
+        Write-Host 'Cleanup complete.' -ForegroundColor Green
+        Stop-Transcript
+        exit 1
+    }
+    else {
+        # Non-terminating error - just log it and continue
+        if ($_) {
+            try {
+                Write-Host ("Non-terminating error: {0}" -f ($_.Exception.Message)) -ForegroundColor Yellow
+            } catch {}
+        }
+        # Don't call cleanup - let the script continue
+        continue
+    }
+}
+
+# Also register an exit handler
+$null = Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action {
+    Invoke-Cleanup
+}
+
+function Write-ColorLog {
+    param([string]$Message,[string]$Color='White',[string]$Prefix='')
+    $t=Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    Write-Host "[$t] $Prefix$Message" -ForegroundColor $Color
+}
+
+function Test-Preflight {
+    $envPath = Join-Path $PSScriptRoot '.env'
+    if(-not (Test-Path $envPath)){
+        Write-ColorLog "Missing .env file. Create one or copy .env.example" 'Red'
+        return $false
+    }
+    try{
+        $envLines = Get-Content -Path $envPath -ErrorAction Stop
+        $tokenLine = $envLines | Where-Object { $_ -match '^\s*DISCORD_BOT_TOKEN\s*=\s*' } | Select-Object -First 1
+        if(-not $tokenLine){
+            Write-ColorLog "DISCORD_BOT_TOKEN not found in .env" 'Red'
+            return $false
+        }
+        $token = ($tokenLine -replace '^[^=]*=','').Trim().Trim('"','''')
+        if([string]::IsNullOrWhiteSpace($token)){
+            Write-ColorLog "DISCORD_BOT_TOKEN is empty in .env" 'Red'
+            return $false
+        }
+        $parts = $token.Split('.')
+        if($parts.Count -ne 3){
+            Write-ColorLog "DISCORD_BOT_TOKEN appears malformed (expected 3 parts)" 'Red'
+            return $false
+        }
+    } catch {
+        Write-ColorLog "Preflight check failed: $($_.Exception.Message)" 'Red'
+        return $false
+    }
+    return $true
+}
+
+function Update-BotStatus {
+    param([string]$Status,[int]$BotProcessId=0)
+    $statusData=@{status=$Status;timestamp=(Get-Date).ToUniversalTime().ToString('o')}
+    if($BotProcessId -gt 0){$statusData.pid=$BotProcessId}
+    [IO.File]::WriteAllText($statusFile,($statusData|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
+}
+
+function Invoke-DatabaseBackup {
+    Write-ColorLog 'Creating database backup...' 'Cyan' '[DB] '
+    try {
+        $dumpCmd=$null
+        if(Get-Command mariadb-dump -ErrorAction SilentlyContinue){
+            $dumpCmd='mariadb-dump'
+        }elseif(Get-Command mysqldump -ErrorAction SilentlyContinue){
+            $dumpCmd='mysqldump'
+        }
+        
+        $user=$env:DB_USER
+        if(-not $user){$user='sulfur_bot_user'}
+        $db=$env:DB_NAME
+        if(-not $db){$db='sulfur_bot'}
+        $backupDir=Join-Path $PSScriptRoot 'backups'
+        if(-not(Test-Path $backupDir)){New-Item -ItemType Directory -Path $backupDir|Out-Null}
+        $backupFile=Join-Path $backupDir "sulfur_bot_backup_$(Get-Date -Format 'yyyy-MM-dd_HH-mm-ss').sql"
+        
+        if($dumpCmd){
+            & $dumpCmd -u $user $db > $backupFile 2>$null
+        } else {
+            'mysqldump/mariadb-dump not found; placeholder backup entry.' | Out-File -FilePath $backupFile
+        }
+        if(Test-Path $backupFile){
+            Write-ColorLog "Backup created: $backupFile" 'Green' '[DB] '
+            $allBackups=Get-ChildItem $backupDir -Filter *.sql | Sort-Object LastWriteTime -Descending
+            if($allBackups.Count -gt 10){
+                $allBackups|Select-Object -Skip 10 | Remove-Item -Force
+                Write-ColorLog 'Pruned old backups (kept 10)' 'Yellow' '[DB] '
+            }
+            return $true
+        } else {
+            Write-ColorLog 'Backup failed' 'Red' '[DB] '
+            return $false
+        }
+    } catch {
+        Write-ColorLog "Backup error: $($_.Exception.Message)" 'Red' '[DB] '
+        return $false
+    }
+}
+
 function Invoke-GitCommit {
     param([string]$Message='chore: Auto-commit from maintenance script')
     Write-ColorLog 'Checking for changes...' 'Cyan' '[GIT] '

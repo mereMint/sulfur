@@ -821,7 +821,13 @@ class WerwolfGame:
                     continue
                 
                 won = player.role in winning_roles
-                await update_player_stats(player.user.id, player.user.display_name, won)
+                try:
+                    await update_player_stats(player.user.id, player.user.display_name, won)
+                except Exception as e:
+                    # Log the error but continue cleanup — DB may be down on Termux or elsewhere
+                    print(f"  [WW] Warning: failed to update stats for {player.user.display_name} ({player.user.id}): {e}")
+                    import traceback
+                    traceback.print_exc()
         elif not config:
             # Game was cancelled before it truly started, no stats to record
             pass
