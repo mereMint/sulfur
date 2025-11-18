@@ -25,6 +25,9 @@
       "relationship_update_interval": 5
     }
   },
+  "features": {
+    "emoji_analysis_on_startup": true
+  },
   "api": {
     "provider": "openai",
     "timeout": 30,
