@@ -722,12 +722,32 @@ start_web_dashboard() {
         fi
     fi
     
+    # Verify web_dashboard.py exists
+    if [ ! -f "web_dashboard.py" ]; then
+        log_error "web_dashboard.py not found in current directory"
+        return 1
+    fi
+    
     # Start web dashboard in background
     log_info "Starting web dashboard process..."
     nohup "$python_exe" -u web_dashboard.py >> "$WEB_LOG" 2>&1 &
     local web_pid=$!
-    echo "$web_pid" > "$WEB_PID_FILE"
     
+    # Verify process started
+    if [ -z "$web_pid" ]; then
+        log_error "Failed to get web dashboard PID"
+        return 1
+    fi
+    
+    # Wait a moment and verify process didn't die immediately
+    sleep 1
+    if ! kill -0 "$web_pid" 2>/dev/null; then
+        log_error "Web dashboard process died immediately after startup"
+        log_warning "Check web log for errors: tail -n 50 $WEB_LOG"
+        return 1
+    fi
+    
+    echo "$web_pid" > "$WEB_PID_FILE"
     log_info "Web dashboard process started with PID: $web_pid"
     
     # Wait for it to start
@@ -813,13 +833,34 @@ start_bot() {
         python_exe="venv/bin/python"
     fi
     
+    # Verify bot.py exists
+    if [ ! -f "bot.py" ]; then
+        log_error "bot.py not found in current directory"
+        return 1
+    fi
+    
     # Start bot in background
     nohup "$python_exe" -u bot.py >> "$BOT_LOG" 2>&1 &
     local bot_pid=$!
-    echo "$bot_pid" > "$BOT_PID_FILE"
     
+    # Verify process started
+    if [ -z "$bot_pid" ]; then
+        log_error "Failed to get bot PID"
+        return 1
+    fi
+    
+    # Wait a moment and verify process is still running
+    sleep 1
+    if ! kill -0 "$bot_pid" 2>/dev/null; then
+        log_error "Bot process died immediately after startup"
+        log_warning "Check bot log for errors: tail -n 50 $BOT_LOG"
+        return 1
+    fi
+    
+    echo "$bot_pid" > "$BOT_PID_FILE"
     update_status "Running" "$bot_pid"
     log_success "Bot started (PID: $bot_pid)"
+    return 0
 }
 
 stop_bot() {
@@ -1010,9 +1051,27 @@ start_web_dashboard || log_warning "Web Dashboard failed to start, continuing an
 
 # Main loop
 while true; do
-    # Start bot
+    # Start bot with retry logic
     cleanup_orphans
-    start_bot
+    
+    local start_attempts=0
+    local max_start_attempts=3
+    while [ $start_attempts -lt $max_start_attempts ]; do
+        if start_bot; then
+            break
+        fi
+        
+        start_attempts=$((start_attempts + 1))
+        if [ $start_attempts -lt $max_start_attempts ]; then
+            log_warning "Bot start attempt $start_attempts failed, retrying in 10 seconds..."
+            sleep 10
+        else
+            log_error "Bot failed to start after $max_start_attempts attempts"
+            log_error "Check logs and fix errors before restarting: $BOT_LOG"
+            log_warning "Sleeping 60 seconds before retry..."
+            sleep 60
+        fi
+    done
     
     # Monitor bot
     while true; do
@@ -1021,12 +1080,17 @@ while true; do
         
         # Check if bot is still running
         if [ -f "$BOT_PID_FILE" ]; then
-            BOT_PID=$(cat "$BOT_PID_FILE")
+            BOT_PID=$(cat "$BOT_PID_FILE" 2>/dev/null)
+            if [ -z "$BOT_PID" ]; then
+                log_warning "PID file empty or corrupted"
+                break
+            fi
             if ! kill -0 "$BOT_PID" 2>/dev/null; then
                 log_warning "Bot stopped unexpectedly"
                 break
             fi
         else
+            log_warning "PID file disappeared"
             break
         fi
         
