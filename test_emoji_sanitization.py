@@ -12,7 +12,10 @@ def sanitize_malformed_emojis(text):
     """
     Fixes malformed emoji patterns that the AI might generate.
     Handles both static (<:name:id>) and animated (<a:name:id>) emojis.
-    Examples: <<:name:id>id> -> <:name:id>, <<a:name:id>id> -> <a:name:id>
+    Examples: 
+      - <<:name:id>id> -> <:name:id>
+      - <<a:name:id>id> -> <a:name:id>
+      - `<:name:id>` -> <:name:id> (removes inline code backticks, preserves code blocks)
     """
     # Fix pattern like <<:emoji_name:emoji_id>emoji_id> or <<a:emoji_name:emoji_id>emoji_id>
     text = re.sub(r'<<(a?):(\w+):(\d+)>\3>', r'<\1:\2:\3>', text)
@@ -20,6 +23,9 @@ def sanitize_malformed_emojis(text):
     text = re.sub(r'<<(a?):(\w+):(\d+)>>', r'<\1:\2:\3>', text)
     # Fix pattern like <:emoji_name:emoji_id>emoji_id or <a:emoji_name:emoji_id>emoji_id (trailing ID)
     text = re.sub(r'<(a?):(\w+):(\d+)>\3', r'<\1:\2:\3>', text)
+    # Remove single backticks around emoji patterns (inline code), but not triple backticks (code blocks)
+    # Use negative lookbehind and lookahead to avoid matching triple backticks
+    text = re.sub(r'(?<!`)`<(a?):(\w+):(\d+)>`(?!`)', r'<\1:\2:\3>', text)
     return text
 
 def test_sanitize_malformed_emojis():
@@ -87,6 +93,38 @@ def test_sanitize_malformed_emojis():
             "name": "Mixed static and animated: all malformed",
             "input": "<<:static:111>111> and <<a:animated:222>222>",
             "expected": "<:static:111> and <a:animated:222>",
+        },
+        
+        # Backtick cases (markdown code formatting)
+        {
+            "name": "Static emoji with backticks",
+            "input": "`<:emoji:123>`",
+            "expected": "<:emoji:123>",
+        },
+        {
+            "name": "Animated emoji with backticks",
+            "input": "`<a:emoji:456>`",
+            "expected": "<a:emoji:456>",
+        },
+        {
+            "name": "Backticks with malformed emoji (double-wrapped + trailing ID)",
+            "input": "`<<:14029999iq:1440047023456911370>1440047023456911370>`",
+            "expected": "<:14029999iq:1440047023456911370>",
+        },
+        {
+            "name": "Multiple emojis with backticks",
+            "input": "Test `<:emoji1:111>` and `<a:emoji2:222>`",
+            "expected": "Test <:emoji1:111> and <a:emoji2:222>",
+        },
+        {
+            "name": "Code block with emoji (should NOT be modified)",
+            "input": "```<:emoji:123>```",
+            "expected": "```<:emoji:123>```",
+        },
+        {
+            "name": "Multi-line code block with emoji (should NOT be modified)",
+            "input": "```\n<:emoji:123>\n```",
+            "expected": "```\n<:emoji:123>\n```",
         },
         
         # Edge cases

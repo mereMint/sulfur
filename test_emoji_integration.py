@@ -10,7 +10,10 @@ def sanitize_malformed_emojis(text):
     """
     Fixes malformed emoji patterns that the AI might generate.
     Handles both static (<:name:id>) and animated (<a:name:id>) emojis.
-    Examples: <<:name:id>id> -> <:name:id>, <<a:name:id>id> -> <a:name:id>
+    Examples: 
+      - <<:name:id>id> -> <:name:id>
+      - <<a:name:id>id> -> <a:name:id>
+      - `<:name:id>` -> <:name:id> (removes inline code backticks, preserves code blocks)
     """
     # Fix pattern like <<:emoji_name:emoji_id>emoji_id> or <<a:emoji_name:emoji_id>emoji_id>
     text = re.sub(r'<<(a?):(\w+):(\d+)>\3>', r'<\1:\2:\3>', text)
@@ -18,6 +21,9 @@ def sanitize_malformed_emojis(text):
     text = re.sub(r'<<(a?):(\w+):(\d+)>>', r'<\1:\2:\3>', text)
     # Fix pattern like <:emoji_name:emoji_id>emoji_id or <a:emoji_name:emoji_id>emoji_id (trailing ID)
     text = re.sub(r'<(a?):(\w+):(\d+)>\3', r'<\1:\2:\3>', text)
+    # Remove single backticks around emoji patterns (inline code), but not triple backticks (code blocks)
+    # Use negative lookbehind and lookahead to avoid matching triple backticks
+    text = re.sub(r'(?<!`)`<(a?):(\w+):(\d+)>`(?!`)', r'<\1:\2:\3>', text)
     return text
 
 # Simulate AI-generated responses with emoji issues
@@ -51,6 +57,16 @@ test_scenarios = [
         "name": "German text with emojis (real use case)",
         "input": "Guten Tag! <<:6153stare:1440047093044482142>1440047093044482142> Was geht?",
         "expected": "Guten Tag! <:6153stare:1440047093044482142> Was geht?",
+    },
+    {
+        "name": "Backtick wrapped emoji (markdown code formatting)",
+        "input": "Check this `<:emoji:123>` out!",
+        "expected": "Check this <:emoji:123> out!",
+    },
+    {
+        "name": "Combination: backticks + malformed pattern",
+        "input": "`<<:14029999iq:1440047023456911370>1440047023456911370>`",
+        "expected": "<:14029999iq:1440047023456911370>",
     },
 ]
 

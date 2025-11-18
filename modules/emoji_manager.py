@@ -238,7 +238,7 @@ async def get_emoji_context_for_ai():
     
     emoji_text = "\n\n**Available Custom Emojis:**\n"
     emoji_text += "You have access to custom emojis. Use them to make your responses more expressive!\n"
-    emoji_text += "Use the format `:<emoji_name>:` or `<:emoji_name:emoji_id>` in your responses.\n\n"
+    emoji_text += "Use the format :<emoji_name>: or <:emoji_name:emoji_id> in your responses (do NOT add backticks or quotes around emojis).\n\n"
     
     # Add configured emojis (from server_emojis.json)
     if configured_emojis:
@@ -246,7 +246,7 @@ async def get_emoji_context_for_ai():
         for emoji_name, emoji_data in configured_emojis.items():
             description = emoji_data.get('description', 'Custom emoji')
             usage = emoji_data.get('usage', 'General use')
-            emoji_text += f"- `:{emoji_name}:` - {description}\n"
+            emoji_text += f"- :{emoji_name}: - {description}\n"
             emoji_text += f"  Usage: {usage}\n"
     
     # Add dynamically analyzed emojis (from database) - these are application emojis
@@ -256,11 +256,11 @@ async def get_emoji_context_for_ai():
             # Skip if this emoji was already added from config (by name)
             if emoji['emoji_name'] in configured_emojis:
                 continue
-            emoji_text += f"- `<:{emoji['emoji_name']}:{emoji['emoji_id']}>` - {emoji['description']}\n"
+            emoji_text += f"- <:{emoji['emoji_name']}:{emoji['emoji_id']}> - {emoji['description']}\n"
             if emoji.get('usage_context'):
                 emoji_text += f"  Usage: {emoji['usage_context']}\n"
     
-    emoji_text += "\n**Important:** Prefer using application emojis (with full `<:name:id>` format) as they are your personal emojis and work everywhere you're present!"
+    emoji_text += "\n**Important:** Prefer using application emojis (with full <:name:id> format) as they are your personal emojis and work everywhere you're present!"
     
     return emoji_text
 
