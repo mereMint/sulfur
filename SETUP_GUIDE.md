@@ -1,5 +1,13 @@
 # Sulfur Bot - Complete Setup Guide
 
+> **⚡ Quick Start Available!**  
+> For the easiest installation experience, use our automated wizards:
+> - **Windows**: Run `INSTALL.bat` or see [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md)
+> - **Linux**: Run `./quick_setup.sh` or see [QUICKSTART.md](QUICKSTART.md)
+> - **Termux**: Run `bash termux_quickstart.sh` or see [TERMUX_GUIDE.md](TERMUX_GUIDE.md)
+>
+> This manual guide is for advanced users who prefer manual configuration.
+
 This guide will help you set up the Sulfur Discord bot on both **Windows** and **Termux/Linux**.
 
 ## Table of Contents

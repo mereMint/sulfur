@@ -81,6 +81,36 @@ The installation wizard automates the entire setup process:
   - "Sulfur Bot Folder" - Quick access to installation
 - Offers to start the bot immediately
 
+### 🎁 What You'll Have After Installation
+
+Once setup is complete, your bot includes all these features:
+
+#### 🎮 Games & Entertainment
+- **Werwolf** - Multiplayer werewolf game with dynamic voice channels
+- **Gambling Games** - Blackjack, Roulette, Russian Roulette, Mines
+- **Daily Quests** - Complete challenges to earn rewards
+
+#### 💰 Economy & Shop
+- **Virtual Currency** - Earn coins through activities
+- **Shop System** - Buy color roles (Basic/Premium/Legendary tiers)
+- **Feature Unlocks** - DM access, games, special permissions
+- **Daily Rewards** - Claim coins every day
+- **Leaderboards** - Track top earners
+
+#### 🤖 AI Capabilities
+- **Multi-Model AI** - Gemini (2.0-flash, 1.5-pro, 2.5-flash), OpenAI (GPT-4o, GPT-4-turbo, GPT-5)
+- **AI Vision** - Image analysis and understanding
+- **Context Memory** - Remembers recent conversations (2-minute windows)
+- **Smart Emoji Analysis** - AI-powered custom emoji descriptions
+
+#### 📊 Management Tools
+- **Web Dashboard** - Real-time monitoring at http://localhost:5000
+- **AI Usage Tracking** - Monitor token usage and costs by model
+- **Transaction Logs** - Full audit trail for economy operations
+- **Auto-Backups** - Database backups every 30 minutes
+- **Auto-Updates** - Checks for updates every minute
+- **Level System** - XP tracking with role rewards
+
 ---
 
 ## 📋 Prerequisites
@@ -391,6 +421,36 @@ Once the bot is running:
 5. Select permissions: **Administrator** (or specific ones)
 6. Copy the generated URL and open it in your browser
 7. Select your server and authorize
+
+### First Steps with Your Bot
+
+Once your bot is in your server, try these commands:
+
+**Basic Commands:**
+- `/help` - See all available commands
+- `/ping` - Check if bot is responsive
+
+**Economy System:**
+- `/balance` - Check your coin balance
+- `/daily` - Claim daily rewards
+- `/shop` - Browse the shop (color roles, features)
+- `/transactions` - View your purchase history
+
+**Daily Quests:**
+- `/quests` - View today's quests
+- `/questclaim` - Claim completed quest rewards
+- `/monthly` - Check monthly milestone progress
+
+**Games:**
+- `/blackjack` - Play blackjack
+- `/roulette` - Spin the roulette wheel
+- `/mines` - Play the mines game
+- `/ww start` - Start a Werwolf game
+
+**AI Interaction:**
+- Mention the bot: `@BotName hello!`
+- Upload images for AI vision analysis
+- The bot remembers context for 2 minutes
 
 ### Customizing the Bot
 
