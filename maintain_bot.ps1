@@ -128,7 +128,7 @@ function Test-Preflight {
             return $false
         }
     } catch {
-        Write-ColorLog "Preflight check failed: $_" 'Red'
+        Write-ColorLog "Preflight check failed: $($_.Exception.Message)" 'Red'
         return $false
     }
     return $true
@@ -177,7 +177,7 @@ function Invoke-DatabaseBackup {
             return $false
         }
     } catch {
-        Write-ColorLog "Backup error: $_" 'Red' '[DB] '
+        Write-ColorLog "Backup error: $($_.Exception.Message)" 'Red' '[DB] '
         return $false
     }
 }
@@ -271,7 +271,7 @@ function Clear-Port {
                         Start-Sleep -Seconds 2
                     }
                 } catch {
-                    Write-ColorLog "Failed to stop process $pid: $_" 'Red' '[WEB] '
+                    Write-ColorLog "Failed to stop process ${pid}: $($_.Exception.Message)" 'Red' '[WEB] '
                 }
             }
             
@@ -289,7 +289,7 @@ function Clear-Port {
             return $true
         }
     } catch {
-        Write-ColorLog "Port cleanup failed: $_" 'Red' '[WEB] '
+        Write-ColorLog "Port cleanup failed: $($_.Exception.Message)" 'Red' '[WEB] '
         return $false
     }
 }
@@ -449,7 +449,7 @@ function Test-ForUpdates {
         }
         return $false
     } catch {
-        Write-ColorLog "Update check failed: $_" 'Red' '[UPDATE] '
+        Write-ColorLog "Update check failed: $($_.Exception.Message)" 'Red' '[UPDATE] '
         return $false
     }
 }

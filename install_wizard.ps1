@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # Sulfur Discord Bot - Windows Installation Wizard
 # ============================================================
 # This wizard makes setting up the Sulfur bot a breeze!
@@ -47,17 +47,17 @@ $script:SetupSteps = @{
 function Write-Header {
     param([string]$Text)
     Write-Host ""
-    Write-Host "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—" -ForegroundColor $ColorHeader
-    Write-Host "â•‘  $($Text.PadRight(56))  â•‘" -ForegroundColor $ColorHeader
-    Write-Host "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•" -ForegroundColor $ColorHeader
+    Write-Host "============================================================" -ForegroundColor $ColorHeader
+    Write-Host "  $Text" -ForegroundColor $ColorHeader
+    Write-Host "============================================================" -ForegroundColor $ColorHeader
     Write-Host ""
 }
 
 function Write-Step {
     param([string]$Text)
     Write-Host ""
-    Write-Host "â–¶ $Text" -ForegroundColor $ColorInfo
-    Write-Host "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”" -ForegroundColor DarkGray
+    Write-Host "=> $Text" -ForegroundColor $ColorInfo
+    Write-Host "------------------------------------------------------------" -ForegroundColor DarkGray
 }
 
 function Write-Success {
