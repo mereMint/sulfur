@@ -4703,10 +4703,20 @@ class DetectiveGameView(discord.ui.View):
     
     def create_case_embed(self):
         """Create the main case embed."""
+        difficulty = getattr(self.case, 'difficulty', 1)
+        
         embed = discord.Embed(
             title=f"🔍 {self.case.case_title}",
             description=self.case.case_description,
             color=discord.Color.dark_blue()
+        )
+        
+        # Show difficulty level
+        difficulty_emoji = "⭐" * difficulty
+        embed.add_field(
+            name="🎯 Schwierigkeitsgrad",
+            value=f"{difficulty_emoji} (Stufe {difficulty}/5)",
+            inline=False
         )
         
         embed.add_field(
@@ -4721,36 +4731,62 @@ class DetectiveGameView(discord.ui.View):
             inline=False
         )
         
-        # Evidence
+        # Evidence - hide some based on difficulty
         if self.case.evidence:
-            evidence_text = "\n".join(self.case.evidence)
+            if difficulty <= 2:
+                # Easy/Medium: Show all evidence
+                evidence_text = "\n".join(self.case.evidence)
+            else:
+                # Hard: Show only first evidence, rest needs investigation
+                visible_count = max(1, len(self.case.evidence) - (difficulty - 2))
+                evidence_text = "\n".join(self.case.evidence[:visible_count])
+                if visible_count < len(self.case.evidence):
+                    evidence_text += f"\n\n*🔒 {len(self.case.evidence) - visible_count} weitere Beweise müssen untersucht werden*"
+            
             embed.add_field(
                 name="🔬 Beweise",
                 value=evidence_text,
                 inline=False
             )
         
-        # Hints (codes/clues)
+        # Hints - hide based on difficulty
         if hasattr(self.case, 'hints') and self.case.hints:
-            hints_text = "\n".join(self.case.hints)
+            if difficulty <= 1:
+                # Easy: Show all hints clearly
+                hints_text = "\n".join(self.case.hints)
+            elif difficulty <= 3:
+                # Medium: Show hints but hint they're cryptic
+                hints_text = "\n".join(self.case.hints)
+            else:
+                # Hard: Show only first hint
+                hints_text = self.case.hints[0] if self.case.hints else "Keine Hinweise verfügbar"
+                if len(self.case.hints) > 1:
+                    hints_text += f"\n\n*🔒 {len(self.case.hints) - 1} weitere Hinweise durch Untersuchung aufdecken*"
+            
             embed.add_field(
                 name="💡 Hinweise",
                 value=hints_text,
                 inline=False
             )
         
-        # Suspects list
+        # Suspects list - show only basic info
         suspects_list = "\n".join([
             f"{i+1}. **{s['name']}** - {s['occupation']}"
             for i, s in enumerate(self.case.suspects)
         ])
+        
+        # Show investigation progress
+        if self.investigated_suspects:
+            investigated_names = [self.case.suspects[i]['name'] for i in self.investigated_suspects]
+            suspects_list += f"\n\n✅ Untersucht: {', '.join(investigated_names)}"
+        
         embed.add_field(
             name="👥 Verdächtige",
             value=suspects_list,
             inline=False
         )
         
-        embed.set_footer(text="🔍 Untersuche die Verdächtigen und wähle dann den Mörder aus!")
+        embed.set_footer(text="🔍 Untersuche die Verdächtigen um mehr Informationen zu erhalten!")
         
         return embed
     
@@ -4759,6 +4795,8 @@ class DetectiveGameView(discord.ui.View):
         suspect = self.case.get_suspect(suspect_index)
         if not suspect:
             return None
+        
+        difficulty = getattr(self.case, 'difficulty', 1)
         
         embed = discord.Embed(
             title=f"🔍 Untersuchung: {suspect['name']}",
@@ -4774,7 +4812,37 @@ class DetectiveGameView(discord.ui.View):
             inline=False
         )
         
-        embed.set_footer(text="Zurück zum Fall, um weitere Verdächtige zu untersuchen!")
+        # Reveal additional evidence/hints when investigating (for higher difficulties)
+        if difficulty >= 3 and len(self.investigated_suspects) > 0:
+            # Reveal hidden evidence after investigating suspects
+            evidence_count = len(self.case.evidence)
+            visible_count = max(1, evidence_count - (difficulty - 2))
+            
+            if len(self.investigated_suspects) >= 2 and evidence_count > visible_count:
+                extra_evidence_idx = visible_count + len(self.investigated_suspects) - 2
+                if extra_evidence_idx < evidence_count:
+                    embed.add_field(
+                        name="🔬 Neuer Beweis entdeckt!",
+                        value=self.case.evidence[extra_evidence_idx],
+                        inline=False
+                    )
+        
+        # Show hint unlock progress
+        num_investigated = len(self.investigated_suspects)
+        if difficulty >= 4 and num_investigated >= 2 and len(self.case.hints) > 1:
+            hint_idx = min(num_investigated - 1, len(self.case.hints) - 1)
+            if hint_idx < len(self.case.hints):
+                embed.add_field(
+                    name="💡 Hinweis aufgedeckt!",
+                    value=self.case.hints[hint_idx],
+                    inline=False
+                )
+        
+        investigations_left = 4 - num_investigated
+        if investigations_left > 0:
+            embed.set_footer(text=f"Untersuche weitere {investigations_left} Verdächtige für mehr Hinweise!")
+        else:
+            embed.set_footer(text="Alle Verdächtigen untersucht. Zeit für eine Anklage!")
         
         return embed
     
@@ -4893,6 +4961,13 @@ class DetectiveAccusationView(discord.ui.View):
         
         currency = config['modules']['economy']['currency_symbol']
         
+        # Mark case as completed in database
+        if self.case.case_id:
+            await detective_game.mark_case_completed(db_helpers, interaction.user.id, self.case.case_id, is_correct)
+        
+        # Update user stats and difficulty
+        await detective_game.update_user_stats(db_helpers, interaction.user.id, is_correct)
+        
         if is_correct:
             # Player won!
             reward = config['modules']['economy']['games']['detective']['reward_correct']
@@ -4912,6 +4987,9 @@ class DetectiveAccusationView(discord.ui.View):
                 True
             )
             
+            # Get user's new difficulty level
+            new_difficulty = await detective_game.get_user_difficulty(db_helpers, interaction.user.id)
+            
             embed = discord.Embed(
                 title="✅ Fall gelöst!",
                 description=f"**{suspect['name']}** war tatsächlich der Mörder! Du hast den Fall brillant gelöst!",
@@ -4922,6 +5000,12 @@ class DetectiveAccusationView(discord.ui.View):
                 value=f"+{reward} {currency}",
                 inline=False
             )
+            if new_difficulty > self.case.difficulty:
+                embed.add_field(
+                    name="🎯 Schwierigkeitsgrad erhöht!",
+                    value=f"Deine Fähigkeiten verbessern sich! Nächster Fall: Stufe {new_difficulty}/5",
+                    inline=False
+                )
             embed.set_footer(text="Gut gemacht, Detektiv!")
         else:
             # Player lost
@@ -4947,6 +5031,7 @@ class DetectiveAccusationView(discord.ui.View):
         self.stop()
 
 
+
 @tree.command(name="detective", description="Löse einen Mordfall!")
 async def detective(interaction: discord.Interaction):
     """Start a detective murder mystery game."""
@@ -4960,13 +5045,19 @@ async def detective(interaction: discord.Interaction):
             await interaction.followup.send("Du hast bereits einen aktiven Fall!", ephemeral=True)
             return
         
-        # Generate a murder case
-        case = await detective_game.generate_murder_case(
+        # Get or generate a case for the user
+        case = await detective_game.get_or_generate_case(
+            db_helpers,
             api_helpers,
             config,
             GEMINI_API_KEY,
-            OPENAI_API_KEY
+            OPENAI_API_KEY,
+            user_id
         )
+        
+        # Mark case as started if it has an ID
+        if case.case_id:
+            await detective_game.mark_case_started(db_helpers, user_id, case.case_id)
         
         # Create game view
         view = DetectiveGameView(case, user_id)
@@ -4987,6 +5078,7 @@ async def detective(interaction: discord.Interaction):
             f"❌ Fehler beim Starten des Detektiv-Spiels: {str(e)}",
             ephemeral=True
         )
+
 
 
 @tree.command(name="rr", description="Spiele Russian Roulette!")
