@@ -3047,9 +3047,9 @@ async def ww_start(interaction: discord.Interaction, ziel_spieler: int = None):
         description=f"Tretet dem Voice-Channel **`{lobby_vc.name}`** bei, um mitzuspielen!",
         color=get_embed_color(config)
     )
-    embed.add_field(name="Automatischer Start", value="Das Spiel startet in **15 Sekunden**.")
+    embed.add_field(name="Automatischer Start", value="Das Spiel startet in **60 Sekunden**.")
     embed.add_field(name="Spieler (1)", value=author.display_name, inline=False)
-    embed.set_footer(text="Wer nicht beitritt, ist ein Werwolf!")
+    embed.set_footer(text="Wer nicht beitritt, ist ein Werwolf! Nur der Starter kann das Spiel vorzeitig beginnen.")
     
     # Create the view and send the initial message
     join_duration = config['modules']['werwolf']['join_phase_duration_seconds']
@@ -3170,6 +3170,18 @@ async def ww_rules(interaction: discord.Interaction):
     roles_embed.add_field(
         name="🏹 Jäger",
         value="**Team:** Dorfbewohner\n**Fähigkeit:** Stirbt der Jäger, darf er noch eine Person mit in den Tod nehmen.\n**Aktionen:** Automatisch beim Tod - du wirst per DM nach deinem Ziel gefragt",
+        inline=False
+    )
+    
+    roles_embed.add_field(
+        name="💘 Amor",
+        value="**Team:** Dorfbewohner\n**Fähigkeit:** Wählt in der ersten Nacht zwei Spieler, die sich ineinander verlieben. Stirbt einer, stirbt auch der andere.\n**Aktionen:** `love <name1> <name2>` per DM an den Bot\n**Verfügbar:** Ab 8 Spielern",
+        inline=False
+    )
+    
+    roles_embed.add_field(
+        name="⚪ Der Weiße",
+        value="**Team:** Dorfbewohner\n**Fähigkeit:** Kann einen Werwolf-Angriff überleben. ACHTUNG: Wird er gelyncht, verlieren alle Dorfbewohner ihre Spezialfähigkeiten!\n**Aktionen:** Passiv\n**Verfügbar:** Ab 10 Spielern",
         inline=False
     )
     

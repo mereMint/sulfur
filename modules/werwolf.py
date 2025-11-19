@@ -17,6 +17,8 @@ SEHERIN = "Seherin"
 HEXE = "Hexe"
 DÖNERSTOPFER = "Dönerstopfer"
 JÄGER = "Jäger"
+AMOR = "Amor"  # Cupid - creates lovers
+DER_WEISSE = "Der Weiße"  # The White - can survive one werewolf attack
 
 class WerwolfPlayer:
     """Represents a player in the game."""
@@ -27,6 +29,8 @@ class WerwolfPlayer:
         self.has_kill_potion = False
         self.is_alive = True
         self.voted_for = None # For day voting
+        self.lover_id = None  # NEW: For Amor role - ID of lover
+        self.weisse_immunity_used = False  # NEW: For Der Weiße role - whether immunity was used
 
 class WerwolfGame:
     """Manages the state and logic of a single Werwolf game."""
@@ -55,6 +59,11 @@ class WerwolfGame:
         self.game_state_message = None # The main message to be updated
         self.night_end_task = None # To manage the night timeout
         self.event_log = deque(maxlen=10) # Log of recent game events for the embed
+        
+        # NEW: Amor and Der Weiße state
+        self.amor_has_chosen = False  # Whether Amor has selected lovers
+        self.lovers = []  # List of two player IDs who are in love
+        self.villagers_lost_powers = False  # Whether Der Weiße was burned at stake
 
         self.config = None # Will be set when the game starts
         self.gemini_api_key = None
@@ -271,22 +280,25 @@ class WerwolfGame:
         # Logic adjusted for small player counts
         if player_count == 1:
             num_werwolfe = 1
-            num_seherin, num_hexe, num_döner, num_jäger = 0, 0, 0, 0
+            num_seherin, num_hexe, num_döner, num_jäger, num_amor, num_weisse = 0, 0, 0, 0, 0, 0
         elif player_count == 2:
             num_werwolfe = 1
             num_seherin = 1
-            num_hexe, num_döner, num_jäger = 0, 0, 0
+            num_hexe, num_döner, num_jäger, num_amor, num_weisse = 0, 0, 0, 0, 0
         else:
             num_werwolfe = max(1, player_count // 3)
             num_seherin = 1 if player_count > 2 else 0
             num_hexe = 1 if player_count >= 7 else 0
             num_döner = 1 if player_count >= 9 else 0
             num_jäger = 1 if player_count >= 5 else 0
+            num_amor = 1 if player_count >= 8 else 0  # NEW: Amor for 8+ players
+            num_weisse = 1 if player_count >= 10 else 0  # NEW: Der Weiße for 10+ players
         
-        num_dorfbewohner = player_count - num_werwolfe - num_seherin - num_hexe - num_döner - num_jäger
+        num_dorfbewohner = player_count - num_werwolfe - num_seherin - num_hexe - num_döner - num_jäger - num_amor - num_weisse
 
         roles = ([WERWOLF] * num_werwolfe + [SEHERIN] * num_seherin + [HEXE] * num_hexe + 
-                 [DÖNERSTOPFER] * num_döner + [JÄGER] * num_jäger + [DORFBEWOHNER] * num_dorfbewohner)
+                 [DÖNERSTOPFER] * num_döner + [JÄGER] * num_jäger + [AMOR] * num_amor + 
+                 [DER_WEISSE] * num_weisse + [DORFBEWOHNER] * num_dorfbewohner)
         random.shuffle(roles)
 
         player_objects = list(self.players.values())
@@ -318,6 +330,11 @@ class WerwolfGame:
                     role_message += "\nDu hast einen Heiltrank und einen Gifttrank."
                 elif player.role == JÄGER:
                     role_message += "\nStirbt der Jäger, darfst du noch eine Person mit in den Tod nehmen."
+                elif player.role == AMOR:
+                    role_message += "\nDu darfst in der ersten Nacht zwei Spieler auswählen, die sich ineinander verlieben. Stirbt einer, stirbt auch der andere."
+                    role_message += "\nSende `love <name1> <name2>` per DM, um zwei Verliebte zu wählen."
+                elif player.role == DER_WEISSE:
+                    role_message += "\nDu kannst einen Werwolf-Angriff überleben. Aber Vorsicht: Wirst du am Tag gelyncht, verlieren alle Dorfbewohner ihre Fähigkeiten!"
                 
                 await player.user.send(role_message)
             except discord.Forbidden:
@@ -509,6 +526,42 @@ class WerwolfGame:
             author_player.has_kill_potion = False
             self.hexe_poison_target_id = target_player.user.id
             print(f"  [WW] {author_player.user.display_name} (Hexe) used the poison potion on {target_player.user.display_name}.")
+            return await self.check_night_end()
+        
+        if command == "love":
+            # NEW: Amor selecting lovers
+            if author_player.role != AMOR:
+                return "Nur Amor kann Verliebte wählen."
+            if self.amor_has_chosen:
+                return "Du hast bereits zwei Verliebte ausgewählt."
+            if not target_player or not hasattr(target_player, 'lover_target'):
+                return "Du musst zwei Spieler auswählen. Nutze: `love <name1> <name2>`"
+            
+            # target_player will have .lover_target set from parsing
+            lover1 = target_player
+            lover2 = getattr(target_player, 'lover_target', None)
+            
+            if not lover2:
+                return "Du musst zwei verschiedene Spieler auswählen."
+            if lover1.user.id == lover2.user.id:
+                return "Die beiden Verliebten müssen verschiedene Spieler sein."
+            
+            # Set up lovers
+            self.lovers = [lover1.user.id, lover2.user.id]
+            lover1.lover_id = lover2.user.id
+            lover2.lover_id = lover1.user.id
+            self.amor_has_chosen = True
+            
+            print(f"  [WW] {author_player.user.display_name} (Amor) made {lover1.user.display_name} and {lover2.user.display_name} fall in love.")
+            await author_player.user.send(f"Du hast {lover1.user.display_name} und {lover2.user.display_name} zu Verliebten gemacht.")
+            
+            # Inform the lovers
+            try:
+                await lover1.user.send(f"💘 Du hast dich in {lover2.user.display_name} verliebt! Ihr gewinnt nur zusammen.")
+                await lover2.user.send(f"💘 Du hast dich in {lover1.user.display_name} verliebt! Ihr gewinnt nur zusammen.")
+            except discord.Forbidden:
+                pass
+            
             return await self.check_night_end()
 
         if command == "mute":
