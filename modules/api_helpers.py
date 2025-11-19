@@ -710,13 +710,26 @@ async def get_vision_analysis(image_url, prompt, config, gemini_key, openai_key)
 
 # --- Multi-Model Support ---
 
-async def get_ai_response_with_model(prompt, model_name, config, gemini_key, openai_key, system_prompt=None):
+async def get_ai_response_with_model(prompt, model_name, config, gemini_key, openai_key, system_prompt=None, temperature=None):
     """
     Gets a response from a specific AI model.
     Supports: gemini-2.0-flash-exp, gemini-1.5-pro, gpt-4o, gpt-4-turbo, o1, o3-mini, claude-3-opus, etc.
     Note: o1 and o3 models are reasoning models and don't support temperature or system prompts.
+    
+    Args:
+        prompt: The user prompt
+        model_name: Name of the model to use
+        config: Bot configuration
+        gemini_key: Gemini API key
+        openai_key: OpenAI API key
+        system_prompt: Optional system instruction
+        temperature: Optional temperature override (default 0.7 for standard tasks, can be higher for creative tasks)
     """
     timeout = config.get('api', {}).get('timeout', 30)
+    
+    # Use provided temperature or default to 0.7
+    if temperature is None:
+        temperature = 0.7
     
     # Determine provider from model name
     if model_name.startswith('gemini'):
@@ -726,15 +739,16 @@ async def get_ai_response_with_model(prompt, model_name, config, gemini_key, ope
                 "parts": [{"text": prompt}]
             }],
             "generationConfig": {
-                "temperature": 0.7,
+                "temperature": temperature,
                 "maxOutputTokens": 2048,
             }
         }
         
+        # Use systemInstruction for Gemini (correct way, not as a content message)
         if system_prompt:
-            payload["contents"].insert(0, {
+            payload["systemInstruction"] = {
                 "parts": [{"text": system_prompt}]
-            })
+            }
         
         response_text, error, usage_data = await _call_gemini_api(payload, model_name, gemini_key, timeout)
         
@@ -769,7 +783,7 @@ async def get_ai_response_with_model(prompt, model_name, config, gemini_key, ope
         
         # Only add temperature for non-reasoning models
         if not is_reasoning_model:
-            payload["temperature"] = 0.7
+            payload["temperature"] = temperature
         
         try:
             async with aiohttp.ClientSession() as session:

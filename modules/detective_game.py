@@ -44,32 +44,51 @@ async def generate_murder_case(api_helpers, config: dict, gemini_api_key: str, o
     Returns:
         MurderCase object
     """
-    prompt = """Generate a unique and creative murder mystery case (respond in German):
+    # Add timestamp and random elements to force unique generation
+    import time
+    timestamp = int(time.time())
+    random_seed = random.randint(1000, 9999)
+    
+    # Random theme suggestions to encourage variety
+    themes = [
+        "corporate intrigue", "family drama", "historical mystery", "art world scandal",
+        "scientific research gone wrong", "political conspiracy", "celebrity lifestyle",
+        "underground crime", "high society scandal", "academic rivalry", "tech startup betrayal",
+        "restaurant industry secrets", "theatrical production", "sports competition",
+        "museum heist aftermath", "literary world", "fashion industry", "music industry"
+    ]
+    suggested_theme = random.choice(themes)
+    
+    prompt = f"""Generate a COMPLETELY UNIQUE and creative murder mystery case (respond in German).
+
+IMPORTANT: This is request #{random_seed} at time {timestamp}. Each case MUST be completely different from any previous cases.
+
+Suggested theme for THIS case: {suggested_theme}
 
 Create a JSON object with:
-- title: An engaging and original case title
+- title: An engaging and original case title (NOT used before)
 - description: Vivid overview of the murder scene and circumstances
-- location: Where the murder took place (be creative and specific)
-- victim: Name and compelling description of the victim
+- location: Where the murder took place (be creative and specific - use unusual locations)
+- victim: Name and compelling description of the victim (unique name and background)
 - suspects: Array of exactly 4 suspects, each with:
-  - name: Suspect's name (make them memorable)
-  - occupation: Their job/role (interesting and varied)
+  - name: Suspect's name (make them memorable and diverse)
+  - occupation: Their job/role (interesting and varied - avoid common jobs)
   - alibi: Their claimed whereabouts (detailed and plausible)
   - motive: Potential reason for murder (compelling and believable)
   - suspicious_details: Clues that may point to or away from guilt (intriguing and layered)
-- murderer_index: Index (0-3) of which suspect is actually guilty
+- murderer_index: Index (0-3) of which suspect is actually guilty (randomly vary this)
 - evidence: Array of 3-5 pieces of evidence found at scene (be creative with forensic details)
 - hints: Array of 2-4 subtle hints that point to the murderer (use codes, patterns, or creative clues)
 
 Create a fresh, original case with:
-1. Unique setting and circumstances (avoid clichés)
-2. Diverse, interesting characters with depth
+1. Unique setting and circumstances (AVOID any clichés or common scenarios)
+2. Diverse, interesting characters with depth and unusual backgrounds
 3. Creative clues and red herrings
-4. Unexpected plot elements
-5. Engaging storytelling that feels new each time
-6. Varied themes (corporate intrigue, family drama, historical mystery, etc.)
+4. Unexpected plot elements and twists
+5. Engaging storytelling that feels completely new
+6. VARY the murderer - don't always make it the same suspect position
 
-Be creative and vary your approach - each case should feel completely different!"""
+MANDATORY: Make this case completely different from typical detective stories!"""
 
     try:
         # Use the proper API function with a specific model
@@ -80,14 +99,15 @@ Be creative and vary your approach - each case should feel completely different!
         else:
             model = config.get('api', {}).get('openai', {}).get('utility_model', 'gpt-4o-mini')
         
-        # Make a single API call
+        # Make a single API call with HIGH temperature for creativity
         response, error = await api_helpers.get_ai_response_with_model(
             prompt,
             model,
             config,
             gemini_api_key,
             openai_api_key,
-            system_prompt="You are a creative detective story writer. Return ONLY valid JSON, no additional text."
+            system_prompt="You are a creative detective story writer. Return ONLY valid JSON, no additional text. Each case you generate MUST be completely unique and different from previous ones.",
+            temperature=1.2  # High temperature for maximum creativity and variety
         )
         
         if error or not response:
@@ -687,6 +707,21 @@ async def generate_case_with_difficulty(api_helpers, config: dict, gemini_api_ke
     Returns:
         MurderCase object
     """
+    # Add timestamp and random elements to force unique generation
+    import time
+    timestamp = int(time.time())
+    random_seed = random.randint(1000, 9999)
+    
+    # Random theme suggestions to encourage variety
+    themes = [
+        "corporate intrigue", "family drama", "historical mystery", "art world scandal",
+        "scientific research gone wrong", "political conspiracy", "celebrity lifestyle",
+        "underground crime", "high society scandal", "academic rivalry", "tech startup betrayal",
+        "restaurant industry secrets", "theatrical production", "sports competition",
+        "museum heist aftermath", "literary world", "fashion industry", "music industry"
+    ]
+    suggested_theme = random.choice(themes)
+    
     # Adjust prompt based on difficulty
     difficulty_instructions = {
         1: "Easy: Make clues obvious and straightforward. All important information is clearly stated.",
@@ -698,34 +733,39 @@ async def generate_case_with_difficulty(api_helpers, config: dict, gemini_api_ke
     
     difficulty_desc = difficulty_instructions.get(difficulty, difficulty_instructions[1])
     
-    prompt = f"""Generate a unique and creative murder mystery case (respond in German):
+    prompt = f"""Generate a COMPLETELY UNIQUE and creative murder mystery case (respond in German).
+
+IMPORTANT: This is request #{random_seed} at time {timestamp}. Each case MUST be completely different from any previous cases.
+
+Suggested theme for THIS case: {suggested_theme}
 
 Create a JSON object with:
-- title: An engaging and original case title
+- title: An engaging and original case title (NOT used before)
 - description: Vivid overview of the murder scene and circumstances
-- location: Where the murder took place (be creative and specific)
-- victim: Name and compelling description of the victim
+- location: Where the murder took place (be creative and specific - use unusual locations)
+- victim: Name and compelling description of the victim (unique name and background)
 - suspects: Array of exactly 4 suspects, each with:
-  - name: Suspect's name (make them memorable)
-  - occupation: Their job/role (interesting and varied)
+  - name: Suspect's name (make them memorable and diverse)
+  - occupation: Their job/role (interesting and varied - avoid common jobs)
   - alibi: Their claimed whereabouts (detailed and plausible)
   - motive: Potential reason for murder (compelling and believable)
   - suspicious_details: Clues that may point to or away from guilt (intriguing and layered)
-- murderer_index: Index (0-3) of which suspect is actually guilty
+- murderer_index: Index (0-3) of which suspect is actually guilty (randomly vary this)
 - evidence: Array of 3-5 pieces of evidence found at scene (creative forensic details)
 - hints: Array of 2-4 hints that point to the murderer (match difficulty level)
 
 DIFFICULTY LEVEL {difficulty}/5: {difficulty_desc}
 
 Create a fresh, original case with:
-1. Unique setting and circumstances matching the difficulty
-2. Diverse, interesting characters with depth
+1. Unique setting and circumstances matching the difficulty (AVOID clichés)
+2. Diverse, interesting characters with depth and unusual backgrounds
 3. Creative clues and red herrings appropriate for difficulty
-4. Unexpected plot elements
-5. Engaging storytelling that feels new each time
-6. Varied themes (corporate intrigue, family drama, historical mystery, etc.)
+4. Unexpected plot elements and twists
+5. Engaging storytelling that feels completely new
+6. Varied themes - make each case feel distinctly different
+7. VARY the murderer - don't always make it the same suspect position
 
-Be creative and vary your approach - avoid repeating previous scenarios!"""
+MANDATORY: Make this case completely different from typical detective stories and any previous cases!"""
 
     try:
         # Use the proper API function with a specific model
@@ -735,14 +775,15 @@ Be creative and vary your approach - avoid repeating previous scenarios!"""
         else:
             model = config.get('api', {}).get('openai', {}).get('utility_model', 'gpt-4o-mini')
         
-        # Make a single API call
+        # Make a single API call with HIGH temperature for creativity
         response, error = await api_helpers.get_ai_response_with_model(
             prompt,
             model,
             config,
             gemini_api_key,
             openai_api_key,
-            system_prompt="You are a creative detective story writer. Return ONLY valid JSON, no additional text."
+            system_prompt="You are a creative detective story writer. Return ONLY valid JSON, no additional text. Each case you generate MUST be completely unique and different from previous ones.",
+            temperature=1.2  # High temperature for maximum creativity and variety
         )
         
         if error or not response:
