@@ -39,13 +39,22 @@ class MurderCase:
 
 async def generate_murder_case(api_helpers, config: dict, gemini_api_key: str, openai_api_key: str):
     """
-    Generate a murder mystery case using AI with a single API call.
+    Generate a murder mystery case using AI with robust retry logic and fallback providers.
+    
+    This function implements:
+    - Multiple retry attempts (up to 5)
+    - Exponential backoff between retries
+    - Extended timeout (120 seconds)
+    - Fallback to alternative AI provider if primary fails
+    - Improved JSON parsing with better error handling
     
     Returns:
         MurderCase object
     """
-    # Add timestamp and random elements to force unique generation
+    import asyncio
     import time
+    
+    # Add timestamp and random elements to force unique generation
     timestamp = int(time.time())
     random_seed = random.randint(1000, 9999)
     
@@ -88,48 +97,131 @@ Create a fresh, original case with:
 5. Engaging storytelling that feels completely new
 6. VARY the murderer - don't always make it the same suspect position
 
-MANDATORY: Make this case completely different from typical detective stories!"""
+MANDATORY: Make this case completely different from typical detective stories!
+Return ONLY valid JSON without any markdown formatting, code blocks, or additional text."""
 
-    try:
-        # Use the proper API function with a specific model
-        # Get the utility model from config
-        provider = config.get('api', {}).get('provider', 'gemini')
-        if provider == 'gemini':
-            model = config.get('api', {}).get('gemini', {}).get('utility_model', 'gemini-2.0-flash-exp')
-        else:
-            model = config.get('api', {}).get('openai', {}).get('utility_model', 'gpt-4o-mini')
+    system_prompt = "You are a creative detective story writer. Return ONLY valid JSON, no additional text, no markdown code blocks, no backticks. Each case you generate MUST be completely unique and different from previous ones."
+
+    # Configuration for retries
+    max_attempts = 5
+    base_timeout = 120  # Longer timeout for generation (2 minutes)
+    
+    # Determine primary and fallback providers
+    primary_provider = config.get('api', {}).get('provider', 'gemini')
+    fallback_provider = 'openai' if primary_provider == 'gemini' else 'gemini'
+    
+    # Get models for both providers
+    gemini_model = config.get('api', {}).get('gemini', {}).get('utility_model', 'gemini-2.5-flash')
+    openai_model = config.get('api', {}).get('openai', {}).get('utility_model', 'gpt-4o-mini')
+    
+    providers_to_try = [
+        (primary_provider, gemini_model if primary_provider == 'gemini' else openai_model),
+        (fallback_provider, gemini_model if fallback_provider == 'gemini' else openai_model)
+    ]
+    
+    logger.info(f"Starting detective case generation with primary provider: {primary_provider}")
+    
+    # Try each provider
+    for provider_name, model in providers_to_try:
+        logger.info(f"Attempting generation with {provider_name} provider using model {model}")
         
-        # Make a single API call with HIGH temperature for creativity
-        response, error = await api_helpers.get_ai_response_with_model(
-            prompt,
-            model,
-            config,
-            gemini_api_key,
-            openai_api_key,
-            system_prompt="You are a creative detective story writer. Return ONLY valid JSON, no additional text. Each case you generate MUST be completely unique and different from previous ones.",
-            temperature=1.2  # High temperature for maximum creativity and variety
-        )
+        # Try multiple times with current provider
+        for attempt in range(max_attempts):
+            try:
+                # Calculate backoff delay
+                if attempt > 0:
+                    backoff_delay = min(2 ** attempt, 16)  # Exponential backoff, max 16 seconds
+                    logger.info(f"Retry attempt {attempt + 1}/{max_attempts} after {backoff_delay}s backoff")
+                    await asyncio.sleep(backoff_delay)
+                
+                # Create a temporary config with extended timeout
+                temp_config = config.copy()
+                temp_config['api'] = config.get('api', {}).copy()
+                temp_config['api']['timeout'] = base_timeout
+                
+                logger.info(f"Calling AI API (attempt {attempt + 1}/{max_attempts}, timeout={base_timeout}s)")
+                
+                # Make API call with HIGH temperature for creativity
+                response, error = await api_helpers.get_ai_response_with_model(
+                    prompt,
+                    model,
+                    temp_config,
+                    gemini_api_key,
+                    openai_api_key,
+                    system_prompt=system_prompt,
+                    temperature=1.2  # High temperature for maximum creativity and variety
+                )
+                
+                if error:
+                    logger.warning(f"API returned error on attempt {attempt + 1}: {error}")
+                    continue  # Try again
+                
+                if not response:
+                    logger.warning(f"API returned empty response on attempt {attempt + 1}")
+                    continue  # Try again
+                
+                logger.info(f"Received response from AI API (length: {len(response)} chars)")
+                
+                # Parse the AI response with improved JSON extraction
+                import json
+                import re
+                
+                # Clean up response - remove markdown code blocks
+                cleaned_response = response.strip()
+                
+                # Remove markdown code blocks if present
+                if '```' in cleaned_response:
+                    # Extract content between ```json and ``` or ``` and ```
+                    code_block_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', cleaned_response, re.DOTALL)
+                    if code_block_match:
+                        cleaned_response = code_block_match.group(1)
+                        logger.debug("Extracted JSON from markdown code block")
+                
+                # Try to extract JSON object from response
+                json_match = re.search(r'\{.*\}', cleaned_response, re.DOTALL)
+                if not json_match:
+                    logger.warning(f"No JSON object found in response (attempt {attempt + 1})")
+                    logger.debug(f"Response preview: {cleaned_response[:200]}")
+                    continue  # Try again
+                
+                json_str = json_match.group()
+                logger.debug(f"Extracted JSON string (length: {len(json_str)} chars)")
+                
+                # Try to parse JSON
+                try:
+                    case_data = json.loads(json_str)
+                except json.JSONDecodeError as je:
+                    logger.warning(f"JSON parse error on attempt {attempt + 1}: {je}")
+                    logger.debug(f"Failed JSON preview: {json_str[:200]}")
+                    continue  # Try again
+                
+                # Validate required fields
+                required_fields = ['title', 'description', 'location', 'victim', 'suspects', 'murderer_index', 'evidence', 'hints']
+                missing_fields = [field for field in required_fields if field not in case_data]
+                
+                if missing_fields:
+                    logger.warning(f"Missing required fields on attempt {attempt + 1}: {missing_fields}")
+                    continue  # Try again
+                
+                # Validate suspects structure
+                if not isinstance(case_data.get('suspects'), list) or len(case_data.get('suspects', [])) != 4:
+                    logger.warning(f"Invalid suspects array on attempt {attempt + 1} (expected 4 suspects)")
+                    continue  # Try again
+                
+                # Success! Return the generated case
+                logger.info(f"Successfully generated case: {case_data.get('title', 'Unknown Title')}")
+                return MurderCase(case_data)
+                
+            except Exception as e:
+                logger.error(f"Exception during case generation attempt {attempt + 1}: {e}", exc_info=True)
+                # Continue to next attempt
         
-        if error or not response:
-            logger.error(f"Error from AI API: {error}")
-            return create_fallback_case()
-        
-        # Parse the AI response
-        import json
-        import re
-        
-        # Try to extract JSON from response
-        json_match = re.search(r'\{.*\}', response, re.DOTALL)
-        if json_match:
-            case_data = json.loads(json_match.group())
-            return MurderCase(case_data)
-        else:
-            logger.error("Could not parse AI response for murder case")
-            return create_fallback_case()
-            
-    except Exception as e:
-        logger.error(f"Error generating murder case: {e}", exc_info=True)
-        return create_fallback_case()
+        # If we exhausted all attempts with this provider, log it
+        logger.warning(f"Failed to generate case with {provider_name} after {max_attempts} attempts")
+    
+    # All attempts failed with both providers - use fallback
+    logger.error(f"All generation attempts failed with both providers, using fallback case")
+    return create_fallback_case()
 
 
 def create_fallback_case():
@@ -1003,6 +1095,13 @@ async def generate_case_with_difficulty(api_helpers, config: dict, gemini_api_ke
     """
     Generate a murder mystery case using AI with specified difficulty level.
     
+    This function implements:
+    - Multiple retry attempts (up to 5)
+    - Exponential backoff between retries
+    - Extended timeout (120 seconds)
+    - Fallback to alternative AI provider if primary fails
+    - Improved JSON parsing with better error handling
+    
     Args:
         api_helpers: API helpers module
         config: Bot configuration
@@ -1013,8 +1112,10 @@ async def generate_case_with_difficulty(api_helpers, config: dict, gemini_api_ke
     Returns:
         MurderCase object
     """
-    # Add timestamp and random elements to force unique generation
+    import asyncio
     import time
+    
+    # Add timestamp and random elements to force unique generation
     timestamp = int(time.time())
     random_seed = random.randint(1000, 9999)
     
@@ -1071,47 +1172,134 @@ Create a fresh, original case with:
 6. Varied themes - make each case feel distinctly different
 7. VARY the murderer - don't always make it the same suspect position
 
-MANDATORY: Make this case completely different from typical detective stories and any previous cases!"""
+MANDATORY: Make this case completely different from typical detective stories and any previous cases!
+Return ONLY valid JSON without any markdown formatting, code blocks, or additional text."""
 
-    try:
-        # Use the proper API function with a specific model
-        provider = config.get('api', {}).get('provider', 'gemini')
-        if provider == 'gemini':
-            model = config.get('api', {}).get('gemini', {}).get('utility_model', 'gemini-2.0-flash-exp')
-        else:
-            model = config.get('api', {}).get('openai', {}).get('utility_model', 'gpt-4o-mini')
+    system_prompt = "You are a creative detective story writer. Return ONLY valid JSON, no additional text, no markdown code blocks, no backticks. Each case you generate MUST be completely unique and different from previous ones."
+
+    # Configuration for retries
+    max_attempts = 5
+    base_timeout = 120  # Longer timeout for generation (2 minutes)
+    
+    # Determine primary and fallback providers
+    primary_provider = config.get('api', {}).get('provider', 'gemini')
+    fallback_provider = 'openai' if primary_provider == 'gemini' else 'gemini'
+    
+    # Get models for both providers
+    gemini_model = config.get('api', {}).get('gemini', {}).get('utility_model', 'gemini-2.5-flash')
+    openai_model = config.get('api', {}).get('openai', {}).get('utility_model', 'gpt-4o-mini')
+    
+    providers_to_try = [
+        (primary_provider, gemini_model if primary_provider == 'gemini' else openai_model),
+        (fallback_provider, gemini_model if fallback_provider == 'gemini' else openai_model)
+    ]
+    
+    logger.info(f"Starting detective case generation (difficulty {difficulty}) with primary provider: {primary_provider}")
+    
+    # Try each provider
+    for provider_name, model in providers_to_try:
+        logger.info(f"Attempting generation with {provider_name} provider using model {model}")
         
-        # Make a single API call with HIGH temperature for creativity
-        response, error = await api_helpers.get_ai_response_with_model(
-            prompt,
-            model,
-            config,
-            gemini_api_key,
-            openai_api_key,
-            system_prompt="You are a creative detective story writer. Return ONLY valid JSON, no additional text. Each case you generate MUST be completely unique and different from previous ones.",
-            temperature=1.2  # High temperature for maximum creativity and variety
-        )
+        # Try multiple times with current provider
+        for attempt in range(max_attempts):
+            try:
+                # Calculate backoff delay
+                if attempt > 0:
+                    backoff_delay = min(2 ** attempt, 16)  # Exponential backoff, max 16 seconds
+                    logger.info(f"Retry attempt {attempt + 1}/{max_attempts} after {backoff_delay}s backoff")
+                    await asyncio.sleep(backoff_delay)
+                
+                # Create a temporary config with extended timeout
+                temp_config = config.copy()
+                temp_config['api'] = config.get('api', {}).copy()
+                temp_config['api']['timeout'] = base_timeout
+                
+                logger.info(f"Calling AI API (attempt {attempt + 1}/{max_attempts}, timeout={base_timeout}s)")
+                
+                # Make API call with HIGH temperature for creativity
+                response, error = await api_helpers.get_ai_response_with_model(
+                    prompt,
+                    model,
+                    temp_config,
+                    gemini_api_key,
+                    openai_api_key,
+                    system_prompt=system_prompt,
+                    temperature=1.2  # High temperature for maximum creativity and variety
+                )
+                
+                if error:
+                    logger.warning(f"API returned error on attempt {attempt + 1}: {error}")
+                    continue  # Try again
+                
+                if not response:
+                    logger.warning(f"API returned empty response on attempt {attempt + 1}")
+                    continue  # Try again
+                
+                logger.info(f"Received response from AI API (length: {len(response)} chars)")
+                
+                # Parse the AI response with improved JSON extraction
+                import json
+                import re
+                
+                # Clean up response - remove markdown code blocks
+                cleaned_response = response.strip()
+                
+                # Remove markdown code blocks if present
+                if '```' in cleaned_response:
+                    # Extract content between ```json and ``` or ``` and ```
+                    code_block_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', cleaned_response, re.DOTALL)
+                    if code_block_match:
+                        cleaned_response = code_block_match.group(1)
+                        logger.debug("Extracted JSON from markdown code block")
+                
+                # Try to extract JSON object from response
+                json_match = re.search(r'\{.*\}', cleaned_response, re.DOTALL)
+                if not json_match:
+                    logger.warning(f"No JSON object found in response (attempt {attempt + 1})")
+                    logger.debug(f"Response preview: {cleaned_response[:200]}")
+                    continue  # Try again
+                
+                json_str = json_match.group()
+                logger.debug(f"Extracted JSON string (length: {len(json_str)} chars)")
+                
+                # Try to parse JSON
+                try:
+                    case_data = json.loads(json_str)
+                except json.JSONDecodeError as je:
+                    logger.warning(f"JSON parse error on attempt {attempt + 1}: {je}")
+                    logger.debug(f"Failed JSON preview: {json_str[:200]}")
+                    continue  # Try again
+                
+                # Validate required fields
+                required_fields = ['title', 'description', 'location', 'victim', 'suspects', 'murderer_index', 'evidence', 'hints']
+                missing_fields = [field for field in required_fields if field not in case_data]
+                
+                if missing_fields:
+                    logger.warning(f"Missing required fields on attempt {attempt + 1}: {missing_fields}")
+                    continue  # Try again
+                
+                # Validate suspects structure
+                if not isinstance(case_data.get('suspects'), list) or len(case_data.get('suspects', [])) != 4:
+                    logger.warning(f"Invalid suspects array on attempt {attempt + 1} (expected 4 suspects)")
+                    continue  # Try again
+                
+                # Add difficulty to case data
+                case_data['difficulty'] = difficulty
+                
+                # Success! Return the generated case
+                logger.info(f"Successfully generated case (difficulty {difficulty}): {case_data.get('title', 'Unknown Title')}")
+                return MurderCase(case_data)
+                
+            except Exception as e:
+                logger.error(f"Exception during case generation attempt {attempt + 1}: {e}", exc_info=True)
+                # Continue to next attempt
         
-        if error or not response:
-            logger.error(f"Error from AI API: {error}")
-            return create_fallback_case()
-        
-        # Parse the AI response
-        import re
-        
-        # Try to extract JSON from response
-        json_match = re.search(r'\{.*\}', response, re.DOTALL)
-        if json_match:
-            case_data = json.loads(json_match.group())
-            case_data['difficulty'] = difficulty
-            return MurderCase(case_data)
-        else:
-            logger.error("Could not parse AI response for murder case")
-            return create_fallback_case()
-            
-    except Exception as e:
-        logger.error(f"Error generating murder case: {e}", exc_info=True)
-        return create_fallback_case()
+        # If we exhausted all attempts with this provider, log it
+        logger.warning(f"Failed to generate case with {provider_name} after {max_attempts} attempts")
+    
+    # All attempts failed with both providers - use fallback
+    logger.error(f"All generation attempts failed with both providers, using fallback case")
+    return create_fallback_case()
 
 
 async def get_or_generate_case(db_helpers, api_helpers, config: dict, gemini_api_key: str, openai_api_key: str, user_id: int):
