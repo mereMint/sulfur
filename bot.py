@@ -4950,6 +4950,12 @@ class DetectiveGameView(discord.ui.View):
             return False
         return True
     
+    async def on_timeout(self):
+        """Handle view timeout - clear the active game."""
+        if self.user_id in active_detective_games:
+            del active_detective_games[self.user_id]
+            logger.info(f"Detective game timed out for user {self.user_id}, cleared active game")
+    
     def create_case_embed(self):
         """Create the main case embed."""
         difficulty = getattr(self.case, 'difficulty', 1)
@@ -5396,6 +5402,30 @@ class TrollyProblemView(discord.ui.View):
             inline=False
         )
         
+        # Get global statistics for this problem if it has an ID
+        if self.problem.problem_id:
+            problem_stats = await trolly_problem.get_problem_statistics(db_helpers, self.problem.problem_id)
+            if problem_stats and problem_stats['total_responses'] > 0:
+                # Create a visual bar for the percentages
+                percent_a = problem_stats['percent_a']
+                percent_b = problem_stats['percent_b']
+                
+                # Create progress bars
+                bar_length = 20
+                filled_a = int((percent_a / 100) * bar_length)
+                filled_b = int((percent_b / 100) * bar_length)
+                bar_a = '█' * filled_a + '░' * (bar_length - filled_a)
+                bar_b = '█' * filled_b + '░' * (bar_length - filled_b)
+                
+                embed.add_field(
+                    name="🌍 Wie haben andere entschieden?",
+                    value=f"**Option A**: {percent_a}% ({problem_stats['chose_a']} Spieler)\n"
+                          f"`{bar_a}`\n\n"
+                          f"**Option B**: {percent_b}% ({problem_stats['chose_b']} Spieler)\n"
+                          f"`{bar_b}`",
+                    inline=False
+                )
+        
         # Get user stats
         stats = await trolly_problem.get_user_trolly_stats(db_helpers, self.user_id)
         if stats and stats['total_responses'] > 1:
@@ -5440,12 +5470,14 @@ async def trolly(interaction: discord.Interaction):
             except:
                 pass
         
-        # Generate the trolly problem
-        problem = await trolly_problem.generate_trolly_problem(
+        # Get or generate the trolly problem (from database or AI)
+        problem = await trolly_problem.get_or_generate_trolly_problem(
+            db_helpers,
             api_helpers,
             config,
             GEMINI_API_KEY,
             OPENAI_API_KEY,
+            user_id,
             user_data
         )
         
