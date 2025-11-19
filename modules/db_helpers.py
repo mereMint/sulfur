@@ -392,6 +392,51 @@ def initialize_database():
                 INDEX idx_user_month (user_id, completion_date)
             )
         """)
+        
+        # --- NEW: Detective Game Tables ---
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS detective_cases (
+                case_id INT AUTO_INCREMENT PRIMARY KEY,
+                title VARCHAR(255) NOT NULL,
+                description TEXT NOT NULL,
+                location VARCHAR(255) NOT NULL,
+                victim VARCHAR(255) NOT NULL,
+                suspects JSON NOT NULL,
+                murderer_index INT NOT NULL,
+                evidence JSON NOT NULL,
+                hints JSON NOT NULL,
+                difficulty INT NOT NULL DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_difficulty (difficulty)
+            )
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS detective_user_stats (
+                user_id BIGINT PRIMARY KEY,
+                current_difficulty INT NOT NULL DEFAULT 1,
+                cases_solved INT NOT NULL DEFAULT 0,
+                cases_failed INT NOT NULL DEFAULT 0,
+                total_cases_played INT NOT NULL DEFAULT 0,
+                last_played_at TIMESTAMP NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS detective_user_progress (
+                user_id BIGINT NOT NULL,
+                case_id INT NOT NULL,
+                completed BOOLEAN NOT NULL DEFAULT FALSE,
+                solved BOOLEAN NOT NULL DEFAULT FALSE,
+                started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP NULL,
+                PRIMARY KEY (user_id, case_id),
+                INDEX idx_user_completed (user_id, completed),
+                FOREIGN KEY (case_id) REFERENCES detective_cases(case_id) ON DELETE CASCADE
+            )
+        """)
 
         logger.info("Database tables checked/created successfully")
     except mysql.connector.Error as err:
