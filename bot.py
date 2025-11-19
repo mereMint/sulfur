@@ -38,6 +38,7 @@ from discord.ext import tasks
 from modules.werwolf import WerwolfGame
 from modules.api_helpers import get_chat_response, get_relationship_summary_from_api, get_wrapped_summary_from_api, get_game_details_from_api
 from modules import api_helpers
+from modules import stock_market  # NEW: Stock market system
 from modules.bot_enhancements import (
     handle_image_attachment,
     handle_unknown_emojis_in_message,
@@ -565,6 +566,11 @@ async def on_ready():
     # --- NEW: Run one-time cleanup for old database entries ---
     print("Running one-time database cleanup tasks...")
     await db_helpers.cleanup_custom_status_entries()
+    
+    # --- NEW: Initialize stock market ---
+    print("Initializing stock market...")
+    await stock_market.initialize_stocks(db_helpers)
+    print("Stock market ready!")
 
     # --- NEW: Clean up leftover game channels on restart ---
     print("Checking for leftover game channels...")
@@ -634,6 +640,10 @@ async def on_ready():
     # Start periodic Werwolf category cleanup
     if not cleanup_werwolf_categories.is_running():
         cleanup_werwolf_categories.start()
+    
+    # --- NEW: Start periodic stock market update ---
+    if not update_stock_market.is_running():
+        update_stock_market.start()
     
 
     print(f"Synced {len(synced)} global commands.")
@@ -749,6 +759,16 @@ async def periodic_cleanup():
     except Exception as e:
         logger.error(f"Error in periodic cleanup: {e}", exc_info=True)
         print(f"[Periodic Cleanup] Error: {e}")
+
+# --- NEW: Periodic stock market update ---
+@_tasks.loop(minutes=30)
+async def update_stock_market():
+    """Update stock prices every 30 minutes."""
+    try:
+        await stock_market.update_stock_prices(db_helpers)
+        logger.info("Stock market prices updated")
+    except Exception as e:
+        logger.error(f"Error updating stock market: {e}", exc_info=True)
 
 @update_presence_task.before_loop
 async def before_update_presence_task():
