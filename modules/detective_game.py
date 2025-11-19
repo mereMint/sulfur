@@ -44,29 +44,32 @@ async def generate_murder_case(api_helpers, config: dict, gemini_api_key: str, o
     Returns:
         MurderCase object
     """
-    prompt = """Generate a murder mystery case with the following structure (respond in German):
+    prompt = """Generate a unique and creative murder mystery case (respond in German):
 
 Create a JSON object with:
-- title: A catchy case title (max 50 chars)
-- description: Brief overview of the murder scene and circumstances (max 200 chars)
-- location: Where the murder took place (max 40 chars)
-- victim: Name and brief description of victim (max 80 chars)
+- title: An engaging and original case title
+- description: Vivid overview of the murder scene and circumstances
+- location: Where the murder took place (be creative and specific)
+- victim: Name and compelling description of the victim
 - suspects: Array of exactly 4 suspects, each with:
-  - name: Suspect's name
-  - occupation: Their job/role
-  - alibi: Their claimed whereabouts (max 80 chars)
-  - motive: Potential reason for murder (max 80 chars)
-  - suspicious_details: Clues that may point to or away from guilt (max 120 chars)
+  - name: Suspect's name (make them memorable)
+  - occupation: Their job/role (interesting and varied)
+  - alibi: Their claimed whereabouts (detailed and plausible)
+  - motive: Potential reason for murder (compelling and believable)
+  - suspicious_details: Clues that may point to or away from guilt (intriguing and layered)
 - murderer_index: Index (0-3) of which suspect is actually guilty
-- evidence: Array of 3-4 pieces of evidence found at scene
-- hints: Array of 2-3 subtle hints that point to the murderer (these should be codes, patterns, or clues)
+- evidence: Array of 3-5 pieces of evidence found at scene (be creative with forensic details)
+- hints: Array of 2-4 subtle hints that point to the murderer (use codes, patterns, or creative clues)
 
-Make the case:
-1. Entertaining and intriguing but concise
-2. Moderately difficult to solve (not obvious but solvable)
-3. Include clever hints/codes that point to the murderer
-4. Add tricky details that make other suspects also seem suspicious
-5. Keep all text brief but engaging"""
+Create a fresh, original case with:
+1. Unique setting and circumstances (avoid clichés)
+2. Diverse, interesting characters with depth
+3. Creative clues and red herrings
+4. Unexpected plot elements
+5. Engaging storytelling that feels new each time
+6. Varied themes (corporate intrigue, family drama, historical mystery, etc.)
+
+Be creative and vary your approach - each case should feel completely different!"""
 
     try:
         # Use the proper API function with a specific model
@@ -695,31 +698,34 @@ async def generate_case_with_difficulty(api_helpers, config: dict, gemini_api_ke
     
     difficulty_desc = difficulty_instructions.get(difficulty, difficulty_instructions[1])
     
-    prompt = f"""Generate a murder mystery case with the following structure (respond in German):
+    prompt = f"""Generate a unique and creative murder mystery case (respond in German):
 
 Create a JSON object with:
-- title: A catchy case title (max 50 chars)
-- description: Brief overview of the murder scene and circumstances (max 200 chars)
-- location: Where the murder took place (max 40 chars)
-- victim: Name and brief description of victim (max 80 chars)
+- title: An engaging and original case title
+- description: Vivid overview of the murder scene and circumstances
+- location: Where the murder took place (be creative and specific)
+- victim: Name and compelling description of the victim
 - suspects: Array of exactly 4 suspects, each with:
-  - name: Suspect's name
-  - occupation: Their job/role
-  - alibi: Their claimed whereabouts (max 80 chars)
-  - motive: Potential reason for murder (max 80 chars)
-  - suspicious_details: Clues that may point to or away from guilt (max 120 chars)
+  - name: Suspect's name (make them memorable)
+  - occupation: Their job/role (interesting and varied)
+  - alibi: Their claimed whereabouts (detailed and plausible)
+  - motive: Potential reason for murder (compelling and believable)
+  - suspicious_details: Clues that may point to or away from guilt (intriguing and layered)
 - murderer_index: Index (0-3) of which suspect is actually guilty
-- evidence: Array of 3-4 pieces of evidence found at scene
-- hints: Array of 2-3 hints that point to the murderer
+- evidence: Array of 3-5 pieces of evidence found at scene (creative forensic details)
+- hints: Array of 2-4 hints that point to the murderer (match difficulty level)
 
 DIFFICULTY LEVEL {difficulty}/5: {difficulty_desc}
 
-Make the case:
-1. Entertaining and intriguing but concise
-2. Match the difficulty level specified above
-3. Include hints/codes appropriate for the difficulty
-4. Add red herrings that increase with difficulty
-5. Keep all text brief but engaging"""
+Create a fresh, original case with:
+1. Unique setting and circumstances matching the difficulty
+2. Diverse, interesting characters with depth
+3. Creative clues and red herrings appropriate for difficulty
+4. Unexpected plot elements
+5. Engaging storytelling that feels new each time
+6. Varied themes (corporate intrigue, family drama, historical mystery, etc.)
+
+Be creative and vary your approach - avoid repeating previous scenarios!"""
 
     try:
         # Use the proper API function with a specific model
