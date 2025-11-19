@@ -8,6 +8,7 @@ import random
 import json
 import hashlib
 import asyncio
+import mysql.connector
 from datetime import datetime, timezone
 from modules.logger_utils import bot_logger as logger
 
@@ -844,6 +845,13 @@ async def check_case_exists(db_helpers, case_hash: str) -> bool:
             cursor.close()
             cnx.close()
             
+    except mysql.connector.errors.ProgrammingError as e:
+        # Handle case where case_hash column doesn't exist yet
+        if "Unknown column 'case_hash'" in str(e):
+            logger.warning("case_hash column not found in detective_cases table. Please run migration.")
+            return False
+        logger.error(f"Error checking case existence: {e}", exc_info=True)
+        return False
     except Exception as e:
         logger.error(f"Error checking case existence: {e}", exc_info=True)
         return False
@@ -910,6 +918,45 @@ async def save_case_to_db(db_helpers, case_data: dict, difficulty: int) -> int:
             cursor.close()
             cnx.close()
             
+    except mysql.connector.errors.ProgrammingError as e:
+        # Handle case where case_hash column doesn't exist yet
+        if "Unknown column 'case_hash'" in str(e):
+            logger.warning("case_hash column not found. Saving case without hash. Please run migration.")
+            # Try saving without case_hash
+            try:
+                cnx = db_helpers.db_pool.get_connection()
+                if not cnx:
+                    return None
+                cursor = cnx.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO detective_cases 
+                    (title, description, location, victim, suspects, murderer_index, evidence, hints, difficulty)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        case_data.get('title', ''),
+                        case_data.get('description', ''),
+                        case_data.get('location', ''),
+                        case_data.get('victim', ''),
+                        json.dumps(case_data.get('suspects', [])),
+                        case_data.get('murderer_index', 0),
+                        json.dumps(case_data.get('evidence', [])),
+                        json.dumps(case_data.get('hints', [])),
+                        difficulty
+                    )
+                )
+                cnx.commit()
+                case_id = cursor.lastrowid
+                cursor.close()
+                cnx.close()
+                logger.info(f"Saved case to database with ID {case_id}, difficulty {difficulty} (without hash)")
+                return case_id
+            except Exception as fallback_error:
+                logger.error(f"Error saving case without hash: {fallback_error}", exc_info=True)
+                return None
+        logger.error(f"Error saving case to database: {e}", exc_info=True)
+        return None
     except Exception as e:
         logger.error(f"Error saving case to database: {e}", exc_info=True)
         return None
@@ -1114,6 +1161,13 @@ async def get_existing_case_by_hash(db_helpers, case_hash: str, user_id: int):
             cursor.close()
             cnx.close()
             
+    except mysql.connector.errors.ProgrammingError as e:
+        # Handle case where case_hash column doesn't exist yet
+        if "Unknown column 'case_hash'" in str(e):
+            logger.warning("case_hash column not found in get_existing_case_by_hash. Please run migration.")
+            return None
+        logger.error(f"Error getting existing case by hash: {e}", exc_info=True)
+        return None
     except Exception as e:
         logger.error(f"Error getting existing case by hash: {e}", exc_info=True)
         return None

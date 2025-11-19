@@ -304,13 +304,13 @@ async def get_werwolf_tts_message(event_text, config, gemini_key, openai_key):
     timeout = config.get('api', {}).get('timeout', 30)
     
     prompt = f"""
-    You are the narrator for a game of Werewolf.
-    The following event just happened: "{event_text}"
-    Your task is to create a very short, dramatic, single-sentence announcement for this event that can be read by a Text-to-Speech (TTS) engine.
-    Keep it under 150 characters. Do not use markdown.
-    Example: If the event is "The villagers have decided to lynch Steve", you could say "The mob has chosen its victim. Steve is to be lynched."
+    Du bist der Erzähler für ein Werwolf-Spiel.
+    Das folgende Ereignis ist gerade passiert: "{event_text}"
+    Deine Aufgabe ist es, eine sehr kurze, dramatische, einzelne Ankündigung für dieses Ereignis zu erstellen, die von einer Text-zu-Sprache (TTS) Engine gelesen werden kann.
+    Halte es unter 150 Zeichen. Verwende kein Markdown.
+    Beispiel: Wenn das Ereignis "Die Dorfbewohner haben beschlossen, Steve zu lynchen" ist, könntest du sagen: "Der Mob hat sein Opfer gewählt. Steve wird gelyncht."
     
-    Generate the TTS sentence for the event: "{event_text}"
+    Generiere den TTS-Satz für das Ereignis: "{event_text}"
     """
     
     if provider == 'gemini':

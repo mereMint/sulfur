@@ -1028,8 +1028,7 @@ async def on_presence_update(before, after):
             user_id=after.id,
             display_name=after.display_name,
             status=str(after.status),
-            activity_name=primary_activity.name if primary_activity and hasattr(primary_activity, 'name') else (primary_activity.state if primary_activity and hasattr(primary_activity, 'state') else None),
-            activity_type=activity_type
+            activity_name=primary_activity.name if primary_activity and hasattr(primary_activity, 'name') else (primary_activity.state if primary_activity and hasattr(primary_activity, 'state') else None)
         )
 
         # --- NEW: Log generic activity for Wrapped ---

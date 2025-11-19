@@ -17,9 +17,11 @@ CREATE TABLE IF NOT EXISTS detective_cases (
     evidence JSON NOT NULL COMMENT 'Array of evidence items',
     hints JSON NOT NULL COMMENT 'Array of hint strings',
     difficulty INT NOT NULL DEFAULT 1 COMMENT 'Difficulty level (1-5)',
+    case_hash VARCHAR(64) UNIQUE COMMENT 'SHA256 hash for uniqueness checking',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_difficulty (difficulty),
-    INDEX idx_created (created_at)
+    INDEX idx_created (created_at),
+    INDEX idx_case_hash (case_hash)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Table to track user progress and completions

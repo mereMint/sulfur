@@ -14,8 +14,8 @@
         "stalkt {user}",
         "beobachtet {user} kritisch",
         "judged {user}'s life choices",
-        "lacht \u00fcber {user}",
-        "h\u00f6rt {user} beim Weinen zu"
+        "lacht über {user}",
+        "hört {user} beim Weinen zu"
       ],
       "fallback_activity": "euch beim AFK sein zu"
     },
@@ -80,7 +80,7 @@
       "starting_balance": 1000,
       "level_up_bonus_multiplier": 100,
       "currency_name": "Coins",
-      "currency_symbol": "\ud83e\ude99",
+      "currency_symbol": "🪙",
       "daily_reward": 100,
       "message_reward": 5,
       "vc_reward_per_minute": 2,
@@ -184,23 +184,23 @@
       }
     },
     "voice_manager": {
-      "join_to_create_channel_name": "\u2795 Join to Create",
-      "dynamic_channel_category_name": "\ud83d\udd0a Voice Channels \ud83d\udd0a",
+      "join_to_create_channel_name": "➕ Join to Create",
+      "dynamic_channel_category_name": "🔊 Voice Channels 🔊",
       "creation_move_delay_ms": 250,
       "empty_channel_delete_grace_period_seconds": 5
     },
     "werwolf": {
-      "game_category_name": "\ud83d\udc3a WERWOLF SPIEL \ud83d\udc3a",
+      "game_category_name": "🐺 WERWOLF SPIEL 🐺",
       "min_name_pool_size": 20,
       "day_vote_timeout_seconds": 60,
       "join_phase_duration_seconds": 60,
-      "discussion_channel_name": "\ud83d\udc3a Werwolf-Diskussion",
-      "wolf_thread_name": "\ud83d\udc3a Werwolf-Beratung \ud83d\udc3a",
+      "discussion_channel_name": "🐺 Werwolf-Diskussion",
+      "wolf_thread_name": "🐺 Werwolf-Beratung 🐺",
       "default_target_players": 6,
       "tts": {
-        "chars_per_second": 48,
-        "min_duration": 3.0,
-        "buffer_seconds": 2.0,
+        "chars_per_second": 12,
+        "min_duration": 4.0,
+        "buffer_seconds": 3.0,
         "tts_char_limit": 150
       },
       "pacing": {
