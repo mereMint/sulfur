@@ -1581,6 +1581,86 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
         quest_game_embed.set_footer(text="Quests & Mini-Games - Deine Aktivität im Bot")
         pages.append(quest_game_embed)
 
+    # --- NEW Page: Detective Game Stats ---
+    if extra_stats.get('detective_total_cases', 0) > 0:
+        detective_embed = discord.Embed(
+            title="🔍 Detective Game Rückblick",
+            description="Deine Ermittlungen diesen Monat",
+            color=discord.Color.dark_blue()
+        )
+        
+        cases_solved = extra_stats.get('detective_cases_solved', 0)
+        cases_failed = extra_stats.get('detective_cases_failed', 0)
+        total_cases = extra_stats.get('detective_total_cases', 0)
+        solve_rate = (cases_solved / total_cases * 100) if total_cases > 0 else 0
+        
+        stats_text = f"**Fälle bearbeitet:** {total_cases}\n"
+        stats_text += f"**Erfolgreich gelöst:** ✅ {cases_solved}\n"
+        stats_text += f"**Gescheitert:** ❌ {cases_failed}\n"
+        stats_text += f"**Erfolgsquote:** {solve_rate:.1f}%\n\n"
+        
+        # Add rating based on solve rate
+        if solve_rate >= 80:
+            rating = "🏆 **Meisterdetektiv!** Du bist ein wahrer Sherlock Holmes!"
+        elif solve_rate >= 60:
+            rating = "🎖️ **Erfahrener Ermittler!** Solide Arbeit!"
+        elif solve_rate >= 40:
+            rating = "🔍 **Kompetenter Detective!** Weiter so!"
+        else:
+            rating = "📝 **Noch in Ausbildung!** Übung macht den Meister!"
+        
+        stats_text += rating
+        
+        detective_embed.add_field(
+            name="📊 Deine Ermittlungen",
+            value=stats_text,
+            inline=False
+        )
+        
+        detective_embed.set_footer(text="Jeder gelöste Fall bringt dich näher zur nächsten Schwierigkeitsstufe!")
+        pages.append(detective_embed)
+    
+    # --- NEW Page: Shop & Purchases ---
+    if extra_stats.get('total_purchases', 0) > 0:
+        shop_embed = discord.Embed(
+            title="🛍️ Shopping Rückblick",
+            description="Deine Einkäufe diesen Monat",
+            color=discord.Color.gold()
+        )
+        
+        total_purchases = extra_stats.get('total_purchases', 0)
+        most_bought = extra_stats.get('most_bought_item')
+        most_bought_count = extra_stats.get('most_bought_item_count', 0)
+        least_bought = extra_stats.get('least_bought_item')
+        least_bought_count = extra_stats.get('least_bought_item_count', 0)
+        
+        purchase_text = f"**Gesamte Käufe:** {total_purchases}\n\n"
+        
+        if most_bought:
+            purchase_text += f"**🥇 Am meisten gekauft:**\n"
+            purchase_text += f"`{most_bought}` ({most_bought_count}x)\n\n"
+        
+        if least_bought and least_bought != most_bought:
+            purchase_text += f"**🥉 Am wenigsten gekauft:**\n"
+            purchase_text += f"`{least_bought}` ({least_bought_count}x)\n"
+        
+        # Add some flavor text based on purchases
+        if total_purchases >= 20:
+            purchase_text += "\n💸 **Shopping-Süchtiger!** Du liebst es einzukaufen!"
+        elif total_purchases >= 10:
+            purchase_text += "\n🛒 **Fleißiger Käufer!** Du weißt, was du willst!"
+        else:
+            purchase_text += "\n💰 **Sparsam!** Du gibst dein Geld mit Bedacht aus!"
+        
+        shop_embed.add_field(
+            name="🛒 Deine Einkäufe",
+            value=purchase_text,
+            inline=False
+        )
+        
+        shop_embed.set_footer(text="Basiert auf deinen Shop-Käufen im Bot")
+        pages.append(shop_embed)
+
     # --- Final Page: Gemini Summary ---
     # --- REFACTORED: Conditionally build the stats dictionary for the AI ---
     gemini_stats = {
