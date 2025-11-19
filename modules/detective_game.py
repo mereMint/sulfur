@@ -7,6 +7,7 @@ import discord
 import random
 import json
 import hashlib
+import asyncio
 from datetime import datetime, timezone
 from modules.logger_utils import bot_logger as logger
 
@@ -24,6 +25,7 @@ class MurderCase:
         self.murderer_index = case_data.get('murderer_index', 0)
         self.evidence = case_data.get('evidence', [])
         self.hints = case_data.get('hints', [])  # Hints/codes pointing to the murderer
+        self.encrypted_messages = case_data.get('encrypted_messages', [])  # Puzzle elements
         self.difficulty = case_data.get('difficulty', 1)  # Difficulty level
     
     def get_suspect(self, index: int):
@@ -37,191 +39,258 @@ class MurderCase:
         return index == self.murderer_index
 
 
+# --- Cipher and Puzzle Utilities ---
+
+def caesar_cipher(text: str, shift: int = 3) -> str:
+    """Encode text using Caesar cipher."""
+    result = []
+    for char in text:
+        if char.isalpha():
+            ascii_offset = 65 if char.isupper() else 97
+            result.append(chr((ord(char) - ascii_offset + shift) % 26 + ascii_offset))
+        else:
+            result.append(char)
+    return ''.join(result)
+
+
+def reverse_cipher(text: str) -> str:
+    """Reverse the text."""
+    return text[::-1]
+
+
+def atbash_cipher(text: str) -> str:
+    """Encode using Atbash cipher (A=Z, B=Y, etc.)."""
+    result = []
+    for char in text:
+        if char.isalpha():
+            if char.isupper():
+                result.append(chr(90 - (ord(char) - 65)))
+            else:
+                result.append(chr(122 - (ord(char) - 97)))
+        else:
+            result.append(char)
+    return ''.join(result)
+
+
+def create_puzzle_hint(hint_text: str, difficulty: int) -> dict:
+    """Create encrypted puzzle from hint based on difficulty."""
+    if difficulty <= 1:
+        return {'type': 'plaintext', 'text': hint_text, 'cipher': None}
+    
+    ciphers = ['caesar', 'reverse', 'atbash'] if difficulty >= 3 else ['caesar', 'reverse']
+    cipher_type = random.choice(ciphers)
+    
+    if cipher_type == 'caesar':
+        shift = random.randint(1, 25)
+        encrypted = caesar_cipher(hint_text, shift)
+        hint = f"Caesar +{shift}" if difficulty <= 3 else "Verschiebungschiffre"
+    elif cipher_type == 'reverse':
+        encrypted = reverse_cipher(hint_text)
+        hint = "Rückwärts" if difficulty <= 3 else "Spiegelschrift"
+    else:
+        encrypted = atbash_cipher(hint_text)
+        hint = "Atbash" if difficulty <= 3 else "Alphabet-Code"
+    
+    return {
+        'type': 'cipher',
+        'encrypted': encrypted,
+        'cipher': cipher_type,
+        'hint': hint if difficulty <= 4 else None
+    }
+
+
 async def generate_murder_case(api_helpers, config: dict, gemini_api_key: str, openai_api_key: str):
     """
-    Generate a murder mystery case using AI with robust retry logic and fallback providers.
-    
-    This function implements:
-    - Multiple retry attempts (up to 5)
-    - Exponential backoff between retries
-    - Extended timeout (120 seconds)
-    - Fallback to alternative AI provider if primary fails
-    - Improved JSON parsing with better error handling
+    Generate murder mystery case using FAST modular AI generation.
+    Components generated separately and in parallel where possible.
+    Much faster and more reliable than monolithic JSON generation.
     
     Returns:
         MurderCase object
     """
-    import asyncio
     import time
+    import re
     
-    # Add timestamp and random elements to force unique generation
-    timestamp = int(time.time())
-    random_seed = random.randint(1000, 9999)
+    logger.info("Starting FAST modular case generation")
+    start_time = time.time()
     
-    # Random theme suggestions to encourage variety
-    themes = [
-        "corporate intrigue", "family drama", "historical mystery", "art world scandal",
-        "scientific research gone wrong", "political conspiracy", "celebrity lifestyle",
-        "underground crime", "high society scandal", "academic rivalry", "tech startup betrayal",
-        "restaurant industry secrets", "theatrical production", "sports competition",
-        "museum heist aftermath", "literary world", "fashion industry", "music industry"
-    ]
-    suggested_theme = random.choice(themes)
-    
-    prompt = f"""Generate a COMPLETELY UNIQUE and creative murder mystery case (respond in German).
-
-IMPORTANT: This is request #{random_seed} at time {timestamp}. Each case MUST be completely different from any previous cases.
-
-Suggested theme for THIS case: {suggested_theme}
-
-Create a JSON object with:
-- title: An engaging and original case title (NOT used before)
-- description: Vivid overview of the murder scene and circumstances
-- location: Where the murder took place (be creative and specific - use unusual locations)
-- victim: Name and compelling description of the victim (unique name and background)
-- suspects: Array of exactly 4 suspects, each with:
-  - name: Suspect's name (make them memorable and diverse)
-  - occupation: Their job/role (interesting and varied - avoid common jobs)
-  - alibi: Their claimed whereabouts (detailed and plausible)
-  - motive: Potential reason for murder (compelling and believable)
-  - suspicious_details: Clues that may point to or away from guilt (intriguing and layered)
-- murderer_index: Index (0-3) of which suspect is actually guilty (randomly vary this)
-- evidence: Array of 3-5 pieces of evidence found at scene (be creative with forensic details)
-- hints: Array of 2-4 subtle hints that point to the murderer (use codes, patterns, or creative clues)
-
-Create a fresh, original case with:
-1. Unique setting and circumstances (AVOID any clichés or common scenarios)
-2. Diverse, interesting characters with depth and unusual backgrounds
-3. Creative clues and red herrings
-4. Unexpected plot elements and twists
-5. Engaging storytelling that feels completely new
-6. VARY the murderer - don't always make it the same suspect position
-
-MANDATORY: Make this case completely different from typical detective stories!
-Return ONLY valid JSON without any markdown formatting, code blocks, or additional text."""
-
-    system_prompt = "You are a creative detective story writer. Return ONLY valid JSON, no additional text, no markdown code blocks, no backticks. Each case you generate MUST be completely unique and different from previous ones."
-
-    # Configuration for retries
-    max_attempts = 5
-    base_timeout = 120  # Longer timeout for generation (2 minutes)
-    
-    # Determine primary and fallback providers
-    primary_provider = config.get('api', {}).get('provider', 'gemini')
-    fallback_provider = 'openai' if primary_provider == 'gemini' else 'gemini'
-    
-    # Get models for both providers
-    gemini_model = config.get('api', {}).get('gemini', {}).get('utility_model', 'gemini-2.5-flash')
-    openai_model = config.get('api', {}).get('openai', {}).get('utility_model', 'gpt-4o-mini')
-    
-    providers_to_try = [
-        (primary_provider, gemini_model if primary_provider == 'gemini' else openai_model),
-        (fallback_provider, gemini_model if fallback_provider == 'gemini' else openai_model)
-    ]
-    
-    logger.info(f"Starting detective case generation with primary provider: {primary_provider}")
-    
-    # Try each provider
-    for provider_name, model in providers_to_try:
-        logger.info(f"Attempting generation with {provider_name} provider using model {model}")
+    try:
+        # Get model to use
+        provider = config.get('api', {}).get('provider', 'gemini')
+        if provider == 'gemini':
+            model = config.get('api', {}).get('gemini', {}).get('utility_model', 'gemini-2.5-flash')
+        else:
+            model = config.get('api', {}).get('openai', {}).get('utility_model', 'gpt-4o-mini')
         
-        # Try multiple times with current provider
-        for attempt in range(max_attempts):
-            try:
-                # Calculate backoff delay
-                if attempt > 0:
-                    backoff_delay = min(2 ** attempt, 16)  # Exponential backoff, max 16 seconds
-                    logger.info(f"Retry attempt {attempt + 1}/{max_attempts} after {backoff_delay}s backoff")
-                    await asyncio.sleep(backoff_delay)
-                
-                # Create a temporary config with extended timeout
-                temp_config = config.copy()
-                temp_config['api'] = config.get('api', {}).copy()
-                temp_config['api']['timeout'] = base_timeout
-                
-                logger.info(f"Calling AI API (attempt {attempt + 1}/{max_attempts}, timeout={base_timeout}s)")
-                
-                # Make API call with HIGH temperature for creativity
-                response, error = await api_helpers.get_ai_response_with_model(
-                    prompt,
-                    model,
-                    temp_config,
-                    gemini_api_key,
-                    openai_api_key,
-                    system_prompt=system_prompt,
-                    temperature=1.2  # High temperature for maximum creativity and variety
-                )
-                
-                if error:
-                    logger.warning(f"API returned error on attempt {attempt + 1}: {error}")
-                    continue  # Try again
-                
-                if not response:
-                    logger.warning(f"API returned empty response on attempt {attempt + 1}")
-                    continue  # Try again
-                
-                logger.info(f"Received response from AI API (length: {len(response)} chars)")
-                
-                # Parse the AI response with improved JSON extraction
-                import json
-                import re
-                
-                # Clean up response - remove markdown code blocks
-                cleaned_response = response.strip()
-                
-                # Remove markdown code blocks if present
-                if '```' in cleaned_response:
-                    # Extract content between ```json and ``` or ``` and ```
-                    code_block_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', cleaned_response, re.DOTALL)
-                    if code_block_match:
-                        cleaned_response = code_block_match.group(1)
-                        logger.debug("Extracted JSON from markdown code block")
-                
-                # Try to extract JSON object from response
-                json_match = re.search(r'\{.*\}', cleaned_response, re.DOTALL)
-                if not json_match:
-                    logger.warning(f"No JSON object found in response (attempt {attempt + 1})")
-                    logger.debug(f"Response preview: {cleaned_response[:200]}")
-                    continue  # Try again
-                
-                json_str = json_match.group()
-                logger.debug(f"Extracted JSON string (length: {len(json_str)} chars)")
-                
-                # Try to parse JSON
+        # Random theme for variety
+        themes = [
+            "corporate intrigue", "family drama", "historical mystery", "art world scandal",
+            "scientific research", "political conspiracy", "celebrity lifestyle",
+            "underground crime", "high society", "academic rivalry", "tech startup",
+            "restaurant secrets", "theater production", "sports competition",
+            "museum heist", "literary world", "fashion industry", "music industry"
+        ]
+        theme = random.choice(themes)
+        
+        # Step 1: Generate title (fast, simple)
+        title_prompt = f"Generiere einen spannenden deutschen Titel für einen Kriminalfall im Thema '{theme}'. Nur der Titel, nichts anderes. Format: 'Der Fall ...'"
+        title, _ = await api_helpers.get_ai_response_with_model(
+            title_prompt, model, config, gemini_api_key, openai_api_key, temperature=1.0
+        )
+        title = (title or "Der Fall des mysteriösen Todes").strip()[:100]
+        logger.info(f"Generated title: {title}")
+        
+        # Step 2: Generate core components in parallel
+        logger.info("Generating description, location, and victim in parallel...")
+        
+        desc_prompt = f"Beschreibe eine Mordszene für den Fall '{title}' (Thema: {theme}). 2-3 Sätze, lebendig und detailliert. Nur die Beschreibung, keine Titel."
+        loc_prompt = f"Nenne einen spezifischen, interessanten Tatort für '{title}'. Ein Satz. Nur der Ort, z.B. 'Luxus-Penthouse am Hafen'"
+        victim_prompt = f"Beschreibe das Opfer für '{title}': Name, Alter, Beruf. Ein Satz. Format: 'Name, Alter, Beruf'"
+        
+        results = await asyncio.gather(
+            api_helpers.get_ai_response_with_model(desc_prompt, model, config, gemini_api_key, openai_api_key, temperature=0.9),
+            api_helpers.get_ai_response_with_model(loc_prompt, model, config, gemini_api_key, openai_api_key, temperature=0.9),
+            api_helpers.get_ai_response_with_model(victim_prompt, model, config, gemini_api_key, openai_api_key, temperature=0.9)
+        )
+        
+        description = (results[0][0] or "Ein mysteriöser Mord.").strip()[:500]
+        location = (results[1][0] or "Unbekannter Ort").strip()[:200]
+        victim = (results[2][0] or "Unbekanntes Opfer").strip()[:200]
+        
+        logger.info(f"Generated core: desc={len(description)} chars, loc={len(location)} chars, victim={len(victim)} chars")
+        
+        # Step 3: Generate 4 suspects IN PARALLEL (huge time saver!)
+        logger.info("Generating 4 suspects in parallel...")
+        murderer_index = random.randint(0, 3)
+        
+        suspect_prompts = []
+        for i in range(4):
+            is_murderer = (i == murderer_index)
+            role = "DER MÖRDER" if is_murderer else "UNSCHULDIG"
+            prompt = f"""Generiere einen Verdächtigen für '{title}' ({role}).
+JSON Format (NUR das JSON-Objekt):
+{{
+  "name": "Name",
+  "occupation": "Beruf",
+  "alibi": "Alibi-Behauptung",
+  "motive": "Motiv für Mord",
+  "suspicious_details": "Verdächtige Details"
+}}
+Mache {'diesen Verdächtigen schuldig' if is_murderer else 'diesen Verdächtigen unschuldig'}. Variiere Berufe und Hintergründe."""
+            suspect_prompts.append(
+                api_helpers.get_ai_response_with_model(prompt, model, config, gemini_api_key, openai_api_key, temperature=0.8)
+            )
+        
+        suspect_results = await asyncio.gather(*suspect_prompts)
+        
+        # Parse suspects
+        suspects = []
+        for i, (result, _) in enumerate(suspect_results):
+            if result:
                 try:
-                    case_data = json.loads(json_str)
-                except json.JSONDecodeError as je:
-                    logger.warning(f"JSON parse error on attempt {attempt + 1}: {je}")
-                    logger.debug(f"Failed JSON preview: {json_str[:200]}")
-                    continue  # Try again
-                
-                # Validate required fields
-                required_fields = ['title', 'description', 'location', 'victim', 'suspects', 'murderer_index', 'evidence', 'hints']
-                missing_fields = [field for field in required_fields if field not in case_data]
-                
-                if missing_fields:
-                    logger.warning(f"Missing required fields on attempt {attempt + 1}: {missing_fields}")
-                    continue  # Try again
-                
-                # Validate suspects structure
-                if not isinstance(case_data.get('suspects'), list) or len(case_data.get('suspects', [])) != 4:
-                    logger.warning(f"Invalid suspects array on attempt {attempt + 1} (expected 4 suspects)")
-                    continue  # Try again
-                
-                # Success! Return the generated case
-                logger.info(f"Successfully generated case: {case_data.get('title', 'Unknown Title')}")
-                return MurderCase(case_data)
-                
-            except Exception as e:
-                logger.error(f"Exception during case generation attempt {attempt + 1}: {e}", exc_info=True)
-                # Continue to next attempt
+                    # Clean and parse JSON
+                    json_match = re.search(r'\{.*\}', result, re.DOTALL)
+                    if json_match:
+                        suspect = json.loads(json_match.group())
+                        suspects.append(suspect)
+                    else:
+                        # Fallback suspect
+                        suspects.append({
+                            'name': f'Verdächtiger {i+1}',
+                            'occupation': 'Unbekannt',
+                            'alibi': 'Keine Angaben',
+                            'motive': 'Unbekannt',
+                            'suspicious_details': 'Keine Details'
+                        })
+                except:
+                    # Fallback suspect
+                    suspects.append({
+                        'name': f'Verdächtiger {i+1}',
+                        'occupation': 'Unbekannt',
+                        'alibi': 'Keine Angaben',
+                        'motive': 'Unbekannt',
+                        'suspicious_details': 'Keine Details'
+                    })
+            else:
+                # Fallback suspect
+                suspects.append({
+                    'name': f'Verdächtiger {i+1}',
+                    'occupation': 'Unbekannt',
+                    'alibi': 'Keine Angaben',
+                    'motive': 'Unbekannt',
+                    'suspicious_details': 'Keine Details'
+                })
         
-        # If we exhausted all attempts with this provider, log it
-        logger.warning(f"Failed to generate case with {provider_name} after {max_attempts} attempts")
-    
-    # All attempts failed with both providers - use fallback
-    logger.error(f"All generation attempts failed with both providers, using fallback case")
-    return create_fallback_case()
+        logger.info(f"Generated {len(suspects)} suspects")
+        
+        # Step 4: Generate evidence
+        logger.info("Generating evidence...")
+        evidence_prompt = f"Liste 3-4 Beweisstücke für '{title}'. Format: emoji + kurze Beschreibung pro Zeile. Beispiel:\n🔪 Blutiges Messer\n📱 Gesendete SMS\n👣 Fußabdrücke"
+        evidence_result, _ = await api_helpers.get_ai_response_with_model(
+            evidence_prompt, model, config, gemini_api_key, openai_api_key, temperature=0.7
+        )
+        
+        evidence = []
+        if evidence_result:
+            for line in evidence_result.strip().split('\n'):
+                line = line.strip()
+                if line and len(line) > 3:
+                    evidence.append(line[:200])
+        
+        if len(evidence) < 3:
+            evidence = [
+                '🔍 Spuren am Tatort',
+                '📋 Verdächtige Notiz',
+                '💀 Forensische Beweise'
+            ]
+        
+        logger.info(f"Generated {len(evidence)} evidence items")
+        
+        # Step 5: Generate hints pointing to murderer
+        logger.info("Generating hints...")
+        murderer_name = suspects[murderer_index].get('name', 'der Täter')
+        hints_prompt = f"Gib 2-3 subtile Hinweise die auf '{murderer_name}' als Mörder deuten. Format: emoji + kurze Aussage pro Zeile."
+        hints_result, _ = await api_helpers.get_ai_response_with_model(
+            hints_prompt, model, config, gemini_api_key, openai_api_key, temperature=0.7
+        )
+        
+        hints = []
+        if hints_result:
+            for line in hints_result.strip().split('\n'):
+                line = line.strip()
+                if line and len(line) > 3:
+                    hints.append(line[:200])
+        
+        if len(hints) < 2:
+            hints = [
+                f'🔎 Wichtiger Hinweis auf {murderer_name}',
+                f'💡 Verdächtiges Detail über {murderer_name}'
+            ]
+        
+        logger.info(f"Generated {len(hints)} hints")
+        
+        # Build final case data
+        case_data = {
+            'title': title,
+            'description': description,
+            'location': location,
+            'victim': victim,
+            'suspects': suspects,
+            'murderer_index': murderer_index,
+            'evidence': evidence,
+            'hints': hints,
+            'encrypted_messages': []  # Added for puzzle support
+        }
+        
+        elapsed = time.time() - start_time
+        logger.info(f"Case generation completed in {elapsed:.1f}s (vs 120s+ old method)")
+        
+        return MurderCase(case_data)
+        
+    except Exception as e:
+        logger.error(f"Error in fast case generation: {e}", exc_info=True)
+        logger.info("Falling back to pre-defined case")
+        return create_fallback_case()
 
 
 def create_fallback_case():
@@ -1093,14 +1162,8 @@ async def mark_case_completed(db_helpers, user_id: int, case_id: int, solved: bo
 
 async def generate_case_with_difficulty(api_helpers, config: dict, gemini_api_key: str, openai_api_key: str, difficulty: int):
     """
-    Generate a murder mystery case using AI with specified difficulty level.
-    
-    This function implements:
-    - Multiple retry attempts (up to 5)
-    - Exponential backoff between retries
-    - Extended timeout (120 seconds)
-    - Fallback to alternative AI provider if primary fails
-    - Improved JSON parsing with better error handling
+    Generate murder mystery with difficulty-based puzzles and ciphers.
+    Uses fast modular generation approach.
     
     Args:
         api_helpers: API helpers module
@@ -1110,196 +1173,176 @@ async def generate_case_with_difficulty(api_helpers, config: dict, gemini_api_ke
         difficulty: Difficulty level (1-5)
     
     Returns:
-        MurderCase object
+        MurderCase object with difficulty-appropriate puzzles
     """
-    import asyncio
     import time
+    import re
     
-    # Add timestamp and random elements to force unique generation
-    timestamp = int(time.time())
-    random_seed = random.randint(1000, 9999)
+    logger.info(f"Starting case generation with difficulty {difficulty}")
+    start_time = time.time()
     
-    # Random theme suggestions to encourage variety
-    themes = [
-        "corporate intrigue", "family drama", "historical mystery", "art world scandal",
-        "scientific research gone wrong", "political conspiracy", "celebrity lifestyle",
-        "underground crime", "high society scandal", "academic rivalry", "tech startup betrayal",
-        "restaurant industry secrets", "theatrical production", "sports competition",
-        "museum heist aftermath", "literary world", "fashion industry", "music industry"
-    ]
-    suggested_theme = random.choice(themes)
-    
-    # Adjust prompt based on difficulty
-    difficulty_instructions = {
-        1: "Easy: Make clues obvious and straightforward. All important information is clearly stated.",
-        2: "Medium: Some clues require basic deduction. Hints are moderately clear.",
-        3: "Moderate-Hard: Clues are subtle and require careful analysis. Hints may be coded or symbolic.",
-        4: "Hard: Many red herrings. Clues are cryptic. Hints use complex codes or patterns.",
-        5: "Very Hard: Extremely cryptic. Multiple layers of misdirection. Hints are puzzles themselves."
-    }
-    
-    difficulty_desc = difficulty_instructions.get(difficulty, difficulty_instructions[1])
-    
-    prompt = f"""Generate a COMPLETELY UNIQUE and creative murder mystery case (respond in German).
-
-IMPORTANT: This is request #{random_seed} at time {timestamp}. Each case MUST be completely different from any previous cases.
-
-Suggested theme for THIS case: {suggested_theme}
-
-Create a JSON object with:
-- title: An engaging and original case title (NOT used before)
-- description: Vivid overview of the murder scene and circumstances
-- location: Where the murder took place (be creative and specific - use unusual locations)
-- victim: Name and compelling description of the victim (unique name and background)
-- suspects: Array of exactly 4 suspects, each with:
-  - name: Suspect's name (make them memorable and diverse)
-  - occupation: Their job/role (interesting and varied - avoid common jobs)
-  - alibi: Their claimed whereabouts (detailed and plausible)
-  - motive: Potential reason for murder (compelling and believable)
-  - suspicious_details: Clues that may point to or away from guilt (intriguing and layered)
-- murderer_index: Index (0-3) of which suspect is actually guilty (randomly vary this)
-- evidence: Array of 3-5 pieces of evidence found at scene (creative forensic details)
-- hints: Array of 2-4 hints that point to the murderer (match difficulty level)
-
-DIFFICULTY LEVEL {difficulty}/5: {difficulty_desc}
-
-Create a fresh, original case with:
-1. Unique setting and circumstances matching the difficulty (AVOID clichés)
-2. Diverse, interesting characters with depth and unusual backgrounds
-3. Creative clues and red herrings appropriate for difficulty
-4. Unexpected plot elements and twists
-5. Engaging storytelling that feels completely new
-6. Varied themes - make each case feel distinctly different
-7. VARY the murderer - don't always make it the same suspect position
-
-MANDATORY: Make this case completely different from typical detective stories and any previous cases!
-Return ONLY valid JSON without any markdown formatting, code blocks, or additional text."""
-
-    system_prompt = "You are a creative detective story writer. Return ONLY valid JSON, no additional text, no markdown code blocks, no backticks. Each case you generate MUST be completely unique and different from previous ones."
-
-    # Configuration for retries
-    max_attempts = 5
-    base_timeout = 120  # Longer timeout for generation (2 minutes)
-    
-    # Determine primary and fallback providers
-    primary_provider = config.get('api', {}).get('provider', 'gemini')
-    fallback_provider = 'openai' if primary_provider == 'gemini' else 'gemini'
-    
-    # Get models for both providers
-    gemini_model = config.get('api', {}).get('gemini', {}).get('utility_model', 'gemini-2.5-flash')
-    openai_model = config.get('api', {}).get('openai', {}).get('utility_model', 'gpt-4o-mini')
-    
-    providers_to_try = [
-        (primary_provider, gemini_model if primary_provider == 'gemini' else openai_model),
-        (fallback_provider, gemini_model if fallback_provider == 'gemini' else openai_model)
-    ]
-    
-    logger.info(f"Starting detective case generation (difficulty {difficulty}) with primary provider: {primary_provider}")
-    
-    # Try each provider
-    for provider_name, model in providers_to_try:
-        logger.info(f"Attempting generation with {provider_name} provider using model {model}")
+    try:
+        # Get model
+        provider = config.get('api', {}).get('provider', 'gemini')
+        if provider == 'gemini':
+            model = config.get('api', {}).get('gemini', {}).get('utility_model', 'gemini-2.5-flash')
+        else:
+            model = config.get('api', {}).get('openai', {}).get('utility_model', 'gpt-4o-mini')
         
-        # Try multiple times with current provider
-        for attempt in range(max_attempts):
-            try:
-                # Calculate backoff delay
-                if attempt > 0:
-                    backoff_delay = min(2 ** attempt, 16)  # Exponential backoff, max 16 seconds
-                    logger.info(f"Retry attempt {attempt + 1}/{max_attempts} after {backoff_delay}s backoff")
-                    await asyncio.sleep(backoff_delay)
-                
-                # Create a temporary config with extended timeout
-                temp_config = config.copy()
-                temp_config['api'] = config.get('api', {}).copy()
-                temp_config['api']['timeout'] = base_timeout
-                
-                logger.info(f"Calling AI API (attempt {attempt + 1}/{max_attempts}, timeout={base_timeout}s)")
-                
-                # Make API call with HIGH temperature for creativity
-                response, error = await api_helpers.get_ai_response_with_model(
-                    prompt,
-                    model,
-                    temp_config,
-                    gemini_api_key,
-                    openai_api_key,
-                    system_prompt=system_prompt,
-                    temperature=1.2  # High temperature for maximum creativity and variety
-                )
-                
-                if error:
-                    logger.warning(f"API returned error on attempt {attempt + 1}: {error}")
-                    continue  # Try again
-                
-                if not response:
-                    logger.warning(f"API returned empty response on attempt {attempt + 1}")
-                    continue  # Try again
-                
-                logger.info(f"Received response from AI API (length: {len(response)} chars)")
-                
-                # Parse the AI response with improved JSON extraction
-                import json
-                import re
-                
-                # Clean up response - remove markdown code blocks
-                cleaned_response = response.strip()
-                
-                # Remove markdown code blocks if present
-                if '```' in cleaned_response:
-                    # Extract content between ```json and ``` or ``` and ```
-                    code_block_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', cleaned_response, re.DOTALL)
-                    if code_block_match:
-                        cleaned_response = code_block_match.group(1)
-                        logger.debug("Extracted JSON from markdown code block")
-                
-                # Try to extract JSON object from response
-                json_match = re.search(r'\{.*\}', cleaned_response, re.DOTALL)
-                if not json_match:
-                    logger.warning(f"No JSON object found in response (attempt {attempt + 1})")
-                    logger.debug(f"Response preview: {cleaned_response[:200]}")
-                    continue  # Try again
-                
-                json_str = json_match.group()
-                logger.debug(f"Extracted JSON string (length: {len(json_str)} chars)")
-                
-                # Try to parse JSON
+        # Theme selection
+        themes = [
+            "corporate intrigue", "family drama", "art scandal", "science mystery",
+            "political conspiracy", "celebrity crime", "underground world",
+            "high society", "academic rivalry", "tech betrayal", "restaurant secrets",
+            "theater drama", "sports scandal", "museum theft", "fashion crime"
+        ]
+        theme = random.choice(themes)
+        
+        # Difficulty descriptions
+        diff_desc = {
+            1: "einfach, klare Hinweise",
+            2: "mittel, einige versteckte Hinweise",
+            3: "mittelschwer, subtile Hinweise mit Codes",
+            4: "schwer, verschlüsselte Hinweise",
+            5: "sehr schwer, komplexe Rätsel"
+        }
+        complexity = diff_desc.get(difficulty, diff_desc[1])
+        
+        # Generate title
+        title_prompt = f"Deutscher Krimi-Titel für Thema '{theme}', Schwierigkeit {difficulty}/5. Nur Titel. Format: 'Der Fall ...'"
+        title, _ = await api_helpers.get_ai_response_with_model(
+            title_prompt, model, config, gemini_api_key, openai_api_key, temperature=1.0
+        )
+        title = (title or f"Der Fall {theme}").strip()[:100]
+        
+        # Parallel generation of core components
+        desc_prompt = f"Mordszene '{title}', {complexity}. 2-3 Sätze."
+        loc_prompt = f"Tatort für '{title}'. Ein Satz, spezifisch und ungewöhnlich."
+        victim_prompt = f"Opfer für '{title}': Name, Alter, Beruf. Ein Satz."
+        
+        core_results = await asyncio.gather(
+            api_helpers.get_ai_response_with_model(desc_prompt, model, config, gemini_api_key, openai_api_key, temperature=0.9),
+            api_helpers.get_ai_response_with_model(loc_prompt, model, config, gemini_api_key, openai_api_key, temperature=0.9),
+            api_helpers.get_ai_response_with_model(victim_prompt, model, config, gemini_api_key, openai_api_key, temperature=0.9)
+        )
+        
+        description = (core_results[0][0] or "Mysteriöser Mord").strip()[:500]
+        location = (core_results[1][0] or "Unbekannter Ort").strip()[:200]
+        victim = (core_results[2][0] or "Unbekanntes Opfer").strip()[:200]
+        
+        # Generate suspects in parallel
+        murderer_index = random.randint(0, 3)
+        suspect_tasks = []
+        
+        for i in range(4):
+            is_guilty = (i == murderer_index)
+            status = "SCHULDIG" if is_guilty else "UNSCHULDIG"
+            s_prompt = f"""Verdächtiger #{i+1} für '{title}' ({status}).
+JSON:
+{{
+  "name": "Name",
+  "occupation": "Beruf (interessant, variiert)",
+  "alibi": "Alibi",
+  "motive": "Motiv",
+  "suspicious_details": "Details"
+}}
+{'Mache schuldig mit subtilen Hinweisen' if is_guilty else 'Unschuldig aber verdächtig'}."""
+            suspect_tasks.append(
+                api_helpers.get_ai_response_with_model(s_prompt, model, config, gemini_api_key, openai_api_key, temperature=0.8)
+            )
+        
+        suspect_results = await asyncio.gather(*suspect_tasks)
+        
+        # Parse suspects
+        suspects = []
+        for i, (res, _) in enumerate(suspect_results):
+            if res:
                 try:
-                    case_data = json.loads(json_str)
-                except json.JSONDecodeError as je:
-                    logger.warning(f"JSON parse error on attempt {attempt + 1}: {je}")
-                    logger.debug(f"Failed JSON preview: {json_str[:200]}")
-                    continue  # Try again
-                
-                # Validate required fields
-                required_fields = ['title', 'description', 'location', 'victim', 'suspects', 'murderer_index', 'evidence', 'hints']
-                missing_fields = [field for field in required_fields if field not in case_data]
-                
-                if missing_fields:
-                    logger.warning(f"Missing required fields on attempt {attempt + 1}: {missing_fields}")
-                    continue  # Try again
-                
-                # Validate suspects structure
-                if not isinstance(case_data.get('suspects'), list) or len(case_data.get('suspects', [])) != 4:
-                    logger.warning(f"Invalid suspects array on attempt {attempt + 1} (expected 4 suspects)")
-                    continue  # Try again
-                
-                # Add difficulty to case data
-                case_data['difficulty'] = difficulty
-                
-                # Success! Return the generated case
-                logger.info(f"Successfully generated case (difficulty {difficulty}): {case_data.get('title', 'Unknown Title')}")
-                return MurderCase(case_data)
-                
-            except Exception as e:
-                logger.error(f"Exception during case generation attempt {attempt + 1}: {e}", exc_info=True)
-                # Continue to next attempt
+                    match = re.search(r'\{.*\}', res, re.DOTALL)
+                    if match:
+                        suspects.append(json.loads(match.group()))
+                        continue
+                except:
+                    pass
+            # Fallback
+            suspects.append({
+                'name': f'Person {i+1}',
+                'occupation': 'Unbekannt',
+                'alibi': 'Keine Angabe',
+                'motive': 'Unklar',
+                'suspicious_details': 'Keine'
+            })
         
-        # If we exhausted all attempts with this provider, log it
-        logger.warning(f"Failed to generate case with {provider_name} after {max_attempts} attempts")
-    
-    # All attempts failed with both providers - use fallback
-    logger.error(f"All generation attempts failed with both providers, using fallback case")
-    return create_fallback_case()
+        # Generate evidence
+        ev_prompt = f"3-4 Beweise für '{title}'. Format: emoji + Text, eine pro Zeile."
+        ev_res, _ = await api_helpers.get_ai_response_with_model(
+            ev_prompt, model, config, gemini_api_key, openai_api_key, temperature=0.7
+        )
+        
+        evidence = []
+        if ev_res:
+            for line in ev_res.strip().split('\n'):
+                if line.strip() and len(line.strip()) > 3:
+                    evidence.append(line.strip()[:200])
+        
+        if len(evidence) < 3:
+            evidence = ['🔍 Tatortspuren', '📋 Verdächtige Notizen', '💀 Forensik']
+        
+        # Generate hints with puzzle support
+        murderer_name = suspects[murderer_index].get('name', 'Täter')
+        hints_prompt = f"2-3 Hinweise auf '{murderer_name}' als Mörder. Schwierigkeit {difficulty}/5. Format: emoji + Hinweis pro Zeile."
+        hints_res, _ = await api_helpers.get_ai_response_with_model(
+            hints_prompt, model, config, gemini_api_key, openai_api_key, temperature=0.7
+        )
+        
+        raw_hints = []
+        if hints_res:
+            for line in hints_res.strip().split('\n'):
+                if line.strip() and len(line.strip()) > 3:
+                    raw_hints.append(line.strip()[:200])
+        
+        if len(raw_hints) < 2:
+            raw_hints = [f'🔎 Hinweis auf {murderer_name}', f'💡 Detail über {murderer_name}']
+        
+        # Add encryption for difficulty 3+
+        hints = []
+        encrypted_messages = []
+        
+        for hint in raw_hints:
+            if difficulty >= 3 and random.random() < 0.5:  # 50% chance to encrypt hint
+                puzzle = create_puzzle_hint(hint, difficulty)
+                encrypted_messages.append(puzzle)
+                cipher_info = f"🔐 Verschlüsselte Nachricht"
+                if puzzle.get('hint'):
+                    cipher_info += f" ({puzzle['hint']})"
+                cipher_info += f": {puzzle['encrypted']}"
+                hints.append(cipher_info)
+            else:
+                hints.append(hint)
+        
+        # Build case
+        case_data = {
+            'title': title,
+            'description': description,
+            'location': location,
+            'victim': victim,
+            'suspects': suspects,
+            'murderer_index': murderer_index,
+            'evidence': evidence,
+            'hints': hints,
+            'encrypted_messages': encrypted_messages,
+            'difficulty': difficulty
+        }
+        
+        elapsed = time.time() - start_time
+        logger.info(f"Difficulty {difficulty} case generated in {elapsed:.1f}s")
+        
+        return MurderCase(case_data)
+        
+    except Exception as e:
+        logger.error(f"Error in difficulty case generation: {e}", exc_info=True)
+        logger.info("Falling back to pre-defined case")
+        return create_fallback_case()
 
 
 async def get_or_generate_case(db_helpers, api_helpers, config: dict, gemini_api_key: str, openai_api_key: str, user_id: int):
