@@ -17,6 +17,8 @@ SEHERIN = "Seherin"
 HEXE = "Hexe"
 DÖNERSTOPFER = "Dönerstopfer"
 JÄGER = "Jäger"
+AMOR = "Amor"  # Cupid - creates lovers
+DER_WEISSE = "Der Weiße"  # The White - can survive one werewolf attack
 
 class WerwolfPlayer:
     """Represents a player in the game."""
@@ -27,6 +29,8 @@ class WerwolfPlayer:
         self.has_kill_potion = False
         self.is_alive = True
         self.voted_for = None # For day voting
+        self.lover_id = None  # NEW: For Amor role - ID of lover
+        self.weisse_immunity_used = False  # NEW: For Der Weiße role - whether immunity was used
 
 class WerwolfGame:
     """Manages the state and logic of a single Werwolf game."""
@@ -55,6 +59,11 @@ class WerwolfGame:
         self.game_state_message = None # The main message to be updated
         self.night_end_task = None # To manage the night timeout
         self.event_log = deque(maxlen=10) # Log of recent game events for the embed
+        
+        # NEW: Amor and Der Weiße state
+        self.amor_has_chosen = False  # Whether Amor has selected lovers
+        self.lovers = []  # List of two player IDs who are in love
+        self.villagers_lost_powers = False  # Whether Der Weiße was burned at stake
 
         self.config = None # Will be set when the game starts
         self.gemini_api_key = None
@@ -271,22 +280,25 @@ class WerwolfGame:
         # Logic adjusted for small player counts
         if player_count == 1:
             num_werwolfe = 1
-            num_seherin, num_hexe, num_döner, num_jäger = 0, 0, 0, 0
+            num_seherin, num_hexe, num_döner, num_jäger, num_amor, num_weisse = 0, 0, 0, 0, 0, 0
         elif player_count == 2:
             num_werwolfe = 1
             num_seherin = 1
-            num_hexe, num_döner, num_jäger = 0, 0, 0
+            num_hexe, num_döner, num_jäger, num_amor, num_weisse = 0, 0, 0, 0, 0
         else:
             num_werwolfe = max(1, player_count // 3)
             num_seherin = 1 if player_count > 2 else 0
             num_hexe = 1 if player_count >= 7 else 0
             num_döner = 1 if player_count >= 9 else 0
             num_jäger = 1 if player_count >= 5 else 0
+            num_amor = 1 if player_count >= 8 else 0  # NEW: Amor for 8+ players
+            num_weisse = 1 if player_count >= 10 else 0  # NEW: Der Weiße for 10+ players
         
-        num_dorfbewohner = player_count - num_werwolfe - num_seherin - num_hexe - num_döner - num_jäger
+        num_dorfbewohner = player_count - num_werwolfe - num_seherin - num_hexe - num_döner - num_jäger - num_amor - num_weisse
 
         roles = ([WERWOLF] * num_werwolfe + [SEHERIN] * num_seherin + [HEXE] * num_hexe + 
-                 [DÖNERSTOPFER] * num_döner + [JÄGER] * num_jäger + [DORFBEWOHNER] * num_dorfbewohner)
+                 [DÖNERSTOPFER] * num_döner + [JÄGER] * num_jäger + [AMOR] * num_amor + 
+                 [DER_WEISSE] * num_weisse + [DORFBEWOHNER] * num_dorfbewohner)
         random.shuffle(roles)
 
         player_objects = list(self.players.values())
@@ -318,6 +330,11 @@ class WerwolfGame:
                     role_message += "\nDu hast einen Heiltrank und einen Gifttrank."
                 elif player.role == JÄGER:
                     role_message += "\nStirbt der Jäger, darfst du noch eine Person mit in den Tod nehmen."
+                elif player.role == AMOR:
+                    role_message += "\nDu darfst in der ersten Nacht zwei Spieler auswählen, die sich ineinander verlieben. Stirbt einer, stirbt auch der andere."
+                    role_message += "\nSende `love <name1> <name2>` per DM, um zwei Verliebte zu wählen."
+                elif player.role == DER_WEISSE:
+                    role_message += "\nDu kannst einen Werwolf-Angriff überleben. Aber Vorsicht: Wirst du am Tag gelyncht, verlieren alle Dorfbewohner ihre Fähigkeiten!"
                 
                 await player.user.send(role_message)
             except discord.Forbidden:
@@ -478,6 +495,8 @@ class WerwolfGame:
         if command == "see":
             if author_player.role != SEHERIN:
                 return "Nur die Seherin kann die Rolle von jemandem sehen."
+            if self.villagers_lost_powers:
+                return "Der Weiße wurde gelyncht! Du hast deine Fähigkeiten verloren."
             if self.seer_choice:
                 return "Du hast deine Fähigkeit für diese Nacht schon benutzt."
             
@@ -490,6 +509,8 @@ class WerwolfGame:
         if command == "heal":
             if author_player.role != HEXE:
                 return "Nur die Hexe kann heilen."
+            if self.villagers_lost_powers:
+                return "Der Weiße wurde gelyncht! Du hast deine Fähigkeiten verloren."
             if not author_player.has_healing_potion:
                 return "Du hast deinen Heiltrank schon benutzt."
             
@@ -501,6 +522,8 @@ class WerwolfGame:
         if command == "poison":
             if author_player.role != HEXE:
                 return "Nur die Hexe kann vergiften."
+            if self.villagers_lost_powers:
+                return "Der Weiße wurde gelyncht! Du hast deine Fähigkeiten verloren."
             if not author_player.has_kill_potion:
                 return "Du hast deinen Gifttrank schon benutzt."
             if not target_player:
@@ -510,10 +533,48 @@ class WerwolfGame:
             self.hexe_poison_target_id = target_player.user.id
             print(f"  [WW] {author_player.user.display_name} (Hexe) used the poison potion on {target_player.user.display_name}.")
             return await self.check_night_end()
+        
+        if command == "love":
+            # NEW: Amor selecting lovers
+            if author_player.role != AMOR:
+                return "Nur Amor kann Verliebte wählen."
+            if self.amor_has_chosen:
+                return "Du hast bereits zwei Verliebte ausgewählt."
+            if not target_player or not hasattr(target_player, 'lover_target'):
+                return "Du musst zwei Spieler auswählen. Nutze: `love <name1> <name2>`"
+            
+            # target_player will have .lover_target set from parsing
+            lover1 = target_player
+            lover2 = getattr(target_player, 'lover_target', None)
+            
+            if not lover2:
+                return "Du musst zwei verschiedene Spieler auswählen."
+            if lover1.user.id == lover2.user.id:
+                return "Die beiden Verliebten müssen verschiedene Spieler sein."
+            
+            # Set up lovers
+            self.lovers = [lover1.user.id, lover2.user.id]
+            lover1.lover_id = lover2.user.id
+            lover2.lover_id = lover1.user.id
+            self.amor_has_chosen = True
+            
+            print(f"  [WW] {author_player.user.display_name} (Amor) made {lover1.user.display_name} and {lover2.user.display_name} fall in love.")
+            await author_player.user.send(f"Du hast {lover1.user.display_name} und {lover2.user.display_name} zu Verliebten gemacht.")
+            
+            # Inform the lovers
+            try:
+                await lover1.user.send(f"💘 Du hast dich in {lover2.user.display_name} verliebt! Ihr gewinnt nur zusammen.")
+                await lover2.user.send(f"💘 Du hast dich in {lover1.user.display_name} verliebt! Ihr gewinnt nur zusammen.")
+            except discord.Forbidden:
+                pass
+            
+            return await self.check_night_end()
 
         if command == "mute":
             if author_player.role != DÖNERSTOPFER:
                 return "Nur der Dönerstopfer kann jemanden stummschalten."
+            if self.villagers_lost_powers:
+                return "Der Weiße wurde gelyncht! Du hast deine Fähigkeiten verloren."
             if self.döner_mute_target_id:
                 return "Du hast deine Fähigkeit für diese Nacht schon benutzt."
             if not target_player:
@@ -576,9 +637,16 @@ class WerwolfGame:
         if wolf_victim and self.hexe_heal_target_id:
             healed = True
             print("  [WW] Victim was healed by the witch.")
+        
+        # --- NEW: Check if victim is Der Weiße with immunity ---
+        weisse_saved = False
+        if wolf_victim and not healed and wolf_victim.role == DER_WEISSE and not wolf_victim.weisse_immunity_used:
+            weisse_saved = True
+            wolf_victim.weisse_immunity_used = True
+            print(f"  [WW] Der Weiße {wolf_victim.user.display_name} survived werewolf attack (immunity used).")
 
         # Announce wolf victim (or lack thereof)
-        if wolf_victim and not healed:
+        if wolf_victim and not healed and not weisse_saved:
             event = f"Ein schrecklicher Fund wurde gemacht. **{wolf_victim.user.display_name}** wurde getötet. Er/Sie war ein(e) **{wolf_victim.role}**."
             await self.log_event(event, send_tts=True)
             await self.kill_player(wolf_victim, "von den Werwölfen getötet")
@@ -587,6 +655,8 @@ class WerwolfGame:
             event = "Wie durch ein Wunder ist in dieser Nacht niemand durch die Werwölfe gestorben."
             if healed:
                 event += " Die Hexe hat ihr Werk vollbracht."
+            elif weisse_saved:
+                event += " Der Weiße hat überlebt!"
             await self.log_event(event, send_tts=True)
             await asyncio.sleep(self.config['modules']['werwolf']['pacing']['after_no_victim_announcement'])
 
@@ -727,6 +797,14 @@ class WerwolfGame:
         """Helper function to process a successful lynch."""
         event = f"Der Mob hat entschieden! **{lynched_player.user.display_name}** wird gelyncht! Er/Sie war ein(e) **{lynched_player.role}**."
         await self.log_event(event, send_tts=True)
+        
+        # --- NEW: Check if Der Weiße was lynched - penalty for villagers ---
+        if lynched_player.role == DER_WEISSE and not self.villagers_lost_powers:
+            self.villagers_lost_powers = True
+            penalty_event = "⚠️ KATASTROPHE! Der Weiße wurde gelyncht! Alle Dorfbewohner verlieren ihre Spezialfähigkeiten!"
+            await self.log_event(penalty_event, send_tts=True)
+            # Note: The powers are disabled by checking self.villagers_lost_powers in ability usage
+        
         await self.kill_player(lynched_player, "vom Mob gelyncht")
         await asyncio.sleep(self.config['modules']['werwolf']['pacing']['after_lynch_reveal'])
         await self.update_game_state_embed()
@@ -795,6 +873,15 @@ class WerwolfGame:
             return
 
         player_to_kill.is_alive = False
+
+        # --- NEW: Handle lover death chain ---
+        if player_to_kill.lover_id:
+            lover_id = player_to_kill.lover_id
+            lover = self.players.get(lover_id)
+            if lover and lover.is_alive:
+                await self.log_event(f"💔 {lover.user.display_name} stirbt aus Liebeskummer!", send_tts=True)
+                lover.is_alive = False
+                # Note: Lover's Jäger ability doesn't trigger from lover death
 
         # --- NEW: Handle Jäger's death ability ---
         if player_to_kill.role == JÄGER and not self.is_bot_player(player_to_kill):

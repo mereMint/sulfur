@@ -38,6 +38,7 @@ from discord.ext import tasks
 from modules.werwolf import WerwolfGame
 from modules.api_helpers import get_chat_response, get_relationship_summary_from_api, get_wrapped_summary_from_api, get_game_details_from_api
 from modules import api_helpers
+from modules import stock_market  # NEW: Stock market system
 from modules.bot_enhancements import (
     handle_image_attachment,
     handle_unknown_emojis_in_message,
@@ -565,6 +566,11 @@ async def on_ready():
     # --- NEW: Run one-time cleanup for old database entries ---
     print("Running one-time database cleanup tasks...")
     await db_helpers.cleanup_custom_status_entries()
+    
+    # --- NEW: Initialize stock market ---
+    print("Initializing stock market...")
+    await stock_market.initialize_stocks(db_helpers)
+    print("Stock market ready!")
 
     # --- NEW: Clean up leftover game channels on restart ---
     print("Checking for leftover game channels...")
@@ -634,6 +640,10 @@ async def on_ready():
     # Start periodic Werwolf category cleanup
     if not cleanup_werwolf_categories.is_running():
         cleanup_werwolf_categories.start()
+    
+    # --- NEW: Start periodic stock market update ---
+    if not update_stock_market.is_running():
+        update_stock_market.start()
     
 
     print(f"Synced {len(synced)} global commands.")
@@ -749,6 +759,16 @@ async def periodic_cleanup():
     except Exception as e:
         logger.error(f"Error in periodic cleanup: {e}", exc_info=True)
         print(f"[Periodic Cleanup] Error: {e}")
+
+# --- NEW: Periodic stock market update ---
+@_tasks.loop(minutes=30)
+async def update_stock_market():
+    """Update stock prices every 30 minutes."""
+    try:
+        await stock_market.update_stock_prices(db_helpers)
+        logger.info("Stock market prices updated")
+    except Exception as e:
+        logger.error(f"Error updating stock market: {e}", exc_info=True)
 
 @update_presence_task.before_loop
 async def before_update_presence_task():
@@ -3047,9 +3067,9 @@ async def ww_start(interaction: discord.Interaction, ziel_spieler: int = None):
         description=f"Tretet dem Voice-Channel **`{lobby_vc.name}`** bei, um mitzuspielen!",
         color=get_embed_color(config)
     )
-    embed.add_field(name="Automatischer Start", value="Das Spiel startet in **15 Sekunden**.")
+    embed.add_field(name="Automatischer Start", value="Das Spiel startet in **60 Sekunden**.")
     embed.add_field(name="Spieler (1)", value=author.display_name, inline=False)
-    embed.set_footer(text="Wer nicht beitritt, ist ein Werwolf!")
+    embed.set_footer(text="Wer nicht beitritt, ist ein Werwolf! Nur der Starter kann das Spiel vorzeitig beginnen.")
     
     # Create the view and send the initial message
     join_duration = config['modules']['werwolf']['join_phase_duration_seconds']
@@ -3170,6 +3190,18 @@ async def ww_rules(interaction: discord.Interaction):
     roles_embed.add_field(
         name="🏹 Jäger",
         value="**Team:** Dorfbewohner\n**Fähigkeit:** Stirbt der Jäger, darf er noch eine Person mit in den Tod nehmen.\n**Aktionen:** Automatisch beim Tod - du wirst per DM nach deinem Ziel gefragt",
+        inline=False
+    )
+    
+    roles_embed.add_field(
+        name="💘 Amor",
+        value="**Team:** Dorfbewohner\n**Fähigkeit:** Wählt in der ersten Nacht zwei Spieler, die sich ineinander verlieben. Stirbt einer, stirbt auch der andere.\n**Aktionen:** `love <name1> <name2>` per DM an den Bot\n**Verfügbar:** Ab 8 Spielern",
+        inline=False
+    )
+    
+    roles_embed.add_field(
+        name="⚪ Der Weiße",
+        value="**Team:** Dorfbewohner\n**Fähigkeit:** Kann einen Werwolf-Angriff überleben. ACHTUNG: Wird er gelyncht, verlieren alle Dorfbewohner ihre Spezialfähigkeiten!\n**Aktionen:** Passiv\n**Verfügbar:** Ab 10 Spielern",
         inline=False
     )
     
@@ -3811,6 +3843,419 @@ async def view_transactions(interaction: discord.Interaction, limit: int = 10):
         await interaction.followup.send(f"Fehler beim Laden der Transaktionen: {str(e)}", ephemeral=True)
 
 # Shop commands registered above
+
+
+# ============================================================================
+# STOCK MARKET SYSTEM SLASH COMMANDS
+# ============================================================================
+
+class StockMarketMainView(discord.ui.View):
+    """Main stock market view with navigation."""
+    
+    def __init__(self, user: discord.Member):
+        super().__init__(timeout=180)
+        self.user = user
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Du kannst diese Auswahl nicht bedienen.", ephemeral=True)
+            return False
+        return True
+    
+    @discord.ui.button(label="📊 Top Aktien", style=discord.ButtonStyle.primary, row=0)
+    async def top_stocks_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        
+        # Get top 10 stocks
+        top_stocks = await stock_market.get_top_stocks(db_helpers, limit=10)
+        
+        embed = discord.Embed(
+            title="📊 Top 10 Aktien",
+            description="Die besten und schlechtesten Performer",
+            color=discord.Color.blue()
+        )
+        
+        if not top_stocks:
+            embed.description = "Keine Aktien verfügbar."
+        else:
+            for i, stock in enumerate(top_stocks, 1):
+                symbol, name, current_price, previous_price, change_pct, volume = stock
+                emoji = stock_market.get_stock_emoji(float(change_pct))
+                price_str = stock_market.format_price(float(current_price))
+                
+                field_value = f"Preis: **{price_str}**\n"
+                field_value += f"Änderung: {emoji} **{change_pct:.2f}%**\n"
+                field_value += f"Volumen: {volume}"
+                
+                embed.add_field(
+                    name=f"{i}. {symbol} - {name}",
+                    value=field_value,
+                    inline=True if i % 2 == 1 else False
+                )
+        
+        await interaction.edit_original_response(embed=embed, view=self)
+    
+    @discord.ui.button(label="💼 Mein Portfolio", style=discord.ButtonStyle.success, row=0)
+    async def portfolio_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        
+        # Get user's portfolio
+        portfolio = await stock_market.get_user_portfolio(db_helpers, self.user.id)
+        currency = config['modules']['economy']['currency_symbol']
+        
+        embed = discord.Embed(
+            title="💼 Dein Portfolio",
+            description="Deine Aktienbestände",
+            color=discord.Color.green()
+        )
+        
+        if not portfolio:
+            embed.description = "Du besitzt noch keine Aktien."
+        else:
+            total_value = 0
+            total_investment = 0
+            
+            for stock in portfolio:
+                symbol, name, shares, avg_buy, current_price, gain_pct, current_value = stock
+                shares = int(shares)
+                avg_buy = float(avg_buy)
+                current_price = float(current_price)
+                gain_pct = float(gain_pct)
+                current_value = float(current_value)
+                
+                total_value += current_value
+                investment = shares * avg_buy
+                total_investment += investment
+                
+                emoji = "📈" if gain_pct > 0 else "📉" if gain_pct < 0 else "➖"
+                
+                field_value = f"**{shares} Aktien**\n"
+                field_value += f"Kaufpreis Ø: {stock_market.format_price(avg_buy)}\n"
+                field_value += f"Aktuell: {stock_market.format_price(current_price)}\n"
+                field_value += f"Wert: **{current_value:.2f} {currency}**\n"
+                field_value += f"Gewinn/Verlust: {emoji} **{gain_pct:+.2f}%**"
+                
+                embed.add_field(
+                    name=f"{symbol} - {name}",
+                    value=field_value,
+                    inline=True
+                )
+            
+            # Add summary at the top
+            total_gain_pct = ((total_value - total_investment) / total_investment * 100) if total_investment > 0 else 0
+            summary_emoji = "📈" if total_gain_pct > 0 else "📉" if total_gain_pct < 0 else "➖"
+            
+            embed.insert_field_at(
+                0,
+                name="📊 Gesamt",
+                value=f"Portfoliowert: **{total_value:.2f} {currency}**\n"
+                      f"Investiert: {total_investment:.2f} {currency}\n"
+                      f"Gewinn/Verlust: {summary_emoji} **{total_gain_pct:+.2f}%**",
+                inline=False
+            )
+        
+        await interaction.edit_original_response(embed=embed, view=self)
+    
+    @discord.ui.button(label="🏪 Börse", style=discord.ButtonStyle.secondary, row=1)
+    async def exchange_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        
+        # Show stock exchange view
+        view = StockExchangeView(self.user)
+        await view.show_exchange(interaction)
+
+
+class StockExchangeView(discord.ui.View):
+    """Stock exchange for buying and selling."""
+    
+    def __init__(self, user: discord.Member):
+        super().__init__(timeout=180)
+        self.user = user
+        self.selected_stock = None
+        self.setup_ui()
+    
+    def setup_ui(self):
+        """Setup the UI elements."""
+        # Stock selection dropdown
+        self.add_item(StockSelectDropdown(self))
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Du kannst diese Auswahl nicht bedienen.", ephemeral=True)
+            return False
+        return True
+    
+    async def show_exchange(self, interaction: discord.Interaction):
+        """Show the stock exchange."""
+        embed = discord.Embed(
+            title="🏪 Börse",
+            description="Wähle eine Aktie aus, um zu handeln.",
+            color=discord.Color.gold()
+        )
+        
+        # Get all stocks
+        top_stocks = await stock_market.get_top_stocks(db_helpers, limit=10)
+        
+        if top_stocks:
+            stock_list = ""
+            for symbol, name, current_price, previous_price, change_pct, volume in top_stocks:
+                emoji = stock_market.get_stock_emoji(float(change_pct))
+                price_str = stock_market.format_price(float(current_price))
+                stock_list += f"{emoji} **{symbol}** - {price_str} ({change_pct:+.2f}%)\n"
+            
+            embed.add_field(
+                name="Verfügbare Aktien",
+                value=stock_list,
+                inline=False
+            )
+        
+        await interaction.edit_original_response(embed=embed, view=self)
+    
+    async def show_stock_detail(self, interaction: discord.Interaction, stock_symbol: str):
+        """Show details for a specific stock."""
+        stock = await stock_market.get_stock(db_helpers, stock_symbol)
+        
+        if not stock:
+            await interaction.response.send_message("Aktie nicht gefunden!", ephemeral=True)
+            return
+        
+        symbol, name, category, current_price, previous_price, trend, volume, last_update = stock
+        current_price = float(current_price)
+        previous_price = float(previous_price)
+        change_pct = ((current_price - previous_price) / previous_price * 100) if previous_price > 0 else 0
+        
+        emoji = stock_market.get_stock_emoji(change_pct)
+        price_str = stock_market.format_price(current_price)
+        currency = config['modules']['economy']['currency_symbol']
+        
+        # Get user's holdings
+        portfolio = await stock_market.get_user_portfolio(db_helpers, self.user.id)
+        user_shares = 0
+        for p_stock in portfolio:
+            if p_stock[0] == symbol:
+                user_shares = int(p_stock[2])
+                break
+        
+        embed = discord.Embed(
+            title=f"{emoji} {symbol} - {name}",
+            description=f"Kategorie: {category.title()}",
+            color=discord.Color.gold()
+        )
+        
+        embed.add_field(
+            name="💰 Aktueller Preis",
+            value=f"**{price_str}**",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="📊 Änderung",
+            value=f"**{change_pct:+.2f}%**",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="📈 Volumen",
+            value=f"{volume}",
+            inline=True
+        )
+        
+        if user_shares > 0:
+            embed.add_field(
+                name="💼 Deine Aktien",
+                value=f"**{user_shares} Stück**",
+                inline=True
+            )
+        
+        # Get user balance
+        balance = await db_helpers.get_balance(self.user.id)
+        max_buyable = int(balance / current_price) if current_price > 0 else 0
+        
+        embed.add_field(
+            name="💵 Dein Guthaben",
+            value=f"{balance:.2f} {currency}\n(Maximal {max_buyable} Aktien)",
+            inline=False
+        )
+        
+        # Create buy/sell buttons
+        view = StockTradeView(self.user, symbol, current_price, user_shares)
+        
+        await interaction.edit_original_response(embed=embed, view=view)
+
+
+class StockSelectDropdown(discord.ui.Select):
+    """Dropdown for selecting stocks."""
+    
+    def __init__(self, parent_view: StockExchangeView):
+        self.parent_view = parent_view
+        
+        # Get stock options
+        options = [
+            discord.SelectOption(label=stock['symbol'], description=stock['name'], value=stock['symbol'])
+            for stock in stock_market.DEFAULT_STOCKS[:25]  # Discord limit
+        ]
+        
+        super().__init__(
+            placeholder="Wähle eine Aktie...",
+            options=options,
+            row=0
+        )
+    
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        selected = self.values[0]
+        self.parent_view.selected_stock = selected
+        await self.parent_view.show_stock_detail(interaction, selected)
+
+
+class StockTradeView(discord.ui.View):
+    """View for trading a specific stock."""
+    
+    def __init__(self, user: discord.Member, symbol: str, price: float, owned_shares: int):
+        super().__init__(timeout=180)
+        self.user = user
+        self.symbol = symbol
+        self.price = price
+        self.owned_shares = owned_shares
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Du kannst diese Auswahl nicht bedienen.", ephemeral=True)
+            return False
+        return True
+    
+    @discord.ui.button(label="Kaufen 1", style=discord.ButtonStyle.success, custom_id="buy_1", row=0)
+    async def buy_1(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.execute_trade(interaction, 'buy', 1)
+    
+    @discord.ui.button(label="Kaufen 5", style=discord.ButtonStyle.success, custom_id="buy_5", row=0)
+    async def buy_5(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.execute_trade(interaction, 'buy', 5)
+    
+    @discord.ui.button(label="Kaufen 10", style=discord.ButtonStyle.success, custom_id="buy_10", row=0)
+    async def buy_10(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.execute_trade(interaction, 'buy', 10)
+    
+    @discord.ui.button(label="Verkaufen 1", style=discord.ButtonStyle.danger, custom_id="sell_1", row=1, disabled=None)
+    async def sell_1(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.execute_trade(interaction, 'sell', 1)
+    
+    @discord.ui.button(label="Verkaufen 5", style=discord.ButtonStyle.danger, custom_id="sell_5", row=1)
+    async def sell_5(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.execute_trade(interaction, 'sell', 5)
+    
+    @discord.ui.button(label="Verkaufen Alle", style=discord.ButtonStyle.danger, custom_id="sell_all", row=1)
+    async def sell_all(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.execute_trade(interaction, 'sell', self.owned_shares)
+    
+    @discord.ui.button(label="◀️ Zurück", style=discord.ButtonStyle.secondary, row=2)
+    async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        view = StockExchangeView(self.user)
+        await view.show_exchange(interaction)
+    
+    async def execute_trade(self, interaction: discord.Interaction, action: str, shares: int):
+        """Execute a buy or sell trade."""
+        await interaction.response.defer()
+        
+        if shares <= 0:
+            await interaction.followup.send("Ungültige Anzahl!", ephemeral=True)
+            return
+        
+        currency = config['modules']['economy']['currency_symbol']
+        
+        if action == 'buy':
+            success, message = await stock_market.buy_stock(
+                db_helpers, 
+                self.user.id, 
+                self.symbol, 
+                shares,
+                None  # Currency system handled internally
+            )
+        else:  # sell
+            if shares > self.owned_shares:
+                await interaction.followup.send(f"Du besitzt nur {self.owned_shares} Aktien!", ephemeral=True)
+                return
+            
+            success, message = await stock_market.sell_stock(
+                db_helpers,
+                self.user.id,
+                self.symbol,
+                shares
+            )
+        
+        if success:
+            embed = discord.Embed(
+                title="✅ Transaktion erfolgreich",
+                description=message,
+                color=discord.Color.green()
+            )
+        else:
+            embed = discord.Embed(
+                title="❌ Transaktion fehlgeschlagen",
+                description=message,
+                color=discord.Color.red()
+            )
+        
+        # Get updated balance
+        balance = await db_helpers.get_balance(self.user.id)
+        embed.add_field(
+            name="💰 Neues Guthaben",
+            value=f"{balance:.2f} {currency}",
+            inline=False
+        )
+        
+        await interaction.edit_original_response(embed=embed, view=None)
+
+
+@tree.command(name="stock", description="Öffne den Aktienmarkt.")
+async def stock_market_command(interaction: discord.Interaction):
+    """Open the stock market interface."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        view = StockMarketMainView(interaction.user)
+        currency = config['modules']['economy']['currency_symbol']
+        
+        embed = discord.Embed(
+            title="📈 Aktienmarkt",
+            description="Willkommen beim Sulfur Aktienmarkt!",
+            color=discord.Color.gold()
+        )
+        
+        embed.add_field(
+            name="📊 Top Aktien",
+            value="Zeige die besten und schlechtesten Performer",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="💼 Mein Portfolio",
+            value="Verwalte deine Aktienbestände",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🏪 Börse",
+            value="Kaufe und verkaufe Aktien",
+            inline=False
+        )
+        
+        # Show current balance
+        balance = await db_helpers.get_balance(interaction.user.id)
+        embed.add_field(
+            name="💰 Dein Guthaben",
+            value=f"{balance:.2f} {currency}",
+            inline=False
+        )
+        
+        embed.set_footer(text="Preise werden alle 30 Minuten aktualisiert")
+        
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error opening stock market: {e}", exc_info=True)
+        await interaction.followup.send(f"Fehler beim Öffnen des Aktienmarkts: {str(e)}", ephemeral=True)
 
 
 # ============================================================================

@@ -193,7 +193,7 @@
       "game_category_name": "\ud83d\udc3a WERWOLF SPIEL \ud83d\udc3a",
       "min_name_pool_size": 20,
       "day_vote_timeout_seconds": 60,
-      "join_phase_duration_seconds": 15,
+      "join_phase_duration_seconds": 60,
       "discussion_channel_name": "\ud83d\udc3a Werwolf-Diskussion",
       "wolf_thread_name": "\ud83d\udc3a Werwolf-Beratung \ud83d\udc3a",
       "default_target_players": 6,

@@ -44,6 +44,15 @@ A feature-rich Discord bot with AI capabilities, economy system, mini-games, and
 
 ### 🎮 Games & Entertainment
 - **Werwolf Game**: Multiplayer werewolf game with dynamic voice channels and multiple roles
+  - 🐺 Classic roles: Werewolf, Seer (Seherin), Witch (Hexe), Hunter (Jäger), Villager (Dorfbewohner)
+  - 💘 **NEW: Amor (Cupid)** - Creates two lovers who die together (8+ players)
+  - ⚪ **NEW: Der Weiße** - Survives one werewolf attack, but if lynched, all villagers lose powers (10+ players)
+  - ⏱️ **NEW: 60-second join phase** with early start option for game creator
+- **Detective/Murder Mystery Game**: AI-generated murder mystery cases
+  - 🔍 **IMPROVED: Fast case generation** (40-50s instead of 120s+)
+  - 🧩 **NEW: Encrypted puzzles** - Solve ciphers (Caesar, Reverse, Atbash) for higher difficulty
+  - 🎯 Difficulty scaling (1-5) with increasingly complex clues
+  - 💰 Rewards for solving cases
 - **Gambling Games**: 
   - 🃏 Blackjack - Classic card game with hit/stand mechanics
   - 🎰 Roulette - Number, color, and betting options
@@ -58,6 +67,12 @@ A feature-rich Discord bot with AI capabilities, economy system, mini-games, and
   - 🎨 Custom color roles (Basic, Premium, Legendary tiers)
   - 🔓 Feature unlocks (DM access, games, special permissions)
   - 📊 Purchase history and transaction tracking
+- **Stock Market** (NEW 📈):
+  - 💹 Trade 10+ stocks across 5 categories (tech, crypto, blue_chip, meme, commodity)
+  - 📊 Realistic price simulation with volatility and trends
+  - 💼 Personal portfolio tracking
+  - 🔄 Prices update every 30 minutes
+  - 📈 View stock performance and history
 - **Daily Rewards**: Claim daily coins and bonuses
 - **Leaderboards**: Track top earners and active members
 - **Monthly Milestones**: Bonus rewards for consistent participation
@@ -67,6 +82,7 @@ A feature-rich Discord bot with AI capabilities, economy system, mini-games, and
 - **AI Vision**: Image analysis and understanding with vision models
 - **Conversation Follow-up**: Remembers context within 2-minute windows for natural conversations
 - **Smart Emoji Analysis**: AI-powered custom emoji descriptions and contextual usage
+- **Case Generation**: Fast, parallel AI generation for detective games with puzzle creation
 
 ### 📊 Management & Analytics
 - **Web Dashboard**: Real-time bot monitoring at http://localhost:5000
