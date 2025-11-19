@@ -133,56 +133,262 @@ MANDATORY: Make this case completely different from typical detective stories!""
 
 
 def create_fallback_case():
-    """Create a simple fallback case if AI generation fails."""
-    case_data = {
-        'title': 'Der Fall des vergifteten Geschäftsmanns',
-        'description': 'Ein wohlhabender Geschäftsmann wurde tot in seinem Büro aufgefunden. Eine vergiftete Tasse Kaffee steht auf seinem Schreibtisch.',
-        'location': 'Luxusbüro im Stadtzentrum',
-        'victim': 'Heinrich Müller, 52, erfolgreicher Immobilienmagnat',
-        'suspects': [
-            {
-                'name': 'Eva Schmidt',
-                'occupation': 'Persönliche Assistentin',
-                'alibi': 'War angeblich beim Mittagessen',
-                'motive': 'Wurde kürzlich in einem Streit über Gehalt gesehen',
-                'suspicious_details': 'Hat Zugang zum Büro und kennt seine Kaffee-Gewohnheiten'
-            },
-            {
-                'name': 'Thomas Wagner',
-                'occupation': 'Geschäftspartner',
-                'alibi': 'In einem Meeting mit anderen Kollegen',
-                'motive': 'Gerüchte über finanzielle Unstimmigkeiten',
-                'suspicious_details': 'Wurde nervös, als nach dem Kaffee gefragt wurde'
-            },
-            {
-                'name': 'Lisa Becker',
-                'occupation': 'Ex-Frau',
-                'alibi': 'War zu Hause, keine Zeugen',
-                'motive': 'Bitterer Scheidungsstreit um Vermögen',
-                'suspicious_details': 'Wurde in der Nähe des Büros gesehen'
-            },
-            {
-                'name': 'Dr. Klaus Fischer',
-                'occupation': 'Hausarzt',
-                'alibi': 'In seiner Praxis',
-                'motive': 'Keine offensichtlichen',
-                'suspicious_details': 'Hat Zugang zu Gift und medizinischem Wissen'
-            }
-        ],
-        'murderer_index': 0,
-        'evidence': [
-            '☕ Vergiftete Kaffeetasse auf dem Schreibtisch',
-            '🔑 Keine Anzeichen von Einbruch',
-            '📋 Notiz über geplante Gehaltssenkungen',
-            '💊 Spuren eines seltenen Gifts im Kaffee'
-        ],
-        'hints': [
-            '🔍 Die Kaffeetasse hatte Lippenstiftspuren - Eva trägt denselben Farbton',
-            '📝 Eine Notiz mit Evas Handschrift wurde im Papierkorb gefunden',
-            '⏰ Eva war die letzte Person, die das Büro vor dem Tod betrat'
-        ]
-    }
-    return MurderCase(case_data)
+    """
+    Create a fallback case if AI generation fails.
+    Rotates through multiple pre-defined cases to ensure variety.
+    """
+    import time
+    
+    # Multiple fallback cases to rotate through
+    fallback_cases = [
+        {
+            'title': 'Der Fall der verschwundenen Erbin',
+            'description': 'Eine junge Erbin wurde in ihrem Penthouse tot aufgefunden. Ein seltsamer Geruch von Mandeln liegt in der Luft.',
+            'location': 'Luxus-Penthouse am Hafen',
+            'victim': 'Sophie Winterstein, 28, Millionenerbin',
+            'suspects': [
+                {
+                    'name': 'Marcus Berger',
+                    'occupation': 'Vermögensverwalter',
+                    'alibi': 'Behauptet, beim Abendessen gewesen zu sein',
+                    'motive': 'Verwaltete ihr Vermögen und hatte Zugriff auf ihre Konten',
+                    'suspicious_details': 'Seine Fingerabdrücke sind auf einem Glas im Penthouse'
+                },
+                {
+                    'name': 'Julia Hartmann',
+                    'occupation': 'Beste Freundin',
+                    'alibi': 'War angeblich im Fitnessstudio',
+                    'motive': 'Sophie hatte vor, Julia aus ihrem Testament zu streichen',
+                    'suspicious_details': 'Wurde gesehen, wie sie das Gebäude kurz vor dem Tod verließ'
+                },
+                {
+                    'name': 'Viktor Krause',
+                    'occupation': 'Ex-Verlobter',
+                    'alibi': 'Zu Hause, keine Zeugen',
+                    'motive': 'Wurde vor einem Monat verlassen, war sehr verbittert',
+                    'suspicious_details': 'Hat Chemiekenntnisse aus seinem Studium'
+                },
+                {
+                    'name': 'Anna Lehmann',
+                    'occupation': 'Haushälterin',
+                    'alibi': 'Hatte angeblich frei',
+                    'motive': 'Wurde beschuldigt, gestohlen zu haben und sollte entlassen werden',
+                    'suspicious_details': 'Kennt alle Zugangscodes und Gewohnheiten'
+                }
+            ],
+            'murderer_index': 1,
+            'evidence': [
+                '💀 Spuren von Zyanid im Körper',
+                '🔑 Keine Anzeichen eines gewaltsamen Einbruchs',
+                '📱 Letzte SMS an Julia: "Wir müssen reden"',
+                '💍 Zerbrochener Verlobungsring auf dem Boden'
+            ],
+            'hints': [
+                '🏋️ Julias Fitnessstudio-Alibi kann nicht bestätigt werden',
+                '📸 Überwachungskamera zeigt Julia mit einer verdächtigen Tasche',
+                '💬 Ein Zeuge hörte Julia sagen: "Sie wird es bereuen"'
+            ]
+        },
+        {
+            'title': 'Der Fall des toten Chefkochs',
+            'description': 'Ein renommierter Chefkoch wurde in seiner Restaurantküche tot aufgefunden. Ein Messer liegt neben ihm.',
+            'location': 'Sternerestaurant "Le Gourmet"',
+            'victim': 'Jean-Pierre Dubois, 45, Sternekoch',
+            'suspects': [
+                {
+                    'name': 'Carla Rossi',
+                    'occupation': 'Sous-Chef',
+                    'alibi': 'War im Lagerraum Inventur machen',
+                    'motive': 'Wurde ständig vom Chef erniedrigt und übergangen',
+                    'suspicious_details': 'An ihrer Schürze sind Blutflecken'
+                },
+                {
+                    'name': 'Oliver Schmitt',
+                    'occupation': 'Restaurantbesitzer',
+                    'alibi': 'War in seinem Büro mit Buchhaltung beschäftigt',
+                    'motive': 'Der Koch wollte das Restaurant verlassen und ein eigenes eröffnen',
+                    'suspicious_details': 'Hat eine Lebensversicherung auf den Koch abgeschlossen'
+                },
+                {
+                    'name': 'Marina Kowalski',
+                    'occupation': 'Ex-Freundin und Kellnerin',
+                    'alibi': 'Bediente Gäste im Hauptraum',
+                    'motive': 'Wurde von Jean-Pierre betrogen und verlassen',
+                    'suspicious_details': 'Ihr Alibi lässt eine Lücke von 15 Minuten offen'
+                },
+                {
+                    'name': 'Ricardo Mendez',
+                    'occupation': 'Rivalisierender Koch',
+                    'alibi': 'In seinem eigenen Restaurant',
+                    'motive': 'Jean-Pierre hatte ihm einen Michelin-Stern "gestohlen"',
+                    'suspicious_details': 'Wurde in der Nähe des Restaurants gesehen'
+                }
+            ],
+            'murderer_index': 2,
+            'evidence': [
+                '🔪 Das Mordmesser gehört zur Restaurantküche',
+                '🩸 Blutspritzer deuten auf einen Kampf hin',
+                '📋 Eine Notiz: "Um 22:30 in der Küche - M."',
+                '🎥 Überwachungskamera zeigt jemanden mit Kapuze'
+            ],
+            'hints': [
+                '⏰ Marina hatte genau zur Tatzeit keine Gäste zu bedienen',
+                '💔 In Marinas Spind wurde ein Brief mit Drohungen gefunden',
+                '👗 An Marinas Kleidung wurden Blutspritzer entdeckt'
+            ]
+        },
+        {
+            'title': 'Der Fall des abgestürzten Professors',
+            'description': 'Ein Professor wurde tot am Fuß der Universitätstreppe gefunden. Es sieht nach einem Sturz aus, aber Zweifel bleiben.',
+            'location': 'Alte Universitätsbibliothek',
+            'victim': 'Prof. Dr. Werner Stein, 58, Physikprofessor',
+            'suspects': [
+                {
+                    'name': 'Dr. Sarah Klein',
+                    'occupation': 'Kollegin und Konkurrentin',
+                    'alibi': 'In ihrem Labor',
+                    'motive': 'Beide konkurrierten um dieselbe Forschungsförderung',
+                    'suspicious_details': 'Wurde auf der Treppe gesehen kurz vor dem Vorfall'
+                },
+                {
+                    'name': 'Tim Bauer',
+                    'occupation': 'Student',
+                    'alibi': 'In der Mensa',
+                    'motive': 'Drohte durchzufallen und würde sein Stipendium verlieren',
+                    'suspicious_details': 'Hatte einen heftigen Streit mit dem Professor am Vortag'
+                },
+                {
+                    'name': 'Elena Wagner',
+                    'occupation': 'Ehefrau',
+                    'alibi': 'Beim Einkaufen',
+                    'motive': 'Entdeckte, dass ihr Mann eine Affäre hatte',
+                    'suspicious_details': 'Ihr Einkaufsbeleg zeigt eine verdächtige Zeitlücke'
+                },
+                {
+                    'name': 'Hans Müller',
+                    'occupation': 'Hausmeister',
+                    'alibi': 'Im Keller bei Reparaturen',
+                    'motive': 'Der Professor beschwerte sich ständig über seine Arbeit',
+                    'suspicious_details': 'Werkzeugspuren am Treppengeländer könnten seine sein'
+                }
+            ],
+            'murderer_index': 3,
+            'evidence': [
+                '🔧 Lockere Schrauben am Treppengeländer',
+                '👣 Keine Anzeichen von Kampf oder Abwehr',
+                '📚 Wichtige Forschungsunterlagen fehlen',
+                '🎓 Der Professor hatte kürzlich seinen Rücktritt angekündigt'
+            ],
+            'hints': [
+                '🔨 Hans hatte Zugang zu Werkzeugen und Kenntnis der Gebäudestruktur',
+                '😠 Mehrere Zeugen hörten Hans am Morgen schimpfen über den Professor',
+                '🔍 In Hans\' Werkzeugkasten finden sich Schrauben, die zum Geländer passen'
+            ]
+        },
+        {
+            'title': 'Der Fall der ermordeten Galeristin',
+            'description': 'Eine Kunstgaleristin wurde in ihrer Galerie erdrosselt aufgefunden. Ein wertvolles Gemälde fehlt.',
+            'location': 'Moderne Kunstgalerie "Arthaus"',
+            'victim': 'Isabella Richter, 42, Galeristin und Kunstsammlerin',
+            'suspects': [
+                {
+                    'name': 'Leon Schwarz',
+                    'occupation': 'Künstler',
+                    'alibi': 'In seinem Atelier',
+                    'motive': 'Isabella hatte seinen Vertrag nicht verlängert',
+                    'suspicious_details': 'Fasern von seinen Handschuhen am Tatort gefunden'
+                },
+                {
+                    'name': 'Patricia Gold',
+                    'occupation': 'Kunsthändlerin und Rivalin',
+                    'alibi': 'Bei einer Auktion',
+                    'motive': 'Geschäftliche Rivalität um wertvolle Kunstwerke',
+                    'suspicious_details': 'Das gestohlene Gemälde wurde bei ihr zum Verkauf angeboten'
+                },
+                {
+                    'name': 'Max Krüger',
+                    'occupation': 'Sicherheitschef',
+                    'alibi': 'Angeblich seine Runde gedreht',
+                    'motive': 'Isabella hatte Unregelmäßigkeiten in seiner Arbeit entdeckt',
+                    'suspicious_details': 'Überwachungskameras waren genau zur Tatzeit ausgefallen'
+                },
+                {
+                    'name': 'Diana Wolff',
+                    'occupation': 'Assistentin',
+                    'alibi': 'Beim Arzt',
+                    'motive': 'Wurde als Haupterbin im Testament eingesetzt',
+                    'suspicious_details': 'Ihr Arzttermin wurde abgesagt, sie wusste es angeblich nicht'
+                }
+            ],
+            'murderer_index': 2,
+            'evidence': [
+                '🎨 Wertvolles Gemälde im Wert von 500.000€ fehlt',
+                '🧣 Seidenschal wurde als Mordwaffe benutzt',
+                '📹 Überwachungskameras waren 30 Minuten lang aus',
+                '🔑 Keine Anzeichen eines Einbruchs von außen'
+            ],
+            'hints': [
+                '💻 Max hatte die technischen Kenntnisse, die Kameras auszuschalten',
+                '💰 Auf Max\' Konto wurde kürzlich eine große Summe eingezahlt',
+                '🤝 Ein Zeuge sah Max das Gebäude kurz nach der Tatzeit verlassen mit einem großen Paket'
+            ]
+        },
+        {
+            'title': 'Der Fall des Toten im Weinkeller',
+            'description': 'Ein Sommelier wurde in einem exklusiven Weinkeller erschlagen aufgefunden. Eine zerbrochene Weinflasche liegt dabei.',
+            'location': 'Privater Weinkeller des "Château Noir"',
+            'victim': 'François Laurent, 51, Meister-Sommelier',
+            'suspects': [
+                {
+                    'name': 'Gustav Hartmann',
+                    'occupation': 'Weinhandel-Besitzer',
+                    'alibi': 'Im Geschäft mit Kunden',
+                    'motive': 'François hatte herausgefunden, dass Gustav gefälschte Weine verkaufte',
+                    'suspicious_details': 'Seine Schuhe haben Weinflecken, die zur Tatzeit passen'
+                },
+                {
+                    'name': 'Claire Dubois',
+                    'occupation': 'Weinexpertin und Kollegin',
+                    'alibi': 'Bei einer Weinprobe in der Stadt',
+                    'motive': 'François hatte sie bei einem wichtigen Wettbewerb bloßgestellt',
+                    'suspicious_details': 'Ihr Fingerabdruck ist auf der zerbrochenen Flasche'
+                },
+                {
+                    'name': 'Robert Klein',
+                    'occupation': 'Weinbergbesitzer',
+                    'alibi': 'Auf seinem Weingut',
+                    'motive': 'François hatte seinen Wein schlecht bewertet, was zu Verlusten führte',
+                    'suspicious_details': 'Wurde in der Nähe des Weinkellers gesehen'
+                },
+                {
+                    'name': 'Marie Leclerc',
+                    'occupation': 'Erbin und Sammlung-Besitzerin',
+                    'alibi': 'Auf Geschäftsreise',
+                    'motive': 'François wollte ihren Weinkeller aufgrund von Verstößen schließen',
+                    'suspicious_details': 'Ihr Flugticket wurde storniert - sie war nie weg'
+                }
+            ],
+            'murderer_index': 0,
+            'evidence': [
+                '🍷 Eine wertvolle Bordeaux-Flasche wurde als Waffe benutzt',
+                '🔍 Weinflecken führen zur Tür',
+                '📄 Notizen über gefälschte Weine in François\' Tasche',
+                '⚖️ Ein Laborbericht über Weinanalysen liegt auf dem Tisch'
+            ],
+            'hints': [
+                '🧪 Der Laborbericht zeigt, dass Gustav gefälschte Etiketten verwendete',
+                '👞 Die Weinflecken auf Gustavs Schuhen stimmen mit der Tatzeit überein',
+                '📞 Gustavs Handy zeigt, dass er zur Tatzeit in der Nähe war, nicht im Geschäft'
+            ]
+        }
+    ]
+    
+    # Use timestamp and random to select a case, ensuring variety
+    selection_seed = int(time.time()) + random.randint(0, 100)
+    selected_case = fallback_cases[selection_seed % len(fallback_cases)]
+    
+    logger.info(f"Using fallback case: {selected_case['title']}")
+    return MurderCase(selected_case)
 
 
 async def log_game_result(db_helpers, user_id: int, display_name: str, won: bool):
@@ -652,6 +858,106 @@ async def mark_case_started(db_helpers, user_id: int, case_id: int):
         logger.error(f"Error marking case as started: {e}", exc_info=True)
 
 
+async def has_user_seen_case(db_helpers, user_id: int, case_id: int) -> bool:
+    """
+    Check if a user has already seen/played a specific case.
+    
+    Args:
+        db_helpers: Database helpers module
+        user_id: Discord user ID
+        case_id: Case ID
+    
+    Returns:
+        True if user has seen the case, False otherwise
+    """
+    try:
+        if not db_helpers.db_pool:
+            return False
+            
+        cnx = db_helpers.db_pool.get_connection()
+        if not cnx:
+            return False
+            
+        cursor = cnx.cursor()
+        try:
+            cursor.execute(
+                """
+                SELECT COUNT(*) FROM detective_user_progress
+                WHERE user_id = %s AND case_id = %s
+                """,
+                (user_id, case_id)
+            )
+            count = cursor.fetchone()[0]
+            return count > 0
+            
+        finally:
+            cursor.close()
+            cnx.close()
+            
+    except Exception as e:
+        logger.error(f"Error checking if user has seen case: {e}", exc_info=True)
+        return False
+
+
+async def get_existing_case_by_hash(db_helpers, case_hash: str, user_id: int):
+    """
+    Get an existing case by its hash if the user hasn't seen it.
+    
+    Args:
+        db_helpers: Database helpers module
+        case_hash: SHA256 hash of case
+        user_id: Discord user ID
+    
+    Returns:
+        MurderCase object or None
+    """
+    try:
+        if not db_helpers.db_pool:
+            return None
+            
+        cnx = db_helpers.db_pool.get_connection()
+        if not cnx:
+            return None
+            
+        cursor = cnx.cursor(dictionary=True)
+        try:
+            cursor.execute(
+                """
+                SELECT * FROM detective_cases
+                WHERE case_hash = %s
+                LIMIT 1
+                """,
+                (case_hash,)
+            )
+            result = cursor.fetchone()
+            
+            if result:
+                # Parse JSON fields
+                case_data = {
+                    'case_id': result['case_id'],
+                    'title': result['title'],
+                    'description': result['description'],
+                    'location': result['location'],
+                    'victim': result['victim'],
+                    'suspects': json.loads(result['suspects']),
+                    'murderer_index': result['murderer_index'],
+                    'evidence': json.loads(result['evidence']),
+                    'hints': json.loads(result['hints']),
+                    'difficulty': result['difficulty']
+                }
+                return MurderCase(case_data)
+            
+            return None
+            
+        finally:
+            cursor.close()
+            cnx.close()
+            
+    except Exception as e:
+        logger.error(f"Error getting existing case by hash: {e}", exc_info=True)
+        return None
+
+
 async def mark_case_completed(db_helpers, user_id: int, case_id: int, solved: bool):
     """
     Mark a case as completed by a user.
@@ -811,7 +1117,7 @@ MANDATORY: Make this case completely different from typical detective stories an
 async def get_or_generate_case(db_helpers, api_helpers, config: dict, gemini_api_key: str, openai_api_key: str, user_id: int):
     """
     Get an unsolved case for the user or generate a new one.
-    Ensures that generated cases are unique.
+    Prioritizes cases the user hasn't seen before.
     
     Args:
         db_helpers: Database helpers module
@@ -828,18 +1134,18 @@ async def get_or_generate_case(db_helpers, api_helpers, config: dict, gemini_api
         # Get user's current difficulty
         difficulty = await get_user_difficulty(db_helpers, user_id)
         
-        # Try to find an unsolved case at this difficulty
+        # Try to find an unsolved case at this difficulty that user hasn't seen
         case = await get_unsolved_case(db_helpers, user_id, difficulty)
         
         if case:
             logger.info(f"Found existing unsolved case {case.case_id} for user {user_id} at difficulty {difficulty}")
             return case
         
-        # No unsolved case found, generate a new unique one
+        # No unsolved case found, generate a new one
         logger.info(f"Generating new case for user {user_id} at difficulty {difficulty}")
         
-        # Try up to 3 times to generate a unique case
-        max_attempts = 3
+        # Try up to 5 times to generate a case
+        max_attempts = 5
         for attempt in range(max_attempts):
             case = await generate_case_with_difficulty(
                 api_helpers,
@@ -861,21 +1167,57 @@ async def get_or_generate_case(db_helpers, api_helpers, config: dict, gemini_api
                 'hints': case.hints
             }
             
-            # Check if this case is unique
+            # Check if this EXACT case already exists globally
+            # We allow similar cases but not identical ones
             case_hash = compute_case_hash(case_data)
-            if not await check_case_exists(db_helpers, case_hash):
-                # Unique case found, save it
+            exists = await check_case_exists(db_helpers, case_hash)
+            
+            if not exists:
+                # New unique case - save it
                 case_id = await save_case_to_db(db_helpers, case_data, difficulty)
                 if case_id:
                     case.case_id = case_id
-                    logger.info(f"Generated and saved unique case {case_id} for user {user_id}")
+                    logger.info(f"Generated and saved unique case {case_id} (attempt {attempt + 1})")
                     return case
+                else:
+                    # Failed to save but continue trying
+                    logger.warning(f"Failed to save case (attempt {attempt + 1}), retrying...")
             else:
-                logger.info(f"Generated duplicate case (attempt {attempt + 1}/{max_attempts}), retrying...")
+                # This exact case exists, but we can still use it if USER hasn't seen it
+                logger.info(f"Case already exists globally (attempt {attempt + 1}), checking if user has seen it...")
+                
+                # Try to fetch the existing case and check if user has played it
+                existing_case = await get_existing_case_by_hash(db_helpers, case_hash, user_id)
+                if existing_case and not await has_user_seen_case(db_helpers, user_id, existing_case.case_id):
+                    logger.info(f"User hasn't seen this case yet, reusing case {existing_case.case_id}")
+                    return existing_case
+                else:
+                    logger.info(f"User has already seen this case, generating another...")
         
-        # If all attempts failed, use fallback
-        logger.warning(f"Could not generate unique case after {max_attempts} attempts, using fallback")
-        return create_fallback_case()
+        # If we couldn't generate after max attempts, try using any fallback
+        logger.warning(f"Could not generate unique case after {max_attempts} attempts, using fallback rotation")
+        fallback = create_fallback_case()
+        
+        # Try to save the fallback case too (with a special marker)
+        fallback_data = {
+            'title': fallback.case_title,
+            'description': fallback.case_description,
+            'location': fallback.location,
+            'victim': fallback.victim,
+            'suspects': fallback.suspects,
+            'murderer_index': fallback.murderer_index,
+            'evidence': fallback.evidence,
+            'hints': fallback.hints
+        }
+        
+        # Save fallback if it doesn't exist
+        fallback_hash = compute_case_hash(fallback_data)
+        if not await check_case_exists(db_helpers, fallback_hash):
+            case_id = await save_case_to_db(db_helpers, fallback_data, difficulty)
+            if case_id:
+                fallback.case_id = case_id
+        
+        return fallback
         
     except Exception as e:
         logger.error(f"Error in get_or_generate_case: {e}", exc_info=True)
