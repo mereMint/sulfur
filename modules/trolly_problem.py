@@ -61,21 +61,23 @@ async def generate_trolly_problem(api_helpers, config: dict, gemini_api_key: str
         
         personalization_context += "\nIncorporate these details naturally into the scenario to make it feel personal and relevant."
     
-    prompt = f"""Generate a trolley problem ethical dilemma (respond in German).
+    prompt = f"""Generate a unique and creative trolley problem ethical dilemma (respond in German).
 
 Create a JSON object with:
-- scenario: A detailed description of the trolley problem situation (max 300 chars)
-- option_a: First choice the user can make (max 100 chars)
-- option_b: Second choice the user can make (max 100 chars)
+- scenario: A vivid and detailed description of the ethical dilemma situation
+- option_a: First choice the user can make (describe consequences and stakes)
+- option_b: Second choice the user can make (describe consequences and stakes)
 
 Make the dilemma:
 1. Thought-provoking and genuinely difficult to choose
 2. Morally ambiguous with no clear "right" answer
-3. Creative and unexpected (not the classic trolley problem)
-4. Engaging and relevant to modern life or gaming culture
+3. Creative, unexpected, and original (avoid classic trolley problem clichés)
+4. Engaging and relevant to modern life, gaming culture, or social situations
 5. Include real stakes and consequences for both choices{personalization_context}
+6. Vary themes: philosophical, social, personal, technological, cultural
+7. Make each scenario feel completely different and fresh
 
-The dilemma should be dark, humorous, or absurd in true Discord bot fashion, but still philosophically interesting."""
+The dilemma should be dark, humorous, or absurd in true Discord bot fashion, but still philosophically interesting and thought-provoking. Be creative and original!"""
 
     try:
         # Use the proper API function with a specific model

@@ -446,13 +446,38 @@ def initialize_database():
                 response_id INT AUTO_INCREMENT PRIMARY KEY,
                 user_id BIGINT NOT NULL,
                 display_name VARCHAR(255) NOT NULL,
+                problem_id INT NULL,
                 scenario_summary VARCHAR(255) NOT NULL,
                 chosen_option CHAR(1) NOT NULL,
                 responded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 INDEX idx_user_id (user_id),
+                INDEX idx_problem_id (problem_id),
                 INDEX idx_responded_at (responded_at)
             )
         """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS trolly_problems (
+                problem_id INT AUTO_INCREMENT PRIMARY KEY,
+                scenario TEXT NOT NULL,
+                option_a VARCHAR(255) NOT NULL,
+                option_b VARCHAR(255) NOT NULL,
+                scenario_hash VARCHAR(64) UNIQUE,
+                times_presented INT NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_used_at TIMESTAMP NULL,
+                INDEX idx_scenario_hash (scenario_hash),
+                INDEX idx_times_presented (times_presented),
+                INDEX idx_last_used (last_used_at)
+            )
+        """)
+        
+        # Add problem_id column to trolly_responses if it doesn't exist
+        cursor.execute("SHOW COLUMNS FROM trolly_responses LIKE 'problem_id'")
+        if not cursor.fetchone():
+            logger.info("Adding problem_id column to trolly_responses table")
+            cursor.execute("ALTER TABLE trolly_responses ADD COLUMN problem_id INT NULL AFTER display_name")
+            cursor.execute("ALTER TABLE trolly_responses ADD INDEX idx_problem_id (problem_id)")
 
         logger.info("Database tables checked/created successfully")
     except mysql.connector.Error as err:
