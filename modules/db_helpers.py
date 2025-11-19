@@ -440,6 +440,19 @@ def initialize_database():
                 FOREIGN KEY (case_id) REFERENCES detective_cases(case_id) ON DELETE CASCADE
             )
         """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS trolly_responses (
+                response_id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                display_name VARCHAR(255) NOT NULL,
+                scenario_summary VARCHAR(255) NOT NULL,
+                chosen_option CHAR(1) NOT NULL,
+                responded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_user_id (user_id),
+                INDEX idx_responded_at (responded_at)
+            )
+        """)
 
         logger.info("Database tables checked/created successfully")
     except mysql.connector.Error as err:

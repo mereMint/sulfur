@@ -962,23 +962,54 @@ async def on_presence_update(before, after):
                 )
                 last_spotify_log[user_id] = current_song
 
-        # --- NEW: Prioritize non-custom activities ---
+        # --- NEW: Prioritize non-custom activities and track by type ---
         # Find the most "important" activity to log.
-        # Order of importance: Game > Spotify > Other Activity > Custom Status
+        # Order of importance: Game > Streaming > Watching > Listening (Spotify) > Other Activity > Custom Status
         primary_activity = next((act for act in after.activities if isinstance(act, discord.Game)), None)
+        activity_type = "playing"
+        
         if not primary_activity:
+            # Check for streaming
+            primary_activity = next((act for act in after.activities if isinstance(act, discord.Streaming)), None)
+            if primary_activity:
+                activity_type = "streaming"
+        
+        if not primary_activity:
+            # Check for Spotify
             primary_activity = next((act for act in after.activities if isinstance(act, discord.Spotify)), None)
+            if primary_activity:
+                activity_type = "listening"
+        
         if not primary_activity:
+            # Check for other activities (watching, etc.)
             primary_activity = next((act for act in after.activities if not isinstance(act, discord.CustomActivity)), None)
+            if primary_activity:
+                # Determine activity type from discord.ActivityType
+                if hasattr(primary_activity, 'type'):
+                    if primary_activity.type == discord.ActivityType.watching:
+                        activity_type = "watching"
+                    elif primary_activity.type == discord.ActivityType.listening:
+                        activity_type = "listening"
+                    elif primary_activity.type == discord.ActivityType.streaming:
+                        activity_type = "streaming"
+                    elif primary_activity.type == discord.ActivityType.playing:
+                        activity_type = "playing"
+                    else:
+                        activity_type = "other"
+                else:
+                    activity_type = "other"
+        
         if not primary_activity:
             primary_activity = next((act for act in after.activities if isinstance(act, discord.CustomActivity)), None)
+            activity_type = "custom"
 
         # Update the database with the new presence info
         await db_helpers.update_user_presence(
             user_id=after.id,
             display_name=after.display_name,
             status=str(after.status),
-            activity_name=primary_activity.name if primary_activity and hasattr(primary_activity, 'name') else (primary_activity.state if primary_activity and hasattr(primary_activity, 'state') else None)
+            activity_name=primary_activity.name if primary_activity and hasattr(primary_activity, 'name') else (primary_activity.state if primary_activity and hasattr(primary_activity, 'state') else None),
+            activity_type=activity_type
         )
 
         # --- NEW: Log generic activity for Wrapped ---
@@ -4818,6 +4849,7 @@ class RussianRouletteView(discord.ui.View):
 
 # --- Detective Game ---
 from modules import detective_game
+from modules import trolly_problem
 
 # Active detective games
 active_detective_games = {}
@@ -5216,6 +5248,162 @@ async def detective(interaction: discord.Interaction):
             ephemeral=True
         )
 
+
+# --- Trolly Problem Game View ---
+
+class TrollyProblemView(discord.ui.View):
+    """UI view for Trolly Problem dilemmas."""
+    
+    def __init__(self, problem: trolly_problem.TrollyProblem, user_id: int, user_name: str):
+        super().__init__(timeout=180)  # 3 minutes to decide
+        self.problem = problem
+        self.user_id = user_id
+        self.user_name = user_name
+        self.choice_made = False
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht dein Dilemma!", ephemeral=True)
+            return False
+        return True
+    
+    @discord.ui.button(label="Option A", style=discord.ButtonStyle.danger, emoji="🅰️")
+    async def option_a_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._handle_choice(interaction, 'a')
+    
+    @discord.ui.button(label="Option B", style=discord.ButtonStyle.primary, emoji="🅱️")
+    async def option_b_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._handle_choice(interaction, 'b')
+    
+    async def _handle_choice(self, interaction: discord.Interaction, choice: str):
+        """Handle user's choice."""
+        if self.choice_made:
+            await interaction.response.send_message("Du hast bereits gewählt!", ephemeral=True)
+            return
+        
+        self.choice_made = True
+        await interaction.response.defer()
+        
+        # Save the response
+        await trolly_problem.save_trolly_response(
+            db_helpers,
+            self.user_id,
+            self.user_name,
+            self.problem.problem_id,
+            choice,
+            self.problem.scenario
+        )
+        
+        # Create result embed
+        chosen_option = self.problem.option_a if choice == 'a' else self.problem.option_b
+        other_option = self.problem.option_b if choice == 'a' else self.problem.option_a
+        
+        embed = discord.Embed(
+            title="⚖️ Deine Wahl wurde registriert",
+            description=f"Du hast gewählt: **Option {choice.upper()}**",
+            color=discord.Color.dark_red() if choice == 'a' else discord.Color.blue()
+        )
+        
+        embed.add_field(
+            name="Deine Entscheidung",
+            value=chosen_option,
+            inline=False
+        )
+        
+        embed.add_field(
+            name="Du hast abgelehnt",
+            value=other_option,
+            inline=False
+        )
+        
+        # Get user stats
+        stats = await trolly_problem.get_user_trolly_stats(db_helpers, self.user_id)
+        if stats and stats['total_responses'] > 1:
+            embed.add_field(
+                name="📊 Deine Trolly-Statistiken",
+                value=f"Gesamt beantwortet: `{stats['total_responses']}`\n"
+                      f"Option A gewählt: `{stats['chose_a']}`\n"
+                      f"Option B gewählt: `{stats['chose_b']}`",
+                inline=False
+            )
+        
+        embed.set_footer(text="Es gibt keine richtige Antwort. Oder vielleicht doch? 🤔")
+        
+        # Disable buttons
+        for item in self.children:
+            item.disabled = True
+        
+        await interaction.edit_original_response(embed=embed, view=self)
+
+
+@tree.command(name="trolly", description="Stelle dich einem moralischen Dilemma!")
+async def trolly(interaction: discord.Interaction):
+    """Present user with a personalized trolley problem."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        user_id = interaction.user.id
+        display_name = interaction.user.display_name
+        
+        # Gather user data for personalization
+        user_data = await trolly_problem.gather_user_data_for_trolly(
+            db_helpers,
+            user_id,
+            display_name
+        )
+        
+        # Fetch server bestie name if we have an ID
+        if user_data.get('server_bestie_id'):
+            try:
+                bestie = await client.fetch_user(int(user_data['server_bestie_id']))
+                user_data['server_bestie'] = bestie.display_name
+            except:
+                pass
+        
+        # Generate the trolly problem
+        problem = await trolly_problem.generate_trolly_problem(
+            api_helpers,
+            config,
+            GEMINI_API_KEY,
+            OPENAI_API_KEY,
+            user_data
+        )
+        
+        # Create embed
+        embed = discord.Embed(
+            title="⚖️ Das Trolly-Problem",
+            description=problem.scenario,
+            color=discord.Color.dark_purple()
+        )
+        
+        embed.add_field(
+            name="🅰️ Option A",
+            value=problem.option_a,
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🅱️ Option B",
+            value=problem.option_b,
+            inline=False
+        )
+        
+        if problem.personalization_level == "personalized":
+            embed.set_footer(text="✨ Dieses Dilemma wurde basierend auf deinen Daten personalisiert!")
+        else:
+            embed.set_footer(text="💡 Spiele mehr, um personalisierte Dilemmata zu erhalten!")
+        
+        # Create view
+        view = TrollyProblemView(problem, user_id, display_name)
+        
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error in trolly command: {e}", exc_info=True)
+        await interaction.followup.send(
+            f"❌ Fehler beim Generieren des Trolly-Problems: {str(e)}",
+            ephemeral=True
+        )
 
 
 @tree.command(name="rr", description="Spiele Russian Roulette!")
