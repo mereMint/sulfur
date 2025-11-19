@@ -406,8 +406,10 @@ def initialize_database():
                 evidence JSON NOT NULL,
                 hints JSON NOT NULL,
                 difficulty INT NOT NULL DEFAULT 1,
+                case_hash VARCHAR(64) NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_difficulty (difficulty)
+                INDEX idx_difficulty (difficulty),
+                INDEX idx_case_hash (case_hash)
             )
         """)
         
@@ -418,6 +420,7 @@ def initialize_database():
                 cases_solved INT NOT NULL DEFAULT 0,
                 cases_failed INT NOT NULL DEFAULT 0,
                 total_cases_played INT NOT NULL DEFAULT 0,
+                cases_at_current_difficulty INT NOT NULL DEFAULT 0,
                 last_played_at TIMESTAMP NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
