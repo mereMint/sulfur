@@ -2413,6 +2413,12 @@ class ProfilePageView(discord.ui.View):
         embed = await self._create_game_stats_embed()
         await interaction.followup.send(embed=embed, ephemeral=True)
     
+    @discord.ui.button(label="🔍 Detective Stats", style=discord.ButtonStyle.secondary, row=0)
+    async def detective_stats_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        embed = await self._create_detective_stats_embed()
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    
     async def _create_werwolf_stats_embed(self):
         """Create embed with Werwolf-specific stats."""
         profile_data, error = await db_helpers.get_player_profile(self.user.id)
@@ -2537,10 +2543,158 @@ class ProfilePageView(discord.ui.View):
                 description=f"Fehler beim Laden der Statistiken: {str(e)}",
                 color=discord.Color.red()
             )
+    
+    async def _create_detective_stats_embed(self):
+        """Create embed with Detective game stats."""
+        try:
+            stats = await detective_game.get_user_detective_stats(db_helpers, self.user.id)
+            
+            if not stats:
+                return discord.Embed(
+                    title="Fehler",
+                    description="Konnte Detective-Statistiken nicht laden.",
+                    color=discord.Color.red()
+                )
+            
+            embed = discord.Embed(
+                title=f"🔍 Detective Stats - {self.user.display_name}",
+                description="Deine Mordfall-Ermittlungen",
+                color=discord.Color.dark_blue()
+            )
+            embed.set_thumbnail(url=self.user.display_avatar.url)
+            
+            # Difficulty and Progress
+            difficulty = stats['current_difficulty']
+            difficulty_stars = "⭐" * difficulty
+            embed.add_field(
+                name="Aktueller Schwierigkeitsgrad",
+                value=f"{difficulty_stars} **Stufe {difficulty}/5**",
+                inline=False
+            )
+            
+            # Progress to next difficulty
+            progress = stats['progress_to_next_difficulty']
+            if difficulty < 5:
+                progress_bar_length = 10
+                filled = min(progress, 10)
+                bar = '█' * filled + '░' * (progress_bar_length - filled)
+                embed.add_field(
+                    name="Fortschritt zur nächsten Stufe",
+                    value=f"`{bar}` **{progress}/10** Fälle gelöst",
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="🏆 Maximale Stufe erreicht!",
+                    value="Du bist ein Meisterdetektiv!",
+                    inline=False
+                )
+            
+            # Case statistics
+            total_cases = stats['total_cases_played']
+            cases_solved = stats['cases_solved']
+            cases_failed = stats['cases_failed']
+            solve_rate = stats['solve_rate']
+            
+            embed.add_field(name="Fälle gesamt", value=f"`{total_cases}`", inline=True)
+            embed.add_field(name="Gelöst", value=f"✅ `{cases_solved}`", inline=True)
+            embed.add_field(name="Gescheitert", value=f"❌ `{cases_failed}`", inline=True)
+            
+            # Solve rate bar
+            bar_length = 20
+            filled = int((solve_rate / 100) * bar_length)
+            bar = '█' * filled + '░' * (bar_length - filled)
+            
+            # Determine rating based on solve rate
+            if solve_rate >= 80:
+                rating = "🏆 Meisterdetektiv"
+            elif solve_rate >= 60:
+                rating = "🎖️ Erfahrener Ermittler"
+            elif solve_rate >= 40:
+                rating = "🔍 Kompetenter Detective"
+            elif solve_rate >= 20:
+                rating = "📝 Anfänger-Ermittler"
+            else:
+                rating = "🤔 Braucht mehr Übung"
+            
+            embed.add_field(
+                name=f"Lösungsrate: {solve_rate:.1f}%",
+                value=f"`{bar}`\n{rating}",
+                inline=False
+            )
+            
+            # Last played
+            if stats['last_played_at']:
+                last_played = stats['last_played_at']
+                embed.set_footer(text=f"Zuletzt gespielt: {last_played.strftime('%d.%m.%Y %H:%M')}")
+            else:
+                embed.set_footer(text="Noch keinen Fall gespielt!")
+            
+            return embed
+            
+        except Exception as e:
+            logger.error(f"Error creating detective stats embed: {e}", exc_info=True)
+            return discord.Embed(
+                title="Fehler",
+                description=f"Fehler beim Laden der Detective-Statistiken: {str(e)}",
+                color=discord.Color.red()
+            )
+
+
+
+class LeaderboardPageView(discord.ui.View):
+    """View for paginated leaderboard with different categories."""
+    
+    def __init__(self, config: dict):
+        super().__init__(timeout=180)
+        self.config = config
+    
+    @discord.ui.button(label="🐺 Werwolf Leaderboard", style=discord.ButtonStyle.secondary)
+    async def werwolf_leaderboard_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        embed = await self._create_werwolf_leaderboard_embed()
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    
+    async def _create_werwolf_leaderboard_embed(self):
+        """Create embed with Werwolf leaderboard."""
+        leaderboard, error = await db_helpers.get_leaderboard()
+        
+        if error:
+            return discord.Embed(
+                title="Fehler",
+                description=f"Fehler beim Laden: {error}",
+                color=discord.Color.red()
+            )
+        
+        if not leaderboard:
+            return discord.Embed(
+                title="🐺 Werwolf Leaderboard 🐺",
+                description="Es gibt noch keine Statistiken. Spielt erst mal eine Runde!",
+                color=get_embed_color(self.config)
+            )
+        
+        embed = discord.Embed(
+            title="🐺 Werwolf Leaderboard 🐺",
+            description="Die Top-Spieler mit den meisten Siegen.",
+            color=get_embed_color(self.config)
+        )
+        
+        leaderboard_text = ""
+        for i, player in enumerate(leaderboard):
+            rank = i + 1
+            win_loss_ratio = player['wins'] / (player['wins'] + player['losses']) if (player['wins'] + player['losses']) > 0 else 0
+            leaderboard_text += f"**{rank}. {player['display_name']}**\n"
+            leaderboard_text += f"   Wins: `{player['wins']}` | Losses: `{player['losses']}` | W/L: `{win_loss_ratio:.2f}`\n"
+        
+        embed.add_field(name="Rangliste", value=leaderboard_text, inline=False)
+        embed.set_footer(text="Wer hier nicht oben steht, ist ein Noob :xdx:")
+        
+        return embed
+
 
 @tree.command(name="leaderboard", description="Zeigt das globale Level-Leaderboard an.")
 async def leaderboard(interaction: discord.Interaction):
-    """Displays the global level leaderboard."""
+    """Displays the global level leaderboard with pagination for different stats."""
     await interaction.response.defer()
 
     leaderboard_data, error = await db_helpers.get_level_leaderboard()
@@ -2560,7 +2714,10 @@ async def leaderboard(interaction: discord.Interaction):
         leaderboard_text += f"**{i + 1}. {player['display_name']}** - Level {player['level']} ({player['xp']} XP)\n"
 
     embed.add_field(name="Top 10", value=leaderboard_text, inline=False)
-    await interaction.followup.send(embed=embed)
+    
+    # Add view for switching to Werwolf leaderboard
+    view = LeaderboardPageView(config)
+    await interaction.followup.send(embed=embed, view=view)
 
 @tree.command(name="spotify", description="Zeigt deine Spotify-Statistiken an.")
 @app_commands.describe(user="Der Benutzer, dessen Statistiken du sehen möchtest (optional).")
@@ -2646,35 +2803,6 @@ async def spotify_stats(interaction: discord.Interaction, user: discord.Member =
 
 
 
-
-
-@tree.command(name="stats", description="Zeigt die Werwolf-Statistiken und das Leaderboard an.")
-async def stats(interaction: discord.Interaction):
-    """Displays the Werwolf leaderboard."""
-    await interaction.response.defer()
-
-    leaderboard, error = await db_helpers.get_leaderboard()
-
-    if error:
-        await interaction.followup.send(error, ephemeral=True)
-        return
-
-    if not leaderboard:
-        await interaction.followup.send("Es gibt noch keine Statistiken. Spielt erst mal eine Runde!", ephemeral=True)
-        return
-
-    embed = discord.Embed(title="🐺 Werwolf Leaderboard 🐺", description="Die Top-Spieler mit den meisten Siegen.", color=get_embed_color(config))
-
-    leaderboard_text = ""
-    for i, player in enumerate(leaderboard):
-        rank = i + 1
-        win_loss_ratio = player['wins'] / (player['wins'] + player['losses']) if (player['wins'] + player['losses']) > 0 else 0
-        leaderboard_text += f"**{rank}. {player['display_name']}**\n"
-        leaderboard_text += f"   Wins: `{player['wins']}` | Losses: `{player['losses']}` | W/L Ratio: `{win_loss_ratio:.2f}`\n"
-
-    embed.add_field(name="Rangliste", value=leaderboard_text, inline=False)
-    embed.set_footer(text="Wer hier nicht oben steht, ist ein Noob :xdx:")
-    await interaction.followup.send(embed=embed)
 
 # --- NEW: Wrapped Registration Commands ---
 
