@@ -225,6 +225,10 @@ async def get_emoji_context_for_ai():
     Combines pre-configured emojis from server_emojis.json with dynamically analyzed ones.
     Prioritizes application emojis (bot's own emojis).
     Returns a string that can be included in the system prompt.
+    
+    Note: This should only include application emojis (bot's own uploaded emojis) that work
+    everywhere, not server-specific emojis. The replace_emoji_tags() function will handle
+    guild-specific emoji restrictions at message send time.
     """
     # Load pre-configured server emojis
     server_emoji_config = load_server_emojis()
@@ -238,7 +242,8 @@ async def get_emoji_context_for_ai():
     
     emoji_text = "\n\n**Available Custom Emojis:**\n"
     emoji_text += "You have access to custom emojis. Use them to make your responses more expressive!\n"
-    emoji_text += "Use the format :<emoji_name>: in your responses (do NOT add backticks, quotes, or other symbols around emojis).\n\n"
+    emoji_text += "Use the format :<emoji_name>: in your responses (do NOT add backticks, quotes, or other symbols around emojis).\n"
+    emoji_text += "**IMPORTANT:** Only use emojis from the lists below. These are your personal application emojis that work everywhere.\n\n"
     
     # Add configured emojis (from server_emojis.json)
     if configured_emojis:

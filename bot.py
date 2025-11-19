@@ -414,11 +414,19 @@ def sanitize_malformed_emojis(text):
     text = re.sub(r'(?<!`)`:(\w+):`(?!`)', r':\1:', text)
     return text
 
-async def replace_emoji_tags(text, client):
+async def replace_emoji_tags(text, client, guild=None):
     """
     Replaces :emoji_name: tags with full Discord emoji format <:emoji_name:emoji_id>.
     Keeps existing full format emojis unchanged.
     Prioritizes application emojis (bot's own emojis) over server emojis.
+    
+    Args:
+        text: The text containing emoji tags to replace
+        client: The Discord client instance
+        guild: Optional guild context. If provided, only uses emojis from this guild + application emojis.
+               If None (DM context), only uses application emojis.
+    
+    This prevents the bot from using emojis from other servers that users cannot see.
     """
     # First, sanitize any malformed emoji patterns
     text = sanitize_malformed_emojis(text)
@@ -437,14 +445,15 @@ async def replace_emoji_tags(text, client):
     # This allows us to get the full emoji format with ID
     emoji_map = {}
     
-    # First, add server emojis
-    for emoji in client.emojis:
-        # Store with exact name and lowercase for case-insensitive matching
-        if emoji.name not in emoji_map:
-            emoji_map[emoji.name] = emoji
-        emoji_map[emoji.name.lower()] = emoji
+    # Only add server emojis if a guild context is provided
+    if guild:
+        for emoji in guild.emojis:
+            # Store with exact name and lowercase for case-insensitive matching
+            if emoji.name not in emoji_map:
+                emoji_map[emoji.name] = emoji
+            emoji_map[emoji.name.lower()] = emoji
     
-    # Then, prioritize application emojis (they will override server emojis with the same name)
+    # Always prioritize application emojis (they work everywhere - DMs and all servers)
     try:
         app_emojis = await client.fetch_application_emojis()
         for emoji in app_emojis:
@@ -1343,9 +1352,9 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
             bestie_embed.description = f"Diesen Monat warst du unzertrennlich mit...\n\n## {bestie_user.mention}"
             bestie_embed.set_thumbnail(url=bestie_user.display_avatar.url)
         except discord.NotFound:
-            bestie_embed.description = await replace_emoji_tags("Dein Server-Bestie scheint ein Geist zu sein... oder hat den Server verlassen. :dono:", client)
+            bestie_embed.description = await replace_emoji_tags("Dein Server-Bestie scheint ein Geist zu sein... oder hat den Server verlassen. :dono:", client, None)
     else:
-        bestie_embed.description = await replace_emoji_tags("Du bist diesen Monat eher ein Einzelgänger gewesen und hast niemanden oft erwähnt oder auf ihn geantwortet. :gege:", client)
+        bestie_embed.description = await replace_emoji_tags("Du bist diesen Monat eher ein Einzelgänger gewesen und hast niemanden oft erwähnt oder auf ihn geantwortet. :gege:", client, None)
     bestie_embed.set_footer(text="Basiert darauf, wen du am häufigsten erwähnst oder wem du antwortest.")
     pages.append(bestie_embed)
 
@@ -1570,7 +1579,7 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
 
     summary_text, _ = await get_wrapped_summary_from_api(user.display_name, gemini_stats, config, GEMINI_API_KEY, OPENAI_API_KEY)
     print(f"    - [Wrapped] Generated Gemini summary for {user.name}.")
-    summary_embed = discord.Embed(title="Mein Urteil über dich", description=f"## _{await replace_emoji_tags(summary_text, client)}_", color=color)
+    summary_embed = discord.Embed(title="Mein Urteil über dich", description=f"## _{await replace_emoji_tags(summary_text, client, None)}_", color=color)
     summary_embed.set_footer(text="Nächstes Mal gibst du dir mehr Mühe, ja? :erm:")
     pages.append(summary_embed)
 
@@ -5351,7 +5360,7 @@ async def on_message(message):
 
             logger.debug(f"[CHATBOT] Processing emoji tags in response")
             print(f"[CHATBOT] Processing emoji tags...")
-            final_response = await replace_emoji_tags(response_text, client)
+            final_response = await replace_emoji_tags(response_text, client, message.guild)
             logger.info(f"[CHATBOT] Sending response to {message.author.name}")
             print(f"[CHATBOT] Sending response chunks to channel...")
             
