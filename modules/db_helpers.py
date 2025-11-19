@@ -406,8 +406,10 @@ def initialize_database():
                 evidence JSON NOT NULL,
                 hints JSON NOT NULL,
                 difficulty INT NOT NULL DEFAULT 1,
+                case_hash VARCHAR(64) NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_difficulty (difficulty)
+                INDEX idx_difficulty (difficulty),
+                INDEX idx_case_hash (case_hash)
             )
         """)
         
@@ -418,6 +420,7 @@ def initialize_database():
                 cases_solved INT NOT NULL DEFAULT 0,
                 cases_failed INT NOT NULL DEFAULT 0,
                 total_cases_played INT NOT NULL DEFAULT 0,
+                cases_at_current_difficulty INT NOT NULL DEFAULT 0,
                 last_played_at TIMESTAMP NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -435,6 +438,19 @@ def initialize_database():
                 PRIMARY KEY (user_id, case_id),
                 INDEX idx_user_completed (user_id, completed),
                 FOREIGN KEY (case_id) REFERENCES detective_cases(case_id) ON DELETE CASCADE
+            )
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS trolly_responses (
+                response_id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                display_name VARCHAR(255) NOT NULL,
+                scenario_summary VARCHAR(255) NOT NULL,
+                chosen_option CHAR(1) NOT NULL,
+                responded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_user_id (user_id),
+                INDEX idx_responded_at (responded_at)
             )
         """)
 
@@ -1577,7 +1593,7 @@ async def get_user_wrapped_stats(user_id, stat_period):
 
 async def get_wrapped_extra_stats(user_id, stat_period):
     """
-    Fetches the new Wrapped stats (Bestie, Prime Time, VC stats, Quests, Games) for a user.
+    Fetches comprehensive Wrapped stats for a user including detective, quests, games, shop purchases, etc.
     """
     if not db_pool:
         logger.warning("Database pool not available, cannot get wrapped extra stats")
@@ -1602,7 +1618,15 @@ async def get_wrapped_extra_stats(user_id, stat_period):
         "games_played": 0,
         "games_won": 0,
         "total_bet": 0,
-        "total_won": 0
+        "total_won": 0,
+        "detective_cases_solved": 0,
+        "detective_cases_failed": 0,
+        "detective_total_cases": 0,
+        "most_bought_item": None,
+        "most_bought_item_count": 0,
+        "least_bought_item": None,
+        "least_bought_item_count": 0,
+        "total_purchases": 0
     }
 
     try:
@@ -1674,6 +1698,48 @@ async def get_wrapped_extra_stats(user_id, stat_period):
             stats["games_won"] = game_stats_result['games_won'] or 0
             stats["total_bet"] = game_stats_result['total_bet'] or 0
             stats["total_won"] = game_stats_result['total_won'] or 0
+
+        # 7. Detective Game Stats
+        detective_stats_query = """
+            SELECT 
+                COUNT(CASE WHEN p.completed = TRUE AND p.solved = TRUE THEN 1 END) as cases_solved,
+                COUNT(CASE WHEN p.completed = TRUE AND p.solved = FALSE THEN 1 END) as cases_failed,
+                COUNT(*) as total_cases
+            FROM detective_user_progress p
+            WHERE p.user_id = %s 
+            AND DATE(p.completed_at) BETWEEN %s AND %s
+        """
+        cursor.execute(detective_stats_query, (user_id, start_date, end_date))
+        detective_result = cursor.fetchone()
+        if detective_result:
+            stats["detective_cases_solved"] = detective_result['cases_solved'] or 0
+            stats["detective_cases_failed"] = detective_result['cases_failed'] or 0
+            stats["detective_total_cases"] = detective_result['total_cases'] or 0
+
+        # 8. Shop Purchase Stats
+        # Get most and least bought items
+        purchase_stats_query = """
+            SELECT 
+                item_name,
+                COUNT(*) as purchase_count
+            FROM shop_purchases
+            WHERE user_id = %s 
+            AND DATE(purchased_at) BETWEEN %s AND %s
+            GROUP BY item_name
+            ORDER BY purchase_count DESC
+        """
+        cursor.execute(purchase_stats_query, (user_id, start_date, end_date))
+        purchase_results = cursor.fetchall()
+        
+        if purchase_results:
+            stats["total_purchases"] = sum(p['purchase_count'] for p in purchase_results)
+            stats["most_bought_item"] = purchase_results[0]['item_name']
+            stats["most_bought_item_count"] = purchase_results[0]['purchase_count']
+            
+            if len(purchase_results) > 1:
+                # Get least bought (last in sorted list)
+                stats["least_bought_item"] = purchase_results[-1]['item_name']
+                stats["least_bought_item_count"] = purchase_results[-1]['purchase_count']
 
         return stats
     except mysql.connector.Error as err:

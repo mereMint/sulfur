@@ -6,6 +6,7 @@ AI-generated murder mystery cases with suspect investigation.
 import discord
 import random
 import json
+import hashlib
 from datetime import datetime, timezone
 from modules.logger_utils import bot_logger as logger
 
@@ -303,6 +304,7 @@ async def get_user_difficulty(db_helpers, user_id: int) -> int:
 async def update_user_stats(db_helpers, user_id: int, solved: bool):
     """
     Update user stats after completing a case.
+    Difficulty increases every 10 cases solved.
     
     Args:
         db_helpers: Database helpers module
@@ -319,24 +321,58 @@ async def update_user_stats(db_helpers, user_id: int, solved: bool):
             logger.warning("Could not get DB connection in update_user_stats")
             return
             
-        cursor = cnx.cursor()
+        cursor = cnx.cursor(dictionary=True)
         try:
-            # Increment difficulty if solved, cap at 5
+            # First get current stats
+            cursor.execute(
+                """
+                SELECT current_difficulty, cases_solved, cases_at_current_difficulty
+                FROM detective_user_stats
+                WHERE user_id = %s
+                """,
+                (user_id,)
+            )
+            current_stats = cursor.fetchone()
+            
             if solved:
-                cursor.execute(
-                    """
-                    INSERT INTO detective_user_stats 
-                    (user_id, current_difficulty, cases_solved, total_cases_played, last_played_at)
-                    VALUES (%s, 2, 1, 1, NOW())
-                    ON DUPLICATE KEY UPDATE 
-                        current_difficulty = LEAST(current_difficulty + 1, 5),
-                        cases_solved = cases_solved + 1,
-                        total_cases_played = total_cases_played + 1,
-                        last_played_at = NOW()
-                    """,
-                    (user_id,)
-                )
+                if current_stats:
+                    cases_at_difficulty = current_stats.get('cases_at_current_difficulty', 0)
+                    current_difficulty = current_stats.get('current_difficulty', 1)
+                    
+                    # Increment cases at current difficulty
+                    cases_at_difficulty += 1
+                    
+                    # Check if user should level up (10 cases at current difficulty)
+                    new_difficulty = current_difficulty
+                    if cases_at_difficulty >= 10 and current_difficulty < 5:
+                        new_difficulty = current_difficulty + 1
+                        cases_at_difficulty = 0  # Reset counter for new difficulty
+                        logger.info(f"User {user_id} leveled up to difficulty {new_difficulty}")
+                    
+                    cursor.execute(
+                        """
+                        UPDATE detective_user_stats
+                        SET current_difficulty = %s,
+                            cases_solved = cases_solved + 1,
+                            total_cases_played = total_cases_played + 1,
+                            cases_at_current_difficulty = %s,
+                            last_played_at = NOW()
+                        WHERE user_id = %s
+                        """,
+                        (new_difficulty, cases_at_difficulty, user_id)
+                    )
+                else:
+                    # New user
+                    cursor.execute(
+                        """
+                        INSERT INTO detective_user_stats 
+                        (user_id, current_difficulty, cases_solved, total_cases_played, cases_at_current_difficulty, last_played_at)
+                        VALUES (%s, 1, 1, 1, 1, NOW())
+                        """,
+                        (user_id,)
+                    )
             else:
+                # Failed case - increment total played but don't change difficulty
                 cursor.execute(
                     """
                     INSERT INTO detective_user_stats 
@@ -361,6 +397,68 @@ async def update_user_stats(db_helpers, user_id: int, solved: bool):
         logger.error(f"Error updating user stats: {e}", exc_info=True)
 
 
+def compute_case_hash(case_data: dict) -> str:
+    """
+    Compute a hash for a case to ensure uniqueness.
+    Hash is based on title, victim, suspects names, and murderer.
+    """
+    # Create a canonical string representation
+    hash_components = [
+        case_data.get('title', ''),
+        case_data.get('victim', ''),
+        str(case_data.get('murderer_index', 0)),
+    ]
+    
+    # Add suspect names
+    suspects = case_data.get('suspects', [])
+    for suspect in suspects:
+        hash_components.append(suspect.get('name', ''))
+    
+    # Combine and hash
+    combined = '|'.join(hash_components).lower()
+    return hashlib.sha256(combined.encode('utf-8')).hexdigest()
+
+
+async def check_case_exists(db_helpers, case_hash: str) -> bool:
+    """
+    Check if a case with this hash already exists.
+    
+    Args:
+        db_helpers: Database helpers module
+        case_hash: SHA256 hash of case
+    
+    Returns:
+        True if case exists, False otherwise
+    """
+    try:
+        if not db_helpers.db_pool:
+            return False
+            
+        cnx = db_helpers.db_pool.get_connection()
+        if not cnx:
+            return False
+            
+        cursor = cnx.cursor()
+        try:
+            cursor.execute(
+                """
+                SELECT COUNT(*) FROM detective_cases
+                WHERE case_hash = %s
+                """,
+                (case_hash,)
+            )
+            count = cursor.fetchone()[0]
+            return count > 0
+            
+        finally:
+            cursor.close()
+            cnx.close()
+            
+    except Exception as e:
+        logger.error(f"Error checking case existence: {e}", exc_info=True)
+        return False
+
+
 async def save_case_to_db(db_helpers, case_data: dict, difficulty: int) -> int:
     """
     Save a generated case to the database.
@@ -377,6 +475,14 @@ async def save_case_to_db(db_helpers, case_data: dict, difficulty: int) -> int:
         if not db_helpers.db_pool:
             logger.warning("Database pool not available in save_case_to_db")
             return None
+        
+        # Compute hash for uniqueness check
+        case_hash = compute_case_hash(case_data)
+        
+        # Check if case already exists
+        if await check_case_exists(db_helpers, case_hash):
+            logger.warning(f"Case with hash {case_hash[:8]}... already exists, skipping save")
+            return None
             
         cnx = db_helpers.db_pool.get_connection()
         if not cnx:
@@ -388,8 +494,8 @@ async def save_case_to_db(db_helpers, case_data: dict, difficulty: int) -> int:
             cursor.execute(
                 """
                 INSERT INTO detective_cases 
-                (title, description, location, victim, suspects, murderer_index, evidence, hints, difficulty)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                (title, description, location, victim, suspects, murderer_index, evidence, hints, difficulty, case_hash)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     case_data.get('title', ''),
@@ -400,13 +506,14 @@ async def save_case_to_db(db_helpers, case_data: dict, difficulty: int) -> int:
                     case_data.get('murderer_index', 0),
                     json.dumps(case_data.get('evidence', [])),
                     json.dumps(case_data.get('hints', [])),
-                    difficulty
+                    difficulty,
+                    case_hash
                 )
             )
             cnx.commit()
             case_id = cursor.lastrowid
             
-            logger.info(f"Saved case to database with ID {case_id}, difficulty {difficulty}")
+            logger.info(f"Saved new unique case to database with ID {case_id}, difficulty {difficulty}, hash {case_hash[:8]}...")
             return case_id
             
         finally:
@@ -657,6 +764,7 @@ Make the case:
 async def get_or_generate_case(db_helpers, api_helpers, config: dict, gemini_api_key: str, openai_api_key: str, user_id: int):
     """
     Get an unsolved case for the user or generate a new one.
+    Ensures that generated cases are unique.
     
     Args:
         db_helpers: Database helpers module
@@ -680,18 +788,21 @@ async def get_or_generate_case(db_helpers, api_helpers, config: dict, gemini_api
             logger.info(f"Found existing unsolved case {case.case_id} for user {user_id} at difficulty {difficulty}")
             return case
         
-        # No unsolved case found, generate a new one
+        # No unsolved case found, generate a new unique one
         logger.info(f"Generating new case for user {user_id} at difficulty {difficulty}")
-        case = await generate_case_with_difficulty(
-            api_helpers,
-            config,
-            gemini_api_key,
-            openai_api_key,
-            difficulty
-        )
         
-        # Save the case to database
-        if hasattr(case, 'case_id') and case.case_id is None:
+        # Try up to 3 times to generate a unique case
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            case = await generate_case_with_difficulty(
+                api_helpers,
+                config,
+                gemini_api_key,
+                openai_api_key,
+                difficulty
+            )
+            
+            # Prepare case data for saving
             case_data = {
                 'title': case.case_title,
                 'description': case.case_description,
@@ -702,14 +813,99 @@ async def get_or_generate_case(db_helpers, api_helpers, config: dict, gemini_api
                 'evidence': case.evidence,
                 'hints': case.hints
             }
-            case_id = await save_case_to_db(db_helpers, case_data, difficulty)
-            case.case_id = case_id
+            
+            # Check if this case is unique
+            case_hash = compute_case_hash(case_data)
+            if not await check_case_exists(db_helpers, case_hash):
+                # Unique case found, save it
+                case_id = await save_case_to_db(db_helpers, case_data, difficulty)
+                if case_id:
+                    case.case_id = case_id
+                    logger.info(f"Generated and saved unique case {case_id} for user {user_id}")
+                    return case
+            else:
+                logger.info(f"Generated duplicate case (attempt {attempt + 1}/{max_attempts}), retrying...")
         
-        return case
+        # If all attempts failed, use fallback
+        logger.warning(f"Could not generate unique case after {max_attempts} attempts, using fallback")
+        return create_fallback_case()
         
     except Exception as e:
         logger.error(f"Error in get_or_generate_case: {e}", exc_info=True)
         return create_fallback_case()
 
+
+async def get_user_detective_stats(db_helpers, user_id: int) -> dict:
+    """
+    Get comprehensive detective game statistics for a user.
+    
+    Args:
+        db_helpers: Database helpers module
+        user_id: Discord user ID
+    
+    Returns:
+        Dictionary with detective stats or None
+    """
+    try:
+        if not db_helpers.db_pool:
+            return None
+            
+        cnx = db_helpers.db_pool.get_connection()
+        if not cnx:
+            return None
+            
+        cursor = cnx.cursor(dictionary=True)
+        try:
+            cursor.execute(
+                """
+                SELECT 
+                    current_difficulty,
+                    cases_solved,
+                    cases_failed,
+                    total_cases_played,
+                    cases_at_current_difficulty,
+                    last_played_at
+                FROM detective_user_stats
+                WHERE user_id = %s
+                """,
+                (user_id,)
+            )
+            stats = cursor.fetchone()
+            
+            if not stats:
+                return {
+                    'current_difficulty': 1,
+                    'cases_solved': 0,
+                    'cases_failed': 0,
+                    'total_cases_played': 0,
+                    'cases_at_current_difficulty': 0,
+                    'last_played_at': None,
+                    'solve_rate': 0,
+                    'progress_to_next_difficulty': 0
+                }
+            
+            # Calculate derived stats
+            total_cases = stats['total_cases_played']
+            solve_rate = (stats['cases_solved'] / total_cases * 100) if total_cases > 0 else 0
+            
+            # Progress to next difficulty (out of 10 cases)
+            progress_to_next = stats['cases_at_current_difficulty']
+            
+            return {
+                'current_difficulty': stats['current_difficulty'],
+                'cases_solved': stats['cases_solved'],
+                'cases_failed': stats['cases_failed'],
+                'total_cases_played': total_cases,
+                'cases_at_current_difficulty': stats['cases_at_current_difficulty'],
+                'last_played_at': stats['last_played_at'],
+                'solve_rate': solve_rate,
+                'progress_to_next_difficulty': progress_to_next
+            }
+            
+        finally:
+            cursor.close()
+            cnx.close()
+            
     except Exception as e:
-        logger.error(f"Error granting detective game reward: {e}", exc_info=True)
+        logger.error(f"Error getting detective stats: {e}", exc_info=True)
+        return None

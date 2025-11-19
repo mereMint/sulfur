@@ -962,23 +962,54 @@ async def on_presence_update(before, after):
                 )
                 last_spotify_log[user_id] = current_song
 
-        # --- NEW: Prioritize non-custom activities ---
+        # --- NEW: Prioritize non-custom activities and track by type ---
         # Find the most "important" activity to log.
-        # Order of importance: Game > Spotify > Other Activity > Custom Status
+        # Order of importance: Game > Streaming > Watching > Listening (Spotify) > Other Activity > Custom Status
         primary_activity = next((act for act in after.activities if isinstance(act, discord.Game)), None)
+        activity_type = "playing"
+        
         if not primary_activity:
+            # Check for streaming
+            primary_activity = next((act for act in after.activities if isinstance(act, discord.Streaming)), None)
+            if primary_activity:
+                activity_type = "streaming"
+        
+        if not primary_activity:
+            # Check for Spotify
             primary_activity = next((act for act in after.activities if isinstance(act, discord.Spotify)), None)
+            if primary_activity:
+                activity_type = "listening"
+        
         if not primary_activity:
+            # Check for other activities (watching, etc.)
             primary_activity = next((act for act in after.activities if not isinstance(act, discord.CustomActivity)), None)
+            if primary_activity:
+                # Determine activity type from discord.ActivityType
+                if hasattr(primary_activity, 'type'):
+                    if primary_activity.type == discord.ActivityType.watching:
+                        activity_type = "watching"
+                    elif primary_activity.type == discord.ActivityType.listening:
+                        activity_type = "listening"
+                    elif primary_activity.type == discord.ActivityType.streaming:
+                        activity_type = "streaming"
+                    elif primary_activity.type == discord.ActivityType.playing:
+                        activity_type = "playing"
+                    else:
+                        activity_type = "other"
+                else:
+                    activity_type = "other"
+        
         if not primary_activity:
             primary_activity = next((act for act in after.activities if isinstance(act, discord.CustomActivity)), None)
+            activity_type = "custom"
 
         # Update the database with the new presence info
         await db_helpers.update_user_presence(
             user_id=after.id,
             display_name=after.display_name,
             status=str(after.status),
-            activity_name=primary_activity.name if primary_activity and hasattr(primary_activity, 'name') else (primary_activity.state if primary_activity and hasattr(primary_activity, 'state') else None)
+            activity_name=primary_activity.name if primary_activity and hasattr(primary_activity, 'name') else (primary_activity.state if primary_activity and hasattr(primary_activity, 'state') else None),
+            activity_type=activity_type
         )
 
         # --- NEW: Log generic activity for Wrapped ---
@@ -1549,6 +1580,86 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
         
         quest_game_embed.set_footer(text="Quests & Mini-Games - Deine Aktivität im Bot")
         pages.append(quest_game_embed)
+
+    # --- NEW Page: Detective Game Stats ---
+    if extra_stats.get('detective_total_cases', 0) > 0:
+        detective_embed = discord.Embed(
+            title="🔍 Detective Game Rückblick",
+            description="Deine Ermittlungen diesen Monat",
+            color=discord.Color.dark_blue()
+        )
+        
+        cases_solved = extra_stats.get('detective_cases_solved', 0)
+        cases_failed = extra_stats.get('detective_cases_failed', 0)
+        total_cases = extra_stats.get('detective_total_cases', 0)
+        solve_rate = (cases_solved / total_cases * 100) if total_cases > 0 else 0
+        
+        stats_text = f"**Fälle bearbeitet:** {total_cases}\n"
+        stats_text += f"**Erfolgreich gelöst:** ✅ {cases_solved}\n"
+        stats_text += f"**Gescheitert:** ❌ {cases_failed}\n"
+        stats_text += f"**Erfolgsquote:** {solve_rate:.1f}%\n\n"
+        
+        # Add rating based on solve rate
+        if solve_rate >= 80:
+            rating = "🏆 **Meisterdetektiv!** Du bist ein wahrer Sherlock Holmes!"
+        elif solve_rate >= 60:
+            rating = "🎖️ **Erfahrener Ermittler!** Solide Arbeit!"
+        elif solve_rate >= 40:
+            rating = "🔍 **Kompetenter Detective!** Weiter so!"
+        else:
+            rating = "📝 **Noch in Ausbildung!** Übung macht den Meister!"
+        
+        stats_text += rating
+        
+        detective_embed.add_field(
+            name="📊 Deine Ermittlungen",
+            value=stats_text,
+            inline=False
+        )
+        
+        detective_embed.set_footer(text="Jeder gelöste Fall bringt dich näher zur nächsten Schwierigkeitsstufe!")
+        pages.append(detective_embed)
+    
+    # --- NEW Page: Shop & Purchases ---
+    if extra_stats.get('total_purchases', 0) > 0:
+        shop_embed = discord.Embed(
+            title="🛍️ Shopping Rückblick",
+            description="Deine Einkäufe diesen Monat",
+            color=discord.Color.gold()
+        )
+        
+        total_purchases = extra_stats.get('total_purchases', 0)
+        most_bought = extra_stats.get('most_bought_item')
+        most_bought_count = extra_stats.get('most_bought_item_count', 0)
+        least_bought = extra_stats.get('least_bought_item')
+        least_bought_count = extra_stats.get('least_bought_item_count', 0)
+        
+        purchase_text = f"**Gesamte Käufe:** {total_purchases}\n\n"
+        
+        if most_bought:
+            purchase_text += f"**🥇 Am meisten gekauft:**\n"
+            purchase_text += f"`{most_bought}` ({most_bought_count}x)\n\n"
+        
+        if least_bought and least_bought != most_bought:
+            purchase_text += f"**🥉 Am wenigsten gekauft:**\n"
+            purchase_text += f"`{least_bought}` ({least_bought_count}x)\n"
+        
+        # Add some flavor text based on purchases
+        if total_purchases >= 20:
+            purchase_text += "\n💸 **Shopping-Süchtiger!** Du liebst es einzukaufen!"
+        elif total_purchases >= 10:
+            purchase_text += "\n🛒 **Fleißiger Käufer!** Du weißt, was du willst!"
+        else:
+            purchase_text += "\n💰 **Sparsam!** Du gibst dein Geld mit Bedacht aus!"
+        
+        shop_embed.add_field(
+            name="🛒 Deine Einkäufe",
+            value=purchase_text,
+            inline=False
+        )
+        
+        shop_embed.set_footer(text="Basiert auf deinen Shop-Käufen im Bot")
+        pages.append(shop_embed)
 
     # --- Final Page: Gemini Summary ---
     # --- REFACTORED: Conditionally build the stats dictionary for the AI ---
@@ -2413,6 +2524,12 @@ class ProfilePageView(discord.ui.View):
         embed = await self._create_game_stats_embed()
         await interaction.followup.send(embed=embed, ephemeral=True)
     
+    @discord.ui.button(label="🔍 Detective Stats", style=discord.ButtonStyle.secondary, row=0)
+    async def detective_stats_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        embed = await self._create_detective_stats_embed()
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    
     async def _create_werwolf_stats_embed(self):
         """Create embed with Werwolf-specific stats."""
         profile_data, error = await db_helpers.get_player_profile(self.user.id)
@@ -2537,10 +2654,158 @@ class ProfilePageView(discord.ui.View):
                 description=f"Fehler beim Laden der Statistiken: {str(e)}",
                 color=discord.Color.red()
             )
+    
+    async def _create_detective_stats_embed(self):
+        """Create embed with Detective game stats."""
+        try:
+            stats = await detective_game.get_user_detective_stats(db_helpers, self.user.id)
+            
+            if not stats:
+                return discord.Embed(
+                    title="Fehler",
+                    description="Konnte Detective-Statistiken nicht laden.",
+                    color=discord.Color.red()
+                )
+            
+            embed = discord.Embed(
+                title=f"🔍 Detective Stats - {self.user.display_name}",
+                description="Deine Mordfall-Ermittlungen",
+                color=discord.Color.dark_blue()
+            )
+            embed.set_thumbnail(url=self.user.display_avatar.url)
+            
+            # Difficulty and Progress
+            difficulty = stats['current_difficulty']
+            difficulty_stars = "⭐" * difficulty
+            embed.add_field(
+                name="Aktueller Schwierigkeitsgrad",
+                value=f"{difficulty_stars} **Stufe {difficulty}/5**",
+                inline=False
+            )
+            
+            # Progress to next difficulty
+            progress = stats['progress_to_next_difficulty']
+            if difficulty < 5:
+                progress_bar_length = 10
+                filled = min(progress, 10)
+                bar = '█' * filled + '░' * (progress_bar_length - filled)
+                embed.add_field(
+                    name="Fortschritt zur nächsten Stufe",
+                    value=f"`{bar}` **{progress}/10** Fälle gelöst",
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="🏆 Maximale Stufe erreicht!",
+                    value="Du bist ein Meisterdetektiv!",
+                    inline=False
+                )
+            
+            # Case statistics
+            total_cases = stats['total_cases_played']
+            cases_solved = stats['cases_solved']
+            cases_failed = stats['cases_failed']
+            solve_rate = stats['solve_rate']
+            
+            embed.add_field(name="Fälle gesamt", value=f"`{total_cases}`", inline=True)
+            embed.add_field(name="Gelöst", value=f"✅ `{cases_solved}`", inline=True)
+            embed.add_field(name="Gescheitert", value=f"❌ `{cases_failed}`", inline=True)
+            
+            # Solve rate bar
+            bar_length = 20
+            filled = int((solve_rate / 100) * bar_length)
+            bar = '█' * filled + '░' * (bar_length - filled)
+            
+            # Determine rating based on solve rate
+            if solve_rate >= 80:
+                rating = "🏆 Meisterdetektiv"
+            elif solve_rate >= 60:
+                rating = "🎖️ Erfahrener Ermittler"
+            elif solve_rate >= 40:
+                rating = "🔍 Kompetenter Detective"
+            elif solve_rate >= 20:
+                rating = "📝 Anfänger-Ermittler"
+            else:
+                rating = "🤔 Braucht mehr Übung"
+            
+            embed.add_field(
+                name=f"Lösungsrate: {solve_rate:.1f}%",
+                value=f"`{bar}`\n{rating}",
+                inline=False
+            )
+            
+            # Last played
+            if stats['last_played_at']:
+                last_played = stats['last_played_at']
+                embed.set_footer(text=f"Zuletzt gespielt: {last_played.strftime('%d.%m.%Y %H:%M')}")
+            else:
+                embed.set_footer(text="Noch keinen Fall gespielt!")
+            
+            return embed
+            
+        except Exception as e:
+            logger.error(f"Error creating detective stats embed: {e}", exc_info=True)
+            return discord.Embed(
+                title="Fehler",
+                description=f"Fehler beim Laden der Detective-Statistiken: {str(e)}",
+                color=discord.Color.red()
+            )
+
+
+
+class LeaderboardPageView(discord.ui.View):
+    """View for paginated leaderboard with different categories."""
+    
+    def __init__(self, config: dict):
+        super().__init__(timeout=180)
+        self.config = config
+    
+    @discord.ui.button(label="🐺 Werwolf Leaderboard", style=discord.ButtonStyle.secondary)
+    async def werwolf_leaderboard_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        embed = await self._create_werwolf_leaderboard_embed()
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    
+    async def _create_werwolf_leaderboard_embed(self):
+        """Create embed with Werwolf leaderboard."""
+        leaderboard, error = await db_helpers.get_leaderboard()
+        
+        if error:
+            return discord.Embed(
+                title="Fehler",
+                description=f"Fehler beim Laden: {error}",
+                color=discord.Color.red()
+            )
+        
+        if not leaderboard:
+            return discord.Embed(
+                title="🐺 Werwolf Leaderboard 🐺",
+                description="Es gibt noch keine Statistiken. Spielt erst mal eine Runde!",
+                color=get_embed_color(self.config)
+            )
+        
+        embed = discord.Embed(
+            title="🐺 Werwolf Leaderboard 🐺",
+            description="Die Top-Spieler mit den meisten Siegen.",
+            color=get_embed_color(self.config)
+        )
+        
+        leaderboard_text = ""
+        for i, player in enumerate(leaderboard):
+            rank = i + 1
+            win_loss_ratio = player['wins'] / (player['wins'] + player['losses']) if (player['wins'] + player['losses']) > 0 else 0
+            leaderboard_text += f"**{rank}. {player['display_name']}**\n"
+            leaderboard_text += f"   Wins: `{player['wins']}` | Losses: `{player['losses']}` | W/L: `{win_loss_ratio:.2f}`\n"
+        
+        embed.add_field(name="Rangliste", value=leaderboard_text, inline=False)
+        embed.set_footer(text="Wer hier nicht oben steht, ist ein Noob :xdx:")
+        
+        return embed
+
 
 @tree.command(name="leaderboard", description="Zeigt das globale Level-Leaderboard an.")
 async def leaderboard(interaction: discord.Interaction):
-    """Displays the global level leaderboard."""
+    """Displays the global level leaderboard with pagination for different stats."""
     await interaction.response.defer()
 
     leaderboard_data, error = await db_helpers.get_level_leaderboard()
@@ -2560,7 +2825,10 @@ async def leaderboard(interaction: discord.Interaction):
         leaderboard_text += f"**{i + 1}. {player['display_name']}** - Level {player['level']} ({player['xp']} XP)\n"
 
     embed.add_field(name="Top 10", value=leaderboard_text, inline=False)
-    await interaction.followup.send(embed=embed)
+    
+    # Add view for switching to Werwolf leaderboard
+    view = LeaderboardPageView(config)
+    await interaction.followup.send(embed=embed, view=view)
 
 @tree.command(name="spotify", description="Zeigt deine Spotify-Statistiken an.")
 @app_commands.describe(user="Der Benutzer, dessen Statistiken du sehen möchtest (optional).")
@@ -2646,35 +2914,6 @@ async def spotify_stats(interaction: discord.Interaction, user: discord.Member =
 
 
 
-
-
-@tree.command(name="stats", description="Zeigt die Werwolf-Statistiken und das Leaderboard an.")
-async def stats(interaction: discord.Interaction):
-    """Displays the Werwolf leaderboard."""
-    await interaction.response.defer()
-
-    leaderboard, error = await db_helpers.get_leaderboard()
-
-    if error:
-        await interaction.followup.send(error, ephemeral=True)
-        return
-
-    if not leaderboard:
-        await interaction.followup.send("Es gibt noch keine Statistiken. Spielt erst mal eine Runde!", ephemeral=True)
-        return
-
-    embed = discord.Embed(title="🐺 Werwolf Leaderboard 🐺", description="Die Top-Spieler mit den meisten Siegen.", color=get_embed_color(config))
-
-    leaderboard_text = ""
-    for i, player in enumerate(leaderboard):
-        rank = i + 1
-        win_loss_ratio = player['wins'] / (player['wins'] + player['losses']) if (player['wins'] + player['losses']) > 0 else 0
-        leaderboard_text += f"**{rank}. {player['display_name']}**\n"
-        leaderboard_text += f"   Wins: `{player['wins']}` | Losses: `{player['losses']}` | W/L Ratio: `{win_loss_ratio:.2f}`\n"
-
-    embed.add_field(name="Rangliste", value=leaderboard_text, inline=False)
-    embed.set_footer(text="Wer hier nicht oben steht, ist ein Noob :xdx:")
-    await interaction.followup.send(embed=embed)
 
 # --- NEW: Wrapped Registration Commands ---
 
@@ -4690,6 +4929,7 @@ class RussianRouletteView(discord.ui.View):
 
 # --- Detective Game ---
 from modules import detective_game
+from modules import trolly_problem
 
 # Active detective games
 active_detective_games = {}
@@ -5088,6 +5328,162 @@ async def detective(interaction: discord.Interaction):
             ephemeral=True
         )
 
+
+# --- Trolly Problem Game View ---
+
+class TrollyProblemView(discord.ui.View):
+    """UI view for Trolly Problem dilemmas."""
+    
+    def __init__(self, problem: trolly_problem.TrollyProblem, user_id: int, user_name: str):
+        super().__init__(timeout=180)  # 3 minutes to decide
+        self.problem = problem
+        self.user_id = user_id
+        self.user_name = user_name
+        self.choice_made = False
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht dein Dilemma!", ephemeral=True)
+            return False
+        return True
+    
+    @discord.ui.button(label="Option A", style=discord.ButtonStyle.danger, emoji="🅰️")
+    async def option_a_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._handle_choice(interaction, 'a')
+    
+    @discord.ui.button(label="Option B", style=discord.ButtonStyle.primary, emoji="🅱️")
+    async def option_b_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self._handle_choice(interaction, 'b')
+    
+    async def _handle_choice(self, interaction: discord.Interaction, choice: str):
+        """Handle user's choice."""
+        if self.choice_made:
+            await interaction.response.send_message("Du hast bereits gewählt!", ephemeral=True)
+            return
+        
+        self.choice_made = True
+        await interaction.response.defer()
+        
+        # Save the response
+        await trolly_problem.save_trolly_response(
+            db_helpers,
+            self.user_id,
+            self.user_name,
+            self.problem.problem_id,
+            choice,
+            self.problem.scenario
+        )
+        
+        # Create result embed
+        chosen_option = self.problem.option_a if choice == 'a' else self.problem.option_b
+        other_option = self.problem.option_b if choice == 'a' else self.problem.option_a
+        
+        embed = discord.Embed(
+            title="⚖️ Deine Wahl wurde registriert",
+            description=f"Du hast gewählt: **Option {choice.upper()}**",
+            color=discord.Color.dark_red() if choice == 'a' else discord.Color.blue()
+        )
+        
+        embed.add_field(
+            name="Deine Entscheidung",
+            value=chosen_option,
+            inline=False
+        )
+        
+        embed.add_field(
+            name="Du hast abgelehnt",
+            value=other_option,
+            inline=False
+        )
+        
+        # Get user stats
+        stats = await trolly_problem.get_user_trolly_stats(db_helpers, self.user_id)
+        if stats and stats['total_responses'] > 1:
+            embed.add_field(
+                name="📊 Deine Trolly-Statistiken",
+                value=f"Gesamt beantwortet: `{stats['total_responses']}`\n"
+                      f"Option A gewählt: `{stats['chose_a']}`\n"
+                      f"Option B gewählt: `{stats['chose_b']}`",
+                inline=False
+            )
+        
+        embed.set_footer(text="Es gibt keine richtige Antwort. Oder vielleicht doch? 🤔")
+        
+        # Disable buttons
+        for item in self.children:
+            item.disabled = True
+        
+        await interaction.edit_original_response(embed=embed, view=self)
+
+
+@tree.command(name="trolly", description="Stelle dich einem moralischen Dilemma!")
+async def trolly(interaction: discord.Interaction):
+    """Present user with a personalized trolley problem."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        user_id = interaction.user.id
+        display_name = interaction.user.display_name
+        
+        # Gather user data for personalization
+        user_data = await trolly_problem.gather_user_data_for_trolly(
+            db_helpers,
+            user_id,
+            display_name
+        )
+        
+        # Fetch server bestie name if we have an ID
+        if user_data.get('server_bestie_id'):
+            try:
+                bestie = await client.fetch_user(int(user_data['server_bestie_id']))
+                user_data['server_bestie'] = bestie.display_name
+            except:
+                pass
+        
+        # Generate the trolly problem
+        problem = await trolly_problem.generate_trolly_problem(
+            api_helpers,
+            config,
+            GEMINI_API_KEY,
+            OPENAI_API_KEY,
+            user_data
+        )
+        
+        # Create embed
+        embed = discord.Embed(
+            title="⚖️ Das Trolly-Problem",
+            description=problem.scenario,
+            color=discord.Color.dark_purple()
+        )
+        
+        embed.add_field(
+            name="🅰️ Option A",
+            value=problem.option_a,
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🅱️ Option B",
+            value=problem.option_b,
+            inline=False
+        )
+        
+        if problem.personalization_level == "personalized":
+            embed.set_footer(text="✨ Dieses Dilemma wurde basierend auf deinen Daten personalisiert!")
+        else:
+            embed.set_footer(text="💡 Spiele mehr, um personalisierte Dilemmata zu erhalten!")
+        
+        # Create view
+        view = TrollyProblemView(problem, user_id, display_name)
+        
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error in trolly command: {e}", exc_info=True)
+        await interaction.followup.send(
+            f"❌ Fehler beim Generieren des Trolly-Problems: {str(e)}",
+            ephemeral=True
+        )
 
 
 @tree.command(name="rr", description="Spiele Russian Roulette!")
