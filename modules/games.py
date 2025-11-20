@@ -520,35 +520,44 @@ class TowerOfTreasureGame:
                 inline=False
             )
         else:
-            # Normal gameplay view - show last completed floor and current floor
+            # Normal gameplay view - show three floors when possible:
+            # 1. Next floor (above current) - if available
+            # 2. Current floor (where player is now)
+            # 3. Last completed floor (below current) - if exists
             
-            # Show last completed floor (if exists)
-            if self.current_floor > 0:
-                last_floor = self.current_floor - 1
-                last_floor_data = self.floors[last_floor]
-                columns_display = " ".join([f"**{i+1}**" for i in range(self.total_columns)])
-                
-                # Show completed floor with checkmarks/bombs
-                floor_visual = " ".join(["✅" if col else "💣" for col in last_floor_data])
-                tower_display += f"Etage {last_floor + 1} ✓\n{columns_display}\n{floor_visual}\n\n"
+            columns_display = " ".join([f"**{i+1}**" for i in range(self.total_columns)])
+            
+            # Show next floor (above current) if not at the top
+            if self.current_floor + 1 < self.max_floors:
+                next_floor_idx = self.current_floor + 1
+                tower_display += f"Etage {next_floor_idx + 1} 🔼 (Nächste)\n{columns_display}\n"
+                tower_display += "🏛️ " * self.total_columns
+                tower_display += "\n\n"
             
             # Show current floor
             if self.current_floor < self.max_floors:
-                columns_display = " ".join([f"**{i+1}**" for i in range(self.total_columns)])
-                
                 if not show_bombs:
                     floor_visual = "🏛️ " * self.total_columns
                 else:
                     floor_data = self.floors[self.current_floor]
                     floor_visual = " ".join(["✅" if col else "💣" for col in floor_data])
                 
-                tower_display += f"{header}\n{columns_display}\n{floor_visual}"
+                tower_display += f"{header} 👈 (Aktuell)\n{columns_display}\n{floor_visual}\n\n"
+            
+            # Show last completed floor (below current) if exists
+            if self.current_floor > 0:
+                last_floor = self.current_floor - 1
+                last_floor_data = self.floors[last_floor]
                 
-                embed.add_field(
-                    name="🗼 Turm",
-                    value=tower_display,
-                    inline=False
-                )
+                # Show completed floor with checkmarks/bombs
+                floor_visual = " ".join(["✅" if col else "💣" for col in last_floor_data])
+                tower_display += f"Etage {last_floor + 1} ✓ 🔽 (Abgeschlossen)\n{columns_display}\n{floor_visual}"
+                
+            embed.add_field(
+                name="🗼 Turm",
+                value=tower_display,
+                inline=False
+            )
         
         # Compact info row
         info_parts = []

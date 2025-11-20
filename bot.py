@@ -3270,6 +3270,144 @@ tree.add_command(voice_group)
 # --- NEW: Add the admin command group to the tree ---
 tree.add_command(AdminGroup(name="admin"))
 
+# --- NEW: Help Command with Pagination ---
+class HelpView(discord.ui.View):
+    """Paginated help menu showing categorized commands."""
+    
+    def __init__(self, user: discord.User, is_admin: bool):
+        super().__init__(timeout=180)
+        self.user = user
+        self.is_admin = is_admin
+        self.current_page = 0
+        
+        # Define command categories
+        self.categories = {
+            "🎮 Games": [
+                ("blackjack", "Spiele Blackjack mit Einsatz"),
+                ("roulette", "Spiele Roulette - setze auf Zahlen oder Farben"),
+                ("mines", "Spiele Mines - vermeide die Bomben"),
+                ("tower", "Spiele Tower of Treasure - klettere den Turm hinauf"),
+                ("rr", "Spiele Russian Roulette - hohes Risiko, hohe Belohnung"),
+                ("detective", "Löse einen KI-generierten Mordfall"),
+                ("trolly", "Stelle dich einem moralischen Dilemma"),
+            ],
+            "💰 Economy": [
+                ("daily", "Hole deine tägliche Belohnung ab"),
+                ("shop", "Öffne den Shop - kaufe Farbrollen und mehr"),
+                ("transactions", "Zeige deine letzten Transaktionen an"),
+                ("quests", "Zeige deine täglichen Quests und Fortschritt"),
+                ("stock", "Öffne den Aktienmarkt - kaufe und verkaufe Aktien"),
+            ],
+            "📊 Profile & Stats": [
+                ("profile", "Zeige dein Profil oder das eines anderen Benutzers"),
+                ("leaderboard", "Zeige das globale Level-Leaderboard"),
+                ("summary", "Zeige Sulfurs Meinung über einen Benutzer"),
+                ("spotify", "Zeige deine Spotify-Statistiken"),
+            ],
+            "🎭 Werwolf": [
+                ("ww start", "Starte ein neues Werwolf-Spiel"),
+                ("ww rules", "Zeige die Werwolf-Spielregeln und Rollen"),
+            ],
+            "🎤 Voice": [
+                ("voice setup", "Richte 'Join to Create' Voice-Kanäle ein"),
+                ("voice config name", "Benenne deinen Voice-Channel um"),
+                ("voice config limit", "Setze ein Benutzerlimit für deinen Channel"),
+                ("voice config lock", "Mache deinen Channel privat"),
+                ("voice config unlock", "Mache deinen Channel wieder öffentlich"),
+                ("voice config permit", "Erlaube einem Benutzer Zugriff auf deinen Channel"),
+                ("voice config unpermit", "Entferne Zugriff für einen Benutzer"),
+            ],
+            "⚙️ Other": [
+                ("news", "Zeige die neuesten Server-Nachrichten"),
+                ("privacy", "Verwalte deine Datenschutz-Einstellungen"),
+                ("wrapped-register", "Registriere dich für monatliche Wrapped-Zusammenfassungen"),
+                ("wrapped-unregister", "Melde dich von Wrapped-Zusammenfassungen ab"),
+                ("wrapped-status", "Überprüfe deinen Wrapped-Status"),
+            ],
+        }
+        
+        # Add admin commands if user is admin
+        if self.is_admin:
+            self.categories["🔧 Admin"] = [
+                ("admin view_wrapped", "Zeige eine Wrapped-Vorschau für einen Benutzer"),
+                ("admin reload_config", "Lade die Konfiguration neu"),
+                ("admin view_dates", "Zeige die nächsten Wrapped-Event-Daten"),
+                ("admin view_event", "Erstelle ein Test-Wrapped-Event"),
+                ("admin save_history", "Speichere den Chatverlauf in der Datenbank"),
+            ]
+        
+        self.pages = list(self.categories.keys())
+        self.update_buttons()
+    
+    def create_embed(self):
+        """Create embed for current page."""
+        category_name = self.pages[self.current_page]
+        commands = self.categories[category_name]
+        
+        embed = discord.Embed(
+            title=f"📖 Sulfur Bot - Help",
+            description=f"**{category_name}**\n\nSeite {self.current_page + 1}/{len(self.pages)}",
+            color=discord.Color.blue()
+        )
+        
+        for cmd_name, cmd_desc in commands:
+            embed.add_field(
+                name=f"/{cmd_name}",
+                value=cmd_desc,
+                inline=False
+            )
+        
+        embed.set_footer(text="Verwende die Buttons unten, um durch die Kategorien zu navigieren.")
+        return embed
+    
+    def update_buttons(self):
+        """Update button states based on current page."""
+        self.previous_button.disabled = (self.current_page == 0)
+        self.next_button.disabled = (self.current_page == len(self.pages) - 1)
+    
+    @discord.ui.button(label="◀️ Zurück", style=discord.ButtonStyle.gray)
+    async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Go to previous page."""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Nur der Benutzer, der den Help-Befehl ausgeführt hat, kann die Seiten wechseln.", ephemeral=True)
+            return
+        
+        self.current_page = max(0, self.current_page - 1)
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+    
+    @discord.ui.button(label="Weiter ▶️", style=discord.ButtonStyle.gray)
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Go to next page."""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Nur der Benutzer, der den Help-Befehl ausgeführt hat, kann die Seiten wechseln.", ephemeral=True)
+            return
+        
+        self.current_page = min(len(self.pages) - 1, self.current_page + 1)
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.create_embed(), view=self)
+    
+    @discord.ui.button(label="❌ Schließen", style=discord.ButtonStyle.red)
+    async def close_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Close the help menu."""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Nur der Benutzer, der den Help-Befehl ausgeführt hat, kann das Menü schließen.", ephemeral=True)
+            return
+        
+        await interaction.response.edit_message(content="Help-Menü geschlossen.", embed=None, view=None)
+        self.stop()
+
+@tree.command(name="help", description="Zeigt alle verfügbaren Bot-Befehle an.")
+async def help_command(interaction: discord.Interaction):
+    """Display paginated help menu with all commands."""
+    # Check if user is admin
+    is_admin = interaction.user.guild_permissions.administrator or interaction.user.id == int(os.getenv("OWNER_ID", 0))
+    
+    view = HelpView(interaction.user, is_admin)
+    embed = view.create_embed()
+    
+    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
 # --- NEW: Shop Commands ---
 from modules import shop as shop_module
 
