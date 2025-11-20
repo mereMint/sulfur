@@ -2528,7 +2528,9 @@ async def profile(interaction: discord.Interaction, user: discord.Member = None)
 
     # Show purchased items/features
     has_dm = await db_helpers.has_feature_unlock(target_user.id, 'dm_access')
-    has_games = await db_helpers.has_feature_unlock(target_user.id, 'games_access')
+    has_casino = await db_helpers.has_feature_unlock(target_user.id, 'casino')
+    has_detective = await db_helpers.has_feature_unlock(target_user.id, 'detective')
+    has_trolly = await db_helpers.has_feature_unlock(target_user.id, 'trolly')
     
     # Check for individual Werwolf roles
     has_seherin = await db_helpers.has_feature_unlock(target_user.id, 'werwolf_role_seherin')
@@ -2538,7 +2540,9 @@ async def profile(interaction: discord.Interaction, user: discord.Member = None)
     
     features = []
     if has_dm: features.append("✉️ DM Access")
-    if has_games: features.append("🎮 Games Access")
+    if has_casino: features.append("🎰 Casino Access")
+    if has_detective: features.append("🔍 Detective Game")
+    if has_trolly: features.append("🚃 Trolly Problem")
     
     werwolf_roles = []
     if has_seherin: werwolf_roles.append("🔮 Seherin")
@@ -3515,9 +3519,21 @@ class ShopBuyView(discord.ui.View):
                 'name': '💬 DM Access',
                 'desc': 'Der Bot kann dir private Nachrichten senden.'
             },
-            'games_access': {
-                'name': '🎮 Games Access',
+            'casino': {
+                'name': '🎰 Casino',
                 'desc': 'Spiele Blackjack, Roulette, Mines und Russian Roulette!'
+            },
+            'detective': {
+                'name': '🔍 Detective Game',
+                'desc': 'Löse spannende Kriminalfälle!'
+            },
+            'trolly': {
+                'name': '🚃 Trolly Problem',
+                'desc': 'Stelle dich moralischen Dilemmata!'
+            },
+            'unlimited_word_find': {
+                'name': '📝 Unlimited Word Find',
+                'desc': 'Spiele Word Find ohne tägliches Limit!'
             }
         }
         
@@ -3671,9 +3687,21 @@ class FeatureSelectView(discord.ui.View):
                 'name': 'DM Access',
                 'description': 'Erlaube dem Bot, dir DMs zu senden'
             },
-            'games_access': {
-                'name': 'Games Access',
+            'casino': {
+                'name': 'Casino',
                 'description': 'Spiele Blackjack, Roulette & mehr'
+            },
+            'detective': {
+                'name': 'Detective Game',
+                'description': 'Löse spannende Kriminalfälle'
+            },
+            'trolly': {
+                'name': 'Trolly Problem',
+                'description': 'Moralische Dilemmata'
+            },
+            'unlimited_word_find': {
+                'name': 'Unlimited Word Find',
+                'description': 'Unbegrenztes Word Find Spiel'
             }
         }
         
@@ -5193,6 +5221,18 @@ async def blackjack(interaction: discord.Interaction, bet: int):
     
     user_id = interaction.user.id
     
+    # Check if user has casino access
+    has_casino = await db_helpers.has_feature_unlock(user_id, 'casino')
+    if not has_casino:
+        currency = config['modules']['economy']['currency_symbol']
+        price = config['modules']['economy']['shop']['features'].get('casino', 500)
+        await interaction.followup.send(
+            f"🎰 Du benötigst **Casino Access**, um Blackjack zu spielen!\n"
+            f"Kaufe es im Shop für {price} {currency} mit `/shopbuy`",
+            ephemeral=True
+        )
+        return
+    
     # Check if user already has an active game
     if user_id in active_blackjack_games:
         await interaction.followup.send("Du hast bereits ein aktives Blackjack-Spiel!", ephemeral=True)
@@ -5593,6 +5633,18 @@ async def roulette(interaction: discord.Interaction, bet: int):
     
     user_id = interaction.user.id
     
+    # Check if user has casino access
+    has_casino = await db_helpers.has_feature_unlock(user_id, 'casino')
+    if not has_casino:
+        currency = config['modules']['economy']['currency_symbol']
+        price = config['modules']['economy']['shop']['features'].get('casino', 500)
+        await interaction.followup.send(
+            f"🎰 Du benötigst **Casino Access**, um Roulette zu spielen!\n"
+            f"Kaufe es im Shop für {price} {currency} mit `/shopbuy`",
+            ephemeral=True
+        )
+        return
+    
     # Validate bet amount
     min_bet = config['modules']['economy']['games']['roulette']['min_bet']
     max_bet = config['modules']['economy']['games']['roulette']['max_bet']
@@ -5648,6 +5700,18 @@ async def mines(interaction: discord.Interaction, bet: int):
         await interaction.response.defer(ephemeral=True)
         
         user_id = interaction.user.id
+        
+        # Check if user has casino access
+        has_casino = await db_helpers.has_feature_unlock(user_id, 'casino')
+        if not has_casino:
+            currency = config['modules']['economy']['currency_symbol']
+            price = config['modules']['economy']['shop']['features'].get('casino', 500)
+            await interaction.followup.send(
+                f"🎰 Du benötigst **Casino Access**, um Mines zu spielen!\n"
+                f"Kaufe es im Shop für {price} {currency} mit `/shopbuy`",
+                ephemeral=True
+            )
+            return
         
         # Check if user already has an active game
         if user_id in active_mines_games:
@@ -6520,6 +6584,18 @@ async def detective(interaction: discord.Interaction):
     try:
         user_id = interaction.user.id
         
+        # Check if user has detective access
+        has_detective = await db_helpers.has_feature_unlock(user_id, 'detective')
+        if not has_detective:
+            currency = config['modules']['economy']['currency_symbol']
+            price = config['modules']['economy']['shop']['features'].get('detective', 1000)
+            await interaction.followup.send(
+                f"🔍 Du benötigst **Detective Game Access**, um Fälle zu lösen!\n"
+                f"Kaufe es im Shop für {price} {currency} mit `/shopbuy`",
+                ephemeral=True
+            )
+            return
+        
         # Check if user already has an active game
         if user_id in active_detective_games:
             await interaction.followup.send("Du hast bereits einen aktiven Fall!", ephemeral=True)
@@ -6679,6 +6755,18 @@ async def trolly(interaction: discord.Interaction):
     try:
         user_id = interaction.user.id
         display_name = interaction.user.display_name
+        
+        # Check if user has trolly access
+        has_trolly = await db_helpers.has_feature_unlock(user_id, 'trolly')
+        if not has_trolly:
+            currency = config['modules']['economy']['currency_symbol']
+            price = config['modules']['economy']['shop']['features'].get('trolly', 250)
+            await interaction.followup.send(
+                f"🚃 Du benötigst **Trolly Problem Access**, um dieses Feature zu nutzen!\n"
+                f"Kaufe es im Shop für {price} {currency} mit `/shopbuy`",
+                ephemeral=True
+            )
+            return
         
         # Gather user data for personalization
         user_data = await trolly_problem.gather_user_data_for_trolly(

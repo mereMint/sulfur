@@ -139,7 +139,10 @@
         },
         "features": {
           "dm_access": 2000,
-          "games_access": 1500
+          "casino": 500,
+          "detective": 1000,
+          "trolly": 250,
+          "unlimited_word_find": 500
         },
         "boosts": {
           "xp_boost_1h": 500,

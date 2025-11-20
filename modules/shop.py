@@ -31,8 +31,15 @@ async def create_color_role(guild: discord.Guild, member: discord.Member, color:
         if not role_name:
             role_name = f"Color-{member.name}"
         
-        # Create the role just above the member's highest role
-        position = member.top_role.position + 1
+        # Find the bot's highest role position to place color role just below it
+        # This ensures color roles are high enough to actually display
+        bot_member = guild.get_member(guild.me.id)
+        if bot_member and bot_member.top_role:
+            # Place role just below bot's highest role
+            position = bot_member.top_role.position - 1
+        else:
+            # Fallback: place above member's highest role
+            position = member.top_role.position + 1
         
         role = await guild.create_role(
             name=role_name,
@@ -40,13 +47,16 @@ async def create_color_role(guild: discord.Guild, member: discord.Member, color:
             reason=f"Color role purchased by {member.name}"
         )
         
-        # Move role to proper position
-        await role.edit(position=position)
+        # Move role to proper position (high in hierarchy for color display)
+        try:
+            await role.edit(position=max(1, position))
+        except discord.Forbidden:
+            logger.warning(f"Could not move color role to position {position}, keeping at default position")
         
         # Assign to member
         await member.add_roles(role)
         
-        logger.info(f"Created color role '{role_name}' ({color}) for {member.name}")
+        logger.info(f"Created color role '{role_name}' ({color}) for {member.name} at position {position}")
         return role, None
         
     except discord.Forbidden:
@@ -184,7 +194,10 @@ async def purchase_feature(db_helpers, member: discord.Member, feature: str, pri
     currency = config['modules']['economy']['currency_symbol']
     feature_names = {
         'dm_access': 'DM Access',
-        'games_access': 'Games Access',
+        'casino': 'Casino Access',
+        'detective': 'Detective Game',
+        'trolly': 'Trolly Problem',
+        'unlimited_word_find': 'Unlimited Word Find',
         'werwolf_special_roles': 'Werwolf Special Roles',
         'custom_status': 'Custom Status'
     }
@@ -219,7 +232,10 @@ def create_shop_embed(config: dict):
     feature_text = ""
     feature_names = {
         'dm_access': 'DM Access',
-        'games_access': 'Games Access',
+        'casino': 'Casino Access',
+        'detective': 'Detective Game',
+        'trolly': 'Trolly Problem',
+        'unlimited_word_find': 'Unlimited Word Find',
         'werwolf_special_roles': 'Werwolf Special Roles',
         'custom_status': 'Custom Status'
     }
