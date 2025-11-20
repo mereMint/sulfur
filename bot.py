@@ -4047,6 +4047,7 @@ async def view_transactions(interaction: discord.Interaction, limit: int = 10):
                 'gambling': '🎰',
                 'transfer': '💸',
                 'purchase': '🛒',
+                'shop_purchase': '🛒',
                 'boost': '⚡',
                 'role_purchase': '🎨'
             }
@@ -5946,6 +5947,18 @@ async def tower(interaction: discord.Interaction, bet: int, difficulty: int = 1)
         
         user_id = interaction.user.id
         
+        # Check if user has casino access
+        has_casino = await db_helpers.has_feature_unlock(user_id, 'casino')
+        if not has_casino:
+            currency = config['modules']['economy']['currency_symbol']
+            price = config['modules']['economy']['shop']['features'].get('casino', 500)
+            await interaction.followup.send(
+                f"🎰 Du benötigst **Casino Access**, um Tower of Treasure zu spielen!\n"
+                f"Kaufe es im Shop für {price} {currency} mit `/shopbuy`",
+                ephemeral=True
+            )
+            return
+        
         # Check if user already has an active game
         if user_id in active_tower_games:
             await interaction.followup.send("Du hast bereits ein aktives Tower-Spiel!", ephemeral=True)
@@ -6935,6 +6948,18 @@ async def russian_roulette(interaction: discord.Interaction, bet: int = None):
     await interaction.response.defer(ephemeral=True)
     
     user_id = interaction.user.id
+    
+    # Check if user has casino access
+    has_casino = await db_helpers.has_feature_unlock(user_id, 'casino')
+    if not has_casino:
+        currency = config['modules']['economy']['currency_symbol']
+        price = config['modules']['economy']['shop']['features'].get('casino', 500)
+        await interaction.followup.send(
+            f"🎰 Du benötigst **Casino Access**, um Russian Roulette zu spielen!\n"
+            f"Kaufe es im Shop für {price} {currency} mit `/shopbuy`",
+            ephemeral=True
+        )
+        return
     
     # Check if user already has an active game
     if user_id in active_rr_games:
