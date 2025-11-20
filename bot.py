@@ -40,6 +40,7 @@ from modules.api_helpers import get_chat_response, get_relationship_summary_from
 from modules import api_helpers
 from modules import stock_market  # NEW: Stock market system
 from modules import news  # NEW: News system
+from modules import word_find  # NEW: Word Find game
 from modules.bot_enhancements import (
     handle_image_attachment,
     handle_unknown_emojis_in_message,
@@ -589,6 +590,11 @@ async def on_ready():
     print("Initializing news system...")
     await news.initialize_news_table(db_helpers)
     print("News system ready!")
+    
+    # --- NEW: Initialize word find system ---
+    print("Initializing word find system...")
+    await word_find.initialize_word_find_table(db_helpers)
+    print("Word find system ready!")
 
     # --- NEW: Clean up leftover game channels on restart ---
     print("Checking for leftover game channels...")
@@ -3294,6 +3300,7 @@ class HelpView(discord.ui.View):
                 ("rr", "Spiele Russian Roulette - hohes Risiko, hohe Belohnung"),
                 ("detective", "Löse einen KI-generierten Mordfall"),
                 ("trolly", "Stelle dich einem moralischen Dilemma"),
+                ("wordfind", "Errate das tägliche Wort mit Nähehinweisen"),
             ],
             "💰 Economy": [
                 ("daily", "Hole deine tägliche Belohnung ab"),
@@ -6840,6 +6847,222 @@ async def trolly(interaction: discord.Interaction):
         logger.error(f"Error in trolly command: {e}", exc_info=True)
         await interaction.followup.send(
             f"❌ Fehler beim Generieren des Trolly-Problems: {str(e)}",
+            ephemeral=True
+        )
+
+
+# --- Word Find Game View ---
+
+class WordFindView(discord.ui.View):
+    """UI view for Word Find game with guess input."""
+    
+    def __init__(self, user_id: int, word_data: dict, max_attempts: int, unlimited: bool = False):
+        super().__init__(timeout=300)
+        self.user_id = user_id
+        self.word_data = word_data
+        self.max_attempts = max_attempts
+        self.unlimited = unlimited
+    
+    @discord.ui.button(label="Wort raten", style=discord.ButtonStyle.primary, emoji="🔍")
+    async def guess_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handle guess button click."""
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht dein Spiel!", ephemeral=True)
+            return
+        
+        # Create modal for input
+        modal = WordGuessModal(self.user_id, self.word_data, self.max_attempts, self.unlimited)
+        await interaction.response.send_modal(modal)
+    
+    @discord.ui.button(label="Aufgeben", style=discord.ButtonStyle.danger, emoji="❌")
+    async def give_up_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handle give up button."""
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht dein Spiel!", ephemeral=True)
+            return
+        
+        await interaction.response.defer()
+        
+        # Show the correct word
+        correct_word = self.word_data['word']
+        
+        embed = discord.Embed(
+            title="❌ Aufgegeben!",
+            description=f"Das gesuchte Wort war: **{correct_word.upper()}**",
+            color=discord.Color.red()
+        )
+        
+        # Update stats (loss)
+        await word_find.update_user_stats(db_helpers, self.user_id, False, self.max_attempts)
+        
+        # Get stats
+        user_stats = await word_find.get_user_stats(db_helpers, self.user_id)
+        if user_stats:
+            embed.add_field(
+                name="📊 Deine Statistiken",
+                value=f"Spiele: `{user_stats['total_games']}` | Gewonnen: `{user_stats['total_wins']}`\n"
+                      f"Streak verloren! 💔",
+                inline=False
+            )
+        
+        # Disable all buttons
+        for item in self.children:
+            item.disabled = True
+        
+        await interaction.edit_original_response(embed=embed, view=self)
+
+
+class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
+    """Modal for entering word guess."""
+    
+    guess_input = discord.ui.TextInput(
+        label="Dein Ratewort",
+        placeholder="Gib dein Wort ein...",
+        min_length=2,
+        max_length=50,
+        required=True
+    )
+    
+    def __init__(self, user_id: int, word_data: dict, max_attempts: int, unlimited: bool):
+        super().__init__()
+        self.user_id = user_id
+        self.word_data = word_data
+        self.max_attempts = max_attempts
+        self.unlimited = unlimited
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        
+        guess = self.guess_input.value.lower().strip()
+        correct_word = self.word_data['word'].lower()
+        word_id = self.word_data['id']
+        
+        # Get current attempts
+        attempts = await word_find.get_user_attempts(db_helpers, self.user_id, word_id)
+        attempt_num = len(attempts) + 1
+        
+        # Check if already guessed this word
+        if any(a['guess'].lower() == guess for a in attempts):
+            await interaction.followup.send("Du hast dieses Wort bereits geraten!", ephemeral=True)
+            return
+        
+        # Check if max attempts reached (only for non-unlimited)
+        if not self.unlimited and attempt_num > self.max_attempts:
+            await interaction.followup.send("Du hast alle Versuche aufgebraucht!", ephemeral=True)
+            return
+        
+        # Calculate similarity
+        similarity = word_find.calculate_word_similarity(guess, correct_word)
+        
+        # Record attempt
+        await word_find.record_attempt(db_helpers, self.user_id, word_id, guess, similarity, attempt_num)
+        
+        # Check if correct
+        if guess == correct_word:
+            # Win!
+            embed = discord.Embed(
+                title="🎉 Glückwunsch!",
+                description=f"Du hast das Wort **{correct_word.upper()}** in {attempt_num} Versuchen erraten!",
+                color=discord.Color.gold()
+            )
+            
+            # Update stats
+            await word_find.update_user_stats(db_helpers, self.user_id, True, attempt_num)
+            
+            # Get updated stats
+            user_stats = await word_find.get_user_stats(db_helpers, self.user_id)
+            if user_stats:
+                embed.add_field(
+                    name="📊 Deine Statistiken",
+                    value=f"Spiele: `{user_stats['total_games']}` | Gewonnen: `{user_stats['total_wins']}`\n"
+                          f"Streak: `{user_stats['current_streak']}` 🔥 | Best: `{user_stats['best_streak']}`",
+                    inline=False
+                )
+            
+            await interaction.edit_original_response(embed=embed, view=None)
+        else:
+            # Update display with new attempt
+            attempts = await word_find.get_user_attempts(db_helpers, self.user_id, word_id)
+            user_stats = await word_find.get_user_stats(db_helpers, self.user_id)
+            
+            embed = word_find.create_game_embed(self.word_data, attempts, self.max_attempts, user_stats)
+            
+            # Check if max attempts reached
+            if not self.unlimited and attempt_num >= self.max_attempts:
+                embed.title = "❌ Keine Versuche mehr!"
+                embed.description = f"Das gesuchte Wort war: **{correct_word.upper()}**"
+                embed.color = discord.Color.red()
+                
+                # Update stats (loss)
+                await word_find.update_user_stats(db_helpers, self.user_id, False, attempt_num)
+                
+                await interaction.edit_original_response(embed=embed, view=None)
+            else:
+                view = WordFindView(self.user_id, self.word_data, self.max_attempts, self.unlimited)
+                await interaction.edit_original_response(embed=embed, view=view)
+
+
+@tree.command(name="wordfind", description="Spiele Word Find - Errate das tägliche Wort!")
+async def word_find_command(interaction: discord.Interaction):
+    """Play the daily Word Find game."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        user_id = interaction.user.id
+        
+        # Get today's word
+        word_data = await word_find.get_or_create_daily_word(db_helpers)
+        
+        if not word_data:
+            await interaction.followup.send("❌ Fehler beim Laden des heutigen Wortes.", ephemeral=True)
+            return
+        
+        # Check if user has unlimited access
+        has_unlimited = await db_helpers.has_feature_unlock(user_id, 'unlimited_word_find')
+        
+        # Get user's attempts for today
+        attempts = await word_find.get_user_attempts(db_helpers, user_id, word_data['id'])
+        
+        # For regular players, limit to 20 attempts per day
+        max_attempts = 999 if has_unlimited else 20
+        
+        # Check if already completed today (guessed correctly)
+        if any(a['similarity_score'] >= 100.0 for a in attempts):
+            await interaction.followup.send(
+                "✅ Du hast das heutige Wort bereits erraten! Komm morgen wieder!",
+                ephemeral=True
+            )
+            return
+        
+        # Check if max attempts reached (for non-unlimited users)
+        if not has_unlimited and len(attempts) >= max_attempts:
+            correct_word = word_data['word']
+            await interaction.followup.send(
+                f"❌ Du hast alle {max_attempts} Versuche für heute aufgebraucht!\n"
+                f"Das gesuchte Wort war: **{correct_word.upper()}**\n\n"
+                f"💡 Kaufe **Unlimited Word Find** im Shop für unbegrenzte Versuche!",
+                ephemeral=True
+            )
+            return
+        
+        # Get user stats
+        user_stats = await word_find.get_user_stats(db_helpers, user_id)
+        
+        # Create game embed
+        embed = word_find.create_game_embed(word_data, attempts, max_attempts, user_stats)
+        
+        if has_unlimited:
+            embed.set_footer(text="💎 Unlimited Word Find - Unbegrenzte Versuche!")
+        
+        # Create view with guess button
+        view = WordFindView(user_id, word_data, max_attempts, has_unlimited)
+        
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error in word find command: {e}", exc_info=True)
+        await interaction.followup.send(
+            f"❌ Fehler beim Starten des Spiels: {str(e)}",
             ephemeral=True
         )
 
