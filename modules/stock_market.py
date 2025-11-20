@@ -31,15 +31,30 @@ DEFAULT_STOCKS = [
     {'symbol': 'DOGE', 'name': 'Dogecoin Fund', 'category': 'crypto', 'price': 0.15},
     {'symbol': 'GME', 'name': 'GameStop', 'category': 'meme', 'price': 25.0},
     {'symbol': 'OIL', 'name': 'Crude Oil ETF', 'category': 'commodity', 'price': 80.0},
+    # Game-influenced stocks
+    {'symbol': 'WOLF', 'name': 'Werwolf Inc', 'category': 'meme', 'price': 50.0},
+    {'symbol': 'BOOST', 'name': 'Boost Corporation', 'category': 'tech', 'price': 120.0},
+    {'symbol': 'COLOR', 'name': 'Color Dynamics Ltd', 'category': 'blue_chip', 'price': 85.0},
+    {'symbol': 'GAMBL', 'name': 'Gambling Industries', 'category': 'meme', 'price': 35.0},
 ]
 
 
 async def initialize_stocks(db_helpers):
     """Initialize stock market with default stocks if not already done."""
     try:
-        async with db_helpers.get_db_connection() as (conn, cursor):
+        if not db_helpers.db_pool:
+            logger.error("Database pool not available")
+            return
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            logger.error("Could not get database connection")
+            return
+        
+        cursor = conn.cursor()
+        try:
             # Create stocks table if it doesn't exist
-            await cursor.execute("""
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS stocks (
                     symbol VARCHAR(10) PRIMARY KEY,
                     name VARCHAR(100) NOT NULL,
@@ -48,12 +63,13 @@ async def initialize_stocks(db_helpers):
                     previous_price DECIMAL(15, 2) NOT NULL,
                     trend DECIMAL(5, 4) DEFAULT 0,
                     last_update TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    volume_today INT DEFAULT 0
+                    volume_today INT DEFAULT 0,
+                    game_influence_factor DECIMAL(5, 4) DEFAULT 0
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
             # Create user portfolios table
-            await cursor.execute("""
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS user_portfolios (
                     user_id BIGINT NOT NULL,
                     stock_symbol VARCHAR(10) NOT NULL,
@@ -66,7 +82,7 @@ async def initialize_stocks(db_helpers):
             """)
             
             # Create stock history table for tracking
-            await cursor.execute("""
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS stock_history (
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     stock_symbol VARCHAR(10) NOT NULL,
@@ -77,22 +93,25 @@ async def initialize_stocks(db_helpers):
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
-            await conn.commit()
+            conn.commit()
             
             # Check if stocks are already initialized
-            await cursor.execute("SELECT COUNT(*) FROM stocks")
-            result = await cursor.fetchone()
+            cursor.execute("SELECT COUNT(*) FROM stocks")
+            result = cursor.fetchone()
             
             if result[0] == 0:
                 # Insert default stocks
                 for stock in DEFAULT_STOCKS:
-                    await cursor.execute("""
+                    cursor.execute("""
                         INSERT INTO stocks (symbol, name, category, current_price, previous_price, trend)
                         VALUES (%s, %s, %s, %s, %s, 0)
                     """, (stock['symbol'], stock['name'], stock['category'], stock['price'], stock['price']))
                 
-                await conn.commit()
+                conn.commit()
                 logger.info(f"Initialized stock market with {len(DEFAULT_STOCKS)} stocks")
+        finally:
+            cursor.close()
+            conn.close()
             
     except Exception as e:
         logger.error(f"Error initializing stocks: {e}", exc_info=True)
@@ -101,13 +120,27 @@ async def initialize_stocks(db_helpers):
 async def update_stock_prices(db_helpers):
     """Update all stock prices with realistic market simulation."""
     try:
-        async with db_helpers.get_db_connection() as (conn, cursor):
+        if not db_helpers.db_pool:
+            logger.error("Database pool not available")
+            return
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            logger.error("Could not get database connection")
+            return
+        
+        cursor = conn.cursor()
+        try:
             # Get all stocks
-            await cursor.execute("SELECT symbol, category, current_price, trend FROM stocks")
-            stocks = await cursor.fetchall()
+            cursor.execute("SELECT symbol, category, current_price, trend, game_influence_factor FROM stocks")
+            stocks = cursor.fetchall()
             
             for stock in stocks:
-                symbol, category, current_price, trend = stock
+                symbol, category, current_price, trend, game_influence = stock
+                current_price = float(current_price)
+                trend = float(trend) if trend else 0
+                game_influence = float(game_influence) if game_influence else 0
+                
                 cat_data = STOCK_CATEGORIES.get(category, STOCK_CATEGORIES['tech'])
                 
                 # Calculate price change
@@ -119,6 +152,10 @@ async def update_stock_prices(db_helpers):
                     trend_factor = trend * trend_strength
                 else:
                     trend_factor = 0
+                
+                # Add game influence for special stocks
+                # Game influence slowly decays over time
+                trend_factor += game_influence * 0.3
                 
                 # Random walk with trend
                 random_factor = random.uniform(-volatility, volatility)
@@ -133,25 +170,32 @@ async def update_stock_prices(db_helpers):
                 # Update trend (with mean reversion)
                 new_trend = (trend * 0.7) + (price_change_pct * 0.3)
                 
+                # Decay game influence
+                new_game_influence = game_influence * 0.85
+                
                 # Update stock
-                await cursor.execute("""
+                cursor.execute("""
                     UPDATE stocks 
                     SET previous_price = current_price,
                         current_price = %s,
                         trend = %s,
+                        game_influence_factor = %s,
                         last_update = NOW(),
                         volume_today = 0
                     WHERE symbol = %s
-                """, (new_price, new_trend, symbol))
+                """, (new_price, new_trend, new_game_influence, symbol))
                 
                 # Record history
-                await cursor.execute("""
+                cursor.execute("""
                     INSERT INTO stock_history (stock_symbol, price)
                     VALUES (%s, %s)
                 """, (symbol, new_price))
             
-            await conn.commit()
+            conn.commit()
             logger.info(f"Updated {len(stocks)} stock prices")
+        finally:
+            cursor.close()
+            conn.close()
             
     except Exception as e:
         logger.error(f"Error updating stock prices: {e}", exc_info=True)
@@ -160,12 +204,23 @@ async def update_stock_prices(db_helpers):
 async def get_stock(db_helpers, symbol: str):
     """Get stock information by symbol."""
     try:
-        async with db_helpers.get_db_connection() as (conn, cursor):
-            await cursor.execute("""
+        if not db_helpers.db_pool:
+            return None
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return None
+        
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
                 SELECT symbol, name, category, current_price, previous_price, trend, volume_today, last_update
                 FROM stocks WHERE symbol = %s
             """, (symbol.upper(),))
-            return await cursor.fetchone()
+            return cursor.fetchone()
+        finally:
+            cursor.close()
+            conn.close()
     except Exception as e:
         logger.error(f"Error getting stock {symbol}: {e}", exc_info=True)
         return None
@@ -174,8 +229,16 @@ async def get_stock(db_helpers, symbol: str):
 async def get_top_stocks(db_helpers, limit: int = 10):
     """Get top stocks by price change."""
     try:
-        async with db_helpers.get_db_connection() as (conn, cursor):
-            await cursor.execute("""
+        if not db_helpers.db_pool:
+            return []
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return []
+        
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
                 SELECT symbol, name, current_price, previous_price,
                        ((current_price - previous_price) / previous_price * 100) as change_pct,
                        volume_today
@@ -183,7 +246,10 @@ async def get_top_stocks(db_helpers, limit: int = 10):
                 ORDER BY change_pct DESC
                 LIMIT %s
             """, (limit,))
-            return await cursor.fetchall()
+            return cursor.fetchall()
+        finally:
+            cursor.close()
+            conn.close()
     except Exception as e:
         logger.error(f"Error getting top stocks: {e}", exc_info=True)
         return []
@@ -192,8 +258,16 @@ async def get_top_stocks(db_helpers, limit: int = 10):
 async def get_user_portfolio(db_helpers, user_id: int):
     """Get user's stock portfolio."""
     try:
-        async with db_helpers.get_db_connection() as (conn, cursor):
-            await cursor.execute("""
+        if not db_helpers.db_pool:
+            return []
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return []
+        
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
                 SELECT p.stock_symbol, s.name, p.shares, p.avg_buy_price, s.current_price,
                        ((s.current_price - p.avg_buy_price) / p.avg_buy_price * 100) as gain_pct,
                        (p.shares * s.current_price) as current_value
@@ -202,7 +276,10 @@ async def get_user_portfolio(db_helpers, user_id: int):
                 WHERE p.user_id = %s AND p.shares > 0
                 ORDER BY current_value DESC
             """, (user_id,))
-            return await cursor.fetchall()
+            return cursor.fetchall()
+        finally:
+            cursor.close()
+            conn.close()
     except Exception as e:
         logger.error(f"Error getting portfolio for user {user_id}: {e}", exc_info=True)
         return []
@@ -213,12 +290,21 @@ async def buy_stock(db_helpers, user_id: int, symbol: str, shares: int, currency
     try:
         symbol = symbol.upper()
         
-        async with db_helpers.get_db_connection() as (conn, cursor):
+        # Get stock info first (synchronous)
+        if not db_helpers.db_pool:
+            return False, "Datenbankverbindung nicht verfügbar!"
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return False, "Datenbankverbindung fehlgeschlagen!"
+        
+        cursor = conn.cursor()
+        try:
             # Get stock info
-            await cursor.execute("""
+            cursor.execute("""
                 SELECT current_price FROM stocks WHERE symbol = %s
             """, (symbol,))
-            stock = await cursor.fetchone()
+            stock = cursor.fetchone()
             
             if not stock:
                 return False, "Stock nicht gefunden!"
@@ -227,45 +313,54 @@ async def buy_stock(db_helpers, user_id: int, symbol: str, shares: int, currency
             total_cost = current_price * shares
             
             # Check if user has enough currency
-            # This would integrate with the economy system
             user_balance = await db_helpers.get_balance(user_id)
             
             if user_balance < total_cost:
                 return False, f"Nicht genug Geld! Benötigt: {total_cost:.2f}, Verfügbar: {user_balance:.2f}"
             
-            # Deduct currency
-            await db_helpers.add_balance(user_id, -total_cost)
+            # Deduct currency (this handles the players table)
+            cursor.execute("SELECT display_name FROM players WHERE discord_id = %s", (user_id,))
+            player_row = cursor.fetchone()
+            display_name = player_row[0] if player_row else f"User{user_id}"
+            
+            # Update balance directly
+            cursor.execute("""
+                UPDATE players SET balance = balance - %s WHERE discord_id = %s
+            """, (total_cost, user_id))
             
             # Update or insert portfolio entry
-            await cursor.execute("""
+            cursor.execute("""
                 SELECT shares, avg_buy_price FROM user_portfolios
                 WHERE user_id = %s AND stock_symbol = %s
             """, (user_id, symbol))
-            existing = await cursor.fetchone()
+            existing = cursor.fetchone()
             
             if existing:
                 old_shares, old_avg_price = existing
                 new_shares = old_shares + shares
-                new_avg_price = ((old_shares * old_avg_price) + (shares * current_price)) / new_shares
+                new_avg_price = ((old_shares * float(old_avg_price)) + (shares * current_price)) / new_shares
                 
-                await cursor.execute("""
+                cursor.execute("""
                     UPDATE user_portfolios
                     SET shares = %s, avg_buy_price = %s, last_transaction = NOW()
                     WHERE user_id = %s AND stock_symbol = %s
                 """, (new_shares, new_avg_price, user_id, symbol))
             else:
-                await cursor.execute("""
+                cursor.execute("""
                     INSERT INTO user_portfolios (user_id, stock_symbol, shares, avg_buy_price)
                     VALUES (%s, %s, %s, %s)
                 """, (user_id, symbol, shares, current_price))
             
             # Update volume
-            await cursor.execute("""
+            cursor.execute("""
                 UPDATE stocks SET volume_today = volume_today + %s WHERE symbol = %s
             """, (shares, symbol))
             
-            await conn.commit()
+            conn.commit()
             return True, f"Gekauft: {shares} Aktien von {symbol} für {total_cost:.2f}"
+        finally:
+            cursor.close()
+            conn.close()
             
     except Exception as e:
         logger.error(f"Error buying stock: {e}", exc_info=True)
@@ -277,22 +372,30 @@ async def sell_stock(db_helpers, user_id: int, symbol: str, shares: int):
     try:
         symbol = symbol.upper()
         
-        async with db_helpers.get_db_connection() as (conn, cursor):
+        if not db_helpers.db_pool:
+            return False, "Datenbankverbindung nicht verfügbar!"
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return False, "Datenbankverbindung fehlgeschlagen!"
+        
+        cursor = conn.cursor()
+        try:
             # Check if user has shares
-            await cursor.execute("""
+            cursor.execute("""
                 SELECT shares FROM user_portfolios
                 WHERE user_id = %s AND stock_symbol = %s
             """, (user_id, symbol))
-            portfolio = await cursor.fetchone()
+            portfolio = cursor.fetchone()
             
             if not portfolio or portfolio[0] < shares:
                 return False, "Nicht genug Aktien!"
             
             # Get current price
-            await cursor.execute("""
+            cursor.execute("""
                 SELECT current_price FROM stocks WHERE symbol = %s
             """, (symbol,))
-            stock = await cursor.fetchone()
+            stock = cursor.fetchone()
             
             if not stock:
                 return False, "Stock nicht gefunden!"
@@ -301,31 +404,36 @@ async def sell_stock(db_helpers, user_id: int, symbol: str, shares: int):
             total_value = current_price * shares
             
             # Add currency
-            await db_helpers.add_balance(user_id, total_value)
+            cursor.execute("""
+                UPDATE players SET balance = balance + %s WHERE discord_id = %s
+            """, (total_value, user_id))
             
             # Update portfolio
             new_shares = portfolio[0] - shares
             
             if new_shares > 0:
-                await cursor.execute("""
+                cursor.execute("""
                     UPDATE user_portfolios
                     SET shares = %s, last_transaction = NOW()
                     WHERE user_id = %s AND stock_symbol = %s
                 """, (new_shares, user_id, symbol))
             else:
                 # Remove entry if no shares left
-                await cursor.execute("""
+                cursor.execute("""
                     DELETE FROM user_portfolios
                     WHERE user_id = %s AND stock_symbol = %s
                 """, (user_id, symbol))
             
             # Update volume
-            await cursor.execute("""
+            cursor.execute("""
                 UPDATE stocks SET volume_today = volume_today + %s WHERE symbol = %s
             """, (shares, symbol))
             
-            await conn.commit()
+            conn.commit()
             return True, f"Verkauft: {shares} Aktien von {symbol} für {total_value:.2f}"
+        finally:
+            cursor.close()
+            conn.close()
             
     except Exception as e:
         logger.error(f"Error selling stock: {e}", exc_info=True)
@@ -356,3 +464,78 @@ def format_price(price: float) -> str:
         return f"${price:.2f}"
     else:
         return f"${price:,.2f}"
+
+
+async def influence_stock_by_activity(db_helpers, stock_symbol: str, influence: float):
+    """
+    Influence a stock's price based on game activity.
+    
+    Args:
+        db_helpers: Database helpers module
+        stock_symbol: Stock symbol (e.g., 'WOLF', 'BOOST', 'COLOR', 'GAMBL')
+        influence: Influence factor (-1.0 to 1.0) - positive = stock goes up, negative = stock goes down
+    """
+    try:
+        if not db_helpers.db_pool:
+            return
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return
+        
+        cursor = conn.cursor()
+        try:
+            # Clamp influence to reasonable bounds
+            influence = max(-1.0, min(1.0, influence))
+            
+            # Update the game influence factor for the stock
+            # This will be used in the next price update
+            cursor.execute("""
+                UPDATE stocks 
+                SET game_influence_factor = game_influence_factor + %s
+                WHERE symbol = %s
+            """, (influence * 0.1, stock_symbol.upper()))  # Scale down the influence
+            
+            conn.commit()
+            logger.debug(f"Applied influence {influence} to stock {stock_symbol}")
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error influencing stock {stock_symbol}: {e}", exc_info=True)
+
+
+# Helper functions for specific game activities
+async def record_werwolf_activity(db_helpers, num_players: int, roles_bought: int = 0):
+    """Record Werwolf game activity and influence WOLF stock."""
+    # More players and role purchases = positive influence
+    influence = (num_players / 10.0) + (roles_bought * 0.2)
+    await influence_stock_by_activity(db_helpers, 'WOLF', influence)
+
+
+async def record_boost_purchase(db_helpers, boost_type: str, duration_hours: int):
+    """Record boost purchase and influence BOOST stock."""
+    # Longer boosts = more positive influence
+    influence = duration_hours / 24.0
+    await influence_stock_by_activity(db_helpers, 'BOOST', influence)
+
+
+async def record_color_purchase(db_helpers, tier: str):
+    """Record color role purchase and influence COLOR stock."""
+    # Higher tiers = more influence
+    tier_influence = {'basic': 0.3, 'premium': 0.6, 'legendary': 1.0}
+    influence = tier_influence.get(tier, 0.5)
+    await influence_stock_by_activity(db_helpers, 'COLOR', influence)
+
+
+async def record_gambling_activity(db_helpers, bet_amount: float, won: bool, payout: float = 0):
+    """Record gambling activity and influence GAMBL stock."""
+    # Big losses = stock goes up (house wins)
+    # Big wins = stock goes down (house loses)
+    if won:
+        influence = -(payout / 1000.0)  # Negative influence when players win big
+    else:
+        influence = bet_amount / 1000.0  # Positive influence when players lose
+    
+    influence = max(-0.5, min(0.5, influence))  # Limit the impact
+    await influence_stock_by_activity(db_helpers, 'GAMBL', influence)

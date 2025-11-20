@@ -39,6 +39,7 @@ from modules.werwolf import WerwolfGame
 from modules.api_helpers import get_chat_response, get_relationship_summary_from_api, get_wrapped_summary_from_api, get_game_details_from_api
 from modules import api_helpers
 from modules import stock_market  # NEW: Stock market system
+from modules import news  # NEW: News system
 from modules.bot_enhancements import (
     handle_image_attachment,
     handle_unknown_emojis_in_message,
@@ -583,6 +584,11 @@ async def on_ready():
     print("Initializing stock market...")
     await stock_market.initialize_stocks(db_helpers)
     print("Stock market ready!")
+    
+    # --- NEW: Initialize news system ---
+    print("Initializing news system...")
+    await news.initialize_news_table(db_helpers)
+    print("News system ready!")
 
     # --- NEW: Clean up leftover game channels on restart ---
     print("Checking for leftover game channels...")
@@ -656,6 +662,10 @@ async def on_ready():
     # --- NEW: Start periodic stock market update ---
     if not update_stock_market.is_running():
         update_stock_market.start()
+    
+    # --- NEW: Start periodic news generation ---
+    if not generate_news.is_running():
+        generate_news.start()
     
 
     print(f"Synced {len(synced)} global commands.")
@@ -781,6 +791,18 @@ async def update_stock_market():
         logger.info("Stock market prices updated")
     except Exception as e:
         logger.error(f"Error updating stock market: {e}", exc_info=True)
+
+
+# --- NEW: Periodic news generation ---
+@_tasks.loop(hours=6)
+async def generate_news():
+    """Generate news articles every 6 hours."""
+    try:
+        await news.generate_news_article(db_helpers, api_helpers, config)
+        logger.info("News article generated")
+    except Exception as e:
+        logger.error(f"Error generating news: {e}", exc_info=True)
+
 
 @update_presence_task.before_loop
 async def before_update_presence_task():
@@ -3739,9 +3761,24 @@ class ColorSelectView(discord.ui.View):
             'premium': colors['premium_colors'],
             'legendary': colors['legendary_colors']
         }
+        color_names_map = {
+            'basic': colors.get('basic_color_names', []),
+            'premium': colors.get('premium_color_names', []),
+            'legendary': colors.get('legendary_color_names', [])
+        }
+        
+        available_colors = color_map.get(tier, [])
+        color_names = color_names_map.get(tier, [])
+        
         options = []
-        for idx, hex_color in enumerate(color_map.get(tier, [])[:25], start=1):
-            options.append(discord.SelectOption(label=f"{idx}. {hex_color}", value=hex_color))
+        for idx, hex_color in enumerate(available_colors[:25], start=1):
+            # Get color name if available, otherwise use hex
+            color_name = color_names[idx-1] if idx-1 < len(color_names) else hex_color
+            options.append(discord.SelectOption(
+                label=f"{color_name}",
+                description=hex_color,
+                value=hex_color
+            ))
 
         # Create the select menu with the callback
         select = discord.ui.Select(placeholder="Wähle eine Farbe...", options=options)
@@ -3852,6 +3889,34 @@ async def view_transactions(interaction: discord.Interaction, limit: int = 10):
     except Exception as e:
         logger.error(f"Error viewing transactions: {e}", exc_info=True)
         await interaction.followup.send(f"Fehler beim Laden der Transaktionen: {str(e)}", ephemeral=True)
+
+
+@tree.command(name="news", description="Zeige die neuesten Nachrichten vom Server.")
+@app_commands.describe(limit="Anzahl der anzuzeigenden Artikel (Standard: 5)")
+async def view_news(interaction: discord.Interaction, limit: int = 5):
+    """View latest news articles."""
+    await interaction.response.defer(ephemeral=True)
+    
+    if limit < 1 or limit > 10:
+        await interaction.followup.send("Limit muss zwischen 1 und 10 liegen.", ephemeral=True)
+        return
+    
+    try:
+        articles = await news.get_latest_news(db_helpers, limit)
+        
+        if not articles:
+            await interaction.followup.send("Noch keine Nachrichten verfügbar.", ephemeral=True)
+            return
+        
+        # Send each article as a separate embed
+        for article in articles:
+            embed = news.create_news_embed(article)
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error viewing news: {e}", exc_info=True)
+        await interaction.followup.send(f"Fehler beim Laden der Nachrichten: {str(e)}", ephemeral=True)
+
 
 # Shop commands registered above
 
@@ -4229,26 +4294,31 @@ async def stock_market_command(interaction: discord.Interaction):
         currency = config['modules']['economy']['currency_symbol']
         
         embed = discord.Embed(
-            title="📈 Aktienmarkt",
-            description="Willkommen beim Sulfur Aktienmarkt!",
+            title="📈 Sulfur Aktienmarkt",
+            description="**Willkommen an der Börse!**\n\n"
+                       "Hier kannst du in verschiedene Unternehmen investieren und dein Vermögen vermehren. "
+                       "Die Kurse ändern sich alle 30 Minuten basierend auf Markttrends und Aktivitäten im Server!",
             color=discord.Color.gold()
         )
         
+        # Add stock categories info
         embed.add_field(
-            name="📊 Top Aktien",
-            value="Zeige die besten und schlechtesten Performer",
+            name="📊 Aktienkategorien",
+            value="🔷 **Tech** - Hohe Volatilität, starke Trends\n"
+                  "💎 **Blue Chip** - Stabil, geringe Schwankungen\n"
+                  "🪙 **Crypto** - Sehr volatil, schwache Trends\n"
+                  "🎲 **Meme** - Extreme Volatilität, unvorhersehbar\n"
+                  "🛢️ **Commodity** - Mittlere Volatilität, stabile Trends",
             inline=False
         )
         
+        # Add special stocks info
         embed.add_field(
-            name="💼 Mein Portfolio",
-            value="Verwalte deine Aktienbestände",
-            inline=False
-        )
-        
-        embed.add_field(
-            name="🏪 Börse",
-            value="Kaufe und verkaufe Aktien",
+            name="⭐ Besondere Aktien",
+            value="🐺 **WOLF** - Werwolf Inc (beeinflusst durch Werwolf-Spiele)\n"
+                  "⚡ **BOOST** - Boost Corp (beeinflusst durch Boost-Käufe)\n"
+                  "🎨 **COLOR** - Color Dynamics (beeinflusst durch Farbrollen-Käufe)\n"
+                  "🎰 **GAMBL** - Gambling Industries (beeinflusst durch Casino-Aktivität)",
             inline=False
         )
         
@@ -4256,11 +4326,28 @@ async def stock_market_command(interaction: discord.Interaction):
         balance = await db_helpers.get_balance(interaction.user.id)
         embed.add_field(
             name="💰 Dein Guthaben",
-            value=f"{balance:.2f} {currency}",
-            inline=False
+            value=f"**{balance:.2f} {currency}**",
+            inline=True
         )
         
-        embed.set_footer(text="Preise werden alle 30 Minuten aktualisiert")
+        # Show portfolio value
+        portfolio = await stock_market.get_user_portfolio(db_helpers, interaction.user.id)
+        portfolio_value = sum(float(stock[6]) for stock in portfolio) if portfolio else 0
+        embed.add_field(
+            name="💼 Portfoliowert",
+            value=f"**{portfolio_value:.2f} {currency}**",
+            inline=True
+        )
+        
+        # Show total net worth
+        net_worth = balance + portfolio_value
+        embed.add_field(
+            name="💎 Gesamtvermögen",
+            value=f"**{net_worth:.2f} {currency}**",
+            inline=True
+        )
+        
+        embed.set_footer(text="Nutze die Buttons unten um zu navigieren • Preise aktualisieren sich alle 30 Minuten")
         
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         

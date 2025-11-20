@@ -100,6 +100,14 @@
             "#FF00FF",
             "#00FFFF"
           ],
+          "basic_color_names": [
+            "Rot",
+            "Grün",
+            "Blau",
+            "Gelb",
+            "Magenta",
+            "Cyan"
+          ],
           "premium_colors": [
             "#FF69B4",
             "#FFD700",
@@ -107,12 +115,26 @@
             "#20B2AA",
             "#FF6347"
           ],
+          "premium_color_names": [
+            "Pink",
+            "Gold",
+            "Lila",
+            "Türkis",
+            "Tomate"
+          ],
           "legendary_colors": [
             "#FF1493",
             "#8A2BE2",
             "#00CED1",
             "#FF4500",
             "#32CD32"
+          ],
+          "legendary_color_names": [
+            "Tiefes Pink",
+            "Blau-Violett",
+            "Dunkles Türkis",
+            "Orangen-Rot",
+            "Limettengrün"
           ]
         },
         "features": {
