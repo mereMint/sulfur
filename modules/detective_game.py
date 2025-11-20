@@ -8,9 +8,11 @@ import random
 import json
 import hashlib
 import asyncio
+import re
 import mysql.connector
 from datetime import datetime, timezone
 from modules.logger_utils import bot_logger as logger
+
 
 
 class MurderCase:
@@ -60,37 +62,175 @@ def reverse_cipher(text: str) -> str:
 
 
 def atbash_cipher(text: str) -> str:
-    """Encode using Atbash cipher (A=Z, B=Y, etc.)."""
+    """Encode using Atbash cipher (A=Z, B=Y, etc.). Only works with basic ASCII letters."""
     result = []
     for char in text:
-        if char.isalpha():
-            if char.isupper():
+        # Only process basic ASCII letters (A-Z, a-z)
+        if char.isalpha() and ord(char) < 128:
+            if char.isupper() and 65 <= ord(char) <= 90:
                 result.append(chr(90 - (ord(char) - 65)))
-            else:
+            elif char.islower() and 97 <= ord(char) <= 122:
                 result.append(chr(122 - (ord(char) - 97)))
+            else:
+                result.append(char)  # Keep non-basic letters as is
         else:
             result.append(char)
     return ''.join(result)
 
 
+def rot13_cipher(text: str) -> str:
+    """Encode using ROT13 cipher (13 position shift)."""
+    return caesar_cipher(text, 13)
+
+
+def morse_code_cipher(text: str) -> str:
+    """Encode text to Morse code."""
+    morse_dict = {
+        'A': '.-', 'B': '-...', 'C': '-.-.', 'D': '-..', 'E': '.', 'F': '..-.',
+        'G': '--.', 'H': '....', 'I': '..', 'J': '.---', 'K': '-.-', 'L': '.-..',
+        'M': '--', 'N': '-.', 'O': '---', 'P': '.--.', 'Q': '--.-', 'R': '.-.',
+        'S': '...', 'T': '-', 'U': '..-', 'V': '...-', 'W': '.--', 'X': '-..-',
+        'Y': '-.--', 'Z': '--..', '0': '-----', '1': '.----', '2': '..---',
+        '3': '...--', '4': '....-', '5': '.....', '6': '-....', '7': '--...',
+        '8': '---..', '9': '----.', ' ': '/'
+    }
+    result = []
+    for char in text.upper():
+        if char in morse_dict:
+            result.append(morse_dict[char])
+        elif char.isalnum():
+            result.append(char)
+    return ' '.join(result)
+
+
+def binary_cipher(text: str) -> str:
+    """Encode text to binary (first 50 chars only for readability)."""
+    # Limit length to prevent overly long puzzles
+    text = text[:50]
+    return ' '.join(format(ord(char), '08b') for char in text)
+
+
+def keyword_cipher(text: str, keyword: str = "GEHEIMNIS") -> str:
+    """Encode using keyword cipher."""
+    # Remove duplicates from keyword and create cipher alphabet
+    seen = set()
+    cipher_alphabet = []
+    for char in keyword.upper():
+        if char.isalpha() and char not in seen:
+            seen.add(char)
+            cipher_alphabet.append(char)
+    
+    # Add remaining letters
+    for char in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+        if char not in seen:
+            cipher_alphabet.append(char)
+    
+    # Create mapping
+    normal_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    cipher_map = {normal_alphabet[i]: cipher_alphabet[i] for i in range(26)}
+    
+    # Encode
+    result = []
+    for char in text:
+        if char.isupper():
+            result.append(cipher_map.get(char, char))
+        elif char.islower():
+            result.append(cipher_map.get(char.upper(), char).lower())
+        else:
+            result.append(char)
+    return ''.join(result)
+
+
+def clean_ai_response(text: str) -> str:
+    """
+    Clean AI response by removing common intro phrases and meta-comments.
+    Fixes formatting issues where AI adds unwanted explanations.
+    """
+    if not text:
+        return text
+    
+    # List of common unwanted intro phrases in German
+    unwanted_intros = [
+        r'^(Hier (ist|sind|kommt|kommen)|Das (ist|sind)|Gerne|Natürlich|Klar|Selbstverständlich|OK|Okay)[^:\n]*[:]\s*',
+        r'^(Hier|Das) (ist|sind) (ein paar|einige|die|der|das) (Beispiele?|Hinweise?|Beweise?|Verdächtige[rn]?)[^:\n]*[:]\s*',
+        r'^(Folgende[rs]?|Die folgenden|Nachfolgend)[^:\n]*[:]\s*',
+        r'^(Ich (habe|kann)|Es (gibt|folgt|ist))[^:\n]*[:]\s*',
+    ]
+    
+    # Remove unwanted intro phrases
+    cleaned = text
+    for pattern in unwanted_intros:
+        cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE | re.MULTILINE)
+    
+    # Remove leading/trailing whitespace
+    cleaned = cleaned.strip()
+    
+    # Fix common formatting errors like missing spaces after colons
+    # Pattern: "Word1:Word2" -> "Word1: Word2"
+    cleaned = re.sub(r'([a-zäöüß])(:)([A-ZÄÖÜ])', r'\1\2 \3', cleaned)
+    
+    # Fix missing newlines between labeled fields
+    # Pattern: "Label1: ValueLabel2:" -> "Label1: Value\nLabel2:"
+    cleaned = re.sub(r'([a-zäöüß])([A-ZÄÖÜ][a-zäöüß]+:)', r'\1\n\2', cleaned)
+    
+    return cleaned
+
+
 def create_puzzle_hint(hint_text: str, difficulty: int) -> dict:
-    """Create encrypted puzzle from hint based on difficulty."""
+    """
+    Create encrypted puzzle from hint based on difficulty.
+    Now with much more variety in cipher types and complexity.
+    """
     if difficulty <= 1:
         return {'type': 'plaintext', 'text': hint_text, 'cipher': None}
     
-    ciphers = ['caesar', 'reverse', 'atbash'] if difficulty >= 3 else ['caesar', 'reverse']
+    # Expanded cipher options based on difficulty
+    if difficulty == 2:
+        # Easy ciphers
+        ciphers = ['caesar', 'reverse', 'rot13']
+    elif difficulty == 3:
+        # Medium ciphers - add more variety
+        ciphers = ['caesar', 'reverse', 'atbash', 'rot13', 'keyword']
+    elif difficulty >= 4:
+        # Hard ciphers - all options including complex ones
+        ciphers = ['caesar', 'reverse', 'atbash', 'rot13', 'keyword', 'morse', 'binary']
+    else:
+        ciphers = ['caesar', 'reverse']
+    
     cipher_type = random.choice(ciphers)
     
+    # Apply the chosen cipher
     if cipher_type == 'caesar':
         shift = random.randint(1, 25)
+        # Avoid common shift of 3 to add variety
+        if shift == 3 and difficulty >= 3:
+            shift = random.choice([5, 7, 11, 13, 17])
         encrypted = caesar_cipher(hint_text, shift)
         hint = f"Caesar +{shift}" if difficulty <= 3 else "Verschiebungschiffre"
+    elif cipher_type == 'rot13':
+        encrypted = rot13_cipher(hint_text)
+        hint = "ROT13" if difficulty <= 3 else "Buchstabendrehung"
     elif cipher_type == 'reverse':
         encrypted = reverse_cipher(hint_text)
         hint = "Rückwärts" if difficulty <= 3 else "Spiegelschrift"
-    else:
+    elif cipher_type == 'atbash':
         encrypted = atbash_cipher(hint_text)
         hint = "Atbash" if difficulty <= 3 else "Alphabet-Code"
+    elif cipher_type == 'keyword':
+        keywords = ["GEHEIMNIS", "VERBRECHEN", "DETECTIVE", "MORDFALL", "RAETSEL"]
+        keyword = random.choice(keywords)
+        encrypted = keyword_cipher(hint_text, keyword)
+        hint = f"Schlüsselwort: {keyword[:3]}..." if difficulty <= 3 else "Schlüsselwort-Chiffre"
+    elif cipher_type == 'morse':
+        encrypted = morse_code_cipher(hint_text)
+        hint = "Morsecode" if difficulty <= 4 else "Punkt-Strich-Code"
+    elif cipher_type == 'binary':
+        encrypted = binary_cipher(hint_text)
+        hint = "Binärcode" if difficulty <= 4 else "Maschinecode"
+    else:
+        # Fallback
+        encrypted = caesar_cipher(hint_text, 7)
+        hint = "Caesar +7"
     
     return {
         'type': 'cipher',
@@ -134,19 +274,19 @@ async def generate_murder_case(api_helpers, config: dict, gemini_api_key: str, o
         theme = random.choice(themes)
         
         # Step 1: Generate title (fast, simple)
-        title_prompt = f"Generiere einen spannenden deutschen Titel für einen Kriminalfall im Thema '{theme}'. Nur der Titel, nichts anderes. Format: 'Der Fall ...'"
+        title_prompt = f"Generiere einen spannenden deutschen Titel für einen Kriminalfall im Thema '{theme}'. WICHTIG: Antworte NUR mit dem Titel selbst, KEINE Einleitung wie 'Hier ist...' oder 'Der Titel lautet...'. Format: 'Der Fall ...'"
         title, _ = await api_helpers.get_ai_response_with_model(
             title_prompt, model, config, gemini_api_key, openai_api_key, temperature=1.0
         )
-        title = (title or "Der Fall des mysteriösen Todes").strip()[:100]
+        title = clean_ai_response(title or "Der Fall des mysteriösen Todes").strip()[:100]
         logger.info(f"Generated title: {title}")
         
         # Step 2: Generate core components in parallel
         logger.info("Generating description, location, and victim in parallel...")
         
-        desc_prompt = f"Beschreibe eine Mordszene für den Fall '{title}' (Thema: {theme}). 2-3 Sätze, lebendig und detailliert. NUR die Beschreibung schreiben, KEINE Meta-Kommentare, KEINE Einleitungen wie 'Hier ist...'."
-        loc_prompt = f"Nenne einen spezifischen, interessanten Tatort für '{title}'. Ein Satz. NUR den Ort nennen, z.B. 'Luxus-Penthouse am Hafen', KEINE Erklärungen."
-        victim_prompt = f"Beschreibe das Opfer für '{title}': Name, Alter, Beruf. Ein Satz. Format EXAKT: 'Name, Alter, Beruf'. NUR diese Information, KEINE zusätzlichen Worte."
+        desc_prompt = f"Beschreibe eine Mordszene für den Fall '{title}' (Thema: {theme}). 2-3 Sätze, lebendig und detailliert. WICHTIG: Schreibe NUR die Beschreibung selbst, KEINE Einleitung wie 'Hier ist...' oder 'Die Beschreibung lautet...' oder 'Das ist...'. Starte direkt mit der Beschreibung."
+        loc_prompt = f"Nenne einen spezifischen, interessanten Tatort für '{title}'. WICHTIG: Antworte NUR mit dem Ort, z.B. 'Luxus-Penthouse am Hafen'. KEINE Einleitung, KEINE Erklärungen wie 'Der Tatort ist...' oder 'Hier ist...'. Nur der Ort selbst."
+        victim_prompt = f"Beschreibe das Opfer für '{title}': Name, Alter, Beruf. WICHTIG: Format EXAKT: 'Name, Alter, Beruf' (z.B. 'Hans Müller, 45, Geschäftsmann'). NUR diese Information, KEINE Einleitung wie 'Das Opfer ist...' oder 'Hier ist...'. Nur die reine Information."
         
         results = await asyncio.gather(
             api_helpers.get_ai_response_with_model(desc_prompt, model, config, gemini_api_key, openai_api_key, temperature=0.9),
@@ -154,9 +294,9 @@ async def generate_murder_case(api_helpers, config: dict, gemini_api_key: str, o
             api_helpers.get_ai_response_with_model(victim_prompt, model, config, gemini_api_key, openai_api_key, temperature=0.9)
         )
         
-        description = (results[0][0] or "Ein mysteriöser Mord.").strip()[:500]
-        location = (results[1][0] or "Unbekannter Ort").strip()[:200]
-        victim = (results[2][0] or "Unbekanntes Opfer").strip()[:200]
+        description = clean_ai_response(results[0][0] or "Ein mysteriöser Mord.").strip()[:500]
+        location = clean_ai_response(results[1][0] or "Unbekannter Ort").strip()[:200]
+        victim = clean_ai_response(results[2][0] or "Unbekanntes Opfer").strip()[:200]
         
         logger.info(f"Generated core: desc={len(description)} chars, loc={len(location)} chars, victim={len(victim)} chars")
         
@@ -265,14 +405,15 @@ Hinweise:
         
         # Step 4: Generate evidence
         logger.info("Generating evidence...")
-        evidence_prompt = f"Liste 3-4 Beweisstücke für '{title}'. Format: emoji + kurze Beschreibung pro Zeile. WICHTIG: NUR die Beweise listen, KEINE Einleitung wie 'Hier sind...' oder Meta-Kommentare. Beispiel:\n🔪 Blutiges Messer\n📱 Gesendete SMS\n👣 Fußabdrücke"
+        evidence_prompt = f"Liste 3-4 Beweisstücke für '{title}'. WICHTIG: Schreibe NUR die Beweise selbst, KEINE Einleitung wie 'Hier sind die Beweise:', 'Das sind...', 'Folgende Beweise...'. Format: emoji + kurze Beschreibung pro Zeile. Starte direkt mit dem ersten Beweis. Beispiel:\n🔪 Blutiges Messer\n📱 Gesendete SMS\n👣 Fußabdrücke"
         evidence_result, _ = await api_helpers.get_ai_response_with_model(
             evidence_prompt, model, config, gemini_api_key, openai_api_key, temperature=0.7
         )
         
         evidence = []
         if evidence_result:
-            for line in evidence_result.strip().split('\n'):
+            cleaned_evidence = clean_ai_response(evidence_result)
+            for line in cleaned_evidence.strip().split('\n'):
                 line = line.strip()
                 if line and len(line) > 3:
                     evidence.append(line[:200])
@@ -289,14 +430,15 @@ Hinweise:
         # Step 5: Generate hints pointing to murderer
         logger.info("Generating hints...")
         murderer_name = suspects[murderer_index].get('name', 'der Täter')
-        hints_prompt = f"Gib 2-3 subtile Hinweise die auf '{murderer_name}' als Mörder deuten. Format: emoji + kurze Aussage pro Zeile. WICHTIG: NUR die Hinweise listen, KEINE Einleitung wie 'Hier sind Hinweise...' oder Meta-Kommentare."
+        hints_prompt = f"Gib 2-3 subtile Hinweise die auf '{murderer_name}' als Mörder deuten. WICHTIG: Schreibe NUR die Hinweise selbst, KEINE Einleitung wie 'Hier sind Hinweise:', 'Das sind...', 'Folgende Hinweise...'. Format: emoji + kurze Aussage pro Zeile. Starte direkt mit dem ersten Hinweis."
         hints_result, _ = await api_helpers.get_ai_response_with_model(
             hints_prompt, model, config, gemini_api_key, openai_api_key, temperature=0.7
         )
         
         hints = []
         if hints_result:
-            for line in hints_result.strip().split('\n'):
+            cleaned_hints = clean_ai_response(hints_result)
+            for line in cleaned_hints.strip().split('\n'):
                 line = line.strip()
                 if line and len(line) > 3:
                     hints.append(line[:200])
@@ -1302,16 +1444,16 @@ async def generate_case_with_difficulty(api_helpers, config: dict, gemini_api_ke
         complexity = diff_desc.get(difficulty, diff_desc[1])
         
         # Generate title
-        title_prompt = f"Deutscher Krimi-Titel für Thema '{theme}', Schwierigkeit {difficulty}/5. Nur Titel. Format: 'Der Fall ...'"
+        title_prompt = f"Deutscher Krimi-Titel für Thema '{theme}', Schwierigkeit {difficulty}/5. WICHTIG: Antworte NUR mit dem Titel, KEINE Einleitung. Format: 'Der Fall ...'"
         title, _ = await api_helpers.get_ai_response_with_model(
             title_prompt, model, config, gemini_api_key, openai_api_key, temperature=1.0
         )
-        title = (title or f"Der Fall {theme}").strip()[:100]
+        title = clean_ai_response(title or f"Der Fall {theme}").strip()[:100]
         
         # Parallel generation of core components
-        desc_prompt = f"Mordszene '{title}', {complexity}. 2-3 Sätze."
-        loc_prompt = f"Tatort für '{title}'. Ein Satz, spezifisch und ungewöhnlich."
-        victim_prompt = f"Opfer für '{title}': Name, Alter, Beruf. Ein Satz."
+        desc_prompt = f"Mordszene '{title}', {complexity}. 2-3 Sätze. WICHTIG: NUR die Beschreibung, KEINE Einleitung wie 'Hier ist...' oder 'Das ist...'."
+        loc_prompt = f"Tatort für '{title}'. Spezifisch und ungewöhnlich. WICHTIG: NUR den Ort selbst, z.B. 'Alte Fabrikhalle', KEINE Einleitung."
+        victim_prompt = f"Opfer für '{title}': Name, Alter, Beruf. WICHTIG: Format EXAKT 'Name, Alter, Beruf'. NUR diese Info, KEINE Einleitung."
         
         core_results = await asyncio.gather(
             api_helpers.get_ai_response_with_model(desc_prompt, model, config, gemini_api_key, openai_api_key, temperature=0.9),
@@ -1319,9 +1461,9 @@ async def generate_case_with_difficulty(api_helpers, config: dict, gemini_api_ke
             api_helpers.get_ai_response_with_model(victim_prompt, model, config, gemini_api_key, openai_api_key, temperature=0.9)
         )
         
-        description = (core_results[0][0] or "Mysteriöser Mord").strip()[:500]
-        location = (core_results[1][0] or "Unbekannter Ort").strip()[:200]
-        victim = (core_results[2][0] or "Unbekanntes Opfer").strip()[:200]
+        description = clean_ai_response(core_results[0][0] or "Mysteriöser Mord").strip()[:500]
+        location = clean_ai_response(core_results[1][0] or "Unbekannter Ort").strip()[:200]
+        victim = clean_ai_response(core_results[2][0] or "Unbekanntes Opfer").strip()[:200]
         
         # Generate suspects in parallel
         murderer_index = random.randint(0, 3)
@@ -1388,14 +1530,15 @@ Hinweise:
             })
         
         # Generate evidence
-        ev_prompt = f"Liste 3-4 konkrete Beweisstücke für den Mordfall '{title}'. Format: emoji + kurze Beschreibung, eine pro Zeile. WICHTIG: NUR die Beweise auflisten, KEINE Einleitungssätze wie 'Hier sind...'."
+        ev_prompt = f"Liste 3-4 konkrete Beweisstücke für den Mordfall '{title}'. WICHTIG: Schreibe NUR die Beweise selbst, KEINE Einleitung wie 'Hier sind die Beweise:', 'Das sind...', 'Folgende...'. Format: emoji + kurze Beschreibung, eine pro Zeile. Starte direkt mit dem ersten Beweis."
         ev_res, _ = await api_helpers.get_ai_response_with_model(
             ev_prompt, model, config, gemini_api_key, openai_api_key, temperature=0.7
         )
         
         evidence = []
         if ev_res:
-            for line in ev_res.strip().split('\n'):
+            cleaned_ev = clean_ai_response(ev_res)
+            for line in cleaned_ev.strip().split('\n'):
                 if line.strip() and len(line.strip()) > 3:
                     evidence.append(line.strip()[:200])
         
@@ -1404,26 +1547,29 @@ Hinweise:
         
         # Generate hints with puzzle support
         murderer_name = suspects[murderer_index].get('name', 'Täter')
-        hints_prompt = f"Gib 2-3 subtile Hinweise die auf '{murderer_name}' als Mörder deuten. Schwierigkeit {difficulty}/5. Format: emoji + Hinweis pro Zeile. WICHTIG: NUR die Hinweise auflisten, KEINE Meta-Kommentare wie 'Hier sind Hinweise auf...'."
+        hints_prompt = f"Gib 2-3 subtile Hinweise die auf '{murderer_name}' als Mörder deuten. Schwierigkeit {difficulty}/5. WICHTIG: Schreibe NUR die Hinweise selbst, KEINE Einleitung wie 'Hier sind Hinweise:', 'Das sind...', 'Folgende...'. Format: emoji + Hinweis pro Zeile. Starte direkt mit dem ersten Hinweis."
         hints_res, _ = await api_helpers.get_ai_response_with_model(
             hints_prompt, model, config, gemini_api_key, openai_api_key, temperature=0.7
         )
         
         raw_hints = []
         if hints_res:
-            for line in hints_res.strip().split('\n'):
+            cleaned_hints_res = clean_ai_response(hints_res)
+            for line in cleaned_hints_res.strip().split('\n'):
                 if line.strip() and len(line.strip()) > 3:
                     raw_hints.append(line.strip()[:200])
         
         if len(raw_hints) < 2:
             raw_hints = [f'🔎 Hinweis auf {murderer_name}', f'💡 Detail über {murderer_name}']
         
-        # Add encryption for difficulty 3+
+        # Add encryption for difficulty 2+ with higher probability for harder difficulties
         hints = []
         encrypted_messages = []
         
         for hint in raw_hints:
-            if difficulty >= 3 and random.random() < 0.5:  # 50% chance to encrypt hint
+            # Increased encryption chance based on difficulty
+            encrypt_chance = 0 if difficulty == 1 else (0.3 if difficulty == 2 else (0.6 if difficulty == 3 else 0.8))
+            if difficulty >= 2 and random.random() < encrypt_chance:
                 puzzle = create_puzzle_hint(hint, difficulty)
                 encrypted_messages.append(puzzle)
                 cipher_info = f"🔐 Verschlüsselte Nachricht"
