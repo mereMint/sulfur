@@ -227,7 +227,7 @@ class WerwolfRoleSelectionView(discord.ui.View):
             
             try:
                 await self.message.edit(embed=embed, view=self)
-            except (discord.NotFound, discord.HTTPException) as e:
+            except (discord.NotFound, discord.HTTPException):
                 # Message was deleted or Discord API error - ignore
                 pass
 
