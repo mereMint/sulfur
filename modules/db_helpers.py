@@ -489,6 +489,241 @@ def initialize_database():
         cursor.close()
         cnx.close()
 
+# --- NEW: Database Migration System ---
+
+def create_migrations_table():
+    """Creates the schema_migrations table to track applied migrations."""
+    cnx = get_db_connection()
+    if not cnx:
+        logger.error("Could not connect to DB to create migrations table")
+        return False
+    
+    cursor = cnx.cursor()
+    try:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                migration_name VARCHAR(255) PRIMARY KEY,
+                applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_applied_at (applied_at)
+            )
+        """)
+        cnx.commit()
+        logger.info("Schema migrations tracking table ready")
+        return True
+    except mysql.connector.Error as err:
+        logger.error(f"Failed to create schema_migrations table: {err}")
+        return False
+    finally:
+        cursor.close()
+        cnx.close()
+
+def get_applied_migrations():
+    """Returns a set of migration names that have already been applied."""
+    cnx = get_db_connection()
+    if not cnx:
+        logger.warning("Could not connect to DB to check applied migrations")
+        return set()
+    
+    cursor = cnx.cursor()
+    try:
+        cursor.execute("SELECT migration_name FROM schema_migrations")
+        applied = {row[0] for row in cursor.fetchall()}
+        return applied
+    except mysql.connector.Error as err:
+        # Table might not exist yet
+        logger.debug(f"Could not query schema_migrations (might not exist yet): {err}")
+        return set()
+    finally:
+        cursor.close()
+        cnx.close()
+
+def mark_migration_applied(migration_name):
+    """Marks a migration as applied in the schema_migrations table."""
+    cnx = get_db_connection()
+    if not cnx:
+        logger.error(f"Could not connect to DB to mark migration {migration_name} as applied")
+        return False
+    
+    cursor = cnx.cursor()
+    try:
+        cursor.execute(
+            "INSERT INTO schema_migrations (migration_name) VALUES (%s) ON DUPLICATE KEY UPDATE applied_at = CURRENT_TIMESTAMP",
+            (migration_name,)
+        )
+        cnx.commit()
+        logger.info(f"Marked migration '{migration_name}' as applied")
+        return True
+    except mysql.connector.Error as err:
+        logger.error(f"Failed to mark migration {migration_name} as applied: {err}")
+        return False
+    finally:
+        cursor.close()
+        cnx.close()
+
+def apply_sql_migration(migration_file_path):
+    """
+    Applies a SQL migration file to the database.
+    Returns (success: bool, error_message: str or None)
+    """
+    import os
+    
+    if not os.path.exists(migration_file_path):
+        return False, f"Migration file not found: {migration_file_path}"
+    
+    try:
+        with open(migration_file_path, 'r', encoding='utf-8') as f:
+            sql_content = f.read()
+    except Exception as e:
+        return False, f"Failed to read migration file: {e}"
+    
+    cnx = get_db_connection()
+    if not cnx:
+        return False, "Could not connect to database"
+    
+    cursor = cnx.cursor()
+    
+    # Parse SQL into statements
+    statements = []
+    current_statement = []
+    in_delimiter = False
+    current_delimiter = ';'
+    
+    for line in sql_content.split('\n'):
+        stripped = line.strip()
+        
+        # Handle DELIMITER changes
+        if stripped.upper().startswith('DELIMITER'):
+            parts = stripped.split()
+            if len(parts) >= 2:
+                new_delimiter = parts[1]
+                if new_delimiter == '$$':
+                    in_delimiter = True
+                    current_delimiter = '$$'
+                elif new_delimiter == ';':
+                    in_delimiter = False
+                    current_delimiter = ';'
+            continue
+        
+        # Skip empty lines and comments
+        if not stripped or stripped.startswith('--'):
+            continue
+        
+        current_statement.append(line)
+        
+        # Check for statement end
+        if in_delimiter and stripped.endswith('$$'):
+            stmt = '\n'.join(current_statement).rstrip('$$').strip()
+            if stmt:
+                statements.append(stmt)
+            current_statement = []
+        elif not in_delimiter and stripped.endswith(';'):
+            stmt = '\n'.join(current_statement).rstrip(';').strip()
+            if stmt:
+                statements.append(stmt)
+            current_statement = []
+    
+    # Execute statements
+    try:
+        logger.info(f"Executing {len(statements)} SQL statements from migration")
+        for i, statement in enumerate(statements, 1):
+            try:
+                cursor.execute(statement)
+                # Get preview of statement for logging
+                preview = ' '.join(statement.split()[:5])
+                logger.debug(f"  [{i}/{len(statements)}] ✓ {preview}...")
+            except mysql.connector.Error as err:
+                preview = ' '.join(statement.split()[:5])
+                error_msg = str(err).lower()
+                # Ignore "already exists" and "duplicate" errors - migrations are idempotent
+                if 'already exists' in error_msg or 'duplicate' in error_msg:
+                    logger.debug(f"  [{i}/{len(statements)}] ⚠ {preview}... (already exists, skipping)")
+                else:
+                    logger.error(f"  [{i}/{len(statements)}] ✗ {preview}... Error: {err}")
+                    raise
+        
+        cnx.commit()
+        logger.info("Migration applied successfully")
+        return True, None
+        
+    except mysql.connector.Error as err:
+        cnx.rollback()
+        error_msg = f"Migration failed with MySQL error: {err}"
+        logger.error(error_msg)
+        return False, error_msg
+    except Exception as e:
+        cnx.rollback()
+        error_msg = f"Migration failed with unexpected error: {e}"
+        logger.error(error_msg)
+        logger.error(traceback.format_exc())
+        return False, error_msg
+    finally:
+        cursor.close()
+        cnx.close()
+
+def apply_pending_migrations(migrations_dir="scripts/db_migrations"):
+    """
+    Discovers and applies all pending SQL migrations from the migrations directory.
+    Returns (total_applied: int, errors: list)
+    """
+    import os
+    import glob
+    
+    logger.info("Checking for pending database migrations...")
+    
+    # Ensure migrations tracking table exists
+    if not create_migrations_table():
+        logger.error("Failed to create migrations tracking table")
+        return 0, ["Failed to create migrations tracking table"]
+    
+    # Get already applied migrations
+    applied_migrations = get_applied_migrations()
+    logger.info(f"Found {len(applied_migrations)} previously applied migrations")
+    
+    # Find all .sql files in the migrations directory
+    if not os.path.exists(migrations_dir):
+        logger.warning(f"Migrations directory not found: {migrations_dir}")
+        return 0, []
+    
+    migration_files = sorted(glob.glob(os.path.join(migrations_dir, "*.sql")))
+    logger.info(f"Found {len(migration_files)} migration files in {migrations_dir}")
+    
+    total_applied = 0
+    errors = []
+    
+    for migration_path in migration_files:
+        migration_name = os.path.basename(migration_path)
+        
+        if migration_name in applied_migrations:
+            logger.debug(f"Skipping already applied migration: {migration_name}")
+            continue
+        
+        logger.info(f"Applying migration: {migration_name}")
+        success, error_msg = apply_sql_migration(migration_path)
+        
+        if success:
+            # Mark as applied
+            if mark_migration_applied(migration_name):
+                total_applied += 1
+                logger.info(f"✓ Successfully applied migration: {migration_name}")
+            else:
+                error_msg = f"Migration applied but failed to mark as completed: {migration_name}"
+                logger.error(error_msg)
+                errors.append(error_msg)
+        else:
+            error_msg = f"Failed to apply migration {migration_name}: {error_msg}"
+            logger.error(error_msg)
+            errors.append(error_msg)
+    
+    if total_applied > 0:
+        logger.info(f"✓ Applied {total_applied} new migrations successfully")
+    else:
+        logger.info("No new migrations to apply")
+    
+    if errors:
+        logger.warning(f"Encountered {len(errors)} errors during migration")
+    
+    return total_applied, errors
+
 # --- NEW: API Usage Tracking Functions ---
 
 @db_operation("log_api_usage")

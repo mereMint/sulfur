@@ -938,16 +938,16 @@ function Invoke-Update {
     git pull
     
     # Initialize/update database tables after pulling updates
-    Write-ColorLog 'Updating database tables...' 'Cyan' '[UPDATE] '
+    Write-ColorLog 'Updating database tables and applying migrations...' 'Cyan' '[UPDATE] '
     
     $pythonExe = 'python'
     if (Test-Path 'venv\Scripts\python.exe') {
         $pythonExe = 'venv\Scripts\python.exe'
     }
     
-    # Run database initialization
+    # Run database initialization and apply migrations
     $dbInitScript = @"
-from modules.db_helpers import init_db_pool, initialize_database
+from modules.db_helpers import init_db_pool, initialize_database, apply_pending_migrations
 import os
 from dotenv import load_dotenv
 
@@ -957,16 +957,33 @@ DB_USER = os.environ.get('DB_USER', 'sulfur_bot_user')
 DB_PASS = os.environ.get('DB_PASS', '')
 DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot')
 
+# Initialize database pool
 init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
+
+# Create base tables
 initialize_database()
 print('Database tables initialized successfully')
+
+# Apply any pending migrations
+applied_count, errors = apply_pending_migrations()
+if applied_count > 0:
+    print(f'Applied {applied_count} new database migrations')
+if errors:
+    print(f'WARNING: {len(errors)} migration errors occurred')
+    for error in errors:
+        print(f'  - {error}')
+else:
+    print('All database migrations up to date')
 "@
     
     try {
-        & $pythonExe -c $dbInitScript 2>&1 | Out-Null
-        Write-ColorLog 'Database tables updated successfully' 'Green' '[UPDATE] '
+        $output = & $pythonExe -c $dbInitScript 2>&1
+        if ($output) {
+            $output | ForEach-Object { Write-ColorLog $_ 'White' '[DB] ' }
+        }
+        Write-ColorLog 'Database tables and migrations updated successfully' 'Green' '[UPDATE] '
     } catch {
-        Write-ColorLog "Database initialization had issues: $($_.Exception.Message)" 'Yellow' '[UPDATE] '
+        Write-ColorLog "Database initialization/migration had issues: $($_.Exception.Message)" 'Yellow' '[UPDATE] '
     }
     
     Write-ColorLog 'Update complete' 'Green' '[UPDATE] '
@@ -988,6 +1005,54 @@ try {
     Start-DatabaseServerIfNeeded | Out-Null
 } catch {
     Write-ColorLog "Warning: Database server check error: $($_.Exception.Message)" 'Yellow'
+}
+
+# Run database initialization and migrations on startup
+Write-ColorLog 'Initializing database and applying migrations...' 'Cyan' '[DB] '
+
+$pythonExe = 'python'
+if (Test-Path 'venv\Scripts\python.exe') {
+    $pythonExe = 'venv\Scripts\python.exe'
+}
+
+$dbStartupScript = @"
+from modules.db_helpers import init_db_pool, initialize_database, apply_pending_migrations
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+DB_HOST = os.environ.get('DB_HOST', 'localhost')
+DB_USER = os.environ.get('DB_USER', 'sulfur_bot_user')
+DB_PASS = os.environ.get('DB_PASS', '')
+DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot')
+
+# Initialize database pool
+init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
+
+# Create base tables
+initialize_database()
+print('Database tables initialized successfully')
+
+# Apply any pending migrations
+applied_count, errors = apply_pending_migrations()
+if applied_count > 0:
+    print(f'Applied {applied_count} new database migrations')
+if errors:
+    print(f'WARNING: {len(errors)} migration errors occurred')
+    for error in errors:
+        print(f'  - {error}')
+else:
+    print('All database migrations up to date')
+"@
+
+try {
+    $output = & $pythonExe -c $dbStartupScript 2>&1
+    if ($output) {
+        $output | ForEach-Object { Write-ColorLog $_ 'White' '[DB] ' }
+    }
+    Write-ColorLog 'Database ready - tables and migrations up to date' 'Green' '[DB] '
+} catch {
+    Write-ColorLog "Database initialization/migration had issues: $($_.Exception.Message)" 'Yellow' '[DB] '
 }
 
 try {
