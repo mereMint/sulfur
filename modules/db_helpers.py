@@ -57,14 +57,16 @@ def init_db_pool(host, user, password, database):
             'password': password, 
             'database': database,
             'autocommit': False,
-            'pool_reset_session': True
+            'pool_reset_session': True,
+            'get_warnings': True,
+            'raise_on_warnings': False
         }
         db_pool = pooling.MySQLConnectionPool(
             pool_name="sulfur_pool", 
-            pool_size=5, 
+            pool_size=10,  # Increased from 5 to 10 to handle concurrent operations like detective game
             **db_config
         )
-        logger.info("Database connection pool initialized successfully")
+        logger.info("Database connection pool initialized successfully (size: 10)")
     except mysql.connector.Error as err:
         logger.error(f"FATAL: Could not initialize database pool: {err}")
         logger.error(f"Error code: {err.errno}, Message: {err.msg}")
@@ -80,11 +82,27 @@ def get_db_connection():
     # This function is now only used for the initial table creation.
     # All other functions get a connection directly from the pool.
     if db_pool:
-        try:
-            return db_pool.get_connection()
-        except mysql.connector.Error as err:
-            logger.error(f"Failed to get connection from pool: {err}")
-            return None
+        max_retries = 3
+        retry_delay = 0.1  # 100ms
+        for attempt in range(max_retries):
+            try:
+                return db_pool.get_connection()
+            except mysql.connector.errors.PoolError as err:
+                if "Failed getting connection; pool exhausted" in str(err):
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Pool exhausted, retry {attempt + 1}/{max_retries} after {retry_delay}s")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                    else:
+                        logger.error(f"Failed to get connection from pool after {max_retries} retries: pool exhausted")
+                        return None
+                else:
+                    logger.error(f"Failed to get connection from pool: {err}")
+                    return None
+            except mysql.connector.Error as err:
+                logger.error(f"Failed to get connection from pool: {err}")
+                return None
+        return None
     else:
         logger.warning("Database pool not initialized, cannot get connection")
         return None
@@ -732,9 +750,11 @@ async def log_api_usage(model_name, input_tokens, output_tokens):
     if not db_pool:
         logger.warning("Database pool not available, skipping API usage logging")
         return
-        
-    cnx = db_pool.get_connection()
+    
+    # Use get_db_connection which has retry logic for pool exhaustion
+    cnx = get_db_connection()
     if not cnx: 
+        logger.warning("Could not get database connection for API usage logging")
         return
     cursor = cnx.cursor()
     try:
