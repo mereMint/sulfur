@@ -607,15 +607,15 @@ apply_updates() {
     git pull >>"$MAIN_LOG" 2>&1
     
     # Initialize/update database tables after pulling updates
-    log_update "Updating database tables..."
+    log_update "Updating database tables and applying migrations..."
     local python_exe="$PYTHON_CMD"
     if [ -f "venv/bin/python" ]; then
         python_exe="venv/bin/python"
     fi
     
-    # Run database initialization
+    # Run database initialization and apply migrations
     "$python_exe" -c "
-from modules.db_helpers import init_db_pool, initialize_database
+from modules.db_helpers import init_db_pool, initialize_database, apply_pending_migrations
 import os
 from dotenv import load_dotenv
 
@@ -625,15 +625,29 @@ DB_USER = os.environ.get('DB_USER', 'sulfur_bot_user')
 DB_PASS = os.environ.get('DB_PASS', '')
 DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot')
 
+# Initialize database pool
 init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
+
+# Create base tables
 initialize_database()
 print('Database tables initialized successfully')
+
+# Apply any pending migrations
+applied_count, errors = apply_pending_migrations()
+if applied_count > 0:
+    print(f'Applied {applied_count} new database migrations')
+if errors:
+    print(f'WARNING: {len(errors)} migration errors occurred')
+    for error in errors:
+        print(f'  - {error}')
+else:
+    print('All database migrations up to date')
 " >>"$MAIN_LOG" 2>&1
     
     if [ $? -eq 0 ]; then
-        log_success "Database tables updated successfully"
+        log_success "Database tables and migrations updated successfully"
     else
-        log_warning "Database initialization had issues - check log"
+        log_warning "Database initialization/migration had issues - check log"
     fi
     
     log_success "Update complete"
@@ -1240,6 +1254,49 @@ fi
 
 # Ensure database server is running
 ensure_database_running || log_warning "Database server check failed, continuing anyway..."
+
+# Run database initialization and migrations on startup
+log_info "Initializing database and applying migrations..."
+python_exe="$PYTHON_CMD"
+if [ -f "venv/bin/python" ]; then
+    python_exe="venv/bin/python"
+fi
+
+"$python_exe" -c "
+from modules.db_helpers import init_db_pool, initialize_database, apply_pending_migrations
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+DB_HOST = os.environ.get('DB_HOST', 'localhost')
+DB_USER = os.environ.get('DB_USER', 'sulfur_bot_user')
+DB_PASS = os.environ.get('DB_PASS', '')
+DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot')
+
+# Initialize database pool
+init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
+
+# Create base tables
+initialize_database()
+print('Database tables initialized successfully')
+
+# Apply any pending migrations
+applied_count, errors = apply_pending_migrations()
+if applied_count > 0:
+    print(f'Applied {applied_count} new database migrations')
+if errors:
+    print(f'WARNING: {len(errors)} migration errors occurred')
+    for error in errors:
+        print(f'  - {error}')
+else:
+    print('All database migrations up to date')
+" >>"$MAIN_LOG" 2>&1
+
+if [ $? -eq 0 ]; then
+    log_success "Database ready - tables and migrations up to date"
+else
+    log_warning "Database initialization/migration had issues - check log"
+fi
 
 # Start web dashboard
 start_web_dashboard || log_warning "Web Dashboard failed to start, continuing anyway..."
