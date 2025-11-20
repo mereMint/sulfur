@@ -597,14 +597,26 @@ apply_updates() {
     if echo "$CHANGED_FILES" | grep -q "maintain_bot.sh"; then
         log_update "Maintenance script will be updated - restarting..."
         
-        git pull >>"$MAIN_LOG" 2>&1
+        # Use rebase to avoid merge conflicts when local commits exist
+        if ! git pull --rebase >>"$MAIN_LOG" 2>&1; then
+            log_warning "Rebase failed, trying merge..."
+            git rebase --abort >>"$MAIN_LOG" 2>&1
+            git pull --no-rebase >>"$MAIN_LOG" 2>&1
+        fi
         
         # Restart this script
         exec "$0" "$@"
     fi
     
-    # Normal update
-    git pull >>"$MAIN_LOG" 2>&1
+    # Normal update - use rebase to avoid merge conflicts when local commits exist
+    if ! git pull --rebase >>"$MAIN_LOG" 2>&1; then
+        log_warning "Rebase failed, trying merge..."
+        git rebase --abort >>"$MAIN_LOG" 2>&1
+        if ! git pull --no-rebase >>"$MAIN_LOG" 2>&1; then
+            log_error "Pull failed - manual intervention may be required"
+            log_warning "Continuing with current code..."
+        fi
+    fi
     
     # Initialize/update database tables after pulling updates
     log_update "Updating database tables and applying migrations..."

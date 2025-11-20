@@ -929,13 +929,29 @@ function Invoke-Update {
     $changedFiles=git diff --name-only HEAD...origin/main
     if($changedFiles -like '*maintain_bot.ps1*' -or $changedFiles -like '*maintain_bot_fixed.ps1*'){
         Write-ColorLog 'Maintenance script updated; restarting...' 'Magenta' '[UPDATE] '
-        git pull
+        # Use rebase to avoid merge conflicts when local commits exist
+        git pull --rebase 2>&1 | Out-Null
+        if($LASTEXITCODE -ne 0){
+            Write-ColorLog 'Rebase failed, trying merge...' 'Yellow' '[UPDATE] '
+            git rebase --abort 2>&1 | Out-Null
+            git pull --no-rebase 2>&1 | Out-Null
+        }
         Invoke-Cleanup
         Start-Process powershell.exe -ArgumentList "-File `"$PSScriptRoot\maintain_bot.ps1`""
         Stop-Transcript
         exit 0
     }
-    git pull
+    # Use rebase to avoid merge conflicts when local commits exist
+    git pull --rebase 2>&1 | Out-Null
+    if($LASTEXITCODE -ne 0){
+        Write-ColorLog 'Rebase failed, trying merge...' 'Yellow' '[UPDATE] '
+        git rebase --abort 2>&1 | Out-Null
+        git pull --no-rebase 2>&1 | Out-Null
+        if($LASTEXITCODE -ne 0){
+            Write-ColorLog 'Pull failed - manual intervention may be required' 'Red' '[UPDATE] '
+            Write-ColorLog 'Continuing with current code...' 'Yellow' '[UPDATE] '
+        }
+    }
     
     # Initialize/update database tables after pulling updates
     Write-ColorLog 'Updating database tables and applying migrations...' 'Cyan' '[UPDATE] '
