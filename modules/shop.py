@@ -128,6 +128,13 @@ async def purchase_color_role(db_helpers, member: discord.Member, color: str, ti
     # Store equipped color in database
     await db_helpers.set_user_equipped_color(member.id, color)
     
+    # --- NEW: Influence COLOR stock ---
+    try:
+        from modules import stock_market
+        await stock_market.record_color_purchase(db_helpers, tier)
+    except Exception as e:
+        logger.error(f"Failed to record color stock influence: {e}")
+    
     currency = config['modules']['economy']['currency_symbol']
     return True, f"Successfully purchased {tier} color role for {price} {currency}!", role
 

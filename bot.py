@@ -4641,6 +4641,14 @@ class BlackjackView(discord.ui.View):
             f"Blackjack result: {result}"
         )
         
+        # --- NEW: Influence GAMBL stock based on result ---
+        try:
+            won = result in ['win', 'blackjack']
+            payout = int(self.game.bet * multiplier) if won else 0
+            await stock_market.record_gambling_activity(db_helpers, self.game.bet, won, payout)
+        except Exception as e:
+            logger.error(f"Failed to record gambling stock influence: {e}")
+        
         # Add result field
         if result == 'blackjack':
             embed.add_field(name="🎉 BLACKJACK!", value=f"Du gewinnst **{int(self.game.bet * multiplier)} {currency}**!", inline=False)
@@ -5007,6 +5015,14 @@ class RouletteView(discord.ui.View):
             new_balance,
             f"Bets: {len(self.bets)}, Result: {result_number}"
         )
+        
+        # --- NEW: Influence GAMBL stock based on result ---
+        try:
+            total_bet = self.bet_amount * len(self.bets)
+            won = total_winnings > 0
+            await stock_market.record_gambling_activity(db_helpers, total_bet, won, total_winnings)
+        except Exception as e:
+            logger.error(f"Failed to record gambling stock influence: {e}")
         
         # Create result embed
         currency = config['modules']['economy']['currency_symbol']
