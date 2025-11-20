@@ -21,6 +21,16 @@ JÄGER = "Jäger"
 AMOR = "Amor"  # Cupid - creates lovers
 DER_WEISSE = "Der Weiße"  # The White - can survive one werewolf attack
 
+# Mapping of feature unlock names to role names for ownership checking
+ROLE_UNLOCK_MAPPING = [
+    ('werwolf_role_seherin', SEHERIN),
+    ('werwolf_role_hexe', HEXE),
+    ('werwolf_role_dönerstopfer', DÖNERSTOPFER),
+    ('werwolf_role_jäger', JÄGER),
+    ('werwolf_role_amor', AMOR),
+    ('werwolf_role_der_weisse', DER_WEISSE)
+]
+
 # Helper function to get available roles for a user
 async def get_available_werwolf_roles(user_id, db_helpers):
     """Get roles available based on what the user owns.
@@ -34,18 +44,8 @@ async def get_available_werwolf_roles(user_id, db_helpers):
     """
     available_roles = []
     
-    # Define the special roles to check
-    roles_to_check = [
-        ('werwolf_role_seherin', SEHERIN),
-        ('werwolf_role_hexe', HEXE),
-        ('werwolf_role_dönerstopfer', DÖNERSTOPFER),
-        ('werwolf_role_jäger', JÄGER),
-        ('werwolf_role_amor', AMOR),
-        ('werwolf_role_der_weisse', DER_WEISSE)
-    ]
-    
     # Check each special role
-    for feature_name, role_name in roles_to_check:
+    for feature_name, role_name in ROLE_UNLOCK_MAPPING:
         has_role = await db_helpers.has_feature_unlock(user_id, feature_name)
         if has_role:
             available_roles.append(role_name)
@@ -227,7 +227,8 @@ class WerwolfRoleSelectionView(discord.ui.View):
             
             try:
                 await self.message.edit(embed=embed, view=self)
-            except:
+            except (discord.NotFound, discord.HTTPException) as e:
+                # Message was deleted or Discord API error - ignore
                 pass
 
 

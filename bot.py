@@ -3151,7 +3151,6 @@ async def ww_start(interaction: discord.Interaction, ziel_spieler: int = None):
     from modules.werwolf import get_available_werwolf_roles, WerwolfRoleSelectionView
     
     available_roles = await get_available_werwolf_roles(author.id, db_helpers)
-    selected_roles = None  # Will be set by role selection view
     
     # Only show role selection if user has unlocked special roles
     if available_roles:
