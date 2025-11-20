@@ -285,6 +285,133 @@ async def get_user_portfolio(db_helpers, user_id: int):
         return []
 
 
+async def get_recent_trades(db_helpers, limit: int = 10):
+    """Get recent stock trades from transaction history."""
+    try:
+        if not db_helpers.db_pool:
+            return []
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return []
+        
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT transaction_type, description, created_at, ABS(amount) as volume
+                FROM transaction_history
+                WHERE transaction_type IN ('stock_buy', 'stock_sell')
+                ORDER BY created_at DESC
+                LIMIT %s
+            """, (limit,))
+            return cursor.fetchall()
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting recent trades: {e}", exc_info=True)
+        return []
+
+
+async def get_stock_stats(db_helpers, symbol: str):
+    """Get detailed statistics for a stock including 24h high/low."""
+    try:
+        if not db_helpers.db_pool:
+            return None
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return None
+        
+        cursor = conn.cursor()
+        try:
+            # Get current stock info
+            cursor.execute("""
+                SELECT symbol, name, category, current_price, previous_price, trend, volume_today, last_update
+                FROM stocks WHERE symbol = %s
+            """, (symbol.upper(),))
+            stock = cursor.fetchone()
+            
+            if not stock:
+                return None
+            
+            # Get 24h high/low from history
+            cursor.execute("""
+                SELECT MAX(price) as high_24h, MIN(price) as low_24h
+                FROM stock_history
+                WHERE stock_symbol = %s
+                AND timestamp > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+            """, (symbol.upper(),))
+            stats = cursor.fetchone()
+            
+            # Get active traders count
+            cursor.execute("""
+                SELECT COUNT(DISTINCT user_id) as active_traders
+                FROM transaction_history
+                WHERE description LIKE %s
+                AND created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+            """, (f'%{symbol.upper()}%',))
+            traders = cursor.fetchone()
+            
+            return {
+                'stock': stock,
+                'high_24h': stats[0] if stats else stock[3],
+                'low_24h': stats[1] if stats else stock[3],
+                'active_traders': traders[0] if traders else 0
+            }
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting stock stats for {symbol}: {e}", exc_info=True)
+        return None
+
+
+async def get_market_overview(db_helpers):
+    """Get overall market statistics."""
+    try:
+        if not db_helpers.db_pool:
+            return None
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return None
+        
+        cursor = conn.cursor()
+        try:
+            # Get market stats
+            cursor.execute("""
+                SELECT 
+                    COUNT(*) as total_stocks,
+                    SUM(volume_today) as total_volume,
+                    AVG(((current_price - previous_price) / previous_price * 100)) as avg_change
+                FROM stocks
+            """)
+            market = cursor.fetchone()
+            
+            # Get trading activity
+            cursor.execute("""
+                SELECT COUNT(*) as trades_24h
+                FROM transaction_history
+                WHERE transaction_type IN ('stock_buy', 'stock_sell')
+                AND created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+            """)
+            activity = cursor.fetchone()
+            
+            return {
+                'total_stocks': market[0] if market else 0,
+                'total_volume': market[1] if market else 0,
+                'avg_change': float(market[2]) if market and market[2] else 0,
+                'trades_24h': activity[0] if activity else 0
+            }
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting market overview: {e}", exc_info=True)
+        return None
+
+
 async def buy_stock(db_helpers, user_id: int, symbol: str, shares: int, currency_system):
     """Buy stock shares."""
     try:
@@ -355,6 +482,16 @@ async def buy_stock(db_helpers, user_id: int, symbol: str, shares: int, currency
             cursor.execute("""
                 UPDATE stocks SET volume_today = volume_today + %s WHERE symbol = %s
             """, (shares, symbol))
+            
+            # Get new balance for transaction log
+            cursor.execute("SELECT balance FROM players WHERE discord_id = %s", (user_id,))
+            new_balance = cursor.fetchone()[0]
+            
+            # Log transaction
+            cursor.execute("""
+                INSERT INTO transaction_history (user_id, transaction_type, amount, balance_after, description)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (user_id, 'stock_buy', -total_cost, new_balance, f"Gekauft: {shares}x {symbol} @ {format_price(current_price)}"))
             
             conn.commit()
             return True, f"Gekauft: {shares} Aktien von {symbol} für {total_cost:.2f}"
@@ -428,6 +565,16 @@ async def sell_stock(db_helpers, user_id: int, symbol: str, shares: int):
             cursor.execute("""
                 UPDATE stocks SET volume_today = volume_today + %s WHERE symbol = %s
             """, (shares, symbol))
+            
+            # Get new balance for transaction log
+            cursor.execute("SELECT balance FROM players WHERE discord_id = %s", (user_id,))
+            new_balance = cursor.fetchone()[0]
+            
+            # Log transaction
+            cursor.execute("""
+                INSERT INTO transaction_history (user_id, transaction_type, amount, balance_after, description)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (user_id, 'stock_sell', total_value, new_balance, f"Verkauft: {shares}x {symbol} @ {format_price(current_price)}"))
             
             conn.commit()
             return True, f"Verkauft: {shares} Aktien von {symbol} für {total_value:.2f}"

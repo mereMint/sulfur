@@ -107,6 +107,8 @@ async def gather_news_data(db_helpers, cursor):
         'quest_completions': 0,
         'wrapped_tease': False,
         'gambling_stats': {},
+        'stock_trading_activity': {},
+        'market_sentiment': {},
         'timestamp': datetime.now(timezone.utc)
     }
     
@@ -115,13 +117,46 @@ async def gather_news_data(db_helpers, cursor):
         cursor.execute("""
             SELECT symbol, name, 
                    ((current_price - previous_price) / previous_price * 100) as change_pct,
-                   current_price
+                   current_price, previous_price, volume_today, category
             FROM stocks
-            WHERE ABS((current_price - previous_price) / previous_price * 100) > 5
+            WHERE ABS((current_price - previous_price) / previous_price * 100) > 3
             ORDER BY ABS((current_price - previous_price) / previous_price) DESC
-            LIMIT 5
+            LIMIT 8
         """)
         news_data['stock_changes'] = cursor.fetchall()
+        
+        # Get stock trading activity from last 24 hours
+        cursor.execute("""
+            SELECT COUNT(*) as trades, SUM(ABS(amount)) as volume
+            FROM transaction_history
+            WHERE transaction_type IN ('stock_buy', 'stock_sell')
+            AND created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+        """)
+        activity = cursor.fetchone()
+        if activity:
+            news_data['stock_trading_activity'] = {
+                'trades': activity['trades'] or 0,
+                'volume': float(activity['volume'] or 0)
+            }
+        
+        # Get market sentiment (ratio of buys vs sells)
+        cursor.execute("""
+            SELECT 
+                SUM(CASE WHEN transaction_type = 'stock_buy' THEN 1 ELSE 0 END) as buys,
+                SUM(CASE WHEN transaction_type = 'stock_sell' THEN 1 ELSE 0 END) as sells
+            FROM transaction_history
+            WHERE transaction_type IN ('stock_buy', 'stock_sell')
+            AND created_at > DATE_SUB(NOW(), INTERVAL 6 HOUR)
+        """)
+        sentiment = cursor.fetchone()
+        if sentiment and (sentiment['buys'] or 0) + (sentiment['sells'] or 0) > 0:
+            total = (sentiment['buys'] or 0) + (sentiment['sells'] or 0)
+            buy_ratio = (sentiment['buys'] or 0) / total if total > 0 else 0.5
+            news_data['market_sentiment'] = {
+                'buys': sentiment['buys'] or 0,
+                'sells': sentiment['sells'] or 0,
+                'buy_ratio': buy_ratio
+            }
         
         # Check if it's wrapped teaser time (December 8-14)
         now = datetime.now(timezone.utc)
@@ -155,44 +190,68 @@ async def create_article_with_ai(api_helpers, news_data, config):
     """Use AI to create an engaging news article."""
     try:
         # Build prompt for AI
-        prompt = "Du bist ein Wirtschaftsjournalist. Schreibe einen kurzen, unterhaltsamen Nachrichtenartikel (max 300 Wörter) über folgende Ereignisse:\n\n"
+        prompt = """Du bist ein charismatischer Wirtschaftsjournalist mit einem Hang zu dramatischen Geschichten. 
+Schreibe einen unterhaltsamen, spannenden Nachrichtenartikel (200-400 Wörter) über die folgenden Ereignisse.
+Verwende lebendige Metaphern, dramatische Formulierungen und mache die Zahlen lebendig!
+Format: TITEL: [einprägsamer titel]\nINHALT: [artikel inhalt]
+
+EREIGNISSE:\n\n"""
         
         category = "general"
         
-        # Add stock information
+        # Add stock information with more detail
         if news_data['stock_changes']:
             category = "economy"
-            prompt += "BÖRSE:\n"
+            prompt += "📊 BÖRSENGESCHEHEN:\n"
             for stock in news_data['stock_changes']:
                 symbol = stock['symbol']
                 name = stock['name']
                 change = stock['change_pct']
-                prompt += f"- {name} ({symbol}): {change:+.2f}%\n"
+                current = stock['current_price']
+                previous = stock['previous_price']
+                volume = stock['volume_today']
+                cat = stock['category']
+                
+                trend = "explodiert" if change > 10 else "steigt rasant" if change > 5 else "wächst" if change > 0 else "fällt" if change > -5 else "stürzt ab" if change > -10 else "kollabiert"
+                prompt += f"- {name} ({symbol}, {cat}): {trend} um {abs(change):.2f}% (von {previous:.2f} auf {current:.2f}), Volumen: {volume}\n"
             prompt += "\n"
+        
+        # Add market sentiment and activity
+        if news_data.get('stock_trading_activity', {}).get('trades', 0) > 0:
+            trades = news_data['stock_trading_activity']['trades']
+            volume = news_data['stock_trading_activity']['volume']
+            prompt += f"💹 HANDELSAKTIVITÄT: {trades} Transaktionen im Wert von {volume:.0f} Coins in den letzten 24 Stunden.\n\n"
+        
+        if news_data.get('market_sentiment'):
+            sentiment = news_data['market_sentiment']
+            buy_ratio = sentiment['buy_ratio']
+            mood = "bullish (sehr optimistisch)" if buy_ratio > 0.65 else "bearish (pessimistisch)" if buy_ratio < 0.35 else "neutral"
+            prompt += f"📈 MARKTSTIMMUNG: {mood} - {sentiment['buys']} Käufe vs {sentiment['sells']} Verkäufe\n\n"
         
         # Add wrapped tease
         if news_data['wrapped_tease']:
             category = "wrapped"
-            prompt += "WRAPPED: Es ist Wrapped-Season! Gerüchte über bevorstehende Jahresrückblicke.\n\n"
+            prompt += "🎁 WRAPPED SEASON: Die Jahresrückblicke stehen vor der Tür! Spekulationen über spektakuläre Statistiken.\n\n"
         
         # Add leaderboard
         if news_data['leaderboard_changes']:
             if category == "general":
                 category = "leaderboard"
-            prompt += "TOP SPIELER:\n"
+            prompt += "🏆 REICHSTEN SPIELER:\n"
             for i, player in enumerate(news_data['leaderboard_changes'], 1):
-                prompt += f"{i}. {player['display_name']}: {player['balance']} Coins\n"
+                medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉"
+                prompt += f"{medal} {player['display_name']}: {player['balance']:,} Coins\n"
             prompt += "\n"
         
         # Add gambling stats
         if news_data['gambling_stats'].get('big_winner'):
             if category == "general":
                 category = "gambling"
-            prompt += f"CASINO: {news_data['gambling_stats']['total_bets']} Wetten platziert. "
-            prompt += f"Großer Gewinner: {news_data['gambling_stats']['big_winner']}!\n\n"
+            prompt += f"🎰 CASINO: {news_data['gambling_stats']['total_bets']} Wetten, "
+            prompt += f"Gesamteinsatz: {news_data['gambling_stats']['total_wagered']:,} Coins. "
+            prompt += f"Großgewinner: {news_data['gambling_stats']['big_winner']}!\n\n"
         
-        prompt += "Erstelle einen Artikel mit einem einprägsamen Titel und informativem Inhalt. "
-        prompt += "Antworte im Format: TITEL: [titel]\\nINHALT: [inhalt]"
+        prompt += "\nSchreibe einen packenden Artikel mit einem kreativen Titel und dramatischem, aber informativem Inhalt!"
         
         # Call AI API
         from modules import api_helpers as api_module
@@ -222,29 +281,52 @@ async def create_article_with_ai(api_helpers, news_data, config):
 def create_fallback_article(news_data, category):
     """Create a simple article without AI."""
     titles = {
-        'economy': '📈 Börsennachrichten: Volatile Märkte!',
+        'economy': '📈 Börsennachrichten: Volatile Märkte bewegen die Gemüter!',
         'wrapped': '🎁 Wrapped Season steht bevor!',
-        'leaderboard': '🏆 Neue Ranglisten-Anführer!',
-        'gambling': '🎰 Casino-Fieber steigt!',
-        'general': '📰 Server-Update'
+        'leaderboard': '🏆 Neue Ranglisten-Anführer erobern die Spitze!',
+        'gambling': '🎰 Casino-Fieber erreicht neue Höhen!',
+        'general': '📰 Server-Update: Spannende Entwicklungen!'
     }
     
-    content = "Heute gab es interessante Entwicklungen auf dem Server!\n\n"
+    content = "**Heute gab es interessante Entwicklungen auf dem Server!**\n\n"
     
+    # Enhanced stock information
     if news_data['stock_changes']:
-        content += "**Börse:**\n"
-        for stock in news_data['stock_changes'][:3]:
-            emoji = "📈" if stock['change_pct'] > 0 else "📉"
-            content += f"{emoji} {stock['name']}: {stock['change_pct']:+.2f}%\n"
+        content += "**📊 Börsengeschehen:**\n"
+        for stock in news_data['stock_changes'][:5]:
+            emoji = "🚀" if stock['change_pct'] > 5 else "📈" if stock['change_pct'] > 0 else "📉" if stock['change_pct'] > -5 else "💥"
+            content += f"{emoji} **{stock['name']}** ({stock['symbol']}): {stock['change_pct']:+.2f}%\n"
+            content += f"   {stock['previous_price']:.2f} → {stock['current_price']:.2f} | Vol: {stock['volume_today']}\n"
         content += "\n"
     
+    # Market activity
+    if news_data.get('stock_trading_activity', {}).get('trades', 0) > 0:
+        trades = news_data['stock_trading_activity']['trades']
+        volume = news_data['stock_trading_activity']['volume']
+        content += f"**💹 Handelsaktivität:** {trades} Trades, Volumen: {volume:.0f} 🪙\n\n"
+    
+    # Market sentiment
+    if news_data.get('market_sentiment'):
+        sentiment = news_data['market_sentiment']
+        buy_ratio = sentiment['buy_ratio']
+        mood_emoji = "🟢" if buy_ratio > 0.6 else "🔴" if buy_ratio < 0.4 else "🟡"
+        mood_text = "Bullish" if buy_ratio > 0.6 else "Bearish" if buy_ratio < 0.4 else "Neutral"
+        content += f"**📈 Marktstimmung:** {mood_emoji} {mood_text} ({sentiment['buys']} Käufe / {sentiment['sells']} Verkäufe)\n\n"
+    
     if news_data['wrapped_tease']:
-        content += "**Wrapped Season:**\nGerüchte über bevorstehende Jahresrückblicke machen die Runde!\n\n"
+        content += "**🎁 Wrapped Season:**\nGerüchte über bevorstehende Jahresrückblicke machen die Runde! Bereitet euch auf spektakuläre Statistiken vor!\n\n"
     
     if news_data['leaderboard_changes']:
-        content += "**Top Spieler:**\n"
-        for i, player in enumerate(news_data['leaderboard_changes'][:3], 1):
-            content += f"{i}. {player['display_name']}: {player['balance']} 🪙\n"
+        content += "**🏆 Top Spieler:**\n"
+        medals = ["🥇", "🥈", "🥉"]
+        for i, player in enumerate(news_data['leaderboard_changes'][:3], 0):
+            medal = medals[i] if i < 3 else f"{i+1}."
+            content += f"{medal} **{player['display_name']}**: {player['balance']:,} 🪙\n"
+        content += "\n"
+    
+    if news_data['gambling_stats'].get('big_winner'):
+        content += f"**🎰 Casino:** {news_data['gambling_stats']['total_bets']} Wetten\n"
+        content += f"Großgewinner: **{news_data['gambling_stats']['big_winner']}**! 🎉\n"
     
     return {
         'title': titles.get(category, titles['general']),
