@@ -8,6 +8,7 @@ import re
 from modules.fake_user import FakeUser
 import random
 from modules.db_helpers import update_player_stats
+from modules import stock_market
 
 
 # --- Roles ---
@@ -981,6 +982,9 @@ class WerwolfGame:
             elif winner_team == "Werwölfe":
                 winning_roles = [WERWOLF]
 
+            # Count roles bought for stock influence
+            roles_bought = sum(1 for p in self.players.values() if p.role in [SEHERIN, HEXE, DÖNERSTOPFER, JÄGER] and not self.is_bot_player(p))
+            
             for player in self.players.values():
                 # Don't record stats for bot players
                 if self.is_bot_player(player):
@@ -994,6 +998,15 @@ class WerwolfGame:
                     print(f"  [WW] Warning: failed to update stats for {player.user.display_name} ({player.user.id}): {e}")
                     import traceback
                     traceback.print_exc()
+            
+            # --- NEW: Influence WOLF stock based on game activity ---
+            try:
+                from modules import db_helpers
+                num_players = len([p for p in self.players.values() if not self.is_bot_player(p)])
+                await stock_market.record_werwolf_activity(db_helpers, num_players, roles_bought)
+            except Exception as e:
+                print(f"  [WW] Warning: failed to record stock influence: {e}")
+                
         elif not config:
             # Game was cancelled before it truly started, no stats to record
             pass

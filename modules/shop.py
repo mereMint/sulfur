@@ -128,6 +128,13 @@ async def purchase_color_role(db_helpers, member: discord.Member, color: str, ti
     # Store equipped color in database
     await db_helpers.set_user_equipped_color(member.id, color)
     
+    # --- NEW: Influence COLOR stock ---
+    try:
+        from modules import stock_market
+        await stock_market.record_color_purchase(db_helpers, tier)
+    except Exception as e:
+        logger.error(f"Failed to record color stock influence: {e}")
+    
     currency = config['modules']['economy']['currency_symbol']
     return True, f"Successfully purchased {tier} color role for {price} {currency}!", role
 
@@ -237,7 +244,14 @@ def create_color_selection_embed(tier: str, config: dict):
         'legendary': colors['legendary_colors']
     }
     
+    color_names_map = {
+        'basic': colors.get('basic_color_names', []),
+        'premium': colors.get('premium_color_names', []),
+        'legendary': colors.get('legendary_color_names', [])
+    }
+    
     available_colors = color_map.get(tier, [])
+    color_names = color_names_map.get(tier, [])
     price = colors['prices'][tier]
     currency = config['modules']['economy']['currency_symbol']
     
@@ -247,10 +261,12 @@ def create_color_selection_embed(tier: str, config: dict):
         color=discord.Color.blue()
     )
     
-    # Show color swatches
+    # Show color swatches with names
     color_display = ""
     for i, color in enumerate(available_colors, 1):
-        color_display += f"`{i}` - {color}\n"
+        # Get color name if available, otherwise use hex
+        color_name = color_names[i-1] if i-1 < len(color_names) else color
+        color_display += f"`{i}` - **{color_name}** `{color}`\n"
     
     embed.add_field(name="Available Colors", value=color_display, inline=False)
     
