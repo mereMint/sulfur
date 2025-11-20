@@ -4515,10 +4515,11 @@ class QuestMenuView(discord.ui.View):
             
             # Claim all unclaimed quests
             total_reward = 0
+            total_xp = 0
             claimed_count = 0
             
             for quest in unclaimed_quests:
-                success, reward, message = await quests.claim_quest_reward(
+                success, reward, xp, message = await quests.claim_quest_reward(
                     db_helpers,
                     self.user_id,
                     interaction.user.display_name,
@@ -4528,6 +4529,7 @@ class QuestMenuView(discord.ui.View):
                 
                 if success:
                     total_reward += reward
+                    total_xp += xp
                     claimed_count += 1
             
             currency = self.config['modules']['economy']['currency_symbol']
@@ -4538,9 +4540,14 @@ class QuestMenuView(discord.ui.View):
                     description=f"Du hast {claimed_count} Quest(s) abgeschlossen!",
                     color=discord.Color.green()
                 )
+                
+                reward_text = f"**+{total_reward} {currency}**"
+                if total_xp > 0:
+                    reward_text += f"\n**+{total_xp} XP**"
+                
                 embed.add_field(
                     name="Belohnung",
-                    value=f"**+{total_reward} {currency}**",
+                    value=reward_text,
                     inline=False
                 )
                 
@@ -4549,7 +4556,7 @@ class QuestMenuView(discord.ui.View):
                 
                 if all_completed:
                     # Grant daily completion bonus
-                    bonus_success, bonus_amount = await quests.grant_daily_completion_bonus(
+                    bonus_success, bonus_amount, bonus_xp = await quests.grant_daily_completion_bonus(
                         db_helpers,
                         self.user_id,
                         interaction.user.display_name,
@@ -4557,9 +4564,13 @@ class QuestMenuView(discord.ui.View):
                     )
                     
                     if bonus_success:
+                        bonus_text = f"**+{bonus_amount} {currency}**"
+                        if bonus_xp > 0:
+                            bonus_text += f"\n**+{bonus_xp} XP**"
+                        
                         embed.add_field(
                             name="🎉 Tagesbonus!",
-                            value=f"Alle Quests abgeschlossen! **+{bonus_amount} {currency}** Bonus!",
+                            value=f"Alle Quests abgeschlossen!\n{bonus_text}",
                             inline=False
                         )
                         total_reward += bonus_amount
@@ -4639,12 +4650,13 @@ async def view_quests(interaction: discord.Interaction):
 # REMOVED: /monthly command - functionality exists as a button in /quests command
 
 # --- Game Commands & UI ---
-from modules.games import BlackjackGame, RouletteGame, MinesGame, RussianRouletteGame
+from modules.games import BlackjackGame, RouletteGame, MinesGame, RussianRouletteGame, TowerOfTreasureGame
 
 # Active game states
 active_blackjack_games = {}
 active_mines_games = {}
 active_rr_games = {}
+active_tower_games = {}
 
 
 class BlackjackView(discord.ui.View):
@@ -4722,21 +4734,47 @@ class BlackjackView(discord.ui.View):
         except Exception as e:
             logger.error(f"Failed to record gambling stock influence: {e}")
         
-        # Add result field
+        # Add result field with enhanced formatting
+        result_text = ""
         if result == 'blackjack':
-            embed.add_field(name="🎉 BLACKJACK!", value=f"Du gewinnst **{int(self.game.bet * multiplier)} {currency}**!", inline=False)
+            result_text = f"🎉 **BLACKJACK!** 🎉\n"
+            result_text += f"Perfekte 21! Du gewinnst **{int(self.game.bet * multiplier)} {currency}**!"
+            embed.add_field(name="🏆 Ergebnis", value=result_text, inline=False)
             embed.color = discord.Color.gold()
         elif result == 'win':
-            embed.add_field(name="✅ Gewonnen!", value=f"Du gewinnst **{int(self.game.bet * multiplier)} {currency}**!", inline=False)
+            result_text = f"✅ **Gewonnen!** ✅\n"
+            result_text += f"Du schlägst den Dealer! Gewinn: **{int(self.game.bet * multiplier)} {currency}**"
+            embed.add_field(name="🏆 Ergebnis", value=result_text, inline=False)
             embed.color = discord.Color.green()
         elif result == 'lose':
-            embed.add_field(name="❌ Verloren!", value=f"Du verlierst **{self.game.bet} {currency}**.", inline=False)
+            result_text = f"❌ **Verloren!** ❌\n"
+            result_text += f"Der Dealer gewinnt. Verlust: **-{self.game.bet} {currency}**"
+            embed.add_field(name="💸 Ergebnis", value=result_text, inline=False)
             embed.color = discord.Color.red()
         else:  # push
-            embed.add_field(name="🤝 Unentschieden!", value=f"Du bekommst deinen Einsatz zurück: **{self.game.bet} {currency}**", inline=False)
+            result_text = f"🤝 **Unentschieden!** 🤝\n"
+            result_text += f"Beide haben den gleichen Wert. Einsatz zurück: **{self.game.bet} {currency}**"
+            embed.add_field(name="⚖️ Ergebnis", value=result_text, inline=False)
             embed.color = discord.Color.blue()
         
-        embed.add_field(name="Neues Guthaben", value=f"{new_balance} {currency}", inline=True)
+        # Add balance info
+        balance_change = winnings
+        if balance_change > 0:
+            embed.add_field(name="💰 Guthaben", value=f"{new_balance} {currency} (+{balance_change})", inline=True)
+        elif balance_change < 0:
+            embed.add_field(name="💰 Guthaben", value=f"{new_balance} {currency} ({balance_change})", inline=True)
+        else:
+            embed.add_field(name="💰 Guthaben", value=f"{new_balance} {currency}", inline=True)
+        
+        # Add tip/footer
+        if result == 'blackjack':
+            embed.set_footer(text="🎊 Glückwunsch zum Blackjack! 2.5x Auszahlung!")
+        elif result == 'win':
+            embed.set_footer(text="🎉 Gut gespielt! Weiter so!")
+        elif result == 'lose':
+            embed.set_footer(text="Versuch es nochmal! Das nächste Spiel wird besser!")
+        else:
+            embed.set_footer(text="Knapp! Beim nächsten Mal vielleicht mehr Glück!")
         
         # Disable all buttons
         for item in self.children:
@@ -4871,11 +4909,19 @@ class MinesView(discord.ui.View):
             currency = config['modules']['economy']['currency_symbol']
             embed = self.game.create_embed()
             embed.color = discord.Color.green()
+            
+            cashout_text = f"✅ **Erfolgreich ausgezahlt!** ✅\n"
+            cashout_text += f"Aufgedeckte Felder: **{self.game.revealed_count}**\n"
+            cashout_text += f"Multiplikator: **{multiplier:.2f}x**\n"
+            cashout_text += f"Gewinn: **+{profit} {currency}**"
+            
             embed.add_field(
-                name="💰 Ausgezahlt!",
-                value=f"Gewinn: **{profit} {currency}** ({multiplier}x)\nNeues Guthaben: {new_balance} {currency}",
+                name="💰 Auszahlung",
+                value=cashout_text,
                 inline=False
             )
+            embed.add_field(name="💰 Guthaben", value=f"{new_balance} {currency}", inline=True)
+            embed.set_footer(text="Gut gespielt! Du hast rechtzeitig ausgezahlt!")
             
             # Disable all buttons
             for item in self.children:
@@ -4918,11 +4964,16 @@ class MinesView(discord.ui.View):
             )
             
             embed.color = discord.Color.red()
+            result_text = f"💥 **BOOM!** 💥\n"
+            result_text += f"Du hast eine Mine getroffen!\n"
+            result_text += f"Verlust: **-{self.game.bet} {currency}**"
             embed.add_field(
-                name="💥 Mine getroffen!",
-                value=f"Verlust: **{self.game.bet} {currency}**\nNeues Guthaben: {new_balance} {currency}",
+                name="💸 Spielende",
+                value=result_text,
                 inline=False
             )
+            embed.add_field(name="💰 Guthaben", value=f"{new_balance} {currency}", inline=True)
+            embed.set_footer(text="Beim nächsten Mal vorsichtiger sein!")
         else:
             # Won - all safe cells revealed
             winnings = int(self.game.bet * self.game.get_current_multiplier())
@@ -4950,11 +5001,16 @@ class MinesView(discord.ui.View):
             )
             
             embed.color = discord.Color.gold()
+            result_text = f"🎉 **PERFEKT!** 🎉\n"
+            result_text += f"Alle sicheren Felder aufgedeckt!\n"
+            result_text += f"Gewinn: **+{profit} {currency}** ({self.game.get_current_multiplier()}x)"
             embed.add_field(
-                name="🎉 Alle sicheren Felder aufgedeckt!",
-                value=f"Gewinn: **{profit} {currency}** ({self.game.get_current_multiplier()}x)\nNeues Guthaben: {new_balance} {currency}",
+                name="🏆 Spielende",
+                value=result_text,
                 inline=False
             )
+            embed.add_field(name="💰 Guthaben", value=f"{new_balance} {currency}", inline=True)
+            embed.set_footer(text="🎊 Glückwunsch! Perfekt gespielt!")
         
         # Disable all buttons and reveal all mines
         for item in self.children:
@@ -5097,26 +5153,72 @@ class RouletteView(discord.ui.View):
         except Exception as e:
             logger.error(f"Failed to record gambling stock influence: {e}")
         
-        # Create result embed
+        # Create result embed with enhanced visuals
         currency = config['modules']['economy']['currency_symbol']
+        
+        # Determine result emoji and color for embed
+        if result_number == 0:
+            result_emoji = "🟢"
+            embed_color = discord.Color.green()
+        elif result_number in RouletteGame.RED:
+            result_emoji = "🔴"
+            embed_color = discord.Color.red() if total_winnings <= 0 else discord.Color.gold()
+        else:
+            result_emoji = "⚫"
+            embed_color = discord.Color.dark_grey() if total_winnings <= 0 else discord.Color.gold()
+        
         embed = discord.Embed(
-            title="🎰 Roulette",
-            color=discord.Color.green() if total_winnings > 0 else discord.Color.red()
+            title="🎰 Roulette - Ergebnis",
+            description=f"Das Rad hat sich gedreht...",
+            color=embed_color
         )
         
-        embed.add_field(name="Ergebnis", value=f"**{result_number}** {result_color}", inline=False)
-        embed.add_field(name="Deine Wetten", value="\n".join(bet_results), inline=False)
+        # Visual wheel representation (show result and surrounding numbers)
+        wheel_display = self._create_wheel_display(result_number)
+        embed.add_field(name="🎡 Rad", value=wheel_display, inline=False)
+        
+        # Show result prominently
         embed.add_field(
-            name="Gesamteinsatz",
-            value=f"{self.bet_amount * len(self.bets)} {currency}",
-            inline=True
+            name="🎯 Gewinnende Zahl",
+            value=f"# {result_emoji} **{result_number}** {result_emoji}",
+            inline=False
         )
-        embed.add_field(
-            name="Gesamt-Ergebnis",
-            value=f"**{total_winnings - (self.bet_amount * len(self.bets))} {currency}**",
-            inline=True
-        )
-        embed.add_field(name="Neues Guthaben", value=f"{new_balance} {currency}", inline=True)
+        
+        # Show bet results with better formatting
+        bet_results_text = ""
+        total_bet_amount = self.bet_amount * len(self.bets)
+        net_result = total_winnings - total_bet_amount
+        
+        for bet_type, bet_value in self.bets:
+            won, multiplier = RouletteGame.check_bet(result_number, bet_type, bet_value)
+            
+            if won:
+                winnings = self.bet_amount * multiplier - self.bet_amount
+                bet_results_text += f"✅ **{bet_value}**: +{winnings} {currency} ({multiplier}x)\n"
+            else:
+                bet_results_text += f"❌ **{bet_value}**: -{self.bet_amount} {currency}\n"
+        
+        embed.add_field(name="📊 Deine Wetten", value=bet_results_text, inline=False)
+        
+        # Show summary
+        summary_text = f"**Einsatz:** {total_bet_amount} {currency}\n"
+        summary_text += f"**Gewonnen:** {total_winnings} {currency}\n"
+        
+        if net_result > 0:
+            summary_text += f"**Gewinn:** +{net_result} {currency} 🎉"
+        elif net_result < 0:
+            summary_text += f"**Verlust:** {net_result} {currency} 💸"
+        else:
+            summary_text += f"**Break Even** 🤝"
+        
+        embed.add_field(name="💰 Zusammenfassung", value=summary_text, inline=False)
+        embed.add_field(name="Guthaben", value=f"{new_balance} {currency}", inline=True)
+        
+        # Add footer with tip
+        if net_result > 0:
+            embed.set_footer(text="🎊 Herzlichen Glückwunsch zum Gewinn!")
+        else:
+            embed.set_footer(text="Viel Glück beim nächsten Mal!")
         
         # Disable all buttons
         for item in self.children:
@@ -5124,6 +5226,40 @@ class RouletteView(discord.ui.View):
         
         await interaction.edit_original_response(embed=embed, view=self)
         self.stop()
+    
+    def _create_wheel_display(self, result: int):
+        """Creates a visual representation of the roulette wheel showing the result."""
+        # Create a simple display showing result and 2 numbers on each side
+        wheel_numbers = list(range(37))
+        result_index = wheel_numbers.index(result)
+        
+        # Get surrounding numbers (circular)
+        display_numbers = []
+        for i in range(-2, 3):
+            idx = (result_index + i) % len(wheel_numbers)
+            display_numbers.append(wheel_numbers[idx])
+        
+        # Create display
+        display = ""
+        for i, num in enumerate(display_numbers):
+            if num == result:
+                # Highlight the result
+                if num == 0:
+                    display += f"**[🟢 {num}]** "
+                elif num in RouletteGame.RED:
+                    display += f"**[🔴 {num}]** "
+                else:
+                    display += f"**[⚫ {num}]** "
+            else:
+                # Show surrounding numbers
+                if num == 0:
+                    display += f"🟢{num} "
+                elif num in RouletteGame.RED:
+                    display += f"🔴{num} "
+                else:
+                    display += f"⚫{num} "
+        
+        return display
 
 
 class RouletteBetTypeSelect(discord.ui.Select):
@@ -5385,6 +5521,249 @@ async def mines(interaction: discord.Interaction, bet: int):
             )
         except:
             pass  # Interaction might already have been responded to
+
+
+class TowerOfTreasureView(discord.ui.View):
+    """UI view for Tower of Treasure game with column buttons."""
+    
+    def __init__(self, game: TowerOfTreasureGame, user_id: int):
+        super().__init__(timeout=300)
+        self.game = game
+        self.user_id = user_id
+        self._build_buttons()
+    
+    def _build_buttons(self):
+        """Builds the column buttons for the game."""
+        # Add 4 column buttons
+        for col in range(4):
+            button = discord.ui.Button(
+                label=f"Column {col + 1}",
+                style=discord.ButtonStyle.primary,
+                custom_id=f"tower_col_{col}",
+                emoji="🏛️"
+            )
+            button.callback = self._create_column_callback(col)
+            self.add_item(button)
+        
+        # Add cashout button
+        cashout_button = discord.ui.Button(
+            label="💰 Cash Out",
+            style=discord.ButtonStyle.success,
+            custom_id="tower_cashout"
+        )
+        cashout_button.callback = self._cashout_callback
+        self.add_item(cashout_button)
+    
+    def _create_column_callback(self, column: int):
+        """Creates a callback for a column button."""
+        async def callback(interaction: discord.Interaction):
+            if interaction.user.id != self.user_id:
+                await interaction.response.send_message("Das ist nicht dein Spiel!", ephemeral=True)
+                return
+            
+            await interaction.response.defer()
+            
+            alive, reached_top, reward = self.game.choose_column(column)
+            
+            if not alive:
+                # Hit a bomb - game over
+                await self._finish_game(interaction, won=False, reward=0, message="💥 Du hast eine Bombe getroffen!")
+            elif reached_top:
+                # Reached the top!
+                await self._finish_game(interaction, won=True, reward=reward, message="🎉 Du hast die Spitze erreicht!")
+            else:
+                # Continue climbing
+                embed = self.game.create_embed()
+                await interaction.edit_original_response(embed=embed, view=self)
+        
+        return callback
+    
+    async def _cashout_callback(self, interaction: discord.Interaction):
+        """Handles cash out button."""
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht dein Spiel!", ephemeral=True)
+            return
+        
+        await interaction.response.defer()
+        
+        reward, multiplier = self.game.cashout()
+        
+        if reward > 0:
+            await self._finish_game(interaction, won=True, reward=reward, message=f"💰 Du hast ausgezahlt! Multiplier: {multiplier:.2f}x")
+        else:
+            await interaction.edit_original_response(
+                content="❌ Du kannst nicht auszahlen, wenn du noch auf dem ersten Stock bist!",
+                view=self
+            )
+    
+    async def _finish_game(self, interaction: discord.Interaction, won: bool, reward: int, message: str):
+        """Finishes the game and shows results."""
+        embed = self.game.create_embed(show_bombs=True)
+        
+        currency = config['modules']['economy']['currency_symbol']
+        
+        # Calculate winnings (reward already includes the bet)
+        winnings = reward - self.game.bet
+        
+        # Update balance
+        stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+        await db_helpers.add_balance(
+            self.user_id,
+            interaction.user.display_name,
+            winnings,
+            config,
+            stat_period
+        )
+        
+        # Get new balance
+        new_balance = await db_helpers.get_balance(self.user_id)
+        
+        # Log transaction
+        await db_helpers.log_transaction(
+            self.user_id,
+            'tower_of_treasure',
+            winnings,
+            new_balance,
+            f"Tower game: Floor {self.game.current_floor}/{self.game.max_floors}"
+        )
+        
+        # Influence GAMBL stock
+        try:
+            payout = reward if won else 0
+            await stock_market.record_gambling_activity(db_helpers, self.game.bet, won, payout)
+        except Exception as e:
+            logger.error(f"Failed to record gambling stock influence: {e}")
+        
+        # Add result field
+        if won:
+            embed.add_field(
+                name="✅ Gewonnen!",
+                value=f"{message}\n**Gewinn: +{winnings} {currency}**",
+                inline=False
+            )
+            embed.color = discord.Color.green()
+        else:
+            embed.add_field(
+                name="❌ Verloren!",
+                value=f"{message}\n**Verlust: -{self.game.bet} {currency}**",
+                inline=False
+            )
+            embed.color = discord.Color.red()
+        
+        embed.add_field(name="Neues Guthaben", value=f"{new_balance} {currency}", inline=True)
+        
+        # Disable all buttons
+        for item in self.children:
+            item.disabled = True
+        
+        await interaction.edit_original_response(embed=embed, view=self)
+        
+        # Remove from active games
+        if self.user_id in active_tower_games:
+            del active_tower_games[self.user_id]
+        
+        self.stop()
+
+
+@tree.command(name="tower", description="Spiele Tower of Treasure - Klettere den Turm hinauf!")
+@app_commands.describe(
+    bet="Dein Einsatz",
+    difficulty="Schwierigkeit (1=Einfach, 2=Mittel, 3=Schwer, 4=Extrem)"
+)
+@app_commands.choices(difficulty=[
+    app_commands.Choice(name="⭐ Einfach (3 sichere, 1 Bombe)", value=1),
+    app_commands.Choice(name="⭐⭐ Mittel (2 sichere, 2 Bomben)", value=2),
+    app_commands.Choice(name="⭐⭐⭐ Schwer (1 sicher, 3 Bomben)", value=3),
+    app_commands.Choice(name="⭐⭐⭐⭐ Extrem (0-1 sicher, 3-4 Bomben)", value=4)
+])
+async def tower(interaction: discord.Interaction, bet: int, difficulty: int = 1):
+    """Start a Tower of Treasure game."""
+    try:
+        await interaction.response.defer(ephemeral=True)
+        
+        user_id = interaction.user.id
+        
+        # Check if user already has an active game
+        if user_id in active_tower_games:
+            await interaction.followup.send("Du hast bereits ein aktives Tower-Spiel!", ephemeral=True)
+            return
+        
+        # Validate bet amount
+        min_bet = config['modules']['economy']['games']['tower_of_treasure']['min_bet']
+        max_bet = config['modules']['economy']['games']['tower_of_treasure']['max_bet']
+        currency = config['modules']['economy']['currency_symbol']
+        
+        if bet < min_bet or bet > max_bet:
+            await interaction.followup.send(
+                f"Ungültiger Einsatz! Minimum: {min_bet} {currency}, Maximum: {max_bet} {currency}",
+                ephemeral=True
+            )
+            return
+        
+        # Check balance
+        try:
+            balance = await db_helpers.get_balance(user_id)
+        except Exception as e:
+            logger.error(f"Error getting balance for user {user_id} in tower command: {e}")
+            await interaction.followup.send(
+                "❌ Fehler beim Abrufen deines Guthabens.",
+                ephemeral=True
+            )
+            return
+        
+        if balance < bet:
+            await interaction.followup.send(
+                f"Nicht genug Guthaben! Du hast {balance} {currency}, brauchst aber {bet} {currency}.",
+                ephemeral=True
+            )
+            return
+        
+        # Deduct bet
+        stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+        await db_helpers.add_balance(
+            user_id,
+            interaction.user.display_name,
+            -bet,
+            config,
+            stat_period
+        )
+        
+        new_balance = await db_helpers.get_balance(user_id)
+        
+        # Log transaction
+        await db_helpers.log_transaction(
+            user_id,
+            'tower_of_treasure',
+            -bet,
+            new_balance,
+            f"Tower game started (difficulty {difficulty})"
+        )
+        
+        # Create game
+        max_floors = config['modules']['economy']['games']['tower_of_treasure']['max_floors']
+        game = TowerOfTreasureGame(user_id, bet, difficulty, max_floors)
+        
+        # Store in active games
+        active_tower_games[user_id] = game
+        
+        # Create view
+        view = TowerOfTreasureView(game, user_id)
+        
+        # Create embed
+        embed = game.create_embed()
+        embed.set_footer(text=f"Guthaben: {new_balance} {currency}")
+        
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error in tower command: {e}", exc_info=True)
+        try:
+            await interaction.followup.send(
+                "❌ Ein Fehler ist aufgetreten. Bitte versuche es später erneut.",
+                ephemeral=True
+            )
+        except:
+            pass
 
 
 class RussianRouletteView(discord.ui.View):

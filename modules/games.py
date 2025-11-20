@@ -368,3 +368,190 @@ class MinesGame:
         embed.add_field(name="Current Winnings", value=f"{int(self.bet * self.get_current_multiplier())} 🪙", inline=True)
         
         return embed
+
+
+# --- Tower of Treasure ---
+
+class TowerOfTreasureGame:
+    """Handles a Tower of Treasure game instance."""
+    
+    def __init__(self, player_id: int, bet: int, difficulty: int = 1, max_floors: int = 10):
+        self.player_id = player_id
+        self.bet = bet
+        self.difficulty = difficulty  # 1-4
+        self.max_floors = max_floors
+        self.current_floor = 0
+        self.is_active = True
+        self.total_columns = 4
+        
+        # Difficulty determines how many columns are safe vs bombs
+        # diff 1: 3 safe, 1 bomb
+        # diff 2: 2 safe, 2 bombs
+        # diff 3: 1 safe, 3 bombs
+        # diff 4: 0-1 safe (random), 3-4 bombs (very hard)
+        self.safe_columns = max(1, 4 - difficulty)
+        if difficulty >= 4:
+            self.safe_columns = random.choice([0, 1])
+        
+        # Generate floors
+        self.floors = []
+        for _ in range(max_floors):
+            floor = self._generate_floor()
+            self.floors.append(floor)
+    
+    def _generate_floor(self):
+        """Generate a floor with random safe/bomb distribution."""
+        columns = [False] * self.total_columns  # False = bomb, True = safe
+        safe_positions = random.sample(range(self.total_columns), self.safe_columns)
+        for pos in safe_positions:
+            columns[pos] = True
+        return columns
+    
+    def choose_column(self, column: int):
+        """
+        Choose a column to climb.
+        
+        Args:
+            column: Column index (0-3)
+        
+        Returns:
+            (alive, reached_top, reward)
+        """
+        if not self.is_active or column < 0 or column >= self.total_columns:
+            return False, False, 0
+        
+        current_floor_data = self.floors[self.current_floor]
+        
+        if current_floor_data[column]:
+            # Safe column - climb up
+            self.current_floor += 1
+            
+            # Check if reached the top
+            if self.current_floor >= self.max_floors:
+                self.is_active = False
+                reward = self.calculate_reward()
+                return True, True, reward
+            
+            # Continue climbing
+            return True, False, 0
+        else:
+            # Hit a bomb - game over
+            self.is_active = False
+            return False, False, 0
+    
+    def cashout(self):
+        """
+        Cash out current progress.
+        
+        Returns:
+            (reward, multiplier)
+        """
+        if not self.is_active or self.current_floor == 0:
+            return 0, 0
+        
+        reward = self.calculate_reward()
+        self.is_active = False
+        return reward, reward / self.bet if self.bet > 0 else 0
+    
+    def calculate_reward(self):
+        """Calculate reward based on floors climbed and difficulty."""
+        if self.current_floor == 0:
+            return 0
+        
+        # Base multiplier increases with each floor
+        # Higher difficulty = higher rewards
+        base_multiplier = 1.0 + (self.current_floor * 0.3 * self.difficulty)
+        
+        # Bonus for reaching the top
+        if self.current_floor >= self.max_floors:
+            base_multiplier *= 2
+        
+        reward = int(self.bet * base_multiplier)
+        return reward
+    
+    def get_progress_percentage(self):
+        """Get progress as percentage."""
+        return int((self.current_floor / self.max_floors) * 100)
+    
+    def create_embed(self, show_bombs=False):
+        """Creates a Discord embed for the game."""
+        embed = discord.Embed(
+            title="🗼 Tower of Treasure",
+            description=f"Difficulty: {'⭐' * self.difficulty} | Floor: {self.current_floor}/{self.max_floors}",
+            color=discord.Color.gold()
+        )
+        
+        # Show current floor visualization
+        floor_display = ""
+        
+        # Show the next 3 floors (or remaining floors)
+        floors_to_show = min(3, self.max_floors - self.current_floor)
+        start_floor = self.current_floor
+        
+        for i in range(floors_to_show, -1, -1):
+            floor_num = start_floor + i
+            if floor_num >= self.max_floors:
+                continue
+                
+            if floor_num == self.current_floor:
+                floor_display += f"**Floor {floor_num + 1}** ⬅️ You are here\n"
+                if not show_bombs:
+                    floor_display += "🏛️ " * self.total_columns + "\n"
+                else:
+                    floor_data = self.floors[floor_num]
+                    for col in floor_data:
+                        floor_display += "✅ " if col else "💣 "
+                    floor_display += "\n"
+            elif floor_num > self.current_floor:
+                floor_display += f"Floor {floor_num + 1}\n"
+                floor_display += "🏛️ " * self.total_columns + "\n"
+        
+        if floor_display:
+            embed.add_field(name="🗼 Tower", value=floor_display, inline=False)
+        
+        # Progress bar
+        progress = self.get_progress_percentage()
+        bar_length = 10
+        filled = int((progress / 100) * bar_length)
+        bar = '█' * filled + '░' * (bar_length - filled)
+        
+        embed.add_field(
+            name="Progress",
+            value=f"{bar} {progress}%",
+            inline=False
+        )
+        
+        # Difficulty info
+        difficulty_names = {
+            1: "Easy (3 safe, 1 bomb)",
+            2: "Medium (2 safe, 2 bombs)",
+            3: "Hard (1 safe, 3 bombs)",
+            4: "Extreme (0-1 safe, 3-4 bombs)"
+        }
+        embed.add_field(
+            name="Difficulty",
+            value=difficulty_names.get(self.difficulty, "Unknown"),
+            inline=True
+        )
+        
+        # Current potential reward
+        if self.current_floor > 0:
+            current_reward = self.calculate_reward()
+            embed.add_field(
+                name="Current Prize",
+                value=f"{current_reward} 🪙",
+                inline=True
+            )
+        
+        embed.add_field(name="Bet", value=f"{self.bet} 🪙", inline=True)
+        
+        if self.current_floor >= self.max_floors:
+            embed.set_footer(text="🎉 You've reached the top! Congratulations!")
+        elif not self.is_active and self.current_floor == 0:
+            embed.set_footer(text="💥 Game Over! You hit a bomb on the first floor!")
+        elif not self.is_active:
+            embed.set_footer(text=f"💥 Game Over! You made it to floor {self.current_floor}!")
+        else:
+            embed.set_footer(text="Choose a column to climb or cash out!")
+        
+        return embed

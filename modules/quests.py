@@ -52,11 +52,13 @@ async def generate_daily_quests(db_helpers, user_id: int, config: dict):
                     quest_type = quest.get('quest_type')
                     if quest_type and quest_type in quest_config:
                         quest['reward'] = quest_config[quest_type]['reward']
+                        quest['xp_reward'] = quest_config[quest_type].get('xp_reward', 0)
                 return existing_quests
             
             # Generate 3 new quests
             quest_config = config['modules']['economy']['quests']['quest_types']
             available_quests = list(quest_config.keys())
+            randomize_targets = config['modules']['economy']['quests'].get('randomize_targets', False)
             
             # Select 3 random quest types (or all if less than 3)
             import random
@@ -66,12 +68,24 @@ async def generate_daily_quests(db_helpers, user_id: int, config: dict):
             for quest_type in selected_types:
                 quest_data = quest_config[quest_type]
                 
+                # Randomize target if enabled
+                if randomize_targets and 'target_min' in quest_data and 'target_max' in quest_data:
+                    target_min = quest_data['target_min']
+                    target_max = quest_data['target_max']
+                    target_step = quest_data.get('target_step', 5)
+                    
+                    # Generate random target in steps
+                    steps = (target_max - target_min) // target_step + 1
+                    target_value = target_min + (random.randint(0, steps - 1) * target_step)
+                else:
+                    target_value = quest_data['target']
+                
                 cursor.execute(
                     """
                     INSERT INTO daily_quests (user_id, quest_date, quest_type, target_value, current_progress)
                     VALUES (%s, %s, %s, %s, 0)
                     """,
-                    (user_id, today, quest_type, quest_data['target'])
+                    (user_id, today, quest_type, target_value)
                 )
                 
                 # Get the ID of the inserted quest
@@ -80,8 +94,9 @@ async def generate_daily_quests(db_helpers, user_id: int, config: dict):
                 created_quests.append({
                     'id': quest_id,
                     'quest_type': quest_type,
-                    'target_value': quest_data['target'],
+                    'target_value': target_value,
                     'reward': quest_data['reward'],
+                    'xp_reward': quest_data.get('xp_reward', 0),
                     'current_progress': 0,
                     'completed': False,
                     'reward_claimed': False
@@ -189,17 +204,17 @@ async def claim_quest_reward(db_helpers, user_id: int, display_name: str, quest_
         config: Bot configuration
     
     Returns:
-        (success, reward_amount, message) tuple
+        (success, reward_amount, xp_amount, message) tuple
     """
     try:
         if not db_helpers.db_pool:
             logger.warning("Database pool not available in claim_quest_reward")
-            return False, 0, "Database connection error."
+            return False, 0, 0, "Database connection error."
             
         cnx = db_helpers.db_pool.get_connection()
         if not cnx:
             logger.warning("Could not get DB connection in claim_quest_reward")
-            return False, 0, "Database connection error."
+            return False, 0, 0, "Database connection error."
             
         cursor = cnx.cursor(dictionary=True)
         try:
@@ -230,14 +245,15 @@ async def claim_quest_reward(db_helpers, user_id: int, display_name: str, quest_
             quest = cursor.fetchone()
             
             if not quest:
-                return False, 0, "Quest not found, already claimed, or not completed."
+                return False, 0, 0, "Quest not found, already claimed, or not completed."
             
             # Get reward amount from config
             quest_config = config['modules']['economy']['quests']['quest_types'].get(quest['quest_type'])
             if not quest_config:
-                return False, 0, "Invalid quest type."
+                return False, 0, 0, "Invalid quest type."
             
             reward = quest_config['reward']
+            xp_reward = quest_config.get('xp_reward', 0)
             
             # Mark as claimed
             cursor.execute(
@@ -253,17 +269,27 @@ async def claim_quest_reward(db_helpers, user_id: int, display_name: str, quest_
             stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
             await db_helpers.add_balance(user_id, display_name, reward, config, stat_period)
             
+            # Award XP if enabled
+            if xp_reward > 0:
+                try:
+                    await db_helpers.add_xp(user_id, display_name, xp_reward, config, stat_period)
+                except Exception as e:
+                    logger.error(f"Error awarding quest XP: {e}", exc_info=True)
+            
             cnx.commit()
             
             currency = config['modules']['economy']['currency_symbol']
-            return True, reward, f"Quest reward claimed! +{reward} {currency}"
+            message = f"Quest reward claimed! +{reward} {currency}"
+            if xp_reward > 0:
+                message += f" +{xp_reward} XP"
+            return True, reward, xp_reward, message
         finally:
             cursor.close()
             cnx.close()
             
     except Exception as e:
         logger.error(f"Error claiming quest reward: {e}", exc_info=True)
-        return False, 0, "An error occurred while claiming the reward."
+        return False, 0, 0, "An error occurred while claiming the reward."
 
 
 async def get_user_quests(db_helpers, user_id: int, config: dict):
@@ -307,6 +333,7 @@ async def get_user_quests(db_helpers, user_id: int, config: dict):
             for quest in quests:
                 quest_type_config = quest_config.get(quest['quest_type'], {})
                 quest['reward'] = quest_type_config.get('reward', 0)
+                quest['xp_reward'] = quest_type_config.get('xp_reward', 0)
             
             return quests
         finally:
@@ -378,19 +405,19 @@ async def grant_daily_completion_bonus(db_helpers, user_id: int, display_name: s
         config: Bot configuration
     
     Returns:
-        (success, bonus_amount) tuple
+        (success, bonus_amount, xp_amount) tuple
     """
     try:
         today = datetime.now(timezone.utc).date()
         
         if not db_helpers.db_pool:
             logger.warning("Database pool not available in grant_daily_completion_bonus")
-            return False, 0
+            return False, 0, 0
             
         cnx = db_helpers.db_pool.get_connection()
         if not cnx:
             logger.warning("Could not get DB connection in grant_daily_completion_bonus")
-            return False, 0
+            return False, 0, 0
             
         cursor = cnx.cursor(dictionary=True)
         try:
@@ -405,14 +432,23 @@ async def grant_daily_completion_bonus(db_helpers, user_id: int, display_name: s
             result = cursor.fetchone()
             
             if result and result['bonus_claimed']:
-                return False, 0
+                return False, 0, 0
             
-            # Calculate bonus (500 base + level bonus)
-            bonus = 500
+            # Get bonus amounts from config
+            bonus_config = config['modules']['economy']['quests'].get('daily_completion_bonus', {})
+            bonus = bonus_config.get('currency', 300)
+            xp_bonus = bonus_config.get('xp', 500)
             
-            # Grant bonus
+            # Grant currency bonus
             stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
             await db_helpers.add_balance(user_id, display_name, bonus, config, stat_period)
+            
+            # Grant XP bonus
+            if xp_bonus > 0:
+                try:
+                    await db_helpers.add_xp(user_id, display_name, xp_bonus, config, stat_period)
+                except Exception as e:
+                    logger.error(f"Error awarding daily completion XP bonus: {e}", exc_info=True)
             
             # Mark as claimed
             cursor.execute(
@@ -425,15 +461,15 @@ async def grant_daily_completion_bonus(db_helpers, user_id: int, display_name: s
             )
             
             cnx.commit()
-            logger.info(f"Granted daily completion bonus of {bonus} to user {user_id}")
-            return True, bonus
+            logger.info(f"Granted daily completion bonus of {bonus} + {xp_bonus} XP to user {user_id}")
+            return True, bonus, xp_bonus
         finally:
             cursor.close()
             cnx.close()
             
     except Exception as e:
         logger.error(f"Error granting completion bonus: {e}", exc_info=True)
-        return False, 0
+        return False, 0, 0
 
 
 # ============================================================================
@@ -586,10 +622,22 @@ async def grant_monthly_milestone_reward(db_helpers, user_id: int, display_name:
 
 def create_quests_embed(quests: list, user_name: str, config: dict):
     """Creates a Discord embed showing daily quests."""
+    # Count completed quests
+    completed_count = sum(1 for q in quests if q.get('completed', False))
+    total_count = len(quests)
+    
+    # Determine color based on progress
+    if completed_count == total_count:
+        embed_color = discord.Color.gold()
+    elif completed_count > 0:
+        embed_color = discord.Color.blue()
+    else:
+        embed_color = discord.Color.greyple()
+    
     embed = discord.Embed(
-        title=f"📋 Daily Quests - {user_name}",
-        description="Complete all 3 quests for a bonus reward!",
-        color=discord.Color.gold()
+        title=f"📋 Tägliche Quests - {user_name}",
+        description=f"**Fortschritt:** {completed_count}/{total_count} Quests abgeschlossen\n✨ Schließe alle Quests ab für einen Bonus!",
+        color=embed_color
     )
     
     quest_icons = {
@@ -601,11 +649,11 @@ def create_quests_embed(quests: list, user_name: str, config: dict):
     }
     
     quest_names = {
-        'messages': 'Send Messages',
-        'vc_minutes': 'Voice Chat Time',
-        'reactions': 'React to Messages',
-        'game_minutes': 'Play Games',
-        'daily_media': 'Share Media of the Day'
+        'messages': 'Nachrichten senden',
+        'vc_minutes': 'Voice Chat',
+        'reactions': 'Reaktionen geben',
+        'game_minutes': 'Spiele spielen',
+        'daily_media': 'Medien teilen'
     }
     
     for i, quest in enumerate(quests, 1):
@@ -618,20 +666,62 @@ def create_quests_embed(quests: list, user_name: str, config: dict):
         completed = quest['completed']
         claimed = quest.get('reward_claimed', False)
         
-        # Progress bar
+        # Progress bar with better visualization
         percentage = min(100, int((progress / target) * 100))
-        bar_length = 10
+        bar_length = 12
         filled = int((percentage / 100) * bar_length)
         bar = '█' * filled + '░' * (bar_length - filled)
         
-        status = "✅ Claimed" if claimed else ("✅ Complete!" if completed else f"{bar} {percentage}%")
+        # Status with emojis
+        if claimed:
+            status_emoji = "✅"
+            status_text = "Belohnung abgeholt"
+        elif completed:
+            status_emoji = "🎉"
+            status_text = "Abgeschlossen!"
+        elif percentage >= 75:
+            status_emoji = "🔥"
+            status_text = f"{bar} {percentage}%"
+        elif percentage >= 50:
+            status_emoji = "⚡"
+            status_text = f"{bar} {percentage}%"
+        else:
+            status_emoji = "📊"
+            status_text = f"{bar} {percentage}%"
         
         currency = config['modules']['economy']['currency_symbol']
         reward = quest.get('reward', 0)
+        xp_reward = quest.get('xp_reward', 0)
+        
+        reward_text = f"{reward} {currency}"
+        if xp_reward > 0:
+            reward_text += f" + ⭐ {xp_reward} XP"
+        
+        quest_value = f"**Fortschritt:** {progress}/{target}\n"
+        quest_value += f"{status_emoji} **Status:** {status_text}\n"
+        quest_value += f"🎁 **Belohnung:** {reward_text}"
         
         embed.add_field(
-            name=f"{icon} Quest {i}: {name}",
-            value=f"**Progress:** {progress}/{target}\n**Status:** {status}\n**Reward:** {reward} {currency}",
+            name=f"{icon} **{name}**",
+            value=quest_value,
+            inline=False
+        )
+    
+    # Add bonus info at the bottom
+    bonus_config = config['modules']['economy']['quests'].get('daily_completion_bonus', {})
+    bonus_currency = bonus_config.get('currency', 300)
+    bonus_xp = bonus_config.get('xp', 500)
+    
+    if completed_count == total_count:
+        embed.add_field(
+            name="🎊 Tagesbonus verfügbar!",
+            value=f"Alle Quests abgeschlossen! Hole dir **{bonus_currency} {currency} + ⭐ {bonus_xp} XP**!",
+            inline=False
+        )
+    else:
+        embed.add_field(
+            name="💎 Tagesbonus",
+            value=f"Schließe alle Quests ab: **{bonus_currency} {currency} + ⭐ {bonus_xp} XP**",
             inline=False
         )
     
@@ -640,43 +730,76 @@ def create_quests_embed(quests: list, user_name: str, config: dict):
 
 def create_monthly_progress_embed(completion_days: int, total_days: int, user_name: str, config: dict):
     """Creates an embed showing monthly quest progress."""
+    # Determine color based on progress
+    percentage = int((completion_days / total_days) * 100) if total_days > 0 else 0
+    
+    if percentage >= 80:
+        embed_color = discord.Color.gold()
+    elif percentage >= 50:
+        embed_color = discord.Color.blue()
+    else:
+        embed_color = discord.Color.greyple()
+    
     embed = discord.Embed(
-        title=f"📅 Monthly Quest Progress - {user_name}",
-        description=f"Completed {completion_days}/{total_days} days this month",
-        color=discord.Color.blue()
+        title=f"📅 Monatlicher Quest-Fortschritt - {user_name}",
+        description=f"**{completion_days}/{total_days} Tage** mit allen Quests abgeschlossen",
+        color=embed_color
     )
     
-    # Progress bar
-    percentage = int((completion_days / total_days) * 100) if total_days > 0 else 0
+    # Progress bar with better visualization
     bar_length = 20
     filled = int((percentage / 100) * bar_length)
     bar = '█' * filled + '░' * (bar_length - filled)
     
+    progress_text = f"{bar}\n**{percentage}%** Monatsfortschritt"
+    
     embed.add_field(
-        name="Progress",
-        value=f"{bar} {percentage}%",
+        name="📊 Fortschritt",
+        value=progress_text,
         inline=False
     )
     
-    # Milestones
-    milestones_text = ""
+    # Milestones with enhanced display
     milestones = [
-        (7, "1000", "Weekly Warrior"),
-        (14, "2500", "Fortnight Champion"),
-        (21, "5000", "Three-Week Legend"),
-        (30, "10000", "Monthly Master")
+        (7, "1000", "Wöchentlicher Krieger", "🥉"),
+        (14, "2500", "Zweiwöchiger Champion", "🥈"),
+        (21, "5000", "Dreiwöchige Legende", "🥇"),
+        (30, "10000", "Monatlicher Meister", "👑")
     ]
     
     currency = config['modules']['economy']['currency_symbol']
     
-    for days, reward, name in milestones:
-        status = "✅" if completion_days >= days else "🔒"
-        milestones_text += f"{status} **{days} Days** - {name}: {reward} {currency}\n"
+    milestones_text = ""
+    for days, reward, name, medal in milestones:
+        if completion_days >= days:
+            status = "✅"
+            style = "**"
+        elif completion_days >= days - 3:
+            status = "🔥"  # Close to milestone
+            style = "*"
+        else:
+            status = "🔒"
+            style = ""
+        
+        milestones_text += f"{status} {style}{medal} {days} Tage{style} - {name}\n"
+        milestones_text += f"   💰 Belohnung: {reward} {currency}\n"
     
     embed.add_field(
-        name="Milestones",
+        name="🏆 Meilensteine",
         value=milestones_text,
         inline=False
     )
+    
+    # Add motivational message
+    if percentage >= 90:
+        embed.set_footer(text="🌟 Unglaublich! Du bist fast jeden Tag dabei!")
+    elif percentage >= 70:
+        embed.set_footer(text="🔥 Großartig! Du bleibst konsequent dran!")
+    elif percentage >= 50:
+        embed.set_footer(text="💪 Gut gemacht! Du machst gute Fortschritte!")
+    elif percentage >= 25:
+        embed.set_footer(text="⭐ Weiter so! Jeder Tag zählt!")
+    else:
+        embed.set_footer(text="🎯 Fang an Quests zu erledigen für tolle Belohnungen!")
     
     return embed

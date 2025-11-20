@@ -176,32 +176,63 @@
         "detective": {
           "reward_correct": 500,
           "reward_wrong": 0
+        },
+        "tower_of_treasure": {
+          "min_bet": 10,
+          "max_bet": 500,
+          "max_floors": 10,
+          "difficulties": [1, 2, 3, 4]
         }
       },
       "quests": {
         "enabled": true,
         "daily_reset_hour": 0,
+        "randomize_targets": true,
         "quest_types": {
           "messages": {
-            "target": 50,
-            "reward": 200
+            "target_min": 20,
+            "target_max": 30,
+            "target_step": 5,
+            "target": 25,
+            "reward": 75,
+            "xp_reward": 100
           },
           "vc_minutes": {
-            "target": 30,
-            "reward": 250
+            "target_min": 15,
+            "target_max": 25,
+            "target_step": 5,
+            "target": 20,
+            "reward": 100,
+            "xp_reward": 150
           },
           "reactions": {
-            "target": 20,
-            "reward": 150
+            "target_min": 10,
+            "target_max": 20,
+            "target_step": 5,
+            "target": 15,
+            "reward": 50,
+            "xp_reward": 75
           },
           "game_minutes": {
+            "target_min": 10,
+            "target_max": 20,
+            "target_step": 5,
             "target": 15,
-            "reward": 300
+            "reward": 125,
+            "xp_reward": 200
           },
           "daily_media": {
-            "target": 1,
-            "reward": 200
+            "target_min": 1,
+            "target_max": 3,
+            "target_step": 1,
+            "target": 2,
+            "reward": 80,
+            "xp_reward": 100
           }
+        },
+        "daily_completion_bonus": {
+          "currency": 300,
+          "xp": 500
         }
       }
     },
