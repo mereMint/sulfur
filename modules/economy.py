@@ -93,8 +93,12 @@ async def grant_daily_reward(db_helpers, user_id: int, display_name: str, config
             
             if result and result['last_daily_claim']:
                 last_claim = result['last_daily_claim']
+                # Ensure timezone-aware datetime
                 if isinstance(last_claim, str):
                     last_claim = datetime.fromisoformat(last_claim.replace('Z', '+00:00'))
+                elif last_claim.tzinfo is None:
+                    # If datetime is naive, assume UTC
+                    last_claim = last_claim.replace(tzinfo=timezone.utc)
                 
                 # Check if 24 hours have passed
                 if (now - last_claim).total_seconds() < 86400:
