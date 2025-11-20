@@ -740,7 +740,7 @@ async def get_ai_response_with_model(prompt, model_name, config, gemini_key, ope
             }],
             "generationConfig": {
                 "temperature": temperature,
-                "maxOutputTokens": 2048,
+                "maxOutputTokens": 8192,  # Increased from 2048 to handle longer detective cases
             }
         }
         

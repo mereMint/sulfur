@@ -5962,6 +5962,103 @@ async def trolly(interaction: discord.Interaction):
         )
 
 
+@tree.command(name="privacy", description="Verwalte deine Datenschutz-Einstellungen")
+@app_commands.describe(option="Wähle 'on' um Datensammlung zu aktivieren, 'off' um sie zu deaktivieren")
+@app_commands.choices(option=[
+    app_commands.Choice(name="Datensammlung aktivieren (on)", value="on"),
+    app_commands.Choice(name="Datensammlung deaktivieren (off)", value="off")
+])
+async def privacy(interaction: discord.Interaction, option: app_commands.Choice[str]):
+    """Manage user privacy settings for data collection."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        user_id = interaction.user.id
+        enabled = (option.value == "on")
+        
+        # Update privacy settings in database
+        if not db_helpers.db_pool:
+            await interaction.followup.send(
+                "❌ Datenbankverbindung nicht verfügbar.",
+                ephemeral=True
+            )
+            return
+        
+        cnx = db_helpers.db_pool.get_connection()
+        if not cnx:
+            await interaction.followup.send(
+                "❌ Konnte keine Datenbankverbindung herstellen.",
+                ephemeral=True
+            )
+            return
+        
+        cursor = cnx.cursor()
+        try:
+            # Insert or update privacy settings
+            cursor.execute(
+                """
+                INSERT INTO user_privacy_settings (user_id, data_collection_enabled)
+                VALUES (%s, %s)
+                ON DUPLICATE KEY UPDATE 
+                    data_collection_enabled = %s,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (user_id, enabled, enabled)
+            )
+            
+            # Also update the redundant flag in user_stats for performance
+            cursor.execute(
+                """
+                UPDATE user_stats 
+                SET privacy_opt_in = %s
+                WHERE user_id = %s
+                """,
+                (enabled, user_id)
+            )
+            
+            cnx.commit()
+            
+            # Create response embed
+            embed = discord.Embed(
+                title="🔒 Datenschutz-Einstellungen aktualisiert",
+                color=discord.Color.green() if enabled else discord.Color.blue()
+            )
+            
+            if enabled:
+                embed.description = (
+                    "✅ **Datensammlung aktiviert**\n\n"
+                    "Deine Spiel- und Aktivitätsdaten werden jetzt gesammelt, um:\n"
+                    "• Personalisierte Spielerlebnisse zu bieten\n"
+                    "• Statistiken und Fortschritt zu tracken\n"
+                    "• Bestenlisten und Vergleiche zu ermöglichen\n\n"
+                    "Du kannst dies jederzeit mit `/privacy off` deaktivieren."
+                )
+            else:
+                embed.description = (
+                    "🔒 **Datensammlung deaktiviert**\n\n"
+                    "Deine zukünftigen Aktivitäten werden nicht mehr gesammelt.\n\n"
+                    "**Hinweis:** Bereits gesammelte Daten bleiben erhalten.\n"
+                    "Um alle deine Daten zu löschen, nutze das Web-Dashboard oder kontaktiere einen Administrator.\n\n"
+                    "Du kannst die Datensammlung jederzeit mit `/privacy on` wieder aktivieren."
+                )
+            
+            embed.set_footer(text="Deine Privatsphäre ist uns wichtig! 🔐")
+            
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            logger.info(f"Privacy settings updated for user {user_id}: data_collection={enabled}")
+            
+        finally:
+            cursor.close()
+            cnx.close()
+            
+    except Exception as e:
+        logger.error(f"Error updating privacy settings: {e}", exc_info=True)
+        await interaction.followup.send(
+            f"❌ Fehler beim Aktualisieren der Datenschutz-Einstellungen: {str(e)}",
+            ephemeral=True
+        )
+
+
 @tree.command(name="rr", description="Spiele Russian Roulette!")
 @app_commands.describe(bet="Einsatz (optional, Standard: 100)")
 async def russian_roulette(interaction: discord.Interaction, bet: int = None):

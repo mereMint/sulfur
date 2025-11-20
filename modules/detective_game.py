@@ -144,9 +144,9 @@ async def generate_murder_case(api_helpers, config: dict, gemini_api_key: str, o
         # Step 2: Generate core components in parallel
         logger.info("Generating description, location, and victim in parallel...")
         
-        desc_prompt = f"Beschreibe eine Mordszene für den Fall '{title}' (Thema: {theme}). 2-3 Sätze, lebendig und detailliert. Nur die Beschreibung, keine Titel."
-        loc_prompt = f"Nenne einen spezifischen, interessanten Tatort für '{title}'. Ein Satz. Nur der Ort, z.B. 'Luxus-Penthouse am Hafen'"
-        victim_prompt = f"Beschreibe das Opfer für '{title}': Name, Alter, Beruf. Ein Satz. Format: 'Name, Alter, Beruf'"
+        desc_prompt = f"Beschreibe eine Mordszene für den Fall '{title}' (Thema: {theme}). 2-3 Sätze, lebendig und detailliert. NUR die Beschreibung schreiben, KEINE Meta-Kommentare, KEINE Einleitungen wie 'Hier ist...'."
+        loc_prompt = f"Nenne einen spezifischen, interessanten Tatort für '{title}'. Ein Satz. NUR den Ort nennen, z.B. 'Luxus-Penthouse am Hafen', KEINE Erklärungen."
+        victim_prompt = f"Beschreibe das Opfer für '{title}': Name, Alter, Beruf. Ein Satz. Format EXAKT: 'Name, Alter, Beruf'. NUR diese Information, KEINE zusätzlichen Worte."
         
         results = await asyncio.gather(
             api_helpers.get_ai_response_with_model(desc_prompt, model, config, gemini_api_key, openai_api_key, temperature=0.9),
@@ -168,16 +168,23 @@ async def generate_murder_case(api_helpers, config: dict, gemini_api_key: str, o
         for i in range(4):
             is_murderer = (i == murderer_index)
             role = "DER MÖRDER" if is_murderer else "UNSCHULDIG"
-            prompt = f"""Generiere einen Verdächtigen für '{title}' ({role}).
-JSON Format (NUR das JSON-Objekt):
+            prompt = f"""Generiere einen Verdächtigen für den Fall '{title}' ({role}).
+
+WICHTIG: Antworte NUR mit dem JSON-Objekt, KEINE zusätzlichen Erklärungen oder Meta-Kommentare.
+
+JSON Format:
 {{
-  "name": "Name",
-  "occupation": "Beruf",
-  "alibi": "Alibi-Behauptung",
-  "motive": "Motiv für Mord",
+  "name": "Vollständiger Name",
+  "occupation": "Konkreter Beruf",
+  "alibi": "Detailliertes Alibi",
+  "motive": "Klares Motiv",
   "suspicious_details": "Verdächtige Details"
 }}
-Mache {'diesen Verdächtigen schuldig' if is_murderer else 'diesen Verdächtigen unschuldig'}. Variiere Berufe und Hintergründe."""
+
+Hinweise:
+- Mache {'diesen Verdächtigen schuldig mit subtilen Hinweisen' if is_murderer else 'diesen Verdächtigen unschuldig aber verdächtig'}
+- Variiere Berufe und Hintergründe
+- Gib realistische deutsche Namen"""
             suspect_prompts.append(
                 api_helpers.get_ai_response_with_model(prompt, model, config, gemini_api_key, openai_api_key, temperature=0.8)
             )
@@ -189,12 +196,32 @@ Mache {'diesen Verdächtigen schuldig' if is_murderer else 'diesen Verdächtigen
         for i, (result, _) in enumerate(suspect_results):
             if result:
                 try:
-                    # Clean and parse JSON
-                    json_match = re.search(r'\{.*\}', result, re.DOTALL)
+                    # Clean the result - remove markdown code blocks if present
+                    cleaned = result.strip()
+                    if cleaned.startswith('```'):
+                        # Remove code block markers
+                        lines = cleaned.split('\n')
+                        cleaned = '\n'.join(line for line in lines if not line.strip().startswith('```'))
+                    
+                    # Try to find JSON object
+                    json_match = re.search(r'\{.*\}', cleaned, re.DOTALL)
                     if json_match:
-                        suspect = json.loads(json_match.group())
-                        suspects.append(suspect)
+                        suspect_data = json.loads(json_match.group())
+                        # Validate that we have the required fields
+                        if all(key in suspect_data for key in ['name', 'occupation', 'alibi', 'motive', 'suspicious_details']):
+                            suspects.append(suspect_data)
+                            logger.info(f"Successfully parsed suspect {i+1}: {suspect_data.get('name', 'Unknown')}")
+                        else:
+                            logger.warning(f"Suspect {i+1} missing required fields, using fallback")
+                            suspects.append({
+                                'name': f'Verdächtiger {i+1}',
+                                'occupation': 'Unbekannt',
+                                'alibi': 'Keine Angaben',
+                                'motive': 'Unbekannt',
+                                'suspicious_details': 'Keine Details'
+                            })
                     else:
+                        logger.warning(f"No JSON found in suspect {i+1} response, using fallback")
                         # Fallback suspect
                         suspects.append({
                             'name': f'Verdächtiger {i+1}',
@@ -203,7 +230,18 @@ Mache {'diesen Verdächtigen schuldig' if is_murderer else 'diesen Verdächtigen
                             'motive': 'Unbekannt',
                             'suspicious_details': 'Keine Details'
                         })
-                except:
+                except json.JSONDecodeError as e:
+                    logger.error(f"JSON decode error for suspect {i+1}: {e}")
+                    # Fallback suspect
+                    suspects.append({
+                        'name': f'Verdächtiger {i+1}',
+                        'occupation': 'Unbekannt',
+                        'alibi': 'Keine Angaben',
+                        'motive': 'Unbekannt',
+                        'suspicious_details': 'Keine Details'
+                    })
+                except Exception as e:
+                    logger.error(f"Error parsing suspect {i+1}: {e}")
                     # Fallback suspect
                     suspects.append({
                         'name': f'Verdächtiger {i+1}',
@@ -213,6 +251,7 @@ Mache {'diesen Verdächtigen schuldig' if is_murderer else 'diesen Verdächtigen
                         'suspicious_details': 'Keine Details'
                     })
             else:
+                logger.warning(f"No result for suspect {i+1}, using fallback")
                 # Fallback suspect
                 suspects.append({
                     'name': f'Verdächtiger {i+1}',
@@ -226,7 +265,7 @@ Mache {'diesen Verdächtigen schuldig' if is_murderer else 'diesen Verdächtigen
         
         # Step 4: Generate evidence
         logger.info("Generating evidence...")
-        evidence_prompt = f"Liste 3-4 Beweisstücke für '{title}'. Format: emoji + kurze Beschreibung pro Zeile. Beispiel:\n🔪 Blutiges Messer\n📱 Gesendete SMS\n👣 Fußabdrücke"
+        evidence_prompt = f"Liste 3-4 Beweisstücke für '{title}'. Format: emoji + kurze Beschreibung pro Zeile. WICHTIG: NUR die Beweise listen, KEINE Einleitung wie 'Hier sind...' oder Meta-Kommentare. Beispiel:\n🔪 Blutiges Messer\n📱 Gesendete SMS\n👣 Fußabdrücke"
         evidence_result, _ = await api_helpers.get_ai_response_with_model(
             evidence_prompt, model, config, gemini_api_key, openai_api_key, temperature=0.7
         )
@@ -250,7 +289,7 @@ Mache {'diesen Verdächtigen schuldig' if is_murderer else 'diesen Verdächtigen
         # Step 5: Generate hints pointing to murderer
         logger.info("Generating hints...")
         murderer_name = suspects[murderer_index].get('name', 'der Täter')
-        hints_prompt = f"Gib 2-3 subtile Hinweise die auf '{murderer_name}' als Mörder deuten. Format: emoji + kurze Aussage pro Zeile."
+        hints_prompt = f"Gib 2-3 subtile Hinweise die auf '{murderer_name}' als Mörder deuten. Format: emoji + kurze Aussage pro Zeile. WICHTIG: NUR die Hinweise listen, KEINE Einleitung wie 'Hier sind Hinweise...' oder Meta-Kommentare."
         hints_result, _ = await api_helpers.get_ai_response_with_model(
             hints_prompt, model, config, gemini_api_key, openai_api_key, temperature=0.7
         )
@@ -1291,16 +1330,23 @@ async def generate_case_with_difficulty(api_helpers, config: dict, gemini_api_ke
         for i in range(4):
             is_guilty = (i == murderer_index)
             status = "SCHULDIG" if is_guilty else "UNSCHULDIG"
-            s_prompt = f"""Verdächtiger #{i+1} für '{title}' ({status}).
-JSON:
+            s_prompt = f"""Generiere Verdächtigen #{i+1} für den Fall '{title}' ({status}).
+
+WICHTIG: Antworte NUR mit dem JSON-Objekt, KEINE Erklärungen oder Meta-Kommentare.
+
+JSON Format:
 {{
-  "name": "Name",
-  "occupation": "Beruf (interessant, variiert)",
-  "alibi": "Alibi",
-  "motive": "Motiv",
-  "suspicious_details": "Details"
+  "name": "Vollständiger deutscher Name",
+  "occupation": "Interessanter, variierter Beruf",
+  "alibi": "Detailliertes Alibi",
+  "motive": "Klares Motiv",
+  "suspicious_details": "Verdächtige Details"
 }}
-{'Mache schuldig mit subtilen Hinweisen' if is_guilty else 'Unschuldig aber verdächtig'}."""
+
+Hinweise:
+- {'Mache schuldig mit subtilen Hinweisen' if is_guilty else 'Unschuldig aber verdächtig'}
+- Verwende realistische deutsche Namen
+- Variiere Berufe (nicht mehrfach denselben)"""
             suspect_tasks.append(
                 api_helpers.get_ai_response_with_model(s_prompt, model, config, gemini_api_key, openai_api_key, temperature=0.8)
             )
@@ -1312,13 +1358,27 @@ JSON:
         for i, (res, _) in enumerate(suspect_results):
             if res:
                 try:
-                    match = re.search(r'\{.*\}', res, re.DOTALL)
+                    # Clean the result - remove markdown code blocks if present
+                    cleaned = res.strip()
+                    if cleaned.startswith('```'):
+                        lines = cleaned.split('\n')
+                        cleaned = '\n'.join(line for line in lines if not line.strip().startswith('```'))
+                    
+                    match = re.search(r'\{.*\}', cleaned, re.DOTALL)
                     if match:
-                        suspects.append(json.loads(match.group()))
-                        continue
-                except:
-                    pass
-            # Fallback
+                        suspect_data = json.loads(match.group())
+                        # Validate required fields
+                        if all(key in suspect_data for key in ['name', 'occupation', 'alibi', 'motive', 'suspicious_details']):
+                            suspects.append(suspect_data)
+                            logger.info(f"Successfully parsed difficulty suspect {i+1}: {suspect_data.get('name', 'Unknown')}")
+                            continue
+                except json.JSONDecodeError as e:
+                    logger.error(f"JSON decode error for difficulty suspect {i+1}: {e}")
+                except Exception as e:
+                    logger.error(f"Error parsing difficulty suspect {i+1}: {e}")
+            
+            # Fallback if parsing failed or no result
+            logger.warning(f"Using fallback for difficulty suspect {i+1}")
             suspects.append({
                 'name': f'Person {i+1}',
                 'occupation': 'Unbekannt',
@@ -1328,7 +1388,7 @@ JSON:
             })
         
         # Generate evidence
-        ev_prompt = f"3-4 Beweise für '{title}'. Format: emoji + Text, eine pro Zeile."
+        ev_prompt = f"Liste 3-4 konkrete Beweisstücke für den Mordfall '{title}'. Format: emoji + kurze Beschreibung, eine pro Zeile. WICHTIG: NUR die Beweise auflisten, KEINE Einleitungssätze wie 'Hier sind...'."
         ev_res, _ = await api_helpers.get_ai_response_with_model(
             ev_prompt, model, config, gemini_api_key, openai_api_key, temperature=0.7
         )
@@ -1344,7 +1404,7 @@ JSON:
         
         # Generate hints with puzzle support
         murderer_name = suspects[murderer_index].get('name', 'Täter')
-        hints_prompt = f"2-3 Hinweise auf '{murderer_name}' als Mörder. Schwierigkeit {difficulty}/5. Format: emoji + Hinweis pro Zeile."
+        hints_prompt = f"Gib 2-3 subtile Hinweise die auf '{murderer_name}' als Mörder deuten. Schwierigkeit {difficulty}/5. Format: emoji + Hinweis pro Zeile. WICHTIG: NUR die Hinweise auflisten, KEINE Meta-Kommentare wie 'Hier sind Hinweise auf...'."
         hints_res, _ = await api_helpers.get_ai_response_with_model(
             hints_prompt, model, config, gemini_api_key, openai_api_key, temperature=0.7
         )
