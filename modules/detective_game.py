@@ -62,14 +62,17 @@ def reverse_cipher(text: str) -> str:
 
 
 def atbash_cipher(text: str) -> str:
-    """Encode using Atbash cipher (A=Z, B=Y, etc.)."""
+    """Encode using Atbash cipher (A=Z, B=Y, etc.). Only works with basic ASCII letters."""
     result = []
     for char in text:
-        if char.isalpha():
-            if char.isupper():
+        # Only process basic ASCII letters (A-Z, a-z)
+        if char.isalpha() and ord(char) < 128:
+            if char.isupper() and 65 <= ord(char) <= 90:
                 result.append(chr(90 - (ord(char) - 65)))
-            else:
+            elif char.islower() and 97 <= ord(char) <= 122:
                 result.append(chr(122 - (ord(char) - 97)))
+            else:
+                result.append(char)  # Keep non-basic letters as is
         else:
             result.append(char)
     return ''.join(result)
