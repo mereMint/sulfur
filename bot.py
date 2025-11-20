@@ -3871,14 +3871,30 @@ async def view_transactions(interaction: discord.Interaction, limit: int = 10):
         for trans in transactions:
             trans_type, amount, balance_after, description, created_at = trans
             
-            # Format amount with sign
+            # Get emoji based on transaction type
+            type_emojis = {
+                'stock_buy': '📉',
+                'stock_sell': '📈',
+                'daily_reward': '🎁',
+                'quest_reward': '✅',
+                'level_reward': '⬆️',
+                'gambling': '🎰',
+                'transfer': '💸',
+                'purchase': '🛒',
+                'boost': '⚡',
+                'role_purchase': '🎨'
+            }
+            emoji = type_emojis.get(trans_type, '💰')
+            
+            # Format amount with sign and color coding
             amount_str = f"+{amount}" if amount > 0 else str(amount)
             
             # Format timestamp
             timestamp = created_at.strftime("%d.%m.%Y %H:%M")
             
-            # Create field
-            field_name = f"{trans_type} - {timestamp}"
+            # Create field with enhanced formatting
+            trans_name = trans_type.replace('_', ' ').title()
+            field_name = f"{emoji} {trans_name} - {timestamp}"
             field_value = f"**{amount_str} {currency}** → Guthaben: {balance_after} {currency}"
             if description:
                 field_value += f"\n_{description}_"
@@ -3947,7 +3963,7 @@ class StockMarketMainView(discord.ui.View):
         
         embed = discord.Embed(
             title="📊 Top 10 Aktien",
-            description="Die besten und schlechtesten Performer",
+            description="Die besten und schlechtesten Performer (sortiert nach Änderung)",
             color=discord.Color.blue()
         )
         
@@ -3958,10 +3974,14 @@ class StockMarketMainView(discord.ui.View):
                 symbol, name, current_price, previous_price, change_pct, volume = stock
                 emoji = stock_market.get_stock_emoji(float(change_pct))
                 price_str = stock_market.format_price(float(current_price))
+                prev_str = stock_market.format_price(float(previous_price))
                 
-                field_value = f"Preis: **{price_str}**\n"
-                field_value += f"Änderung: {emoji} **{change_pct:.2f}%**\n"
-                field_value += f"Volumen: {volume}"
+                # Add trend arrow
+                trend = "⬆️" if change_pct > 0 else "⬇️" if change_pct < 0 else "➖"
+                
+                field_value = f"{trend} **{prev_str}** → **{price_str}**\n"
+                field_value += f"Änderung: {emoji} **{change_pct:+.2f}%**\n"
+                field_value += f"Volumen heute: **{volume}** Aktien"
                 
                 embed.add_field(
                     name=f"{i}. {symbol} - {name}",
@@ -3969,6 +3989,7 @@ class StockMarketMainView(discord.ui.View):
                     inline=True if i % 2 == 1 else False
                 )
         
+        embed.set_footer(text="🔄 Preise aktualisieren sich alle 30 Minuten")
         await interaction.edit_original_response(embed=embed, view=self)
     
     @discord.ui.button(label="💼 Mein Portfolio", style=discord.ButtonStyle.success, row=0)
@@ -4039,6 +4060,43 @@ class StockMarketMainView(discord.ui.View):
         # Show stock exchange view
         view = StockExchangeView(self.user)
         await view.show_exchange(interaction)
+    
+    @discord.ui.button(label="📊 Marktaktivität", style=discord.ButtonStyle.secondary, row=1)
+    async def market_activity_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        
+        # Get recent trades
+        recent_trades = await stock_market.get_recent_trades(db_helpers, limit=15)
+        
+        embed = discord.Embed(
+            title="📊 Marktaktivität",
+            description="Letzte Transaktionen an der Börse",
+            color=discord.Color.purple()
+        )
+        
+        if not recent_trades:
+            embed.description = "Noch keine Handelsaktivität."
+        else:
+            activity_text = ""
+            for trade in recent_trades[:15]:
+                trans_type, description, created_at, volume = trade
+                
+                # Parse time
+                time_str = created_at.strftime("%H:%M")
+                
+                # Emoji based on type
+                emoji = "🟢" if trans_type == "stock_buy" else "🔴"
+                
+                # Extract stock symbol from description
+                if description:
+                    activity_text += f"{emoji} `{time_str}` {description}\n"
+            
+            if activity_text:
+                embed.description = activity_text
+        
+        embed.set_footer(text="Live Marktdaten • Aktualisiert in Echtzeit")
+        
+        await interaction.edit_original_response(embed=embed, view=self)
 
 
 class StockExchangeView(discord.ui.View):
@@ -4293,6 +4351,9 @@ async def stock_market_command(interaction: discord.Interaction):
         view = StockMarketMainView(interaction.user)
         currency = config['modules']['economy']['currency_symbol']
         
+        # Get market overview for live data
+        market_overview = await stock_market.get_market_overview(db_helpers)
+        
         embed = discord.Embed(
             title="📈 Sulfur Aktienmarkt",
             description="**Willkommen an der Börse!**\n\n"
@@ -4300,6 +4361,18 @@ async def stock_market_command(interaction: discord.Interaction):
                        "Die Kurse ändern sich alle 30 Minuten basierend auf Markttrends und Aktivitäten im Server!",
             color=discord.Color.gold()
         )
+        
+        # Add live market stats
+        if market_overview:
+            avg_change_emoji = "📈" if market_overview['avg_change'] > 0 else "📉" if market_overview['avg_change'] < 0 else "➖"
+            embed.add_field(
+                name="🌍 Live Marktdaten",
+                value=f"**Aktien:** {market_overview['total_stocks']} | "
+                      f"**24h Trades:** {market_overview['trades_24h']}\n"
+                      f"**Ø Veränderung:** {avg_change_emoji} {market_overview['avg_change']:+.2f}% | "
+                      f"**Volumen:** {market_overview['total_volume']}",
+                inline=False
+            )
         
         # Add stock categories info
         embed.add_field(
