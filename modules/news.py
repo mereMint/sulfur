@@ -172,12 +172,35 @@ async def gather_news_data(db_helpers, cursor):
         """)
         news_data['leaderboard_changes'] = cursor.fetchall()
         
-        # Get gambling statistics from last 6 hours
-        # This is a placeholder - would need actual gambling tracking
+        # Get gambling statistics from last 24 hours (real data)
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_games,
+                SUM(total_wagered) as total_wagered,
+                SUM(total_won) as total_won
+            FROM gambling_stats
+            WHERE last_played > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+        """)
+        gambling_data = cursor.fetchone()
+        
+        # Get biggest winner from last 24 hours
+        cursor.execute("""
+            SELECT gs.user_id, p.display_name, gs.biggest_win
+            FROM gambling_stats gs
+            LEFT JOIN players p ON gs.user_id = p.user_id
+            WHERE gs.last_played > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+            AND gs.biggest_win IS NOT NULL
+            ORDER BY gs.biggest_win DESC
+            LIMIT 1
+        """)
+        winner_data = cursor.fetchone()
+        
         news_data['gambling_stats'] = {
-            'total_bets': random.randint(50, 200),
-            'big_winner': random.choice(['Spieler1', 'Spieler2', 'Spieler3']) if random.random() > 0.5 else None,
-            'total_wagered': random.randint(10000, 50000)
+            'total_bets': gambling_data['total_games'] or 0 if gambling_data else 0,
+            'big_winner': winner_data['display_name'] if winner_data and winner_data.get('display_name') else None,
+            'biggest_win': winner_data['biggest_win'] if winner_data and winner_data.get('biggest_win') else 0,
+            'total_wagered': int(gambling_data['total_wagered'] or 0) if gambling_data else 0,
+            'total_won': int(gambling_data['total_won'] or 0) if gambling_data else 0
         }
         
     except Exception as e:
@@ -187,13 +210,16 @@ async def gather_news_data(db_helpers, cursor):
 
 
 async def create_article_with_ai(api_helpers, news_data, config):
-    """Use AI to create an engaging news article."""
+    """Use AI to create an engaging news article with context-aware headline."""
     try:
-        # Build prompt for AI
+        # Build prompt for AI with emphasis on generating contextual headlines
         prompt = """Du bist ein charismatischer Wirtschaftsjournalist mit einem Hang zu dramatischen Geschichten. 
 Schreibe einen unterhaltsamen, spannenden Nachrichtenartikel (200-400 Wörter) über die folgenden Ereignisse.
 Verwende lebendige Metaphern, dramatische Formulierungen und mache die Zahlen lebendig!
-Format: TITEL: [einprägsamer titel]\nINHALT: [artikel inhalt]
+
+WICHTIG: Der TITEL muss die wichtigste Entwicklung widerspiegeln (z.B. bei großen Börsen-Verlusten: "Gambling Industries Reports huge decline on Players, Company Reports a -14% recession")
+
+Format: TITEL: [einprägsamer, kontextbasierter titel]\nINHALT: [artikel inhalt]
 
 EREIGNISSE:\n\n"""
         
@@ -243,13 +269,25 @@ EREIGNISSE:\n\n"""
                 prompt += f"{medal} {player['display_name']}: {player['balance']:,} Coins\n"
             prompt += "\n"
         
-        # Add gambling stats
-        if news_data['gambling_stats'].get('big_winner'):
+        # Add gambling stats with improved context
+        gambling_stats = news_data['gambling_stats']
+        if gambling_stats.get('total_bets', 0) > 0:
             if category == "general":
                 category = "gambling"
-            prompt += f"🎰 CASINO: {news_data['gambling_stats']['total_bets']} Wetten, "
-            prompt += f"Gesamteinsatz: {news_data['gambling_stats']['total_wagered']:,} Coins. "
-            prompt += f"Großgewinner: {news_data['gambling_stats']['big_winner']}!\n\n"
+            
+            # Calculate net profit/loss for context
+            net_change = gambling_stats.get('total_won', 0) - gambling_stats.get('total_wagered', 0)
+            change_pct = (net_change / gambling_stats['total_wagered'] * 100) if gambling_stats.get('total_wagered', 0) > 0 else 0
+            
+            prompt += f"🎰 CASINO (letzte 24h):\n"
+            prompt += f"- Spiele gespielt: {gambling_stats['total_bets']}\n"
+            prompt += f"- Gesamteinsatz: {gambling_stats['total_wagered']:,} Coins\n"
+            prompt += f"- Gesamt ausgezahlt: {gambling_stats.get('total_won', 0):,} Coins\n"
+            prompt += f"- Spieler-Bilanz: {change_pct:+.1f}% ({'Gewinn' if net_change > 0 else 'Verlust'})\n"
+            
+            if gambling_stats.get('big_winner'):
+                prompt += f"- Größter Gewinner: {gambling_stats['big_winner']} ({gambling_stats.get('biggest_win', 0):,} Coins)\n"
+            prompt += "\n"
         
         prompt += "\nSchreibe einen packenden Artikel mit einem kreativen Titel und dramatischem, aber informativem Inhalt!"
         
@@ -324,9 +362,19 @@ def create_fallback_article(news_data, category):
             content += f"{medal} **{player['display_name']}**: {player['balance']:,} 🪙\n"
         content += "\n"
     
-    if news_data['gambling_stats'].get('big_winner'):
-        content += f"**🎰 Casino:** {news_data['gambling_stats']['total_bets']} Wetten\n"
-        content += f"Großgewinner: **{news_data['gambling_stats']['big_winner']}**! 🎉\n"
+    gambling_stats = news_data['gambling_stats']
+    if gambling_stats.get('total_bets', 0) > 0:
+        content += f"**🎰 Casino (24h):** {gambling_stats['total_bets']} Spiele\n"
+        
+        net_change = gambling_stats.get('total_won', 0) - gambling_stats.get('total_wagered', 0)
+        if net_change != 0:
+            change_pct = (net_change / gambling_stats['total_wagered'] * 100) if gambling_stats.get('total_wagered', 0) > 0 else 0
+            emoji = "📈" if net_change > 0 else "📉"
+            content += f"{emoji} Spieler-Bilanz: {change_pct:+.1f}%\n"
+        
+        if gambling_stats.get('big_winner'):
+            content += f"🏆 Größter Gewinner: **{gambling_stats['big_winner']}** ({gambling_stats.get('biggest_win', 0):,} 🪙) 🎉\n"
+        content += "\n"
     
     return {
         'title': titles.get(category, titles['general']),
@@ -393,3 +441,51 @@ def create_news_embed(article):
     embed.set_footer(text=f"Kategorie: {article['category'].title()}")
     
     return embed
+
+
+class NewsPaginationView(discord.ui.View):
+    """Pagination view for news articles with max 5 articles."""
+    
+    def __init__(self, articles: list, user_id: int):
+        super().__init__(timeout=300)
+        self.articles = articles[:5]  # Limit to max 5 articles
+        self.user_id = user_id
+        self.current_page = 0
+        self._update_buttons()
+    
+    def _update_buttons(self):
+        """Update button states based on current page."""
+        # Disable previous button if on first page
+        self.previous_button.disabled = (self.current_page == 0)
+        # Disable next button if on last page
+        self.next_button.disabled = (self.current_page >= len(self.articles) - 1)
+    
+    def get_current_embed(self):
+        """Get the embed for the current page."""
+        article = self.articles[self.current_page]
+        embed = create_news_embed(article)
+        embed.set_footer(text=f"Artikel {self.current_page + 1}/{len(self.articles)} • {article['category'].title()}")
+        return embed
+    
+    @discord.ui.button(label="◀️ Zurück", style=discord.ButtonStyle.secondary, custom_id="news_prev")
+    async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Go to previous article."""
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht deine Ansicht!", ephemeral=True)
+            return
+        
+        self.current_page = max(0, self.current_page - 1)
+        self._update_buttons()
+        await interaction.response.edit_message(embed=self.get_current_embed(), view=self)
+    
+    @discord.ui.button(label="Weiter ▶️", style=discord.ButtonStyle.secondary, custom_id="news_next")
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Go to next article."""
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht deine Ansicht!", ephemeral=True)
+            return
+        
+        self.current_page = min(len(self.articles) - 1, self.current_page + 1)
+        self._update_buttons()
+        await interaction.response.edit_message(embed=self.get_current_embed(), view=self)
+

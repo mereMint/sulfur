@@ -3910,11 +3910,11 @@ async def view_transactions(interaction: discord.Interaction, limit: int = 10):
 @tree.command(name="news", description="Zeige die neuesten Nachrichten vom Server.")
 @app_commands.describe(limit="Anzahl der anzuzeigenden Artikel (Standard: 5)")
 async def view_news(interaction: discord.Interaction, limit: int = 5):
-    """View latest news articles."""
+    """View latest news articles with pagination."""
     await interaction.response.defer(ephemeral=True)
     
-    if limit < 1 or limit > 10:
-        await interaction.followup.send("Limit muss zwischen 1 und 10 liegen.", ephemeral=True)
+    if limit < 1 or limit > 5:
+        await interaction.followup.send("Limit muss zwischen 1 und 5 liegen.", ephemeral=True)
         return
     
     try:
@@ -3924,10 +3924,10 @@ async def view_news(interaction: discord.Interaction, limit: int = 5):
             await interaction.followup.send("Noch keine Nachrichten verfügbar.", ephemeral=True)
             return
         
-        # Send each article as a separate embed
-        for article in articles:
-            embed = news.create_news_embed(article)
-            await interaction.followup.send(embed=embed, ephemeral=True)
+        # Use pagination view for better user experience
+        view = news.NewsPaginationView(articles, interaction.user.id)
+        embed = view.get_current_embed()
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         
     except Exception as e:
         logger.error(f"Error viewing news: {e}", exc_info=True)
@@ -4677,6 +4677,16 @@ class BlackjackView(discord.ui.View):
     async def hit_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
         
+        # Show card drawing animation
+        import asyncio
+        temp_embed = discord.Embed(
+            title="🃏 Blackjack",
+            description="Ziehe eine Karte... 🎴",
+            color=discord.Color.blurple()
+        )
+        await interaction.edit_original_response(embed=temp_embed, view=self)
+        await asyncio.sleep(0.6)
+        
         self.game.hit()
         
         if not self.game.is_active:
@@ -4837,13 +4847,25 @@ class MinesView(discord.ui.View):
         self.add_item(cashout_button)
     
     def _create_callback(self, row: int, col: int):
-        """Creates a callback for a grid button."""
+        """Creates a callback for a grid button with reveal animation."""
         async def callback(interaction: discord.Interaction):
             if interaction.user.id != self.user_id:
                 await interaction.response.send_message("Das ist nicht dein Spiel!", ephemeral=True)
                 return
             
             await interaction.response.defer()
+            
+            # Show revealing animation
+            import asyncio
+            for item in self.children:
+                if hasattr(item, 'custom_id') and item.custom_id == f"mine_{row}_{col}":
+                    item.label = "❓"
+                    item.style = discord.ButtonStyle.primary
+                    break
+            
+            temp_embed = self.game.create_embed()
+            await interaction.edit_original_response(embed=temp_embed, view=self)
+            await asyncio.sleep(0.4)
             
             continue_game, hit_mine, multiplier = self.game.reveal(row, col)
             
@@ -5091,12 +5113,40 @@ class RouletteView(discord.ui.View):
     
     @discord.ui.button(label="🎰 Rad drehen", style=discord.ButtonStyle.success, row=2)
     async def spin_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Spin the roulette wheel."""
+        """Spin the roulette wheel with animation."""
         await interaction.response.defer()
         
         if not self.bets:
             await interaction.followup.send("❌ Wähle mindestens eine Wette aus!", ephemeral=True)
             return
+        
+        # Create animation frames
+        import asyncio
+        
+        # Show spinning animation
+        spin_frames = [
+            "🎰 Das Rad dreht sich... ⚪",
+            "🎰 Das Rad dreht sich... 🔴",
+            "🎰 Das Rad dreht sich... ⚫",
+            "🎰 Das Rad dreht sich... 🔴",
+            "🎰 Das Rad dreht sich... ⚪",
+        ]
+        
+        embed = discord.Embed(
+            title="🎰 Roulette",
+            description=spin_frames[0],
+            color=discord.Color.blurple()
+        )
+        await interaction.edit_original_response(embed=embed, view=None)
+        
+        # Animate spinning
+        for i, frame in enumerate(spin_frames[1:], 1):
+            await asyncio.sleep(0.5)
+            embed.description = frame
+            try:
+                await interaction.edit_original_response(embed=embed)
+            except:
+                pass
         
         # Spin the wheel
         result_number = RouletteGame.spin()
@@ -5533,35 +5583,46 @@ class TowerOfTreasureView(discord.ui.View):
         self._build_buttons()
     
     def _build_buttons(self):
-        """Builds the column buttons for the game."""
-        # Add 4 column buttons
+        """Builds clearer, numbered column buttons for the game."""
+        # Add 4 column buttons with just numbers for clarity
         for col in range(4):
             button = discord.ui.Button(
-                label=f"Column {col + 1}",
+                label=f"{col + 1}",
                 style=discord.ButtonStyle.primary,
-                custom_id=f"tower_col_{col}",
-                emoji="🏛️"
+                custom_id=f"tower_col_{col}"
             )
             button.callback = self._create_column_callback(col)
             self.add_item(button)
         
-        # Add cashout button
+        # Add cashout button on new row
         cashout_button = discord.ui.Button(
-            label="💰 Cash Out",
+            label="Auszahlen",
             style=discord.ButtonStyle.success,
-            custom_id="tower_cashout"
+            custom_id="tower_cashout",
+            emoji="💰",
+            row=1
         )
         cashout_button.callback = self._cashout_callback
         self.add_item(cashout_button)
     
     def _create_column_callback(self, column: int):
-        """Creates a callback for a column button."""
+        """Creates a callback for a column button with climbing animation."""
         async def callback(interaction: discord.Interaction):
             if interaction.user.id != self.user_id:
                 await interaction.response.send_message("Das ist nicht dein Spiel!", ephemeral=True)
                 return
             
             await interaction.response.defer()
+            
+            # Show climbing animation
+            import asyncio
+            temp_embed = discord.Embed(
+                title="🗼 Tower of Treasure",
+                description=f"Klettere Säule {column + 1}... 🧗",
+                color=discord.Color.gold()
+            )
+            await interaction.edit_original_response(embed=temp_embed, view=self)
+            await asyncio.sleep(0.5)
             
             alive, reached_top, reward = self.game.choose_column(column)
             
@@ -5597,8 +5658,8 @@ class TowerOfTreasureView(discord.ui.View):
             )
     
     async def _finish_game(self, interaction: discord.Interaction, won: bool, reward: int, message: str):
-        """Finishes the game and shows results."""
-        embed = self.game.create_embed(show_bombs=True)
+        """Finishes the game and shows results with full tower visualization."""
+        embed = self.game.create_embed(show_bombs=True, show_full_tower=True)
         
         currency = config['modules']['economy']['currency_symbol']
         
@@ -5785,6 +5846,21 @@ class RussianRouletteView(discord.ui.View):
     @discord.ui.button(label="🔫 Shoot", style=discord.ButtonStyle.danger)
     async def shoot_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
+        
+        # Show cylinder spin animation
+        import asyncio
+        temp_embed = discord.Embed(
+            title="🔫 Russian Roulette",
+            description="Der Zylinder dreht sich... 🔄",
+            color=discord.Color.orange()
+        )
+        await interaction.edit_original_response(embed=temp_embed, view=self)
+        await asyncio.sleep(0.8)
+        
+        # Show aiming animation
+        temp_embed.description = "Abzug wird gezogen... 😰"
+        await interaction.edit_original_response(embed=temp_embed, view=self)
+        await asyncio.sleep(0.5)
         
         alive, won, reward = self.game.pull_trigger()
         

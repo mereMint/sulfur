@@ -473,85 +473,114 @@ class TowerOfTreasureGame:
         """Get progress as percentage."""
         return int((self.current_floor / self.max_floors) * 100)
     
-    def create_embed(self, show_bombs=False):
-        """Creates a Discord embed for the game."""
+    def create_embed(self, show_bombs=False, show_full_tower=False):
+        """Creates a cleaner, less cluttered Discord embed for the game.
+        
+        Args:
+            show_bombs: Whether to reveal bomb locations on current floor
+            show_full_tower: Whether to show the entire tower (used when game ends)
+        """
         embed = discord.Embed(
             title="🗼 Tower of Treasure",
-            description=f"Difficulty: {'⭐' * self.difficulty} | Floor: {self.current_floor}/{self.max_floors}",
             color=discord.Color.gold()
         )
         
-        # Show current floor visualization
-        floor_display = ""
+        # Simplified header with key info
+        difficulty_emoji = '⭐' * self.difficulty
+        header = f"**{difficulty_emoji}** Etage {self.current_floor + 1}/{self.max_floors}"
         
-        # Show the next 3 floors (or remaining floors)
-        floors_to_show = min(3, self.max_floors - self.current_floor)
-        start_floor = self.current_floor
+        # Build tower visualization
+        tower_display = ""
         
-        for i in range(floors_to_show, -1, -1):
-            floor_num = start_floor + i
-            if floor_num >= self.max_floors:
-                continue
+        if show_full_tower:
+            # Show entire tower from bottom to top when game ends
+            columns_display = " ".join([f"**{i+1}**" for i in range(self.total_columns)])
+            
+            # Show from top floor down to current/last floor
+            floors_to_show = min(self.max_floors, 8)  # Limit to avoid Discord message limits
+            start_floor = max(0, self.current_floor - floors_to_show + 1)
+            
+            for floor_idx in range(min(self.current_floor + 1, self.max_floors) - 1, start_floor - 1, -1):
+                floor_data = self.floors[floor_idx]
+                floor_visual = " ".join(["✅" if col else "💣" for col in floor_data])
                 
-            if floor_num == self.current_floor:
-                floor_display += f"**Floor {floor_num + 1}** ⬅️ You are here\n"
-                if not show_bombs:
-                    floor_display += "🏛️ " * self.total_columns + "\n"
+                if floor_idx < self.current_floor:
+                    # Completed floor
+                    tower_display += f"Etage {floor_idx + 1} ✓\n{floor_visual}\n\n"
                 else:
-                    floor_data = self.floors[floor_num]
-                    for col in floor_data:
-                        floor_display += "✅ " if col else "💣 "
-                    floor_display += "\n"
-            elif floor_num > self.current_floor:
-                floor_display += f"Floor {floor_num + 1}\n"
-                floor_display += "🏛️ " * self.total_columns + "\n"
+                    # Current floor (where game ended)
+                    tower_display += f"Etage {floor_idx + 1} {'💥' if not self.is_active and self.current_floor == floor_idx else ''}\n{floor_visual}\n"
+            
+            if start_floor > 0:
+                tower_display = f"... {start_floor} Etagen darunter ...\n\n" + tower_display
+            
+            embed.add_field(
+                name="🗼 Kompletter Turm",
+                value=f"{columns_display}\n\n{tower_display}",
+                inline=False
+            )
+        else:
+            # Normal gameplay view - show last completed floor and current floor
+            
+            # Show last completed floor (if exists)
+            if self.current_floor > 0:
+                last_floor = self.current_floor - 1
+                last_floor_data = self.floors[last_floor]
+                columns_display = " ".join([f"**{i+1}**" for i in range(self.total_columns)])
+                
+                # Show completed floor with checkmarks/bombs
+                floor_visual = " ".join(["✅" if col else "💣" for col in last_floor_data])
+                tower_display += f"Etage {last_floor + 1} ✓\n{columns_display}\n{floor_visual}\n\n"
+            
+            # Show current floor
+            if self.current_floor < self.max_floors:
+                columns_display = " ".join([f"**{i+1}**" for i in range(self.total_columns)])
+                
+                if not show_bombs:
+                    floor_visual = "🏛️ " * self.total_columns
+                else:
+                    floor_data = self.floors[self.current_floor]
+                    floor_visual = " ".join(["✅" if col else "💣" for col in floor_data])
+                
+                tower_display += f"{header}\n{columns_display}\n{floor_visual}"
+                
+                embed.add_field(
+                    name="🗼 Turm",
+                    value=tower_display,
+                    inline=False
+                )
         
-        if floor_display:
-            embed.add_field(name="🗼 Tower", value=floor_display, inline=False)
+        # Compact info row
+        info_parts = []
+        if self.current_floor > 0:
+            current_reward = self.calculate_reward()
+            multiplier = current_reward / self.bet if self.bet > 0 else 0
+            info_parts.append(f"💰 **{current_reward}** 🪙 ({multiplier:.1f}x)")
+        else:
+            info_parts.append(f"💰 Einsatz: **{self.bet}** 🪙")
         
-        # Progress bar
+        # Progress indicator
         progress = self.get_progress_percentage()
-        bar_length = 10
+        bar_length = 8
         filled = int((progress / 100) * bar_length)
         bar = '█' * filled + '░' * (bar_length - filled)
+        info_parts.append(f"{bar} {progress}%")
         
         embed.add_field(
-            name="Progress",
-            value=f"{bar} {progress}%",
+            name="Status",
+            value=" | ".join(info_parts),
             inline=False
         )
         
-        # Difficulty info
-        difficulty_names = {
-            1: "Easy (3 safe, 1 bomb)",
-            2: "Medium (2 safe, 2 bombs)",
-            3: "Hard (1 safe, 3 bombs)",
-            4: "Extreme (0-1 safe, 3-4 bombs)"
-        }
-        embed.add_field(
-            name="Difficulty",
-            value=difficulty_names.get(self.difficulty, "Unknown"),
-            inline=True
-        )
-        
-        # Current potential reward
-        if self.current_floor > 0:
-            current_reward = self.calculate_reward()
-            embed.add_field(
-                name="Current Prize",
-                value=f"{current_reward} 🪙",
-                inline=True
-            )
-        
-        embed.add_field(name="Bet", value=f"{self.bet} 🪙", inline=True)
-        
+        # Game state footer
         if self.current_floor >= self.max_floors:
-            embed.set_footer(text="🎉 You've reached the top! Congratulations!")
+            embed.set_footer(text="🎉 Spitze erreicht! Glückwunsch!")
         elif not self.is_active and self.current_floor == 0:
-            embed.set_footer(text="💥 Game Over! You hit a bomb on the first floor!")
+            embed.set_footer(text="💥 Game Over! Bombe auf Etage 1!")
         elif not self.is_active:
-            embed.set_footer(text=f"💥 Game Over! You made it to floor {self.current_floor}!")
+            embed.set_footer(text=f"💥 Game Over auf Etage {self.current_floor + 1}!")
         else:
-            embed.set_footer(text="Choose a column to climb or cash out!")
+            safe_count = sum(1 for col in self.floors[self.current_floor] if col) if self.current_floor < len(self.floors) else 0
+            embed.set_footer(text=f"Wähle eine Säule (1-4) • {safe_count} sichere Säule(n)")
         
         return embed
