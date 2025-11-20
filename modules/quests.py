@@ -52,11 +52,13 @@ async def generate_daily_quests(db_helpers, user_id: int, config: dict):
                     quest_type = quest.get('quest_type')
                     if quest_type and quest_type in quest_config:
                         quest['reward'] = quest_config[quest_type]['reward']
+                        quest['xp_reward'] = quest_config[quest_type].get('xp_reward', 0)
                 return existing_quests
             
             # Generate 3 new quests
             quest_config = config['modules']['economy']['quests']['quest_types']
             available_quests = list(quest_config.keys())
+            randomize_targets = config['modules']['economy']['quests'].get('randomize_targets', False)
             
             # Select 3 random quest types (or all if less than 3)
             import random
@@ -66,12 +68,24 @@ async def generate_daily_quests(db_helpers, user_id: int, config: dict):
             for quest_type in selected_types:
                 quest_data = quest_config[quest_type]
                 
+                # Randomize target if enabled
+                if randomize_targets and 'target_min' in quest_data and 'target_max' in quest_data:
+                    target_min = quest_data['target_min']
+                    target_max = quest_data['target_max']
+                    target_step = quest_data.get('target_step', 5)
+                    
+                    # Generate random target in steps
+                    steps = (target_max - target_min) // target_step + 1
+                    target_value = target_min + (random.randint(0, steps - 1) * target_step)
+                else:
+                    target_value = quest_data['target']
+                
                 cursor.execute(
                     """
                     INSERT INTO daily_quests (user_id, quest_date, quest_type, target_value, current_progress)
                     VALUES (%s, %s, %s, %s, 0)
                     """,
-                    (user_id, today, quest_type, quest_data['target'])
+                    (user_id, today, quest_type, target_value)
                 )
                 
                 # Get the ID of the inserted quest
@@ -80,8 +94,9 @@ async def generate_daily_quests(db_helpers, user_id: int, config: dict):
                 created_quests.append({
                     'id': quest_id,
                     'quest_type': quest_type,
-                    'target_value': quest_data['target'],
+                    'target_value': target_value,
                     'reward': quest_data['reward'],
+                    'xp_reward': quest_data.get('xp_reward', 0),
                     'current_progress': 0,
                     'completed': False,
                     'reward_claimed': False
@@ -189,17 +204,17 @@ async def claim_quest_reward(db_helpers, user_id: int, display_name: str, quest_
         config: Bot configuration
     
     Returns:
-        (success, reward_amount, message) tuple
+        (success, reward_amount, xp_amount, message) tuple
     """
     try:
         if not db_helpers.db_pool:
             logger.warning("Database pool not available in claim_quest_reward")
-            return False, 0, "Database connection error."
+            return False, 0, 0, "Database connection error."
             
         cnx = db_helpers.db_pool.get_connection()
         if not cnx:
             logger.warning("Could not get DB connection in claim_quest_reward")
-            return False, 0, "Database connection error."
+            return False, 0, 0, "Database connection error."
             
         cursor = cnx.cursor(dictionary=True)
         try:
@@ -230,14 +245,15 @@ async def claim_quest_reward(db_helpers, user_id: int, display_name: str, quest_
             quest = cursor.fetchone()
             
             if not quest:
-                return False, 0, "Quest not found, already claimed, or not completed."
+                return False, 0, 0, "Quest not found, already claimed, or not completed."
             
             # Get reward amount from config
             quest_config = config['modules']['economy']['quests']['quest_types'].get(quest['quest_type'])
             if not quest_config:
-                return False, 0, "Invalid quest type."
+                return False, 0, 0, "Invalid quest type."
             
             reward = quest_config['reward']
+            xp_reward = quest_config.get('xp_reward', 0)
             
             # Mark as claimed
             cursor.execute(
@@ -253,17 +269,27 @@ async def claim_quest_reward(db_helpers, user_id: int, display_name: str, quest_
             stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
             await db_helpers.add_balance(user_id, display_name, reward, config, stat_period)
             
+            # Award XP if enabled
+            if xp_reward > 0:
+                try:
+                    await db_helpers.add_xp(user_id, display_name, xp_reward, config, stat_period)
+                except Exception as e:
+                    logger.error(f"Error awarding quest XP: {e}", exc_info=True)
+            
             cnx.commit()
             
             currency = config['modules']['economy']['currency_symbol']
-            return True, reward, f"Quest reward claimed! +{reward} {currency}"
+            message = f"Quest reward claimed! +{reward} {currency}"
+            if xp_reward > 0:
+                message += f" +{xp_reward} XP"
+            return True, reward, xp_reward, message
         finally:
             cursor.close()
             cnx.close()
             
     except Exception as e:
         logger.error(f"Error claiming quest reward: {e}", exc_info=True)
-        return False, 0, "An error occurred while claiming the reward."
+        return False, 0, 0, "An error occurred while claiming the reward."
 
 
 async def get_user_quests(db_helpers, user_id: int, config: dict):
@@ -307,6 +333,7 @@ async def get_user_quests(db_helpers, user_id: int, config: dict):
             for quest in quests:
                 quest_type_config = quest_config.get(quest['quest_type'], {})
                 quest['reward'] = quest_type_config.get('reward', 0)
+                quest['xp_reward'] = quest_type_config.get('xp_reward', 0)
             
             return quests
         finally:
@@ -378,19 +405,19 @@ async def grant_daily_completion_bonus(db_helpers, user_id: int, display_name: s
         config: Bot configuration
     
     Returns:
-        (success, bonus_amount) tuple
+        (success, bonus_amount, xp_amount) tuple
     """
     try:
         today = datetime.now(timezone.utc).date()
         
         if not db_helpers.db_pool:
             logger.warning("Database pool not available in grant_daily_completion_bonus")
-            return False, 0
+            return False, 0, 0
             
         cnx = db_helpers.db_pool.get_connection()
         if not cnx:
             logger.warning("Could not get DB connection in grant_daily_completion_bonus")
-            return False, 0
+            return False, 0, 0
             
         cursor = cnx.cursor(dictionary=True)
         try:
@@ -405,14 +432,23 @@ async def grant_daily_completion_bonus(db_helpers, user_id: int, display_name: s
             result = cursor.fetchone()
             
             if result and result['bonus_claimed']:
-                return False, 0
+                return False, 0, 0
             
-            # Calculate bonus (500 base + level bonus)
-            bonus = 500
+            # Get bonus amounts from config
+            bonus_config = config['modules']['economy']['quests'].get('daily_completion_bonus', {})
+            bonus = bonus_config.get('currency', 300)
+            xp_bonus = bonus_config.get('xp', 500)
             
-            # Grant bonus
+            # Grant currency bonus
             stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
             await db_helpers.add_balance(user_id, display_name, bonus, config, stat_period)
+            
+            # Grant XP bonus
+            if xp_bonus > 0:
+                try:
+                    await db_helpers.add_xp(user_id, display_name, xp_bonus, config, stat_period)
+                except Exception as e:
+                    logger.error(f"Error awarding daily completion XP bonus: {e}", exc_info=True)
             
             # Mark as claimed
             cursor.execute(
@@ -425,15 +461,15 @@ async def grant_daily_completion_bonus(db_helpers, user_id: int, display_name: s
             )
             
             cnx.commit()
-            logger.info(f"Granted daily completion bonus of {bonus} to user {user_id}")
-            return True, bonus
+            logger.info(f"Granted daily completion bonus of {bonus} + {xp_bonus} XP to user {user_id}")
+            return True, bonus, xp_bonus
         finally:
             cursor.close()
             cnx.close()
             
     except Exception as e:
         logger.error(f"Error granting completion bonus: {e}", exc_info=True)
-        return False, 0
+        return False, 0, 0
 
 
 # ============================================================================
@@ -628,10 +664,15 @@ def create_quests_embed(quests: list, user_name: str, config: dict):
         
         currency = config['modules']['economy']['currency_symbol']
         reward = quest.get('reward', 0)
+        xp_reward = quest.get('xp_reward', 0)
+        
+        reward_text = f"{reward} {currency}"
+        if xp_reward > 0:
+            reward_text += f" + {xp_reward} XP"
         
         embed.add_field(
             name=f"{icon} Quest {i}: {name}",
-            value=f"**Progress:** {progress}/{target}\n**Status:** {status}\n**Reward:** {reward} {currency}",
+            value=f"**Progress:** {progress}/{target}\n**Status:** {status}\n**Reward:** {reward_text}",
             inline=False
         )
     
