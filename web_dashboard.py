@@ -752,6 +752,100 @@ def admin_preview_wrapped():
         'message': 'This feature requires direct bot access. Use the Discord slash command /admin view_wrapped instead.'
     }), 501
 
+@app.route('/api/admin/delete_user_data', methods=['POST'])
+def admin_delete_user_data():
+    """Delete all data for a specific user from the database."""
+    try:
+        import asyncio
+        
+        data = request.json
+        user_id = int(data.get('user_id'))
+        confirm = data.get('confirm', False)
+        
+        if not confirm:
+            return jsonify({
+                'success': False,
+                'message': 'Confirmation required. Set confirm=true to proceed with deletion.'
+            }), 400
+        
+        if not db_helpers.db_pool:
+            return jsonify({
+                'success': False,
+                'message': 'Database pool not initialized'
+            }), 500
+        
+        conn = None
+        cursor = None
+        deleted_tables = []
+        
+        try:
+            conn = db_helpers.db_pool.get_connection()
+            cursor = conn.cursor()
+            
+            # List of tables to delete user data from
+            tables_to_clean = [
+                ('user_stats', 'user_id'),
+                ('user_privacy_settings', 'user_id'),
+                ('detective_user_stats', 'user_id'),
+                ('detective_user_progress', 'user_id'),
+                ('trolly_problem_responses', 'user_id'),
+                ('transactions', 'user_id'),
+                ('user_quests', 'user_id'),
+                ('user_items', 'user_id'),
+                ('stocks_owned', 'user_id'),
+                ('blackjack_games', 'user_id'),
+                ('roulette_games', 'user_id'),
+                ('mines_games', 'user_id'),
+                ('russian_roulette_games', 'user_id'),
+                ('werwolf_user_stats', 'user_id'),
+                ('ai_conversation_history', 'user_id'),
+                ('conversation_context', 'user_id'),
+                ('user_relationships', 'user_id'),
+                ('wrapped_events', 'user_id'),
+                ('wrapped_registrations', 'user_id')
+            ]
+            
+            for table, id_column in tables_to_clean:
+                try:
+                    # Check if table exists
+                    cursor.execute(f"SHOW TABLES LIKE '{table}'")
+                    if cursor.fetchone():
+                        cursor.execute(f"DELETE FROM {table} WHERE {id_column} = %s", (user_id,))
+                        deleted_count = cursor.rowcount
+                        if deleted_count > 0:
+                            deleted_tables.append(f"{table} ({deleted_count} rows)")
+                except Exception as e:
+                    logger.warning(f"Could not delete from {table}: {e}")
+            
+            conn.commit()
+            
+            logger.info(f"Deleted all data for user {user_id} from {len(deleted_tables)} tables")
+            
+            return jsonify({
+                'success': True,
+                'message': f'Successfully deleted all data for user {user_id}',
+                'deleted_from': deleted_tables,
+                'user_id': user_id
+            })
+            
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
+                
+    except ValueError:
+        return jsonify({
+            'success': False,
+            'message': 'Invalid user_id. Must be a number.'
+        }), 400
+    except Exception as e:
+        logger.error(f"Error deleting user data: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'message': f'Error: {str(e)}'
+        }), 500
+
 @app.route('/api/maintenance/logs', methods=['GET'])
 def api_maintenance_logs():
     """Get recent maintenance script activity."""
