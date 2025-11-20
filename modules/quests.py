@@ -622,10 +622,22 @@ async def grant_monthly_milestone_reward(db_helpers, user_id: int, display_name:
 
 def create_quests_embed(quests: list, user_name: str, config: dict):
     """Creates a Discord embed showing daily quests."""
+    # Count completed quests
+    completed_count = sum(1 for q in quests if q.get('completed', False))
+    total_count = len(quests)
+    
+    # Determine color based on progress
+    if completed_count == total_count:
+        embed_color = discord.Color.gold()
+    elif completed_count > 0:
+        embed_color = discord.Color.blue()
+    else:
+        embed_color = discord.Color.greyple()
+    
     embed = discord.Embed(
-        title=f"📋 Daily Quests - {user_name}",
-        description="Complete all 3 quests for a bonus reward!",
-        color=discord.Color.gold()
+        title=f"📋 Tägliche Quests - {user_name}",
+        description=f"**Fortschritt:** {completed_count}/{total_count} Quests abgeschlossen\n✨ Schließe alle Quests ab für einen Bonus!",
+        color=embed_color
     )
     
     quest_icons = {
@@ -637,11 +649,11 @@ def create_quests_embed(quests: list, user_name: str, config: dict):
     }
     
     quest_names = {
-        'messages': 'Send Messages',
-        'vc_minutes': 'Voice Chat Time',
-        'reactions': 'React to Messages',
-        'game_minutes': 'Play Games',
-        'daily_media': 'Share Media of the Day'
+        'messages': 'Nachrichten senden',
+        'vc_minutes': 'Voice Chat',
+        'reactions': 'Reaktionen geben',
+        'game_minutes': 'Spiele spielen',
+        'daily_media': 'Medien teilen'
     }
     
     for i, quest in enumerate(quests, 1):
@@ -654,13 +666,28 @@ def create_quests_embed(quests: list, user_name: str, config: dict):
         completed = quest['completed']
         claimed = quest.get('reward_claimed', False)
         
-        # Progress bar
+        # Progress bar with better visualization
         percentage = min(100, int((progress / target) * 100))
-        bar_length = 10
+        bar_length = 12
         filled = int((percentage / 100) * bar_length)
         bar = '█' * filled + '░' * (bar_length - filled)
         
-        status = "✅ Claimed" if claimed else ("✅ Complete!" if completed else f"{bar} {percentage}%")
+        # Status with emojis
+        if claimed:
+            status_emoji = "✅"
+            status_text = "Belohnung abgeholt"
+        elif completed:
+            status_emoji = "🎉"
+            status_text = "Abgeschlossen!"
+        elif percentage >= 75:
+            status_emoji = "🔥"
+            status_text = f"{bar} {percentage}%"
+        elif percentage >= 50:
+            status_emoji = "⚡"
+            status_text = f"{bar} {percentage}%"
+        else:
+            status_emoji = "📊"
+            status_text = f"{bar} {percentage}%"
         
         currency = config['modules']['economy']['currency_symbol']
         reward = quest.get('reward', 0)
@@ -668,11 +695,33 @@ def create_quests_embed(quests: list, user_name: str, config: dict):
         
         reward_text = f"{reward} {currency}"
         if xp_reward > 0:
-            reward_text += f" + {xp_reward} XP"
+            reward_text += f" + ⭐ {xp_reward} XP"
+        
+        quest_value = f"**Fortschritt:** {progress}/{target}\n"
+        quest_value += f"{status_emoji} **Status:** {status_text}\n"
+        quest_value += f"🎁 **Belohnung:** {reward_text}"
         
         embed.add_field(
-            name=f"{icon} Quest {i}: {name}",
-            value=f"**Progress:** {progress}/{target}\n**Status:** {status}\n**Reward:** {reward_text}",
+            name=f"{icon} **{name}**",
+            value=quest_value,
+            inline=False
+        )
+    
+    # Add bonus info at the bottom
+    bonus_config = config['modules']['economy']['quests'].get('daily_completion_bonus', {})
+    bonus_currency = bonus_config.get('currency', 300)
+    bonus_xp = bonus_config.get('xp', 500)
+    
+    if completed_count == total_count:
+        embed.add_field(
+            name="🎊 Tagesbonus verfügbar!",
+            value=f"Alle Quests abgeschlossen! Hole dir **{bonus_currency} {currency} + ⭐ {bonus_xp} XP**!",
+            inline=False
+        )
+    else:
+        embed.add_field(
+            name="💎 Tagesbonus",
+            value=f"Schließe alle Quests ab: **{bonus_currency} {currency} + ⭐ {bonus_xp} XP**",
             inline=False
         )
     
@@ -681,43 +730,76 @@ def create_quests_embed(quests: list, user_name: str, config: dict):
 
 def create_monthly_progress_embed(completion_days: int, total_days: int, user_name: str, config: dict):
     """Creates an embed showing monthly quest progress."""
+    # Determine color based on progress
+    percentage = int((completion_days / total_days) * 100) if total_days > 0 else 0
+    
+    if percentage >= 80:
+        embed_color = discord.Color.gold()
+    elif percentage >= 50:
+        embed_color = discord.Color.blue()
+    else:
+        embed_color = discord.Color.greyple()
+    
     embed = discord.Embed(
-        title=f"📅 Monthly Quest Progress - {user_name}",
-        description=f"Completed {completion_days}/{total_days} days this month",
-        color=discord.Color.blue()
+        title=f"📅 Monatlicher Quest-Fortschritt - {user_name}",
+        description=f"**{completion_days}/{total_days} Tage** mit allen Quests abgeschlossen",
+        color=embed_color
     )
     
-    # Progress bar
-    percentage = int((completion_days / total_days) * 100) if total_days > 0 else 0
+    # Progress bar with better visualization
     bar_length = 20
     filled = int((percentage / 100) * bar_length)
     bar = '█' * filled + '░' * (bar_length - filled)
     
+    progress_text = f"{bar}\n**{percentage}%** Monatsfortschritt"
+    
     embed.add_field(
-        name="Progress",
-        value=f"{bar} {percentage}%",
+        name="📊 Fortschritt",
+        value=progress_text,
         inline=False
     )
     
-    # Milestones
-    milestones_text = ""
+    # Milestones with enhanced display
     milestones = [
-        (7, "1000", "Weekly Warrior"),
-        (14, "2500", "Fortnight Champion"),
-        (21, "5000", "Three-Week Legend"),
-        (30, "10000", "Monthly Master")
+        (7, "1000", "Wöchentlicher Krieger", "🥉"),
+        (14, "2500", "Zweiwöchiger Champion", "🥈"),
+        (21, "5000", "Dreiwöchige Legende", "🥇"),
+        (30, "10000", "Monatlicher Meister", "👑")
     ]
     
     currency = config['modules']['economy']['currency_symbol']
     
-    for days, reward, name in milestones:
-        status = "✅" if completion_days >= days else "🔒"
-        milestones_text += f"{status} **{days} Days** - {name}: {reward} {currency}\n"
+    milestones_text = ""
+    for days, reward, name, medal in milestones:
+        if completion_days >= days:
+            status = "✅"
+            style = "**"
+        elif completion_days >= days - 3:
+            status = "🔥"  # Close to milestone
+            style = "*"
+        else:
+            status = "🔒"
+            style = ""
+        
+        milestones_text += f"{status} {style}{medal} {days} Tage{style} - {name}\n"
+        milestones_text += f"   💰 Belohnung: {reward} {currency}\n"
     
     embed.add_field(
-        name="Milestones",
+        name="🏆 Meilensteine",
         value=milestones_text,
         inline=False
     )
+    
+    # Add motivational message
+    if percentage >= 90:
+        embed.set_footer(text="🌟 Unglaublich! Du bist fast jeden Tag dabei!")
+    elif percentage >= 70:
+        embed.set_footer(text="🔥 Großartig! Du bleibst konsequent dran!")
+    elif percentage >= 50:
+        embed.set_footer(text="💪 Gut gemacht! Du machst gute Fortschritte!")
+    elif percentage >= 25:
+        embed.set_footer(text="⭐ Weiter so! Jeder Tag zählt!")
+    else:
+        embed.set_footer(text="🎯 Fang an Quests zu erledigen für tolle Belohnungen!")
     
     return embed

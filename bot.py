@@ -4734,21 +4734,47 @@ class BlackjackView(discord.ui.View):
         except Exception as e:
             logger.error(f"Failed to record gambling stock influence: {e}")
         
-        # Add result field
+        # Add result field with enhanced formatting
+        result_text = ""
         if result == 'blackjack':
-            embed.add_field(name="🎉 BLACKJACK!", value=f"Du gewinnst **{int(self.game.bet * multiplier)} {currency}**!", inline=False)
+            result_text = f"🎉 **BLACKJACK!** 🎉\n"
+            result_text += f"Perfekte 21! Du gewinnst **{int(self.game.bet * multiplier)} {currency}**!"
+            embed.add_field(name="🏆 Ergebnis", value=result_text, inline=False)
             embed.color = discord.Color.gold()
         elif result == 'win':
-            embed.add_field(name="✅ Gewonnen!", value=f"Du gewinnst **{int(self.game.bet * multiplier)} {currency}**!", inline=False)
+            result_text = f"✅ **Gewonnen!** ✅\n"
+            result_text += f"Du schlägst den Dealer! Gewinn: **{int(self.game.bet * multiplier)} {currency}**"
+            embed.add_field(name="🏆 Ergebnis", value=result_text, inline=False)
             embed.color = discord.Color.green()
         elif result == 'lose':
-            embed.add_field(name="❌ Verloren!", value=f"Du verlierst **{self.game.bet} {currency}**.", inline=False)
+            result_text = f"❌ **Verloren!** ❌\n"
+            result_text += f"Der Dealer gewinnt. Verlust: **-{self.game.bet} {currency}**"
+            embed.add_field(name="💸 Ergebnis", value=result_text, inline=False)
             embed.color = discord.Color.red()
         else:  # push
-            embed.add_field(name="🤝 Unentschieden!", value=f"Du bekommst deinen Einsatz zurück: **{self.game.bet} {currency}**", inline=False)
+            result_text = f"🤝 **Unentschieden!** 🤝\n"
+            result_text += f"Beide haben den gleichen Wert. Einsatz zurück: **{self.game.bet} {currency}**"
+            embed.add_field(name="⚖️ Ergebnis", value=result_text, inline=False)
             embed.color = discord.Color.blue()
         
-        embed.add_field(name="Neues Guthaben", value=f"{new_balance} {currency}", inline=True)
+        # Add balance info
+        balance_change = winnings
+        if balance_change > 0:
+            embed.add_field(name="💰 Guthaben", value=f"{new_balance} {currency} (+{balance_change})", inline=True)
+        elif balance_change < 0:
+            embed.add_field(name="💰 Guthaben", value=f"{new_balance} {currency} ({balance_change})", inline=True)
+        else:
+            embed.add_field(name="💰 Guthaben", value=f"{new_balance} {currency}", inline=True)
+        
+        # Add tip/footer
+        if result == 'blackjack':
+            embed.set_footer(text="🎊 Glückwunsch zum Blackjack! 2.5x Auszahlung!")
+        elif result == 'win':
+            embed.set_footer(text="🎉 Gut gespielt! Weiter so!")
+        elif result == 'lose':
+            embed.set_footer(text="Versuch es nochmal! Das nächste Spiel wird besser!")
+        else:
+            embed.set_footer(text="Knapp! Beim nächsten Mal vielleicht mehr Glück!")
         
         # Disable all buttons
         for item in self.children:
@@ -4883,11 +4909,19 @@ class MinesView(discord.ui.View):
             currency = config['modules']['economy']['currency_symbol']
             embed = self.game.create_embed()
             embed.color = discord.Color.green()
+            
+            cashout_text = f"✅ **Erfolgreich ausgezahlt!** ✅\n"
+            cashout_text += f"Aufgedeckte Felder: **{self.game.revealed_count}**\n"
+            cashout_text += f"Multiplikator: **{multiplier:.2f}x**\n"
+            cashout_text += f"Gewinn: **+{profit} {currency}**"
+            
             embed.add_field(
-                name="💰 Ausgezahlt!",
-                value=f"Gewinn: **{profit} {currency}** ({multiplier}x)\nNeues Guthaben: {new_balance} {currency}",
+                name="💰 Auszahlung",
+                value=cashout_text,
                 inline=False
             )
+            embed.add_field(name="💰 Guthaben", value=f"{new_balance} {currency}", inline=True)
+            embed.set_footer(text="Gut gespielt! Du hast rechtzeitig ausgezahlt!")
             
             # Disable all buttons
             for item in self.children:
@@ -4930,11 +4964,16 @@ class MinesView(discord.ui.View):
             )
             
             embed.color = discord.Color.red()
+            result_text = f"💥 **BOOM!** 💥\n"
+            result_text += f"Du hast eine Mine getroffen!\n"
+            result_text += f"Verlust: **-{self.game.bet} {currency}**"
             embed.add_field(
-                name="💥 Mine getroffen!",
-                value=f"Verlust: **{self.game.bet} {currency}**\nNeues Guthaben: {new_balance} {currency}",
+                name="💸 Spielende",
+                value=result_text,
                 inline=False
             )
+            embed.add_field(name="💰 Guthaben", value=f"{new_balance} {currency}", inline=True)
+            embed.set_footer(text="Beim nächsten Mal vorsichtiger sein!")
         else:
             # Won - all safe cells revealed
             winnings = int(self.game.bet * self.game.get_current_multiplier())
@@ -4962,11 +5001,16 @@ class MinesView(discord.ui.View):
             )
             
             embed.color = discord.Color.gold()
+            result_text = f"🎉 **PERFEKT!** 🎉\n"
+            result_text += f"Alle sicheren Felder aufgedeckt!\n"
+            result_text += f"Gewinn: **+{profit} {currency}** ({self.game.get_current_multiplier()}x)"
             embed.add_field(
-                name="🎉 Alle sicheren Felder aufgedeckt!",
-                value=f"Gewinn: **{profit} {currency}** ({self.game.get_current_multiplier()}x)\nNeues Guthaben: {new_balance} {currency}",
+                name="🏆 Spielende",
+                value=result_text,
                 inline=False
             )
+            embed.add_field(name="💰 Guthaben", value=f"{new_balance} {currency}", inline=True)
+            embed.set_footer(text="🎊 Glückwunsch! Perfekt gespielt!")
         
         # Disable all buttons and reveal all mines
         for item in self.children:
