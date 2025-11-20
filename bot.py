@@ -5658,8 +5658,8 @@ class TowerOfTreasureView(discord.ui.View):
             )
     
     async def _finish_game(self, interaction: discord.Interaction, won: bool, reward: int, message: str):
-        """Finishes the game and shows results."""
-        embed = self.game.create_embed(show_bombs=True)
+        """Finishes the game and shows results with full tower visualization."""
+        embed = self.game.create_embed(show_bombs=True, show_full_tower=True)
         
         currency = config['modules']['economy']['currency_symbol']
         

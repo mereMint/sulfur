@@ -473,8 +473,13 @@ class TowerOfTreasureGame:
         """Get progress as percentage."""
         return int((self.current_floor / self.max_floors) * 100)
     
-    def create_embed(self, show_bombs=False):
-        """Creates a cleaner, less cluttered Discord embed for the game."""
+    def create_embed(self, show_bombs=False, show_full_tower=False):
+        """Creates a cleaner, less cluttered Discord embed for the game.
+        
+        Args:
+            show_bombs: Whether to reveal bomb locations on current floor
+            show_full_tower: Whether to show the entire tower (used when game ends)
+        """
         embed = discord.Embed(
             title="🗼 Tower of Treasure",
             color=discord.Color.gold()
@@ -484,21 +489,66 @@ class TowerOfTreasureGame:
         difficulty_emoji = '⭐' * self.difficulty
         header = f"**{difficulty_emoji}** Etage {self.current_floor + 1}/{self.max_floors}"
         
-        # Show current floor only (simplified)
-        if self.current_floor < self.max_floors:
-            if not show_bombs:
-                columns_display = " ".join([f"**{i+1}**" for i in range(self.total_columns)])
-                floor_visual = "🏛️ " * self.total_columns
-            else:
-                floor_data = self.floors[self.current_floor]
-                columns_display = " ".join([f"**{i+1}**" for i in range(self.total_columns)])
+        # Build tower visualization
+        tower_display = ""
+        
+        if show_full_tower:
+            # Show entire tower from bottom to top when game ends
+            columns_display = " ".join([f"**{i+1}**" for i in range(self.total_columns)])
+            
+            # Show from top floor down to current/last floor
+            floors_to_show = min(self.max_floors, 8)  # Limit to avoid Discord message limits
+            start_floor = max(0, self.current_floor - floors_to_show + 1)
+            
+            for floor_idx in range(min(self.current_floor + 1, self.max_floors) - 1, start_floor - 1, -1):
+                floor_data = self.floors[floor_idx]
                 floor_visual = " ".join(["✅" if col else "💣" for col in floor_data])
+                
+                if floor_idx < self.current_floor:
+                    # Completed floor
+                    tower_display += f"Etage {floor_idx + 1} ✓\n{floor_visual}\n\n"
+                else:
+                    # Current floor (where game ended)
+                    tower_display += f"Etage {floor_idx + 1} {'💥' if not self.is_active and self.current_floor == floor_idx else ''}\n{floor_visual}\n"
+            
+            if start_floor > 0:
+                tower_display = f"... {start_floor} Etagen darunter ...\n\n" + tower_display
             
             embed.add_field(
-                name=header,
-                value=f"{columns_display}\n{floor_visual}",
+                name="🗼 Kompletter Turm",
+                value=f"{columns_display}\n\n{tower_display}",
                 inline=False
             )
+        else:
+            # Normal gameplay view - show last completed floor and current floor
+            
+            # Show last completed floor (if exists)
+            if self.current_floor > 0:
+                last_floor = self.current_floor - 1
+                last_floor_data = self.floors[last_floor]
+                columns_display = " ".join([f"**{i+1}**" for i in range(self.total_columns)])
+                
+                # Show completed floor with checkmarks/bombs
+                floor_visual = " ".join(["✅" if col else "💣" for col in last_floor_data])
+                tower_display += f"Etage {last_floor + 1} ✓\n{columns_display}\n{floor_visual}\n\n"
+            
+            # Show current floor
+            if self.current_floor < self.max_floors:
+                columns_display = " ".join([f"**{i+1}**" for i in range(self.total_columns)])
+                
+                if not show_bombs:
+                    floor_visual = "🏛️ " * self.total_columns
+                else:
+                    floor_data = self.floors[self.current_floor]
+                    floor_visual = " ".join(["✅" if col else "💣" for col in floor_data])
+                
+                tower_display += f"{header}\n{columns_display}\n{floor_visual}"
+                
+                embed.add_field(
+                    name="🗼 Turm",
+                    value=tower_display,
+                    inline=False
+                )
         
         # Compact info row
         info_parts = []
