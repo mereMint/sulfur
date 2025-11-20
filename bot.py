@@ -4960,11 +4960,19 @@ class BlackjackView(discord.ui.View):
         else:
             embed.set_footer(text="Knapp! Beim nächsten Mal vielleicht mehr Glück!")
         
-        # Disable all buttons
-        for item in self.children:
-            item.disabled = True
+        # Create share button view
+        share_view = GamblingShareView(
+            game_type="blackjack",
+            result_data={
+                'result': result,
+                'net_result': winnings,
+                'bet': self.game.bet,
+                'balance': new_balance
+            },
+            user_id=self.user_id
+        )
         
-        await interaction.edit_original_response(embed=embed, view=self)
+        await interaction.edit_original_response(embed=embed, view=share_view)
         
         # Remove from active games
         if self.user_id in active_blackjack_games:
@@ -5279,6 +5287,118 @@ async def blackjack(interaction: discord.Interaction, bet: int):
     await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 
+# --- Gambling Share Button View ---
+
+class GamblingShareView(discord.ui.View):
+    """View with share button for gambling results."""
+    
+    def __init__(self, game_type: str, result_data: dict, user_id: int):
+        super().__init__(timeout=300)
+        self.game_type = game_type
+        self.result_data = result_data
+        self.user_id = user_id
+    
+    @discord.ui.button(label="Ergebnis teilen", style=discord.ButtonStyle.primary, emoji="📢")
+    async def share_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Share gambling result publicly."""
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht dein Ergebnis!", ephemeral=True)
+            return
+        
+        await interaction.response.defer()
+        
+        # Create public embed based on game type
+        currency = config['modules']['economy']['currency_symbol']
+        
+        if self.game_type == "roulette":
+            data = self.result_data
+            result_number = data['result_number']
+            net_result = data['net_result']
+            
+            # Determine color emoji
+            if result_number == 0:
+                result_emoji = "🟢"
+                color = discord.Color.green()
+            elif result_number in RouletteGame.RED:
+                result_emoji = "🔴"
+                color = discord.Color.gold() if net_result > 0 else discord.Color.red()
+            else:
+                result_emoji = "⚫"
+                color = discord.Color.gold() if net_result > 0 else discord.Color.dark_grey()
+            
+            if net_result > 0:
+                title = "🎉 Roulette Gewinn!"
+                description = f"{interaction.user.mention} hat **+{net_result} {currency}** gewonnen!"
+            elif net_result < 0:
+                title = "💸 Roulette Verlust"
+                description = f"{interaction.user.mention} hat **{net_result} {currency}** verloren."
+            else:
+                title = "🤝 Roulette Break Even"
+                description = f"{interaction.user.mention} ist Break Even gegangen!"
+            
+            embed = discord.Embed(
+                title=title,
+                description=description,
+                color=color
+            )
+            
+            embed.add_field(
+                name="🎯 Gewinnende Zahl",
+                value=f"{result_emoji} **{result_number}**",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="💰 Nettoergebnis",
+                value=f"**{'+' if net_result >= 0 else ''}{net_result} {currency}**",
+                inline=True
+            )
+            
+            embed.set_footer(text=f"Gespielt von {interaction.user.display_name}")
+            
+        elif self.game_type == "blackjack":
+            data = self.result_data
+            result = data['result']
+            net_result = data['net_result']
+            
+            if result == 'blackjack':
+                title = "🃏 BLACKJACK! 21!"
+                color = discord.Color.gold()
+            elif result == 'win':
+                title = "✅ Blackjack Gewinn!"
+                color = discord.Color.green()
+            elif result == 'lose':
+                title = "❌ Blackjack Verlust"
+                color = discord.Color.red()
+            else:
+                title = "🤝 Blackjack Push"
+                color = discord.Color.blue()
+            
+            description = f"{interaction.user.mention} hat **{'+' if net_result >= 0 else ''}{net_result} {currency}** {'gewonnen' if net_result > 0 else 'verloren'}!"
+            
+            embed = discord.Embed(title=title, description=description, color=color)
+            embed.add_field(name="💰 Ergebnis", value=f"**{'+' if net_result >= 0 else ''}{net_result} {currency}**", inline=True)
+            embed.set_footer(text=f"Gespielt von {interaction.user.display_name}")
+        
+        else:
+            # Generic share
+            net_result = self.result_data.get('net_result', 0)
+            title = f"🎰 {self.game_type.capitalize()} Ergebnis"
+            description = f"{interaction.user.mention} hat **{'+' if net_result >= 0 else ''}{net_result} {currency}** {'gewonnen' if net_result > 0 else 'verloren'}!"
+            color = discord.Color.gold() if net_result > 0 else discord.Color.red()
+            
+            embed = discord.Embed(title=title, description=description, color=color)
+            embed.set_footer(text=f"Gespielt von {interaction.user.display_name}")
+        
+        # Send to channel
+        await interaction.channel.send(embed=embed)
+        
+        # Disable share button after sharing
+        button.disabled = True
+        button.label = "Geteilt! ✅"
+        await interaction.edit_original_response(view=self)
+
+
 class RouletteView(discord.ui.View):
     """Interactive view for Roulette with dropdown menus."""
     
@@ -5456,11 +5576,21 @@ class RouletteView(discord.ui.View):
         else:
             embed.set_footer(text="Viel Glück beim nächsten Mal!")
         
-        # Disable all buttons
-        for item in self.children:
-            item.disabled = True
+        # Create share button view
+        share_view = GamblingShareView(
+            game_type="roulette",
+            result_data={
+                'result_number': result_number,
+                'bets': self.bets,
+                'bet_amount': self.bet_amount,
+                'total_winnings': total_winnings,
+                'net_result': net_result,
+                'balance': new_balance
+            },
+            user_id=self.user_id
+        )
         
-        await interaction.edit_original_response(embed=embed, view=self)
+        await interaction.edit_original_response(embed=embed, view=share_view)
         self.stop()
     
     def _create_wheel_display(self, result: int):
