@@ -67,6 +67,9 @@ async def initialize_word_find_table(db_helpers):
             """)
             
             # Table for user attempts
+            # Note: No foreign key constraint on word_id because it references different tables
+            # based on game_type (word_find_daily for 'daily', word_find_premium_games for 'premium')
+            # Referential integrity is maintained at the application level
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS word_find_attempts (
                     id INT AUTO_INCREMENT PRIMARY KEY,

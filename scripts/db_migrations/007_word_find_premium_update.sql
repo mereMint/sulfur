@@ -67,16 +67,103 @@ PREPARE stmt FROM @query;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
--- Add other daily columns
-SET @columns_to_add = JSON_ARRAY(
-    JSON_OBJECT('name', 'daily_wins', 'definition', 'daily_wins INT DEFAULT 0'),
-    JSON_OBJECT('name', 'daily_streak', 'definition', 'daily_streak INT DEFAULT 0'),
-    JSON_OBJECT('name', 'daily_best_streak', 'definition', 'daily_best_streak INT DEFAULT 0'),
-    JSON_OBJECT('name', 'daily_total_attempts', 'definition', 'daily_total_attempts INT DEFAULT 0'),
-    JSON_OBJECT('name', 'premium_games', 'definition', 'premium_games INT DEFAULT 0'),
-    JSON_OBJECT('name', 'premium_wins', 'definition', 'premium_wins INT DEFAULT 0'),
-    JSON_OBJECT('name', 'premium_total_attempts', 'definition', 'premium_total_attempts INT DEFAULT 0')
+-- Add daily_wins column
+SET @column_name = 'daily_wins';
+SET @query = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+     WHERE TABLE_SCHEMA = @db_name 
+     AND TABLE_NAME = @table_name 
+     AND COLUMN_NAME = @column_name) = 0,
+    'ALTER TABLE word_find_stats ADD COLUMN daily_wins INT DEFAULT 0',
+    'SELECT ''Column daily_wins already exists'' AS message'
 );
+PREPARE stmt FROM @query;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- Add daily_streak column
+SET @column_name = 'daily_streak';
+SET @query = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+     WHERE TABLE_SCHEMA = @db_name 
+     AND TABLE_NAME = @table_name 
+     AND COLUMN_NAME = @column_name) = 0,
+    'ALTER TABLE word_find_stats ADD COLUMN daily_streak INT DEFAULT 0',
+    'SELECT ''Column daily_streak already exists'' AS message'
+);
+PREPARE stmt FROM @query;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- Add daily_best_streak column
+SET @column_name = 'daily_best_streak';
+SET @query = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+     WHERE TABLE_SCHEMA = @db_name 
+     AND TABLE_NAME = @table_name 
+     AND COLUMN_NAME = @column_name) = 0,
+    'ALTER TABLE word_find_stats ADD COLUMN daily_best_streak INT DEFAULT 0',
+    'SELECT ''Column daily_best_streak already exists'' AS message'
+);
+PREPARE stmt FROM @query;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- Add daily_total_attempts column
+SET @column_name = 'daily_total_attempts';
+SET @query = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+     WHERE TABLE_SCHEMA = @db_name 
+     AND TABLE_NAME = @table_name 
+     AND COLUMN_NAME = @column_name) = 0,
+    'ALTER TABLE word_find_stats ADD COLUMN daily_total_attempts INT DEFAULT 0',
+    'SELECT ''Column daily_total_attempts already exists'' AS message'
+);
+PREPARE stmt FROM @query;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- Add premium_games column
+SET @column_name = 'premium_games';
+SET @query = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+     WHERE TABLE_SCHEMA = @db_name 
+     AND TABLE_NAME = @table_name 
+     AND COLUMN_NAME = @column_name) = 0,
+    'ALTER TABLE word_find_stats ADD COLUMN premium_games INT DEFAULT 0',
+    'SELECT ''Column premium_games already exists'' AS message'
+);
+PREPARE stmt FROM @query;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- Add premium_wins column
+SET @column_name = 'premium_wins';
+SET @query = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+     WHERE TABLE_SCHEMA = @db_name 
+     AND TABLE_NAME = @table_name 
+     AND COLUMN_NAME = @column_name) = 0,
+    'ALTER TABLE word_find_stats ADD COLUMN premium_wins INT DEFAULT 0',
+    'SELECT ''Column premium_wins already exists'' AS message'
+);
+PREPARE stmt FROM @query;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- Add premium_total_attempts column
+SET @column_name = 'premium_total_attempts';
+SET @query = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+     WHERE TABLE_SCHEMA = @db_name 
+     AND TABLE_NAME = @table_name 
+     AND COLUMN_NAME = @column_name) = 0,
+    'ALTER TABLE word_find_stats ADD COLUMN premium_total_attempts INT DEFAULT 0',
+    'SELECT ''Column premium_total_attempts already exists'' AS message'
+);
+PREPARE stmt FROM @query;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 -- Migrate existing data from old columns to new daily columns
 -- This preserves all existing statistics
