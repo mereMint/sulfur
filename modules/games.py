@@ -338,28 +338,41 @@ class MinesGame:
         
         return winnings, multiplier
     
-    def create_embed(self, show_mines=False):
-        """Creates a Discord embed for the game."""
+    def create_embed(self, show_mines=False, theme_id=None):
+        """Creates a Discord embed for the game with theme support."""
+        # Import themes here to avoid circular import
+        try:
+            from modules import themes
+            safe_emoji = themes.get_theme_asset(theme_id, 'mines_safe')
+            bomb_emoji = themes.get_theme_asset(theme_id, 'mines_bomb')
+            revealed_emoji = themes.get_theme_asset(theme_id, 'mines_revealed')
+            color = themes.get_theme_color(theme_id, 'primary')
+        except (ImportError, ModuleNotFoundError, AttributeError) as e:
+            safe_emoji = "⬜"
+            bomb_emoji = "💣"
+            revealed_emoji = "💎"
+            color = discord.Color.orange()
+        
         embed = discord.Embed(
             title="💣 Mines",
             description=f"Grid: {self.grid_size}x{self.grid_size} | Mines: {self.mine_count}",
-            color=discord.Color.orange()
+            color=color
         )
         
-        # Build grid display
+        # Build grid display with theme emojis
         grid_display = ""
         for row in self.grid:
             row_display = ""
             for cell in row:
                 if cell['revealed']:
                     if cell['is_mine']:
-                        row_display += "💣 "
+                        row_display += f"{bomb_emoji} "
                     else:
-                        row_display += "💎 "
+                        row_display += f"{revealed_emoji} "
                 elif show_mines and cell['is_mine']:
-                    row_display += "💣 "
+                    row_display += f"{bomb_emoji} "
                 else:
-                    row_display += "⬜ "
+                    row_display += f"{safe_emoji} "
             grid_display += row_display + "\n"
         
         embed.add_field(name="Grid", value=grid_display, inline=False)
@@ -473,16 +486,26 @@ class TowerOfTreasureGame:
         """Get progress as percentage."""
         return int((self.current_floor / self.max_floors) * 100)
     
-    def create_embed(self, show_bombs=False, show_full_tower=False):
-        """Creates a cleaner, less cluttered Discord embed for the game.
+    def create_embed(self, show_bombs=False, show_full_tower=False, theme_id=None):
+        """Creates a cleaner, less cluttered Discord embed for the game with theme support.
         
         Args:
             show_bombs: Whether to reveal bomb locations on current floor
             show_full_tower: Whether to show the entire tower (used when game ends)
+            theme_id: Optional theme ID for customization
         """
+        # Import themes here to avoid circular import
+        try:
+            from modules import themes
+            tower_name = themes.get_theme_asset(theme_id, 'tower_name')
+            color = themes.get_theme_color(theme_id, 'primary')
+        except (ImportError, ModuleNotFoundError, AttributeError) as e:
+            tower_name = "🗼 Tower of Treasure"
+            color = discord.Color.gold()
+        
         embed = discord.Embed(
-            title="🗼 Tower of Treasure",
-            color=discord.Color.gold()
+            title=tower_name,
+            color=color
         )
         
         # Simplified header with key info

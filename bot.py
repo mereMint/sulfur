@@ -42,6 +42,8 @@ from modules import stock_market  # NEW: Stock market system
 from modules import news  # NEW: News system
 from modules import word_find  # NEW: Word Find game
 from modules import quests  # NEW: Quest system for tracking
+from modules import wordle  # NEW: Wordle game
+from modules import themes  # NEW: Theme system
 from modules.bot_enhancements import (
     handle_image_attachment,
     handle_unknown_emojis_in_message,
@@ -596,6 +598,16 @@ async def on_ready():
     print("Initializing word find system...")
     await word_find.initialize_word_find_table(db_helpers)
     print("Word find system ready!")
+    
+    # --- NEW: Initialize wordle system ---
+    print("Initializing wordle system...")
+    await wordle.initialize_wordle_table(db_helpers)
+    print("Wordle system ready!")
+    
+    # --- NEW: Initialize theme system ---
+    print("Initializing theme system...")
+    await themes.initialize_themes_table(db_helpers)
+    print("Theme system ready!")
 
     # --- NEW: Clean up leftover game channels on restart ---
     print("Checking for leftover game channels...")
@@ -3933,7 +3945,46 @@ class ShopBuyView(discord.ui.View):
         
         await interaction.edit_original_response(embed=embed, view=view)
     
-    @discord.ui.button(label="🐺 Werwolf Rollen", style=discord.ButtonStyle.red)
+    @discord.ui.button(label="🎨 Themes", style=discord.ButtonStyle.primary, row=1)
+    async def themes_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Show theme options."""
+        await interaction.response.defer()
+        
+        # Get user's owned and equipped themes
+        owned_themes = await themes.get_user_owned_themes(db_helpers, self.member.id)
+        equipped_theme = await themes.get_user_theme(db_helpers, self.member.id)
+        
+        view = ThemeSelectView(self.member, owned_themes, equipped_theme)
+        embed = discord.Embed(
+            title="🎨 Themes",
+            description="Passe das Aussehen von Spielen und Befehlen an!\n\n"
+                       "Themes ändern Farben, Emojis und das gesamte Erscheinungsbild.",
+            color=discord.Color.purple()
+        )
+        
+        currency = self.config['modules']['economy']['currency_symbol']
+        
+        # Show all available themes
+        for theme_id, theme_data in themes.THEMES.items():
+            owned = theme_id in owned_themes
+            equipped = theme_id == equipped_theme
+            status = "✅ Ausgerüstet" if equipped else ("✓ Besessen" if owned else f"{theme_data['price']} {currency}")
+            
+            embed.add_field(
+                name=f"{theme_data['emoji']} {theme_data['name']} - {status}",
+                value=theme_data['description'],
+                inline=False
+            )
+        
+        if equipped_theme:
+            theme_name = themes.THEMES[equipped_theme]['name']
+            embed.set_footer(text=f"Aktuell ausgerüstet: {theme_name}")
+        else:
+            embed.set_footer(text="Kein Theme ausgerüstet (Standard-Ansicht)")
+        
+        await interaction.edit_original_response(embed=embed, view=view)
+    
+    @discord.ui.button(label="🐺 Werwolf Rollen", style=discord.ButtonStyle.red, row=1)
     async def werwolf_roles_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Show Werwolf role unlock options."""
         await interaction.response.defer()
@@ -4165,6 +4216,184 @@ class BoostSelectView(discord.ui.View):
             description=f"Boost-System wird bald implementiert!\nGewählter Boost: {boost}",
             color=discord.Color.orange()
         )
+        
+        await interaction.edit_original_response(embed=embed, view=None)
+
+
+class ThemeSelectView(discord.ui.View):
+    """View for selecting themes to purchase or equip."""
+    
+    def __init__(self, member: discord.Member, owned_themes: list, equipped_theme: str = None):
+        super().__init__(timeout=180)
+        self.member = member
+        self.owned_themes = owned_themes
+        self.equipped_theme = equipped_theme
+        
+        # Create select menu for themes
+        options = []
+        for theme_id, theme_data in themes.THEMES.items():
+            owned = theme_id in owned_themes
+            equipped = theme_id == equipped_theme
+            
+            if equipped:
+                status = "✅ Ausgerüstet"
+            elif owned:
+                status = "✓ Besessen"
+            else:
+                status = f"{theme_data['price']} 🪙"
+            
+            options.append(
+                discord.SelectOption(
+                    label=f"{theme_data['name']} - {status}",
+                    value=theme_id,
+                    description=theme_data['description'][:100],
+                    emoji=theme_data['emoji']
+                )
+            )
+        
+        # Add option to unequip theme
+        if equipped_theme:
+            options.append(
+                discord.SelectOption(
+                    label="Standard (Theme entfernen)",
+                    value="unequip",
+                    description="Zurück zur Standard-Ansicht",
+                    emoji="❌"
+                )
+            )
+        
+        select = discord.ui.Select(placeholder="Wähle ein Theme...", options=options)
+        select.callback = self.on_theme_select
+        self.add_item(select)
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.member.id:
+            await interaction.response.send_message("Du kannst diese Auswahl nicht bedienen.", ephemeral=True)
+            return False
+        return True
+    
+    async def on_theme_select(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        
+        theme_id = interaction.data['values'][0]
+        currency = config['modules']['economy']['currency_symbol']
+        
+        # Handle unequip
+        if theme_id == "unequip":
+            success, message = await themes.equip_theme(db_helpers, self.member.id, None)
+            if success:
+                embed = discord.Embed(
+                    title="❌ Theme entfernt",
+                    description="Du verwendest jetzt die Standard-Ansicht.",
+                    color=discord.Color.blue()
+                )
+            else:
+                embed = discord.Embed(
+                    title="❌ Fehler",
+                    description=message,
+                    color=discord.Color.red()
+                )
+            await interaction.edit_original_response(embed=embed, view=None)
+            return
+        
+        # Check if already owned
+        if theme_id in self.owned_themes:
+            # Equip the theme
+            success, message = await themes.equip_theme(db_helpers, self.member.id, theme_id)
+            if success:
+                theme_data = themes.THEMES[theme_id]
+                embed = discord.Embed(
+                    title=f"{theme_data['emoji']} Theme ausgerüstet!",
+                    description=f"Du verwendest jetzt das **{theme_data['name']}** Theme!",
+                    color=themes.get_theme_color(theme_id, 'success')
+                )
+                embed.add_field(
+                    name="Vorschau",
+                    value=f"**Farben:** Angepasst an {theme_data['name']}\n"
+                          f"**Turm:** {theme_data['game_assets']['tower_name']}\n"
+                          f"**Mines:** {theme_data['game_assets']['mines_safe']} {theme_data['game_assets']['mines_revealed']} {theme_data['game_assets']['mines_bomb']}",
+                    inline=False
+                )
+            else:
+                embed = discord.Embed(
+                    title="❌ Fehler",
+                    description=message,
+                    color=discord.Color.red()
+                )
+            await interaction.edit_original_response(embed=embed, view=None)
+            return
+        
+        # Purchase theme
+        theme_data = themes.THEMES[theme_id]
+        price = theme_data['price']
+        
+        # Check balance
+        balance = await db_helpers.get_balance(self.member.id)
+        if balance < price:
+            embed = discord.Embed(
+                title="❌ Nicht genug Guthaben",
+                description=f"Du hast {balance} {currency}, brauchst aber {price} {currency}.",
+                color=discord.Color.red()
+            )
+            await interaction.edit_original_response(embed=embed, view=None)
+            return
+        
+        # Purchase
+        success, message = await themes.purchase_theme(db_helpers, self.member.id, theme_id)
+        
+        if success:
+            # Deduct from balance
+            stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+            await db_helpers.add_balance(
+                self.member.id,
+                self.member.display_name,
+                -price,
+                config,
+                stat_period
+            )
+            
+            new_balance = await db_helpers.get_balance(self.member.id)
+            
+            # Log transaction
+            await db_helpers.log_transaction(
+                self.member.id,
+                'shop_purchase',
+                -price,
+                new_balance,
+                f"Purchased theme: {theme_data['name']}"
+            )
+            
+            # Auto-equip after purchase
+            await themes.equip_theme(db_helpers, self.member.id, theme_id)
+            
+            embed = discord.Embed(
+                title=f"✅ {theme_data['emoji']} Theme gekauft!",
+                description=f"Du hast das **{theme_data['name']}** Theme gekauft und ausgerüstet!",
+                color=themes.get_theme_color(theme_id, 'success')
+            )
+            embed.add_field(
+                name="Kosten",
+                value=f"{price} {currency}",
+                inline=True
+            )
+            embed.add_field(
+                name="Neues Guthaben",
+                value=f"{new_balance} {currency}",
+                inline=True
+            )
+            embed.add_field(
+                name="Vorschau",
+                value=f"**Farben:** Angepasst an {theme_data['name']}\n"
+                      f"**Turm:** {theme_data['game_assets']['tower_name']}\n"
+                      f"**Mines:** {theme_data['game_assets']['mines_safe']} {theme_data['game_assets']['mines_revealed']} {theme_data['game_assets']['mines_bomb']}",
+                inline=False
+            )
+        else:
+            embed = discord.Embed(
+                title="❌ Kauf fehlgeschlagen",
+                description=message,
+                color=discord.Color.red()
+            )
         
         await interaction.edit_original_response(embed=embed, view=None)
 
@@ -4418,6 +4647,104 @@ async def view_transactions(interaction: discord.Interaction, limit: int = 10):
     except Exception as e:
         logger.error(f"Error viewing transactions: {e}", exc_info=True)
         await interaction.followup.send(f"Fehler beim Laden der Transaktionen: {str(e)}", ephemeral=True)
+
+
+@tree.command(name="send", description="Sende Geld an einen anderen Benutzer.")
+@app_commands.describe(
+    user="Der Benutzer, dem du Geld senden möchtest",
+    amount="Der Betrag, den du senden möchtest"
+)
+async def send_money(interaction: discord.Interaction, user: discord.Member, amount: int):
+    """Send money to another user."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        from modules.economy import transfer_currency
+        
+        # Validation
+        if user.bot:
+            await interaction.followup.send("❌ Du kannst Bots kein Geld senden!", ephemeral=True)
+            return
+        
+        if amount <= 0:
+            await interaction.followup.send("❌ Der Betrag muss positiv sein!", ephemeral=True)
+            return
+        
+        if user.id == interaction.user.id:
+            await interaction.followup.send("❌ Du kannst dir selbst kein Geld senden!", ephemeral=True)
+            return
+        
+        # Get current balance
+        balance = await db_helpers.get_balance(interaction.user.id)
+        currency = config['modules']['economy']['currency_symbol']
+        
+        if balance < amount:
+            await interaction.followup.send(
+                f"❌ Nicht genug Guthaben! Du hast {balance} {currency}, brauchst aber {amount} {currency}.",
+                ephemeral=True
+            )
+            return
+        
+        # Perform transfer
+        success, message = await transfer_currency(
+            db_helpers,
+            interaction.user.id,
+            user.id,
+            amount,
+            interaction.user.display_name,
+            user.display_name,
+            config
+        )
+        
+        if success:
+            # Log transactions for both users
+            new_balance = await db_helpers.get_balance(interaction.user.id)
+            await db_helpers.log_transaction(
+                interaction.user.id,
+                'transfer',
+                -amount,
+                new_balance,
+                f"Sent to {user.display_name}"
+            )
+            
+            recipient_balance = await db_helpers.get_balance(user.id)
+            await db_helpers.log_transaction(
+                user.id,
+                'transfer',
+                amount,
+                recipient_balance,
+                f"Received from {interaction.user.display_name}"
+            )
+            
+            # Create success embed
+            embed = discord.Embed(
+                title="💸 Geld gesendet!",
+                description=f"Du hast {amount} {currency} an {user.mention} gesendet!",
+                color=discord.Color.green()
+            )
+            embed.add_field(name="Neues Guthaben", value=f"{new_balance} {currency}", inline=True)
+            
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            
+            # Try to notify recipient (if DM access is enabled)
+            try:
+                has_dm_access = await db_helpers.has_feature_unlock(user.id, 'dm_access')
+                if has_dm_access:
+                    recipient_embed = discord.Embed(
+                        title="💰 Geld erhalten!",
+                        description=f"{interaction.user.display_name} hat dir {amount} {currency} gesendet!",
+                        color=discord.Color.gold()
+                    )
+                    recipient_embed.add_field(name="Neues Guthaben", value=f"{recipient_balance} {currency}", inline=True)
+                    await user.send(embed=recipient_embed)
+            except:
+                pass  # Silently fail if we can't send DM
+        else:
+            await interaction.followup.send(f"❌ {message}", ephemeral=True)
+            
+    except Exception as e:
+        logger.error(f"Error sending money: {e}", exc_info=True)
+        await interaction.followup.send(f"❌ Fehler beim Senden: {str(e)}", ephemeral=True)
 
 
 @tree.command(name="news", description="Zeige die neuesten Nachrichten vom Server.")
@@ -5323,29 +5650,23 @@ class BlackjackView(discord.ui.View):
 class MinesView(discord.ui.View):
     """UI view for Mines game with grid buttons."""
     
-    def __init__(self, game: MinesGame, user_id: int):
+    def __init__(self, game: MinesGame, user_id: int, theme_id=None):
         super().__init__(timeout=300)
         self.game = game
         self.user_id = user_id
+        self.theme_id = theme_id
         self._build_grid()
     
     def _build_grid(self):
         """Builds the button grid for the mines game."""
         # Discord allows max 5 rows with 5 buttons each (25 total)
-        # We need room for the cashout button, so use 4x5 grid (20 cells + 5 buttons in last row)
+        # With share button, we need to accommodate the grid + cashout + share
         
-        # Calculate actual grid size to fit Discord limits
-        # With cashout button, we can have max 24 grid cells (4 rows of 5, last row has 4 cells + cashout)
         actual_grid_size = min(self.game.grid_size, 5)
         
-        button_count = 0
+        # Add all grid cells as buttons
         for row in range(actual_grid_size):
-            row_buttons = 0
             for col in range(actual_grid_size):
-                # On the last row, leave space for cashout button
-                if row == actual_grid_size - 1 and col == actual_grid_size - 1:
-                    break  # Skip last cell to make room for cashout
-                    
                 button = discord.ui.Button(
                     label="⬜",
                     style=discord.ButtonStyle.secondary,
@@ -5354,15 +5675,14 @@ class MinesView(discord.ui.View):
                 )
                 button.callback = self._create_callback(row, col)
                 self.add_item(button)
-                button_count += 1
-                row_buttons += 1
         
-        # Add cashout button in the last row
+        # Add cashout button as a grid cell that looks like it was already tapped (showing a mine)
+        # This will be in the last row as a separate control button
         cashout_button = discord.ui.Button(
-            label="💰 Cash Out",
+            label="💎 Cash Out",
             style=discord.ButtonStyle.success,
             custom_id="cashout",
-            row=actual_grid_size - 1  # Last row
+            row=4  # Last row
         )
         cashout_button.callback = self._cashout_callback
         self.add_item(cashout_button)
@@ -5384,7 +5704,7 @@ class MinesView(discord.ui.View):
                     item.style = discord.ButtonStyle.primary
                     break
             
-            temp_embed = self.game.create_embed()
+            temp_embed = self.game.create_embed(theme_id=self.theme_id)
             await interaction.edit_original_response(embed=temp_embed, view=self)
             await asyncio.sleep(0.4)
             
@@ -5394,10 +5714,10 @@ class MinesView(discord.ui.View):
             for item in self.children:
                 if hasattr(item, 'custom_id') and item.custom_id == f"mine_{row}_{col}":
                     if hit_mine:
-                        item.label = "💣"
+                        item.label = themes.get_theme_asset(self.theme_id, 'mines_bomb')
                         item.style = discord.ButtonStyle.danger
                     else:
-                        item.label = "💎"
+                        item.label = themes.get_theme_asset(self.theme_id, 'mines_revealed')
                         item.style = discord.ButtonStyle.success
                     item.disabled = True
                     break
@@ -5410,7 +5730,7 @@ class MinesView(discord.ui.View):
                 await self._end_game(interaction, lost=False)
             else:
                 # Update embed and continue
-                embed = self.game.create_embed()
+                embed = self.game.create_embed(theme_id=self.theme_id)
                 await interaction.edit_original_response(embed=embed, view=self)
         
         return callback
@@ -5449,9 +5769,16 @@ class MinesView(discord.ui.View):
                 f"Mines cashout at {multiplier}x"
             )
             
+            # --- NEW: Influence GAMBL stock ---
+            try:
+                won = profit > 0
+                await stock_market.record_gambling_activity(db_helpers, self.game.bet, won, winnings)
+            except Exception as e:
+                logger.error(f"Failed to record gambling stock influence: {e}")
+            
             currency = config['modules']['economy']['currency_symbol']
-            embed = self.game.create_embed()
-            embed.color = discord.Color.green()
+            embed = self.game.create_embed(theme_id=self.theme_id)
+            embed.color = themes.get_theme_color(self.theme_id, 'success')
             
             cashout_text = f"✅ **Erfolgreich ausgezahlt!** ✅\n"
             cashout_text += f"Aufgedeckte Felder: **{self.game.revealed_count}**\n"
@@ -5470,7 +5797,19 @@ class MinesView(discord.ui.View):
             for item in self.children:
                 item.disabled = True
             
-            await interaction.edit_original_response(embed=embed, view=self)
+            # Add share button
+            share_view = GamblingShareView(
+                game_type="mines",
+                result_data={
+                    'revealed_count': self.game.revealed_count,
+                    'multiplier': multiplier,
+                    'profit': profit,
+                    'balance': new_balance
+                },
+                user_id=self.user_id
+            )
+            
+            await interaction.edit_original_response(embed=embed, view=share_view)
             
             # Remove from active games
             if self.user_id in active_mines_games:
@@ -5481,7 +5820,7 @@ class MinesView(discord.ui.View):
     async def _end_game(self, interaction: discord.Interaction, lost: bool):
         """Ends the game and shows results."""
         currency = config['modules']['economy']['currency_symbol']
-        embed = self.game.create_embed(show_mines=True)
+        embed = self.game.create_embed(show_mines=True, theme_id=self.theme_id)
         
         if lost:
             # Lost - deduct bet
@@ -5506,6 +5845,12 @@ class MinesView(discord.ui.View):
                 "Hit a mine"
             )
             
+            # --- NEW: Influence GAMBL stock ---
+            try:
+                await stock_market.record_gambling_activity(db_helpers, self.game.bet, False, 0)
+            except Exception as e:
+                logger.error(f"Failed to record gambling stock influence: {e}")
+            
             embed.color = discord.Color.red()
             result_text = f"💥 **BOOM!** 💥\n"
             result_text += f"Du hast eine Mine getroffen!\n"
@@ -5517,6 +5862,19 @@ class MinesView(discord.ui.View):
             )
             embed.add_field(name="💰 Guthaben", value=f"{new_balance} {currency}", inline=True)
             embed.set_footer(text="Beim nächsten Mal vorsichtiger sein!")
+            
+            # Add share button for loss
+            share_view = GamblingShareView(
+                game_type="mines",
+                result_data={
+                    'revealed_count': self.game.revealed_count,
+                    'multiplier': 0,
+                    'profit': -self.game.bet,
+                    'balance': new_balance
+                },
+                user_id=self.user_id
+            )
+
         else:
             # Won - all safe cells revealed
             winnings = int(self.game.bet * self.game.get_current_multiplier())
@@ -5543,6 +5901,12 @@ class MinesView(discord.ui.View):
                 f"Completed all safe cells at {self.game.get_current_multiplier()}x"
             )
             
+            # --- NEW: Influence GAMBL stock ---
+            try:
+                await stock_market.record_gambling_activity(db_helpers, self.game.bet, True, int(self.game.bet * self.game.get_current_multiplier()))
+            except Exception as e:
+                logger.error(f"Failed to record gambling stock influence: {e}")
+            
             embed.color = discord.Color.gold()
             result_text = f"🎉 **PERFEKT!** 🎉\n"
             result_text += f"Alle sicheren Felder aufgedeckt!\n"
@@ -5554,12 +5918,26 @@ class MinesView(discord.ui.View):
             )
             embed.add_field(name="💰 Guthaben", value=f"{new_balance} {currency}", inline=True)
             embed.set_footer(text="🎊 Glückwunsch! Perfekt gespielt!")
+            
+            # Add share button for win
+            share_view = GamblingShareView(
+                game_type="mines",
+                result_data={
+                    'revealed_count': self.game.revealed_count,
+                    'multiplier': self.game.get_current_multiplier(),
+                    'profit': profit,
+                    'balance': new_balance
+                },
+                user_id=self.user_id
+            )
         
         # Disable all buttons and reveal all mines
         for item in self.children:
             item.disabled = True
         
-        await interaction.edit_original_response(embed=embed, view=self)
+        # Use share view if available, otherwise use self
+        final_view = share_view if 'share_view' in locals() else self
+        await interaction.edit_original_response(embed=embed, view=final_view)
         
         # Remove from active games
         if self.user_id in active_mines_games:
@@ -5719,9 +6097,81 @@ class GamblingShareView(discord.ui.View):
             embed.add_field(name="💰 Ergebnis", value=f"**{'+' if net_result >= 0 else ''}{net_result} {currency}**", inline=True)
             embed.set_footer(text=f"Gespielt von {interaction.user.display_name}")
         
+        elif self.game_type == "mines":
+            data = self.result_data
+            profit = data.get('profit', 0)
+            multiplier = data.get('multiplier', 0)
+            revealed_count = data.get('revealed_count', 0)
+            
+            if profit > 0:
+                title = "💎 Mines Gewinn!"
+                description = f"{interaction.user.mention} hat **+{profit} {currency}** gewonnen!"
+                color = discord.Color.green()
+            elif profit < 0:
+                title = "💥 Mines Verlust"
+                description = f"{interaction.user.mention} hat eine Mine getroffen!"
+                color = discord.Color.red()
+            else:
+                title = "💎 Mines Spiel"
+                description = f"{interaction.user.mention} hat Mines gespielt!"
+                color = discord.Color.blue()
+            
+            embed = discord.Embed(title=title, description=description, color=color)
+            
+            embed.add_field(
+                name="📊 Statistik",
+                value=f"Aufgedeckt: **{revealed_count}** Felder\nMultiplikator: **{multiplier:.2f}x**",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="💰 Ergebnis",
+                value=f"**{'+' if profit >= 0 else ''}{profit} {currency}**",
+                inline=True
+            )
+            
+            embed.set_footer(text=f"Gespielt von {interaction.user.display_name}")
+        
+        elif self.game_type == "tower":
+            data = self.result_data
+            profit = data.get('profit', 0)
+            floor = data.get('floor', 0)
+            max_floors = data.get('max_floors', 10)
+            difficulty = data.get('difficulty', 1)
+            
+            if profit > 0:
+                title = "🗼 Tower Gewinn!"
+                description = f"{interaction.user.mention} hat **+{profit} {currency}** gewonnen!"
+                color = discord.Color.gold()
+            elif profit < 0:
+                title = "💥 Tower Verlust"
+                description = f"{interaction.user.mention} ist im Tower gestürzt!"
+                color = discord.Color.red()
+            else:
+                title = "🗼 Tower Spiel"
+                description = f"{interaction.user.mention} hat Tower gespielt!"
+                color = discord.Color.blue()
+            
+            embed = discord.Embed(title=title, description=description, color=color)
+            
+            difficulty_emoji = '⭐' * difficulty
+            embed.add_field(
+                name="📊 Statistik",
+                value=f"Etage: **{floor}/{max_floors}**\nSchwierigkeit: {difficulty_emoji}",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="💰 Ergebnis",
+                value=f"**{'+' if profit >= 0 else ''}{profit} {currency}**",
+                inline=True
+            )
+            
+            embed.set_footer(text=f"Gespielt von {interaction.user.display_name}")
+        
         else:
             # Generic share
-            net_result = self.result_data.get('net_result', 0)
+            net_result = self.result_data.get('profit', self.result_data.get('net_result', 0))
             title = f"🎰 {self.game_type.capitalize()} Ergebnis"
             description = f"{interaction.user.mention} hat **{'+' if net_result >= 0 else ''}{net_result} {currency}** {'gewonnen' if net_result > 0 else 'verloren'}!"
             color = discord.Color.gold() if net_result > 0 else discord.Color.red()
@@ -5812,18 +6262,24 @@ class RouletteView(discord.ui.View):
             won, multiplier = RouletteGame.check_bet(result_number, bet_type, bet_value)
             
             if won:
-                winnings = self.bet_amount * multiplier - self.bet_amount
-                total_winnings += winnings
-                bet_results.append(f"✅ {bet_value}: +{winnings} 🪙 ({multiplier}x)")
+                # Calculate GROSS payout (total amount won including original bet)
+                payout = self.bet_amount * multiplier
+                total_winnings += payout
+                profit = payout - self.bet_amount  # NET profit for this bet
+                bet_results.append(f"✅ {bet_value}: +{profit} 🪙 ({multiplier}x)")
             else:
                 bet_results.append(f"❌ {bet_value}: -{self.bet_amount} 🪙")
+        
+        # Calculate net result
+        total_bet_amount = self.bet_amount * len(self.bets)
+        net_result = total_winnings - total_bet_amount
         
         # Update balance
         stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
         await db_helpers.add_balance(
             self.user_id,
             interaction.user.display_name,
-            total_winnings - (self.bet_amount * len(self.bets)),
+            net_result,
             config,
             stat_period
         )
@@ -5835,16 +6291,15 @@ class RouletteView(discord.ui.View):
         await db_helpers.log_transaction(
             self.user_id,
             'roulette',
-            total_winnings - (self.bet_amount * len(self.bets)),
+            net_result,
             new_balance,
             f"Bets: {len(self.bets)}, Result: {result_number}"
         )
         
         # --- NEW: Influence GAMBL stock based on result ---
         try:
-            total_bet = self.bet_amount * len(self.bets)
-            won = total_winnings > 0
-            await stock_market.record_gambling_activity(db_helpers, total_bet, won, total_winnings)
+            won = net_result > 0
+            await stock_market.record_gambling_activity(db_helpers, total_bet_amount, won, total_winnings)
         except Exception as e:
             logger.error(f"Failed to record gambling stock influence: {e}")
         
@@ -5881,15 +6336,13 @@ class RouletteView(discord.ui.View):
         
         # Show bet results with better formatting
         bet_results_text = ""
-        total_bet_amount = self.bet_amount * len(self.bets)
-        net_result = total_winnings - total_bet_amount
         
         for bet_type, bet_value in self.bets:
             won, multiplier = RouletteGame.check_bet(result_number, bet_type, bet_value)
             
             if won:
-                winnings = self.bet_amount * multiplier - self.bet_amount
-                bet_results_text += f"✅ **{bet_value}**: +{winnings} {currency} ({multiplier}x)\n"
+                profit = self.bet_amount * multiplier - self.bet_amount
+                bet_results_text += f"✅ **{bet_value}**: +{profit} {currency} ({multiplier}x)\n"
             else:
                 bet_results_text += f"❌ **{bet_value}**: -{self.bet_amount} {currency}\n"
         
@@ -6231,9 +6684,12 @@ async def mines(interaction: discord.Interaction, bet: int):
         game = MinesGame(user_id, bet, grid_size, mine_count)
         active_mines_games[user_id] = game
         
+        # Get user's theme
+        user_theme = await themes.get_user_theme(db_helpers, user_id)
+        
         # Create view
-        view = MinesView(game, user_id)
-        embed = game.create_embed()
+        view = MinesView(game, user_id, user_theme)
+        embed = game.create_embed(theme_id=user_theme)
         embed.add_field(
             name="ℹ️ Anleitung",
             value="Klicke auf Felder um sie aufzudecken. Vermeide die Minen! Cash out jederzeit für den aktuellen Multiplikator.",
@@ -6255,10 +6711,11 @@ async def mines(interaction: discord.Interaction, bet: int):
 class TowerOfTreasureView(discord.ui.View):
     """UI view for Tower of Treasure game with column buttons."""
     
-    def __init__(self, game: TowerOfTreasureGame, user_id: int):
+    def __init__(self, game: TowerOfTreasureGame, user_id: int, theme_id=None):
         super().__init__(timeout=300)
         self.game = game
         self.user_id = user_id
+        self.theme_id = theme_id
         self._build_buttons()
     
     def _build_buttons(self):
@@ -6295,10 +6752,14 @@ class TowerOfTreasureView(discord.ui.View):
             
             # Show climbing animation
             import asyncio
+            
+            # Get tower name from theme
+            tower_name = themes.get_theme_asset(self.theme_id, 'tower_name') if self.theme_id else "🗼 Tower of Treasure"
+            
             temp_embed = discord.Embed(
-                title="🗼 Tower of Treasure",
+                title=tower_name,
                 description=f"Klettere Säule {column + 1}... 🧗",
-                color=discord.Color.gold()
+                color=themes.get_theme_color(self.theme_id, 'primary') if self.theme_id else discord.Color.gold()
             )
             await interaction.edit_original_response(embed=temp_embed, view=self)
             await asyncio.sleep(0.5)
@@ -6313,7 +6774,7 @@ class TowerOfTreasureView(discord.ui.View):
                 await self._finish_game(interaction, won=True, reward=reward, message="🎉 Du hast die Spitze erreicht!")
             else:
                 # Continue climbing
-                embed = self.game.create_embed()
+                embed = self.game.create_embed(theme_id=self.theme_id)
                 await interaction.edit_original_response(embed=embed, view=self)
         
         return callback
@@ -6338,7 +6799,7 @@ class TowerOfTreasureView(discord.ui.View):
     
     async def _finish_game(self, interaction: discord.Interaction, won: bool, reward: int, message: str):
         """Finishes the game and shows results with full tower visualization."""
-        embed = self.game.create_embed(show_bombs=True, show_full_tower=True)
+        embed = self.game.create_embed(show_bombs=True, show_full_tower=True, theme_id=self.theme_id)
         
         currency = config['modules']['economy']['currency_symbol']
         
@@ -6381,22 +6842,31 @@ class TowerOfTreasureView(discord.ui.View):
                 value=f"{message}\n**Gewinn: +{winnings} {currency}**",
                 inline=False
             )
-            embed.color = discord.Color.green()
+            embed.color = themes.get_theme_color(self.theme_id, 'success') if self.theme_id else discord.Color.green()
         else:
             embed.add_field(
                 name="❌ Verloren!",
                 value=f"{message}\n**Verlust: -{self.game.bet} {currency}**",
                 inline=False
             )
-            embed.color = discord.Color.red()
+            embed.color = themes.get_theme_color(self.theme_id, 'danger') if self.theme_id else discord.Color.red()
         
         embed.add_field(name="Neues Guthaben", value=f"{new_balance} {currency}", inline=True)
         
-        # Disable all buttons
-        for item in self.children:
-            item.disabled = True
+        # Create share view
+        share_view = GamblingShareView(
+            game_type="tower",
+            result_data={
+                'profit': winnings,
+                'floor': self.game.current_floor,
+                'max_floors': self.game.max_floors,
+                'difficulty': self.game.difficulty,
+                'balance': new_balance
+            },
+            user_id=self.user_id
+        )
         
-        await interaction.edit_original_response(embed=embed, view=self)
+        await interaction.edit_original_response(embed=embed, view=share_view)
         
         # Remove from active games
         if self.user_id in active_tower_games:
@@ -6498,11 +6968,14 @@ async def tower(interaction: discord.Interaction, bet: int, difficulty: int = 1)
         # Store in active games
         active_tower_games[user_id] = game
         
+        # Get user's theme
+        user_theme = await themes.get_user_theme(db_helpers, user_id)
+        
         # Create view
-        view = TowerOfTreasureView(game, user_id)
+        view = TowerOfTreasureView(game, user_id, user_theme)
         
         # Create embed
-        embed = game.create_embed()
+        embed = game.create_embed(theme_id=user_theme)
         embed.set_footer(text=f"Guthaben: {new_balance} {currency}")
         
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
@@ -7566,6 +8039,266 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
             else:
                 view = WordFindView(self.user_id, self.word_data, self.max_attempts, self.has_premium, self.game_type)
                 await interaction.edit_original_response(embed=embed, view=view)
+
+
+# --- Wordle Command and Views ---
+
+@tree.command(name="wordle", description="Spiele Wordle - Errate das 5-Buchstaben Wort!")
+async def wordle_command(interaction: discord.Interaction):
+    """Play the daily Wordle game."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        user_id = interaction.user.id
+        
+        # Get today's word
+        word_data = await wordle.get_or_create_daily_word(db_helpers)
+        
+        if not word_data:
+            await interaction.followup.send("❌ Fehler beim Laden des heutigen Wortes.", ephemeral=True)
+            return
+        
+        # Get user's attempts for today
+        attempts = await wordle.get_user_attempts(db_helpers, user_id, word_data['id'])
+        max_attempts = 6
+        
+        # Check if already completed today (guessed correctly)
+        if any(a['guess'].lower() == word_data['word'].lower() for a in attempts):
+            user_stats = await wordle.get_user_stats(db_helpers, user_id)
+            
+            embed = discord.Embed(
+                title="✅ Bereits abgeschlossen!",
+                description="Du hast das heutige Wort bereits erraten!",
+                color=discord.Color.green()
+            )
+            
+            if user_stats:
+                total_games = user_stats.get('total_games', 0)
+                total_wins = user_stats.get('total_wins', 0)
+                current_streak = user_stats.get('current_streak', 0)
+                best_streak = user_stats.get('best_streak', 0)
+                win_rate = (total_wins / total_games * 100) if total_games > 0 else 0
+                
+                embed.add_field(
+                    name="📊 Deine Statistiken",
+                    value=f"Spiele: `{total_games}` | Gewonnen: `{total_wins}` ({win_rate:.1f}%)\n"
+                          f"Streak: `{current_streak}` 🔥 | Best: `{best_streak}`",
+                    inline=False
+                )
+            
+            # Show share button
+            view = WordleCompletedView(user_id, attempts, True, word_data)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            return
+        
+        # Check if max attempts reached
+        if len(attempts) >= max_attempts:
+            correct_word = word_data['word']
+            user_stats = await wordle.get_user_stats(db_helpers, user_id)
+            
+            embed = discord.Embed(
+                title="❌ Keine Versuche mehr!",
+                description=f"Das gesuchte Wort war: **{correct_word.upper()}**",
+                color=discord.Color.red()
+            )
+            
+            if user_stats:
+                total_games = user_stats.get('total_games', 0)
+                total_wins = user_stats.get('total_wins', 0)
+                win_rate = (total_wins / total_games * 100) if total_games > 0 else 0
+                
+                embed.add_field(
+                    name="📊 Deine Statistiken",
+                    value=f"Spiele: `{total_games}` | Gewonnen: `{total_wins}` ({win_rate:.1f}%)",
+                    inline=False
+                )
+            
+            # Show share button
+            view = WordleCompletedView(user_id, attempts, False, word_data)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            return
+        
+        # Get user stats
+        user_stats = await wordle.get_user_stats(db_helpers, user_id)
+        
+        # Get user's theme
+        user_theme = await themes.get_user_theme(db_helpers, user_id)
+        
+        # Create game embed
+        embed = wordle.create_game_embed(word_data, attempts, user_stats, theme_id=user_theme)
+        
+        # Create view with guess button
+        view = WordleView(user_id, word_data, max_attempts, user_theme)
+        
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error in wordle command: {e}", exc_info=True)
+        await interaction.followup.send(
+            f"❌ Fehler beim Starten des Spiels: {str(e)}",
+            ephemeral=True
+        )
+
+
+class WordleView(discord.ui.View):
+    """UI view for Wordle game with guess input."""
+    
+    def __init__(self, user_id: int, word_data: dict, max_attempts: int, theme_id=None):
+        super().__init__(timeout=300)
+        self.user_id = user_id
+        self.word_data = word_data
+        self.max_attempts = max_attempts
+        self.theme_id = theme_id
+    
+    @discord.ui.button(label="Wort raten", style=discord.ButtonStyle.primary, emoji="🔍")
+    async def guess_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handle guess button click."""
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht dein Spiel!", ephemeral=True)
+            return
+        
+        # Create modal for input
+        modal = WordleGuessModal(self.user_id, self.word_data, self.max_attempts, self.theme_id)
+        await interaction.response.send_modal(modal)
+
+
+class WordleCompletedView(discord.ui.View):
+    """UI view for completed Wordle game with share option."""
+    
+    def __init__(self, user_id: int, attempts: list, won: bool, word_data: dict = None):
+        super().__init__(timeout=300)
+        self.user_id = user_id
+        self.attempts = attempts
+        self.won = won
+        self.word_data = word_data
+    
+    @discord.ui.button(label="Teilen", style=discord.ButtonStyle.success, emoji="📤")
+    async def share_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handle share button click."""
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht dein Spiel!", ephemeral=True)
+            return
+        
+        # Create shareable text with accurate colors
+        if self.word_data:
+            share_text = wordle.create_share_text(self.attempts, self.word_data['word'], self.won)
+        else:
+            # Fallback if word_data not provided
+            share_text = f"Wordle {datetime.now(timezone.utc).date()} {len(self.attempts)}/6\n\n"
+            for attempt in self.attempts:
+                share_text += "🟩🟨⬜⬜⬜\n"
+        
+        await interaction.response.send_message(
+            f"Teile dein Ergebnis:\n\n```\n{share_text}\n```",
+            ephemeral=True
+        )
+
+
+class WordleGuessModal(discord.ui.Modal, title="Rate das Wort"):
+    """Modal for entering Wordle guess."""
+    
+    guess_input = discord.ui.TextInput(
+        label="Dein 5-Buchstaben Wort",
+        placeholder="Gib dein Wort ein (genau 5 Buchstaben)...",
+        min_length=5,
+        max_length=5,
+        required=True
+    )
+    
+    def __init__(self, user_id: int, word_data: dict, max_attempts: int, theme_id=None):
+        super().__init__()
+        self.user_id = user_id
+        self.word_data = word_data
+        self.max_attempts = max_attempts
+        self.theme_id = theme_id
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        
+        guess = self.guess_input.value.lower().strip()
+        correct_word = self.word_data['word'].lower()
+        word_id = self.word_data['id']
+        
+        # Validate guess (must be 5 letters, only letters)
+        if len(guess) != 5 or not guess.isalpha():
+            await interaction.followup.send("❌ Dein Wort muss genau 5 Buchstaben enthalten (nur Buchstaben erlaubt)!", ephemeral=True)
+            return
+        
+        # Get current attempts
+        attempts = await wordle.get_user_attempts(db_helpers, self.user_id, word_id)
+        attempt_num = len(attempts) + 1
+        
+        # Check if already guessed this word
+        if any(a['guess'].lower() == guess for a in attempts):
+            await interaction.followup.send("Du hast dieses Wort bereits geraten!", ephemeral=True)
+            return
+        
+        # Check if max attempts reached
+        if attempt_num > self.max_attempts:
+            await interaction.followup.send("Du hast alle Versuche aufgebraucht!", ephemeral=True)
+            return
+        
+        # Record attempt
+        await wordle.record_attempt(db_helpers, self.user_id, word_id, guess, attempt_num)
+        
+        # Check if correct
+        if guess == correct_word:
+            # Win!
+            embed = discord.Embed(
+                title="🎉 Glückwunsch!",
+                description=f"Du hast das Wort **{correct_word.upper()}** in {attempt_num} Versuchen erraten!",
+                color=discord.Color.gold()
+            )
+            
+            # Update stats
+            await wordle.update_user_stats(db_helpers, self.user_id, True, attempt_num)
+            
+            # Update quest progress
+            await quests.update_quest_progress(db_helpers, self.user_id, 'daily_wordle', 1)
+            
+            # Get updated stats and attempts for sharing
+            user_stats = await wordle.get_user_stats(db_helpers, self.user_id)
+            all_attempts = await wordle.get_user_attempts(db_helpers, self.user_id, word_id)
+            
+            if user_stats:
+                total_games = user_stats.get('total_games', 0)
+                total_wins = user_stats.get('total_wins', 0)
+                current_streak = user_stats.get('current_streak', 0)
+                best_streak = user_stats.get('best_streak', 0)
+                win_rate = (total_wins / total_games * 100) if total_games > 0 else 0
+                
+                embed.add_field(
+                    name="📊 Deine Statistiken",
+                    value=f"Spiele: `{total_games}` | Gewonnen: `{total_wins}` ({win_rate:.1f}%)\n"
+                          f"Streak: `{current_streak}` 🔥 | Best: `{best_streak}`",
+                    inline=False
+                )
+            
+            # Show completed view with share button
+            view = WordleCompletedView(self.user_id, all_attempts, True, self.word_data)
+            await interaction.edit_original_response(embed=embed, view=view)
+        else:
+            # Update display with new attempt
+            attempts = await wordle.get_user_attempts(db_helpers, self.user_id, word_id)
+            user_stats = await wordle.get_user_stats(db_helpers, self.user_id)
+            
+            # Check if max attempts reached
+            if attempt_num >= self.max_attempts:
+                embed = wordle.create_game_embed(self.word_data, attempts, user_stats, is_game_over=True, won=False, theme_id=self.theme_id)
+                embed.title = "❌ Keine Versuche mehr!"
+                embed.description = f"Das gesuchte Wort war: **{correct_word.upper()}**"
+                
+                # Update stats (loss)
+                await wordle.update_user_stats(db_helpers, self.user_id, False, attempt_num)
+                
+                # Show completed view with share button
+                view = WordleCompletedView(self.user_id, attempts, False, self.word_data)
+                await interaction.edit_original_response(embed=embed, view=view)
+            else:
+                embed = wordle.create_game_embed(self.word_data, attempts, user_stats, theme_id=self.theme_id)
+                view = WordleView(self.user_id, self.word_data, self.max_attempts, self.theme_id)
+                await interaction.edit_original_response(embed=embed, view=view)
+
 
 
 @tree.command(name="wordfind", description="Spiele Word Find - Errate das tägliche Wort!")

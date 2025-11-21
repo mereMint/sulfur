@@ -142,7 +142,24 @@
           "casino": 500,
           "detective": 1000,
           "trolly": 250,
-          "unlimited_word_find": 500
+          "unlimited_word_find": 500,
+          "unlimited_wordle": 500
+        },
+        "bundles": {
+          "word_games_bundle": {
+            "name": "Word Games Bundle",
+            "description": "Unlimited Word Find + Unlimited Wordle",
+            "features": ["unlimited_word_find", "unlimited_wordle"],
+            "price": 800,
+            "discount": 200
+          },
+          "ai_games_bundle": {
+            "name": "AI Games Bundle",
+            "description": "Detective Game + Trolly Problem",
+            "features": ["detective", "trolly"],
+            "price": 1000,
+            "discount": 250
+          }
         },
         "boosts": {
           "xp_boost_1h": 500,
