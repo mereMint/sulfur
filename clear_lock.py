@@ -28,8 +28,8 @@ def main():
                 else:
                     os.kill(int(pid), 0)
                     is_running = True
-            except:
-                is_running = False
+            except (ProcessLookupError, PermissionError, ValueError, subprocess.TimeoutExpired):
+                is_running = False  # Process doesn't exist or we can't check it
             
             if is_running:
                 print(f"WARNING: Process {pid} is still running!")
