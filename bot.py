@@ -45,6 +45,7 @@ from modules import quests  # NEW: Quest system for tracking
 from modules import wordle  # NEW: Wordle game
 from modules import themes  # NEW: Theme system
 from modules import horse_racing  # NEW: Horse racing game
+from modules import rpg_system  # NEW: RPG system
 from modules.bot_enhancements import (
     handle_image_attachment,
     handle_unknown_emojis_in_message,
@@ -614,6 +615,11 @@ async def on_ready():
     print("Initializing horse racing system...")
     await horse_racing.initialize_horse_racing_table(db_helpers)
     print("Horse racing system ready!")
+    
+    # --- NEW: Initialize RPG system ---
+    print("Initializing RPG system...")
+    await rpg_system.initialize_rpg_tables(db_helpers)
+    print("RPG system ready!")
 
     # --- NEW: Clean up leftover game channels on restart ---
     print("Checking for leftover game channels...")
@@ -2938,6 +2944,73 @@ class ProfilePageView(discord.ui.View):
                 color=discord.Color.red()
             )
 
+
+
+# --- RPG System Commands ---
+
+@tree.command(name="rpg", description="Zeige dein RPG-Profil und Optionen")
+async def rpg_command(interaction: discord.Interaction):
+    """Display RPG profile and options."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        user_id = interaction.user.id
+        player = await rpg_system.get_player_profile(db_helpers, user_id)
+        
+        if not player:
+            await interaction.followup.send("❌ Fehler beim Laden deines Profils.")
+            return
+        
+        # Create profile embed
+        embed = discord.Embed(
+            title=f"⚔️ RPG Profil - {interaction.user.display_name}",
+            description=f"**Level {player['level']}** | Welt: {rpg_system.WORLDS[player['world']]['name']}",
+            color=discord.Color.purple()
+        )
+        embed.set_thumbnail(url=interaction.user.display_avatar.url)
+        
+        # Stats
+        embed.add_field(
+            name="📊 Attribute",
+            value=f"❤️ HP: {player['health']}/{player['max_health']}\n"
+                  f"⚔️ Stärke: {player['strength']}\n"
+                  f"🎯 Geschick: {player['dexterity']}\n"
+                  f"🛡️ Verteidigung: {player['defense']}\n"
+                  f"⚡ Geschwindigkeit: {player['speed']}",
+            inline=True
+        )
+        
+        # Progression
+        xp_needed = rpg_system.calculate_xp_for_level(player['level'] + 1)
+        xp_progress = player['xp']
+        progress_pct = (xp_progress / xp_needed) * 100 if xp_needed > 0 else 100
+        
+        embed.add_field(
+            name="📈 Fortschritt",
+            value=f"XP: {xp_progress}/{xp_needed}\n"
+                  f"Fortschritt: {progress_pct:.1f}%\n"
+                  f"💎 Skillpunkte: {player['skill_points']}\n"
+                  f"💰 Gold: {player['gold']}",
+            inline=True
+        )
+        
+        # Actions (buttons will be added in future expansion)
+        embed.add_field(
+            name="🎮 Verfügbare Aktionen",
+            value="🗡️ Abenteuer (In Entwicklung)\n"
+                  "🏪 Shop (In Entwicklung)\n"
+                  "⛩️ Tempel (In Entwicklung)\n"
+                  f"🌍 Weltwechsel ({'🔒 Level 10 benötigt' if player['level'] < 10 else '✅ Verfügbar'})",
+            inline=False
+        )
+        
+        embed.set_footer(text="Vollständiges RPG-System wird bald hinzugefügt!")
+        
+        await interaction.followup.send(embed=embed)
+        
+    except Exception as e:
+        logger.error(f"Error in RPG command: {e}", exc_info=True)
+        await interaction.followup.send(f"❌ Ein Fehler ist aufgetreten: {e}")
 
 
 # --- Leaderboard Helper Constants and Functions ---
