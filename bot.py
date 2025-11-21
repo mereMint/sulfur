@@ -7749,6 +7749,39 @@ async def on_message(message):
                 else:
                     await message.channel.send(f"Du wirst {target_player.user.display_name} morgen das Maul stopfen.")
                 return
+                
+            elif command == "love":
+                if len(parts) < 3:
+                    await message.channel.send("Verwendung: `love <name1> <name2>`")
+                    return
+                # Parse the two names from the command
+                # We need to find where one name ends and the next begins
+                # Simple approach: try each split point
+                found = False
+                for i in range(1, len(parts)):
+                    name1 = " ".join(parts[1:i+1])
+                    name2 = " ".join(parts[i+1:])
+                    
+                    if not name2:  # No second name
+                        continue
+                        
+                    lover1 = user_game.get_player_by_name(name1)
+                    lover2 = user_game.get_player_by_name(name2)
+                    
+                    if lover1 and lover2:
+                        # Set the lover_target attribute that werwolf.py expects
+                        lover1.lover_target = lover2
+                        result = await user_game.handle_night_action(user_player, "love", lover1, config, GEMINI_API_KEY, OPENAI_API_KEY)
+                        if result:
+                            await message.channel.send(result)
+                        else:
+                            await message.channel.send(f"Du hast {lover1.user.display_name} und {lover2.user.display_name} zu Verliebten gemacht.")
+                        found = True
+                        break
+                
+                if not found:
+                    await message.channel.send("Konnte die beiden Spieler nicht finden. Verwendung: `love <name1> <name2>`")
+                return
             
             # If we get here, it's not a recognized game command, treat as chatbot
             logger.info(f"[DM] Unrecognized Werwolf command, treating as chatbot message")

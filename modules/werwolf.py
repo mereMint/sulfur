@@ -461,6 +461,19 @@ class WerwolfGame:
                     if target_to_poison and target_to_poison.is_alive:
                         await self.handle_night_action(bot_hexe, "poison", target_to_poison, self.config, self.gemini_api_key, self.openai_api_key)
 
+        # --- NEW: Bot Amor action (only on first night) ---
+        bot_amor = next((p for p in bot_players if p.role == AMOR), None)
+        if bot_amor and self.day_number == 1 and not self.amor_has_chosen:
+            print(f"    - Bot '{bot_amor.user.display_name}' (Amor) is choosing lovers...")
+            # Choose two random players (excluding Amor itself)
+            potential_lovers = [p for p in self.get_alive_players() if p.user.id != bot_amor.user.id]
+            if len(potential_lovers) >= 2:
+                lovers = random.sample(potential_lovers, 2)
+                lover1, lover2 = lovers[0], lovers[1]
+                # Set the lover_target attribute that handle_night_action expects
+                lover1.lover_target = lover2
+                await self.handle_night_action(bot_amor, "love", lover1, self.config, self.gemini_api_key, self.openai_api_key)
+
         # The night now ends only when all special roles have acted.
 
     async def handle_night_action(self, author_player, command, target_player, config, gemini_key, openai_key):
@@ -597,6 +610,7 @@ class WerwolfGame:
         human_seer = next((p for p in alive_players if p.role == SEHERIN and not self.is_bot_player(p)), None)
         human_hexe = next((p for p in alive_players if p.role == HEXE and not self.is_bot_player(p)), None)
         human_döner = next((p for p in alive_players if p.role == DÖNERSTOPFER and not self.is_bot_player(p)), None)
+        human_amor = next((p for p in alive_players if p.role == AMOR and not self.is_bot_player(p)), None)
         
         # Conditions to end night:
         # All human special roles must have acted (or not exist)
@@ -607,9 +621,11 @@ class WerwolfGame:
                     (human_hexe and not human_hexe.has_healing_potion and not human_hexe.has_kill_potion) or 
                     not human_hexe)
         döner_done = self.döner_mute_target_id is not None or not human_döner
+        # Amor is done if they've chosen lovers OR if it's not the first night OR they don't exist
+        amor_done = self.amor_has_chosen or self.day_number > 1 or not human_amor
 
         
-        if seer_done and wolves_done and hexe_done and döner_done:
+        if seer_done and wolves_done and hexe_done and döner_done and amor_done:
             # Prevent this from being called multiple times by a race condition
             if self.phase == "day_transition":
                 return
@@ -978,7 +994,7 @@ class WerwolfGame:
         if winner_team and config:
             winning_roles = []
             if winner_team == "Dorfbewohner":
-                winning_roles = [DORFBEWOHNER, SEHERIN, HEXE, DÖNERSTOPFER, JÄGER]
+                winning_roles = [DORFBEWOHNER, SEHERIN, HEXE, DÖNERSTOPFER, JÄGER, AMOR, DER_WEISSE]
             elif winner_team == "Werwölfe":
                 winning_roles = [WERWOLF]
 
