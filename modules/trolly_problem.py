@@ -622,7 +622,7 @@ async def gather_user_data_for_trolly(db_helpers, user_id: int, display_name: st
                         # Find most played game
                         most_played = max(game_history.items(), key=lambda x: x[1].get('total_minutes', 0))
                         user_data['favorite_game'] = most_played[0]
-                except:
+                except (json.JSONDecodeError, ValueError, KeyError, TypeError):
                     pass
             
             # Get current month for recent stats
@@ -644,7 +644,7 @@ async def gather_user_data_for_trolly(db_helpers, user_id: int, display_name: st
                     if spotify_data:
                         most_played_song = max(spotify_data.items(), key=lambda x: x[1])
                         user_data['favorite_song'] = most_played_song[0]
-                except:
+                except (json.JSONDecodeError, ValueError, KeyError, TypeError):
                     pass
             
             # Get server bestie
@@ -663,7 +663,7 @@ async def gather_user_data_for_trolly(db_helpers, user_id: int, display_name: st
                     if mention_data:
                         bestie_id = max(mention_data.items(), key=lambda x: x[1])[0]
                         user_data['server_bestie_id'] = bestie_id
-                except:
+                except (json.JSONDecodeError, ValueError, KeyError, TypeError, IndexError):
                     pass
             
             # Get most used emoji
@@ -682,7 +682,7 @@ async def gather_user_data_for_trolly(db_helpers, user_id: int, display_name: st
                     if emoji_data:
                         most_used_emoji = max(emoji_data.items(), key=lambda x: x[1])[0]
                         user_data['most_used_emoji'] = most_used_emoji
-                except:
+                except (json.JSONDecodeError, ValueError, KeyError, TypeError, IndexError):
                     pass
             
             return user_data

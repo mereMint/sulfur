@@ -251,8 +251,8 @@ except Exception as e:
     try:
         with open(INSTANCE_LOCK_FILE, 'w', encoding='utf-8') as f:
             f.write(str(current_pid))
-    except:
-        pass
+    except (IOError, OSError) as e:
+        logger.warning(f"Could not create lock file: {e}")
 
 # In-memory caches for duplicate suppression
 last_processed_message_ids = deque(maxlen=500)
@@ -5511,8 +5511,8 @@ class RouletteView(discord.ui.View):
             embed.description = frame
             try:
                 await interaction.edit_original_response(embed=embed)
-            except:
-                pass
+            except discord.HTTPException:
+                pass  # Interaction might have timed out or been deleted
         
         # Spin the wheel
         result_number = RouletteGame.spin()
@@ -5969,7 +5969,7 @@ async def mines(interaction: discord.Interaction, bet: int):
                 "Ein unerwarteter Fehler ist aufgetreten. Bitte versuche es später erneut.",
                 ephemeral=True
             )
-        except:
+        except discord.HTTPException:
             pass  # Interaction might already have been responded to
 
 
@@ -6235,8 +6235,8 @@ async def tower(interaction: discord.Interaction, bet: int, difficulty: int = 1)
                 "❌ Ein Fehler ist aufgetreten. Bitte versuche es später erneut.",
                 ephemeral=True
             )
-        except:
-            pass
+        except discord.HTTPException:
+            pass  # Interaction might have timed out or been deleted
 
 
 class RussianRouletteView(discord.ui.View):
@@ -6990,8 +6990,8 @@ async def trolly(interaction: discord.Interaction):
             try:
                 bestie = await client.fetch_user(int(user_data['server_bestie_id']))
                 user_data['server_bestie'] = bestie.display_name
-            except:
-                pass
+            except (discord.HTTPException, discord.NotFound, ValueError):
+                pass  # User not found or invalid ID
         
         # Get or generate the trolly problem (from database or AI)
         problem = await trolly_problem.get_or_generate_trolly_problem(
