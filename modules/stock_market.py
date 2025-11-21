@@ -16,7 +16,8 @@ STOCK_CATEGORIES = {
     'crypto': {'volatility': 0.15, 'trend_strength': 0.4},
     'blue_chip': {'volatility': 0.03, 'trend_strength': 0.8},
     'meme': {'volatility': 0.20, 'trend_strength': 0.2},
-    'commodity': {'volatility': 0.05, 'trend_strength': 0.7}
+    'commodity': {'volatility': 0.05, 'trend_strength': 0.7},
+    'fund': {'volatility': 0.02, 'trend_strength': 0.9}  # NEW: Safe funds category
 }
 
 # Initial stock list
@@ -36,6 +37,25 @@ DEFAULT_STOCKS = [
     {'symbol': 'BOOST', 'name': 'Boost Corporation', 'category': 'tech', 'price': 120.0},
     {'symbol': 'COLOR', 'name': 'Color Dynamics Ltd', 'category': 'blue_chip', 'price': 85.0},
     {'symbol': 'GAMBL', 'name': 'Gambling Industries', 'category': 'meme', 'price': 35.0},
+    # NEW: More stocks
+    {'symbol': 'AMZN', 'name': 'Amazon Corp', 'category': 'tech', 'price': 145.0},
+    {'symbol': 'GOOGL', 'name': 'Google Inc', 'category': 'tech', 'price': 138.0},
+    {'symbol': 'MSFT', 'name': 'Microsoft Corp', 'category': 'blue_chip', 'price': 378.0},
+    {'symbol': 'NVDA', 'name': 'Nvidia Corp', 'category': 'tech', 'price': 480.0},
+    {'symbol': 'META', 'name': 'Meta Platforms', 'category': 'tech', 'price': 325.0},
+    {'symbol': 'NFLX', 'name': 'Netflix Inc', 'category': 'tech', 'price': 475.0},
+    {'symbol': 'ETH', 'name': 'Ethereum Fund', 'category': 'crypto', 'price': 2500.0},
+    {'symbol': 'SHIB', 'name': 'Shiba Inu Coin', 'category': 'meme', 'price': 0.000025},
+    {'symbol': 'SILV', 'name': 'Silver ETF', 'category': 'commodity', 'price': 24.0},
+    {'symbol': 'PLAT', 'name': 'Platinum Fund', 'category': 'commodity', 'price': 950.0},
+    {'symbol': 'COCO', 'name': 'Cocoa Commodity', 'category': 'commodity', 'price': 3.50},
+    {'symbol': 'COFF', 'name': 'Coffee Futures', 'category': 'commodity', 'price': 2.10},
+    # NEW: Safe Funds
+    {'symbol': 'SFND', 'name': 'Stability Fund', 'category': 'fund', 'price': 1000.0},
+    {'symbol': 'BOND', 'name': 'Bond Index Fund', 'category': 'fund', 'price': 500.0},
+    {'symbol': 'DIVD', 'name': 'Dividend Growth Fund', 'category': 'fund', 'price': 750.0},
+    {'symbol': 'BALN', 'name': 'Balanced Fund', 'category': 'fund', 'price': 600.0},
+    {'symbol': 'GLBL', 'name': 'Global Index Fund', 'category': 'fund', 'price': 850.0},
 ]
 
 

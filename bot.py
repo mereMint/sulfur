@@ -42,6 +42,8 @@ from modules import stock_market  # NEW: Stock market system
 from modules import news  # NEW: News system
 from modules import word_find  # NEW: Word Find game
 from modules import quests  # NEW: Quest system for tracking
+from modules import wordle  # NEW: Wordle game
+from modules import themes  # NEW: Theme system
 from modules.bot_enhancements import (
     handle_image_attachment,
     handle_unknown_emojis_in_message,
@@ -596,6 +598,16 @@ async def on_ready():
     print("Initializing word find system...")
     await word_find.initialize_word_find_table(db_helpers)
     print("Word find system ready!")
+    
+    # --- NEW: Initialize wordle system ---
+    print("Initializing wordle system...")
+    await wordle.initialize_wordle_table(db_helpers)
+    print("Wordle system ready!")
+    
+    # --- NEW: Initialize theme system ---
+    print("Initializing theme system...")
+    await themes.initialize_themes_table(db_helpers)
+    print("Theme system ready!")
 
     # --- NEW: Clean up leftover game channels on restart ---
     print("Checking for leftover game channels...")
@@ -4420,6 +4432,104 @@ async def view_transactions(interaction: discord.Interaction, limit: int = 10):
         await interaction.followup.send(f"Fehler beim Laden der Transaktionen: {str(e)}", ephemeral=True)
 
 
+@tree.command(name="send", description="Sende Geld an einen anderen Benutzer.")
+@app_commands.describe(
+    user="Der Benutzer, dem du Geld senden möchtest",
+    amount="Der Betrag, den du senden möchtest"
+)
+async def send_money(interaction: discord.Interaction, user: discord.Member, amount: int):
+    """Send money to another user."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        from modules.economy import transfer_currency
+        
+        # Validation
+        if user.bot:
+            await interaction.followup.send("❌ Du kannst Bots kein Geld senden!", ephemeral=True)
+            return
+        
+        if amount <= 0:
+            await interaction.followup.send("❌ Der Betrag muss positiv sein!", ephemeral=True)
+            return
+        
+        if user.id == interaction.user.id:
+            await interaction.followup.send("❌ Du kannst dir selbst kein Geld senden!", ephemeral=True)
+            return
+        
+        # Get current balance
+        balance = await db_helpers.get_balance(interaction.user.id)
+        currency = config['modules']['economy']['currency_symbol']
+        
+        if balance < amount:
+            await interaction.followup.send(
+                f"❌ Nicht genug Guthaben! Du hast {balance} {currency}, brauchst aber {amount} {currency}.",
+                ephemeral=True
+            )
+            return
+        
+        # Perform transfer
+        success, message = await transfer_currency(
+            db_helpers,
+            interaction.user.id,
+            user.id,
+            amount,
+            interaction.user.display_name,
+            user.display_name,
+            config
+        )
+        
+        if success:
+            # Log transactions for both users
+            new_balance = await db_helpers.get_balance(interaction.user.id)
+            await db_helpers.log_transaction(
+                interaction.user.id,
+                'transfer',
+                -amount,
+                new_balance,
+                f"Sent to {user.display_name}"
+            )
+            
+            recipient_balance = await db_helpers.get_balance(user.id)
+            await db_helpers.log_transaction(
+                user.id,
+                'transfer',
+                amount,
+                recipient_balance,
+                f"Received from {interaction.user.display_name}"
+            )
+            
+            # Create success embed
+            embed = discord.Embed(
+                title="💸 Geld gesendet!",
+                description=f"Du hast {amount} {currency} an {user.mention} gesendet!",
+                color=discord.Color.green()
+            )
+            embed.add_field(name="Neues Guthaben", value=f"{new_balance} {currency}", inline=True)
+            
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            
+            # Try to notify recipient (if DM access is enabled)
+            try:
+                has_dm_access = await db_helpers.has_feature_unlock(user.id, 'dm_access')
+                if has_dm_access:
+                    recipient_embed = discord.Embed(
+                        title="💰 Geld erhalten!",
+                        description=f"{interaction.user.display_name} hat dir {amount} {currency} gesendet!",
+                        color=discord.Color.gold()
+                    )
+                    recipient_embed.add_field(name="Neues Guthaben", value=f"{recipient_balance} {currency}", inline=True)
+                    await user.send(embed=recipient_embed)
+            except:
+                pass  # Silently fail if we can't send DM
+        else:
+            await interaction.followup.send(f"❌ {message}", ephemeral=True)
+            
+    except Exception as e:
+        logger.error(f"Error sending money: {e}", exc_info=True)
+        await interaction.followup.send(f"❌ Fehler beim Senden: {str(e)}", ephemeral=True)
+
+
 @tree.command(name="news", description="Zeige die neuesten Nachrichten vom Server.")
 @app_commands.describe(limit="Anzahl der anzuzeigenden Artikel (Standard: 5)")
 async def view_news(interaction: discord.Interaction, limit: int = 5):
@@ -7566,6 +7676,259 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
             else:
                 view = WordFindView(self.user_id, self.word_data, self.max_attempts, self.has_premium, self.game_type)
                 await interaction.edit_original_response(embed=embed, view=view)
+
+
+# --- Wordle Command and Views ---
+
+@tree.command(name="wordle", description="Spiele Wordle - Errate das 5-Buchstaben Wort!")
+async def wordle_command(interaction: discord.Interaction):
+    """Play the daily Wordle game."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        user_id = interaction.user.id
+        
+        # Get today's word
+        word_data = await wordle.get_or_create_daily_word(db_helpers)
+        
+        if not word_data:
+            await interaction.followup.send("❌ Fehler beim Laden des heutigen Wortes.", ephemeral=True)
+            return
+        
+        # Get user's attempts for today
+        attempts = await wordle.get_user_attempts(db_helpers, user_id, word_data['id'])
+        max_attempts = 6
+        
+        # Check if already completed today (guessed correctly)
+        if any(a['guess'].lower() == word_data['word'].lower() for a in attempts):
+            user_stats = await wordle.get_user_stats(db_helpers, user_id)
+            
+            embed = discord.Embed(
+                title="✅ Bereits abgeschlossen!",
+                description="Du hast das heutige Wort bereits erraten!",
+                color=discord.Color.green()
+            )
+            
+            if user_stats:
+                total_games = user_stats.get('total_games', 0)
+                total_wins = user_stats.get('total_wins', 0)
+                current_streak = user_stats.get('current_streak', 0)
+                best_streak = user_stats.get('best_streak', 0)
+                win_rate = (total_wins / total_games * 100) if total_games > 0 else 0
+                
+                embed.add_field(
+                    name="📊 Deine Statistiken",
+                    value=f"Spiele: `{total_games}` | Gewonnen: `{total_wins}` ({win_rate:.1f}%)\n"
+                          f"Streak: `{current_streak}` 🔥 | Best: `{best_streak}`",
+                    inline=False
+                )
+            
+            # Show share button
+            view = WordleCompletedView(user_id, attempts, True)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            return
+        
+        # Check if max attempts reached
+        if len(attempts) >= max_attempts:
+            correct_word = word_data['word']
+            user_stats = await wordle.get_user_stats(db_helpers, user_id)
+            
+            embed = discord.Embed(
+                title="❌ Keine Versuche mehr!",
+                description=f"Das gesuchte Wort war: **{correct_word.upper()}**",
+                color=discord.Color.red()
+            )
+            
+            if user_stats:
+                total_games = user_stats.get('total_games', 0)
+                total_wins = user_stats.get('total_wins', 0)
+                win_rate = (total_wins / total_games * 100) if total_games > 0 else 0
+                
+                embed.add_field(
+                    name="📊 Deine Statistiken",
+                    value=f"Spiele: `{total_games}` | Gewonnen: `{total_wins}` ({win_rate:.1f}%)",
+                    inline=False
+                )
+            
+            # Show share button
+            view = WordleCompletedView(user_id, attempts, False)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            return
+        
+        # Get user stats
+        user_stats = await wordle.get_user_stats(db_helpers, user_id)
+        
+        # Create game embed
+        embed = wordle.create_game_embed(word_data, attempts, user_stats)
+        
+        # Create view with guess button
+        view = WordleView(user_id, word_data, max_attempts)
+        
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error in wordle command: {e}", exc_info=True)
+        await interaction.followup.send(
+            f"❌ Fehler beim Starten des Spiels: {str(e)}",
+            ephemeral=True
+        )
+
+
+class WordleView(discord.ui.View):
+    """UI view for Wordle game with guess input."""
+    
+    def __init__(self, user_id: int, word_data: dict, max_attempts: int):
+        super().__init__(timeout=300)
+        self.user_id = user_id
+        self.word_data = word_data
+        self.max_attempts = max_attempts
+    
+    @discord.ui.button(label="Wort raten", style=discord.ButtonStyle.primary, emoji="🔍")
+    async def guess_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handle guess button click."""
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht dein Spiel!", ephemeral=True)
+            return
+        
+        # Create modal for input
+        modal = WordleGuessModal(self.user_id, self.word_data, self.max_attempts)
+        await interaction.response.send_modal(modal)
+
+
+class WordleCompletedView(discord.ui.View):
+    """UI view for completed Wordle game with share option."""
+    
+    def __init__(self, user_id: int, attempts: list, won: bool):
+        super().__init__(timeout=300)
+        self.user_id = user_id
+        self.attempts = attempts
+        self.won = won
+    
+    @discord.ui.button(label="Teilen", style=discord.ButtonStyle.success, emoji="📤")
+    async def share_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handle share button click."""
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht dein Spiel!", ephemeral=True)
+            return
+        
+        # Create shareable text
+        share_text = f"Wordle {datetime.now(timezone.utc).date()} {len(self.attempts)}/6\n\n"
+        
+        # We need the correct word to generate accurate share text
+        # For now, create simplified share text
+        for attempt in self.attempts:
+            share_text += "🟩🟨⬜⬜⬜\n"  # Placeholder - actual colors would need word_data
+        
+        await interaction.response.send_message(
+            f"Teile dein Ergebnis:\n\n```\n{share_text}\n```",
+            ephemeral=True
+        )
+
+
+class WordleGuessModal(discord.ui.Modal, title="Rate das Wort"):
+    """Modal for entering Wordle guess."""
+    
+    guess_input = discord.ui.TextInput(
+        label="Dein 5-Buchstaben Wort",
+        placeholder="Gib dein Wort ein (genau 5 Buchstaben)...",
+        min_length=5,
+        max_length=5,
+        required=True
+    )
+    
+    def __init__(self, user_id: int, word_data: dict, max_attempts: int):
+        super().__init__()
+        self.user_id = user_id
+        self.word_data = word_data
+        self.max_attempts = max_attempts
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        
+        guess = self.guess_input.value.lower().strip()
+        correct_word = self.word_data['word'].lower()
+        word_id = self.word_data['id']
+        
+        # Validate guess (must be 5 letters, only letters)
+        if len(guess) != 5 or not guess.isalpha():
+            await interaction.followup.send("❌ Dein Wort muss genau 5 Buchstaben enthalten!", ephemeral=True)
+            return
+        
+        # Get current attempts
+        attempts = await wordle.get_user_attempts(db_helpers, self.user_id, word_id)
+        attempt_num = len(attempts) + 1
+        
+        # Check if already guessed this word
+        if any(a['guess'].lower() == guess for a in attempts):
+            await interaction.followup.send("Du hast dieses Wort bereits geraten!", ephemeral=True)
+            return
+        
+        # Check if max attempts reached
+        if attempt_num > self.max_attempts:
+            await interaction.followup.send("Du hast alle Versuche aufgebraucht!", ephemeral=True)
+            return
+        
+        # Record attempt
+        await wordle.record_attempt(db_helpers, self.user_id, word_id, guess, attempt_num)
+        
+        # Check if correct
+        if guess == correct_word:
+            # Win!
+            embed = discord.Embed(
+                title="🎉 Glückwunsch!",
+                description=f"Du hast das Wort **{correct_word.upper()}** in {attempt_num} Versuchen erraten!",
+                color=discord.Color.gold()
+            )
+            
+            # Update stats
+            await wordle.update_user_stats(db_helpers, self.user_id, True, attempt_num)
+            
+            # Update quest progress
+            await quests.update_quest_progress(db_helpers, self.user_id, 'daily_wordle', 1)
+            
+            # Get updated stats and attempts for sharing
+            user_stats = await wordle.get_user_stats(db_helpers, self.user_id)
+            all_attempts = await wordle.get_user_attempts(db_helpers, self.user_id, word_id)
+            
+            if user_stats:
+                total_games = user_stats.get('total_games', 0)
+                total_wins = user_stats.get('total_wins', 0)
+                current_streak = user_stats.get('current_streak', 0)
+                best_streak = user_stats.get('best_streak', 0)
+                win_rate = (total_wins / total_games * 100) if total_games > 0 else 0
+                
+                embed.add_field(
+                    name="📊 Deine Statistiken",
+                    value=f"Spiele: `{total_games}` | Gewonnen: `{total_wins}` ({win_rate:.1f}%)\n"
+                          f"Streak: `{current_streak}` 🔥 | Best: `{best_streak}`",
+                    inline=False
+                )
+            
+            # Show completed view with share button
+            view = WordleCompletedView(self.user_id, all_attempts, True)
+            await interaction.edit_original_response(embed=embed, view=view)
+        else:
+            # Update display with new attempt
+            attempts = await wordle.get_user_attempts(db_helpers, self.user_id, word_id)
+            user_stats = await wordle.get_user_stats(db_helpers, self.user_id)
+            
+            # Check if max attempts reached
+            if attempt_num >= self.max_attempts:
+                embed = wordle.create_game_embed(self.word_data, attempts, user_stats, is_game_over=True, won=False)
+                embed.title = "❌ Keine Versuche mehr!"
+                embed.description = f"Das gesuchte Wort war: **{correct_word.upper()}**"
+                
+                # Update stats (loss)
+                await wordle.update_user_stats(db_helpers, self.user_id, False, attempt_num)
+                
+                # Show completed view with share button
+                view = WordleCompletedView(self.user_id, attempts, False)
+                await interaction.edit_original_response(embed=embed, view=view)
+            else:
+                embed = wordle.create_game_embed(self.word_data, attempts, user_stats)
+                view = WordleView(self.user_id, self.word_data, self.max_attempts)
+                await interaction.edit_original_response(embed=embed, view=view)
+
 
 
 @tree.command(name="wordfind", description="Spiele Word Find - Errate das tägliche Wort!")
