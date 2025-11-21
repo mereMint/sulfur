@@ -3887,6 +3887,10 @@ class ShopBuyView(discord.ui.View):
             'unlimited_word_find': {
                 'name': '📝 Unlimited Word Find',
                 'desc': 'Spiele Word Find ohne tägliches Limit!'
+            },
+            'unlimited_wordle': {
+                'name': '🎮 Unlimited Wordle',
+                'desc': 'Spiele Wordle ohne tägliches Limit!'
             }
         }
         
@@ -4028,6 +4032,40 @@ class ShopBuyView(discord.ui.View):
             )
         
         await interaction.edit_original_response(embed=embed, view=view)
+    
+    @discord.ui.button(label="📦 Bundles", style=discord.ButtonStyle.success, row=2)
+    async def bundles_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Show bundle options."""
+        await interaction.response.defer()
+        
+        view = BundleSelectView(self.member, self.config)
+        embed = discord.Embed(
+            title="📦 Bundles - Spare Geld!",
+            description="Kaufe mehrere Features zusammen und spare!",
+            color=discord.Color.gold()
+        )
+        
+        currency = self.config['modules']['economy']['currency_symbol']
+        bundles = self.config['modules']['economy']['shop']['bundles']
+        
+        for bundle_id, bundle_data in bundles.items():
+            bundle_name = bundle_data['name']
+            bundle_desc = bundle_data['description']
+            bundle_price = bundle_data['price']
+            bundle_discount = bundle_data.get('discount', 0)
+            
+            # Calculate original price
+            original_price = bundle_price + bundle_discount
+            
+            embed.add_field(
+                name=f"{bundle_name} - {bundle_price} {currency}",
+                value=f"{bundle_desc}\n"
+                      f"~~{original_price} {currency}~~ → **{bundle_price} {currency}**\n"
+                      f"💰 Spare {bundle_discount} {currency}!",
+                inline=False
+            )
+        
+        await interaction.edit_original_response(embed=embed, view=view)
 
 
 class ColorTierSelectView(discord.ui.View):
@@ -4094,6 +4132,10 @@ class FeatureSelectView(discord.ui.View):
             'unlimited_word_find': {
                 'name': 'Unlimited Word Find',
                 'description': 'Unbegrenztes Word Find Spiel'
+            },
+            'unlimited_wordle': {
+                'name': 'Unlimited Wordle',
+                'description': 'Unbegrenztes Wordle Spiel'
             }
         }
         
@@ -4482,6 +4524,115 @@ class WerwolfRoleSelectView(discord.ui.View):
             await interaction.edit_original_response(embed=embed, view=None)
         except Exception as e:
             logger.error(f"Error purchasing Werwolf role: {e}", exc_info=True)
+            await interaction.followup.send(f"Fehler beim Kauf: {str(e)}", ephemeral=True)
+
+
+class BundleSelectView(discord.ui.View):
+    """View for selecting bundles to purchase."""
+    
+    def __init__(self, member: discord.Member, config: dict):
+        super().__init__(timeout=120)
+        self.member = member
+        self.config = config
+        
+        # Create select menu for bundles
+        options = []
+        bundles = config['modules']['economy']['shop']['bundles']
+        currency = config['modules']['economy']['currency_symbol']
+        
+        for bundle_id, bundle_data in bundles.items():
+            bundle_name = bundle_data['name']
+            bundle_desc = bundle_data['description']
+            bundle_price = bundle_data['price']
+            bundle_discount = bundle_data.get('discount', 0)
+            
+            options.append(
+                discord.SelectOption(
+                    label=bundle_name,
+                    value=bundle_id,
+                    description=f"{bundle_price} {currency} - Spare {bundle_discount} {currency}!"[:100]
+                )
+            )
+        
+        select = discord.ui.Select(placeholder="Wähle ein Bundle...", options=options)
+        select.callback = self.on_bundle_select
+        self.add_item(select)
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.member.id:
+            await interaction.response.send_message("Du kannst diese Auswahl nicht bedienen.", ephemeral=True)
+            return False
+        return True
+    
+    async def on_bundle_select(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        
+        bundle_id = interaction.data['values'][0]
+        bundle_data = self.config['modules']['economy']['shop']['bundles'][bundle_id]
+        bundle_name = bundle_data['name']
+        bundle_price = bundle_data['price']
+        bundle_features = bundle_data['features']
+        currency = self.config['modules']['economy']['currency_symbol']
+        
+        try:
+            # Check if user already owns any of the features
+            owned_features = []
+            for feature in bundle_features:
+                if await db_helpers.has_feature_unlock(self.member.id, feature):
+                    owned_features.append(feature)
+            
+            if owned_features:
+                embed = discord.Embed(
+                    title="❌ Bundle nicht verfügbar",
+                    description=f"Du besitzt bereits einige Features aus diesem Bundle: {', '.join(owned_features)}",
+                    color=discord.Color.red()
+                )
+                await interaction.edit_original_response(embed=embed, view=None)
+                return
+            
+            # Check balance
+            stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+            balance = await db_helpers.get_balance(self.member.id)
+            
+            if balance < bundle_price:
+                embed = discord.Embed(
+                    title="❌ Kauf fehlgeschlagen",
+                    description=f"Nicht genug Geld! Du benötigst {bundle_price} {currency}, hast aber nur {balance} {currency}.",
+                    color=discord.Color.red()
+                )
+                await interaction.edit_original_response(embed=embed, view=None)
+                return
+            
+            # Purchase all features in the bundle
+            new_balance = await db_helpers.add_balance(self.member.id, self.member.display_name, -bundle_price, self.config, stat_period)
+            await db_helpers.log_transaction(
+                self.member.id,
+                'shop_purchase',
+                -bundle_price,
+                new_balance,
+                f"Purchased bundle: {bundle_name}"
+            )
+            
+            # Grant all features
+            for feature in bundle_features:
+                await db_helpers.add_feature_unlock(self.member.id, feature)
+            
+            features_list = "\n".join([f"• {feature}" for feature in bundle_features])
+            embed = discord.Embed(
+                title="✅ Bundle gekauft!",
+                description=f"Du hast das **{bundle_name}** Bundle erfolgreich gekauft!\n\n"
+                           f"Freigeschaltete Features:\n{features_list}",
+                color=discord.Color.green()
+            )
+            embed.add_field(
+                name="💰 Neues Guthaben",
+                value=f"{new_balance:.2f} {currency}",
+                inline=False
+            )
+            
+            await interaction.edit_original_response(embed=embed, view=None)
+        except Exception as e:
+            logger.error(f"Error purchasing bundle: {e}", exc_info=True)
             await interaction.followup.send(f"Fehler beim Kauf: {str(e)}", ephemeral=True)
 
 
@@ -4946,12 +5097,6 @@ class StockExchangeView(discord.ui.View):
         super().__init__(timeout=180)
         self.user = user
         self.selected_stock = None
-        self.setup_ui()
-    
-    def setup_ui(self):
-        """Setup the UI elements."""
-        # Stock selection dropdown
-        self.add_item(StockSelectDropdown(self))
     
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user.id:
@@ -4961,13 +5106,21 @@ class StockExchangeView(discord.ui.View):
     
     async def show_exchange(self, interaction: discord.Interaction):
         """Show the stock exchange."""
+        # Get all stocks from database
+        all_stocks = await stock_market.get_all_stocks(db_helpers, limit=25)
+        
+        if all_stocks:
+            # Add dropdown with stocks from database
+            dropdown = StockSelectDropdown(self, all_stocks)
+            self.add_item(dropdown)
+        
         embed = discord.Embed(
             title="🏪 Börse",
             description="Wähle eine Aktie aus, um zu handeln.",
             color=discord.Color.gold()
         )
         
-        # Get all stocks
+        # Get top stocks for display
         top_stocks = await stock_market.get_top_stocks(db_helpers, limit=10)
         
         if top_stocks:
@@ -5060,14 +5213,20 @@ class StockExchangeView(discord.ui.View):
 class StockSelectDropdown(discord.ui.Select):
     """Dropdown for selecting stocks."""
     
-    def __init__(self, parent_view: StockExchangeView):
+    def __init__(self, parent_view: StockExchangeView, stocks: list):
         self.parent_view = parent_view
         
-        # Get stock options
-        options = [
-            discord.SelectOption(label=stock['symbol'], description=stock['name'], value=stock['symbol'])
-            for stock in stock_market.DEFAULT_STOCKS[:25]  # Discord limit
-        ]
+        # Create options from database stocks
+        options = []
+        for stock in stocks:
+            symbol, name, category = stock
+            options.append(
+                discord.SelectOption(
+                    label=symbol, 
+                    description=f"{name} ({category})"[:100],  # Discord limit
+                    value=symbol
+                )
+            )
         
         super().__init__(
             placeholder="Wähle eine Aktie...",

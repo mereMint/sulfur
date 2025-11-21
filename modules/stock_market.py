@@ -246,6 +246,33 @@ async def get_stock(db_helpers, symbol: str):
         return None
 
 
+async def get_all_stocks(db_helpers, limit: int = 50):
+    """Get all stocks from database."""
+    try:
+        if not db_helpers.db_pool:
+            return []
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return []
+        
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                SELECT symbol, name, category
+                FROM stocks
+                ORDER BY symbol ASC
+                LIMIT %s
+            """, (limit,))
+            return cursor.fetchall()
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting all stocks: {e}", exc_info=True)
+        return []
+
+
 async def get_top_stocks(db_helpers, limit: int = 10):
     """Get top stocks by price change."""
     try:
