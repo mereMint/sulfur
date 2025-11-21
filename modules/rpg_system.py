@@ -184,7 +184,9 @@ async def get_player_profile(db_helpers, user_id: int):
 
 def calculate_xp_for_level(level: int) -> int:
     """Calculate XP required for a level."""
-    return int(100 * (1.5 ** (level - 1)))
+    # Cap at level 100 to prevent extreme calculations
+    capped_level = min(level, 100)
+    return int(100 * (1.5 ** (capped_level - 1)))
 
 
 async def gain_xp(db_helpers, user_id: int, xp_amount: int):

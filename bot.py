@@ -7373,9 +7373,24 @@ async def horserace(interaction: discord.Interaction, horses: int = 6):
             )
         
         if loser_list:
+            # Truncate at complete entries to avoid breaking Discord formatting
+            loser_text = "\n".join(loser_list)
+            if len(loser_text) > 1024:
+                # Find last complete entry that fits
+                truncated = []
+                current_length = 0
+                for entry in loser_list:
+                    if current_length + len(entry) + 1 > 1024:  # +1 for newline
+                        break
+                    truncated.append(entry)
+                    current_length += len(entry) + 1
+                loser_text = "\n".join(truncated)
+                if len(loser_list) - len(truncated) > 0:
+                    loser_text += f"\n... und {len(loser_list) - len(truncated)} weitere"
+            
             result_embed.add_field(
                 name="😢 Verloren",
-                value="\n".join(loser_list)[:1024] if loser_list else "Niemand",  # Limit field length
+                value=loser_text if loser_text else "Niemand",
                 inline=False
             )
         

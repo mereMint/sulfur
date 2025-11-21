@@ -10,6 +10,9 @@ from datetime import datetime, timezone
 from modules.logger_utils import bot_logger as logger
 
 
+# Configuration
+HOUSE_EDGE = 0.10  # 10% house edge (configurable)
+
 # Horse data with names and emojis
 HORSES = [
     {'name': 'Thunder', 'emoji': '🐎', 'color': discord.Color.dark_gold()},
@@ -105,7 +108,7 @@ class HorseRace:
         
         # Odds inversely proportional to bet amount
         # More popular horses have lower odds
-        odds = (total_pool / horse_total) * 0.9  # House takes 10%
+        odds = (total_pool / horse_total) * (1 - HOUSE_EDGE)
         
         # Clamp odds between 1.1x and 10x
         return max(1.1, min(10.0, odds))

@@ -34,7 +34,7 @@ async def fetch_random_words_english(count=1, min_length=5, max_length=5):
             async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as response:
                 if response.status == 200:
                     words = await response.json()
-                    # Filter words by length
+                    # Filter words by both min and max length (API may not respect min_length)
                     filtered = [w.lower() for w in words if min_length <= len(w) <= max_length and w.isalpha()]
                     logger.info(f"Fetched {len(filtered)} words from random-word-api")
                     return filtered
