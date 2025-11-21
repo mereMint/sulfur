@@ -231,6 +231,14 @@
             "target": 2,
             "reward": 80,
             "xp_reward": 100
+          },
+          "daily_word_find": {
+            "target_min": 1,
+            "target_max": 1,
+            "target_step": 1,
+            "target": 1,
+            "reward": 100,
+            "xp_reward": 150
           }
         },
         "daily_completion_bonus": {

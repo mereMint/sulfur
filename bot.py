@@ -2521,43 +2521,28 @@ async def profile(interaction: discord.Interaction, user: discord.Member = None)
     color_display = equipped_color if equipped_color else "Keine Farbe ausgerüstet"
     embed.add_field(name="🎨 Farbe", value=f"`{color_display}`", inline=True)
 
-    # Werwolf Stats
-    wins = profile_data.get('wins', 0)
-    losses = profile_data.get('losses', 0)
-    total_games = wins + losses
-    win_rate = (wins / total_games * 100) if total_games > 0 else 0
-    embed.add_field(
-        name="🐺 Werwolf Stats",
-        value=f"Siege: `{wins}`\nNiederlagen: `{losses}`\nWin-Rate: `{win_rate:.1f}%`",
-        inline=False
-    )
-
-    # Show purchased items/features
-    has_dm = await db_helpers.has_feature_unlock(target_user.id, 'dm_access')
-    has_casino = await db_helpers.has_feature_unlock(target_user.id, 'casino')
-    has_detective = await db_helpers.has_feature_unlock(target_user.id, 'detective')
-    has_trolly = await db_helpers.has_feature_unlock(target_user.id, 'trolly')
+    # Show purchased items/features - dynamically fetch all features
+    all_features = await db_helpers.get_user_features(target_user.id)
     
-    # Check for individual Werwolf roles
-    has_seherin = await db_helpers.has_feature_unlock(target_user.id, 'werwolf_role_seherin')
-    has_hexe = await db_helpers.has_feature_unlock(target_user.id, 'werwolf_role_hexe')
-    has_dönerstopfer = await db_helpers.has_feature_unlock(target_user.id, 'werwolf_role_dönerstopfer')
-    has_jäger = await db_helpers.has_feature_unlock(target_user.id, 'werwolf_role_jäger')
+    # Feature name mapping with icons
+    feature_names = {
+        'dm_access': '✉️ DM Access',
+        'casino': '🎰 Casino Access',
+        'detective': '🔍 Detective Game',
+        'trolly': '🚃 Trolly Problem',
+        'unlimited_word_find': '📝 Unlimited Word Find',
+        'werwolf_special_roles': '🐺 Werwolf Special Roles',
+        'custom_status': '💬 Custom Status',
+        'werwolf_role_seherin': '🔮 Werwolf: Seherin',
+        'werwolf_role_hexe': '🧪 Werwolf: Hexe',
+        'werwolf_role_dönerstopfer': '🌯 Werwolf: Dönerstopfer',
+        'werwolf_role_jäger': '🏹 Werwolf: Jäger'
+    }
     
     features = []
-    if has_dm: features.append("✉️ DM Access")
-    if has_casino: features.append("🎰 Casino Access")
-    if has_detective: features.append("🔍 Detective Game")
-    if has_trolly: features.append("🚃 Trolly Problem")
-    
-    werwolf_roles = []
-    if has_seherin: werwolf_roles.append("🔮 Seherin")
-    if has_hexe: werwolf_roles.append("🧪 Hexe")
-    if has_dönerstopfer: werwolf_roles.append("🌯 Dönerstopfer")
-    if has_jäger: werwolf_roles.append("🏹 Jäger")
-    
-    if werwolf_roles:
-        features.append(f"🐺 Werwolf: {', '.join(werwolf_roles)}")
+    for feature in all_features:
+        display_name = feature_names.get(feature, feature)
+        features.append(display_name)
     
     features_text = "\n".join(features) if features else "*Keine Features freigeschaltet.*"
     embed.add_field(name="🎯 Freigeschaltene Features", value=features_text, inline=False)
