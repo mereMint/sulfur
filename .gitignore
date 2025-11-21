@@ -25,3 +25,5 @@ last_update.txt
 # IDE / Editor specific
 .vscode/test_db_null_handling.py
 test_chatbot_without_db.py
+/tmp/
+test_*.py

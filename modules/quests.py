@@ -645,7 +645,8 @@ def create_quests_embed(quests: list, user_name: str, config: dict):
         'vc_minutes': '🎤',
         'reactions': '👍',
         'game_minutes': '🎮',
-        'daily_media': '📸'
+        'daily_media': '📸',
+        'daily_word_find': '📝'
     }
     
     quest_names = {
@@ -653,7 +654,8 @@ def create_quests_embed(quests: list, user_name: str, config: dict):
         'vc_minutes': 'Voice Chat',
         'reactions': 'Reaktionen geben',
         'game_minutes': 'Spiele spielen',
-        'daily_media': 'Medien teilen'
+        'daily_media': 'Medien teilen',
+        'daily_word_find': 'Das tägliche Wort finden'
     }
     
     for i, quest in enumerate(quests, 1):

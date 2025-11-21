@@ -41,6 +41,7 @@ from modules import api_helpers
 from modules import stock_market  # NEW: Stock market system
 from modules import news  # NEW: News system
 from modules import word_find  # NEW: Word Find game
+from modules import quests  # NEW: Quest system for tracking
 from modules.bot_enhancements import (
     handle_image_attachment,
     handle_unknown_emojis_in_message,
@@ -2519,45 +2520,36 @@ async def profile(interaction: discord.Interaction, user: discord.Member = None)
     # Get equipped color display
     equipped_color = await db_helpers.get_user_equipped_color(target_user.id)
     color_display = equipped_color if equipped_color else "Keine Farbe ausgerüstet"
-    embed.add_field(name="🎨 Farbe", value=f"`{color_display}`", inline=True)
-
-    # Werwolf Stats
-    wins = profile_data.get('wins', 0)
-    losses = profile_data.get('losses', 0)
-    total_games = wins + losses
-    win_rate = (wins / total_games * 100) if total_games > 0 else 0
-    embed.add_field(
-        name="🐺 Werwolf Stats",
-        value=f"Siege: `{wins}`\nNiederlagen: `{losses}`\nWin-Rate: `{win_rate:.1f}%`",
-        inline=False
-    )
-
-    # Show purchased items/features
-    has_dm = await db_helpers.has_feature_unlock(target_user.id, 'dm_access')
-    has_casino = await db_helpers.has_feature_unlock(target_user.id, 'casino')
-    has_detective = await db_helpers.has_feature_unlock(target_user.id, 'detective')
-    has_trolly = await db_helpers.has_feature_unlock(target_user.id, 'trolly')
     
-    # Check for individual Werwolf roles
-    has_seherin = await db_helpers.has_feature_unlock(target_user.id, 'werwolf_role_seherin')
-    has_hexe = await db_helpers.has_feature_unlock(target_user.id, 'werwolf_role_hexe')
-    has_dönerstopfer = await db_helpers.has_feature_unlock(target_user.id, 'werwolf_role_dönerstopfer')
-    has_jäger = await db_helpers.has_feature_unlock(target_user.id, 'werwolf_role_jäger')
+    # Check if user is boosting the server
+    is_boosting = target_user.premium_since is not None
+    boost_status = "💎 Boostet den Server!" if is_boosting else "Kein Boost"
+    
+    embed.add_field(name="🎨 Farbe", value=f"`{color_display}`", inline=True)
+    embed.add_field(name="🚀 Server Boost", value=f"{boost_status}", inline=True)
+
+    # Show purchased items/features - dynamically fetch all features
+    all_features = await db_helpers.get_user_features(target_user.id)
+    
+    # Feature name mapping with icons
+    feature_names = {
+        'dm_access': '✉️ DM Access',
+        'casino': '🎰 Casino Access',
+        'detective': '🔍 Detective Game',
+        'trolly': '🚃 Trolly Problem',
+        'unlimited_word_find': '📝 Unlimited Word Find',
+        'werwolf_special_roles': '🐺 Werwolf Special Roles',
+        'custom_status': '💬 Custom Status',
+        'werwolf_role_seherin': '🔮 Werwolf: Seherin',
+        'werwolf_role_hexe': '🧪 Werwolf: Hexe',
+        'werwolf_role_dönerstopfer': '🌯 Werwolf: Dönerstopfer',
+        'werwolf_role_jäger': '🏹 Werwolf: Jäger'
+    }
     
     features = []
-    if has_dm: features.append("✉️ DM Access")
-    if has_casino: features.append("🎰 Casino Access")
-    if has_detective: features.append("🔍 Detective Game")
-    if has_trolly: features.append("🚃 Trolly Problem")
-    
-    werwolf_roles = []
-    if has_seherin: werwolf_roles.append("🔮 Seherin")
-    if has_hexe: werwolf_roles.append("🧪 Hexe")
-    if has_dönerstopfer: werwolf_roles.append("🌯 Dönerstopfer")
-    if has_jäger: werwolf_roles.append("🏹 Jäger")
-    
-    if werwolf_roles:
-        features.append(f"🐺 Werwolf: {', '.join(werwolf_roles)}")
+    for feature in all_features:
+        display_name = feature_names.get(feature, feature)
+        features.append(display_name)
     
     features_text = "\n".join(features) if features else "*Keine Features freigeschaltet.*"
     embed.add_field(name="🎯 Freigeschaltene Features", value=features_text, inline=False)
@@ -2930,6 +2922,17 @@ class ProfilePageView(discord.ui.View):
 
 
 
+# --- Leaderboard Helper Constants and Functions ---
+MAX_LEADERBOARD_NAME_LENGTH = 18
+MAX_WERWOLF_NAME_LENGTH = 16
+
+def truncate_name(name: str, max_length: int) -> str:
+    """Truncate a name if it exceeds max_length, adding ellipsis."""
+    if len(name) > max_length:
+        return name[:max_length - 3] + "..."
+    return name
+
+
 class LeaderboardPageView(discord.ui.View):
     """View for paginated leaderboard with different categories."""
     
@@ -2956,26 +2959,42 @@ class LeaderboardPageView(discord.ui.View):
         
         if not leaderboard:
             return discord.Embed(
-                title="🐺 Werwolf Leaderboard 🐺",
+                title="🐺 Werwolf Leaderboard",
                 description="Es gibt noch keine Statistiken. Spielt erst mal eine Runde!",
                 color=get_embed_color(self.config)
             )
         
         embed = discord.Embed(
-            title="🐺 Werwolf Leaderboard 🐺",
-            description="Die Top-Spieler mit den meisten Siegen.",
+            title="🐺 Werwolf Leaderboard",
+            description="*Top Werwolf-Spieler nach Siegen*",
             color=get_embed_color(self.config)
         )
         
+        # Create compact leaderboard with medal emojis
         leaderboard_text = ""
         for i, player in enumerate(leaderboard):
             rank = i + 1
-            win_loss_ratio = player['wins'] / (player['wins'] + player['losses']) if (player['wins'] + player['losses']) > 0 else 0
-            leaderboard_text += f"**{rank}. {player['display_name']}**\n"
-            leaderboard_text += f"   Wins: `{player['wins']}` | Losses: `{player['losses']}` | W/L: `{win_loss_ratio:.2f}`\n"
+            
+            # Medal emojis for top 3
+            if rank == 1:
+                rank_display = "🥇"
+            elif rank == 2:
+                rank_display = "🥈"
+            elif rank == 3:
+                rank_display = "🥉"
+            else:
+                rank_display = f"`{rank:>2}.`"
+            
+            wins = player['wins']
+            losses = player['losses']
+            total_games = wins + losses
+            win_rate = (wins / total_games * 100) if total_games > 0 else 0
+            name = truncate_name(player['display_name'], MAX_WERWOLF_NAME_LENGTH)
+            
+            leaderboard_text += f"{rank_display} **{name}** • `{wins}W-{losses}L` • `{win_rate:.0f}%`\n"
         
-        embed.add_field(name="Rangliste", value=leaderboard_text, inline=False)
-        embed.set_footer(text="Wer hier nicht oben steht, ist ein Noob :xdx:")
+        embed.add_field(name="🎯 Rankings", value=leaderboard_text, inline=False)
+        embed.set_footer(text="W/L = Win/Loss Ratio • Werde Champion!")
         
         return embed
 
@@ -2995,15 +3014,41 @@ async def leaderboard(interaction: discord.Interaction):
         await interaction.followup.send("Noch niemand hat XP gesammelt. Schreibt ein paar Nachrichten!", ephemeral=True)
         return
 
-    embed = discord.Embed(title="🏆 Globales Leaderboard 🏆", description="Die aktivsten Mitglieder", color=get_embed_color(config))
+    # Create a more compact and visually pleasing embed
+    embed = discord.Embed(
+        title="🏆 Globales Leaderboard",
+        description="*Die aktivsten Server-Mitglieder*",
+        color=get_embed_color(config)
+    )
     
+    # Create compact leaderboard with medal emojis for top 3
     leaderboard_text = ""
     for i, player in enumerate(leaderboard_data):
-        leaderboard_text += f"**{i + 1}. {player['display_name']}** - Level {player['level']} ({player['xp']} XP)\n"
+        rank = i + 1
+        
+        # Medal emojis for top 3
+        if rank == 1:
+            rank_display = "🥇"
+        elif rank == 2:
+            rank_display = "🥈"
+        elif rank == 3:
+            rank_display = "🥉"
+        else:
+            rank_display = f"`{rank:>2}.`"
+        
+        # Format level and XP compactly
+        level = player['level']
+        xp = player['xp']
+        name = truncate_name(player['display_name'], MAX_LEADERBOARD_NAME_LENGTH)
+        
+        leaderboard_text += f"{rank_display} **{name}** • Lvl `{level}` • `{xp:,}` XP\n"
 
-    embed.add_field(name="Top 10", value=leaderboard_text, inline=False)
+    embed.add_field(name="📊 Level Rankings", value=leaderboard_text, inline=False)
     
-    # Add view for switching to Werwolf leaderboard
+    # Add footer with helpful info
+    embed.set_footer(text="💡 Nutze die Buttons unten für weitere Leaderboards")
+    
+    # Add view for switching to other leaderboards
     view = LeaderboardPageView(config)
     await interaction.followup.send(embed=embed, view=view)
 
@@ -7344,6 +7389,10 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
             
             # Update stats
             await word_find.update_user_stats(db_helpers, self.user_id, True, attempt_num, self.game_type)
+            
+            # Update quest progress for daily word find
+            if self.game_type == 'daily':
+                await quests.update_quest_progress(db_helpers, self.user_id, 'daily_word_find', 1)
             
             # Mark premium game as completed if applicable
             if self.game_type == 'premium':
