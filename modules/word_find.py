@@ -52,6 +52,20 @@ async def initialize_word_find_table(db_helpers):
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
+            # Table for premium games (separate from daily)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS word_find_premium_games (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    word VARCHAR(100) NOT NULL,
+                    difficulty VARCHAR(20) NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed BOOLEAN DEFAULT FALSE,
+                    won BOOLEAN DEFAULT FALSE,
+                    INDEX idx_user_created (user_id, created_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """)
+            
             # Table for user attempts
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS word_find_attempts (
@@ -61,9 +75,9 @@ async def initialize_word_find_table(db_helpers):
                     guess VARCHAR(100) NOT NULL,
                     similarity_score FLOAT NOT NULL,
                     attempt_number INT NOT NULL,
+                    game_type ENUM('daily', 'premium') DEFAULT 'daily',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (word_id) REFERENCES word_find_daily(id) ON DELETE CASCADE,
-                    INDEX idx_user_word (user_id, word_id)
+                    INDEX idx_user_word_type (user_id, word_id, game_type)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
@@ -339,7 +353,123 @@ async def get_user_stats(db_helpers, user_id: int):
         return None
 
 
-def create_game_embed(word_data: dict, attempts: list, max_attempts: int, user_stats: dict = None):
+async def create_premium_game(db_helpers, user_id: int):
+    """Create a new premium game for a user."""
+    try:
+        if not db_helpers.db_pool:
+            return None
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return None
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            # Choose random difficulty and word
+            difficulty = random.choice(['easy', 'medium', 'hard'])
+            word = random.choice(WORD_LISTS[difficulty])
+            
+            cursor.execute("""
+                INSERT INTO word_find_premium_games (user_id, word, difficulty)
+                VALUES (%s, %s, %s)
+            """, (user_id, word, difficulty))
+            
+            conn.commit()
+            game_id = cursor.lastrowid
+            
+            return {'id': game_id, 'word': word, 'difficulty': difficulty, 'type': 'premium'}
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error creating premium game: {e}", exc_info=True)
+        return None
+
+
+async def get_user_attempts_by_type(db_helpers, user_id: int, word_id: int, game_type: str):
+    """Get user's attempts for a specific game (daily or premium)."""
+    try:
+        if not db_helpers.db_pool:
+            return []
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return []
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            cursor.execute("""
+                SELECT guess, similarity_score, attempt_number
+                FROM word_find_attempts
+                WHERE user_id = %s AND word_id = %s AND game_type = %s
+                ORDER BY similarity_score DESC
+            """, (user_id, word_id, game_type))
+            
+            return cursor.fetchall()
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting user attempts by type: {e}", exc_info=True)
+        return []
+
+
+async def record_attempt_with_type(db_helpers, user_id: int, word_id: int, guess: str, similarity: float, attempt_num: int, game_type: str):
+    """Record a guess attempt with game type."""
+    try:
+        if not db_helpers.db_pool:
+            return False
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return False
+        
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO word_find_attempts (user_id, word_id, guess, similarity_score, attempt_number, game_type)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (user_id, word_id, guess, similarity, attempt_num, game_type))
+            
+            conn.commit()
+            return True
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error recording attempt with type: {e}", exc_info=True)
+        return False
+
+
+async def complete_premium_game(db_helpers, game_id: int, won: bool):
+    """Mark a premium game as completed."""
+    try:
+        if not db_helpers.db_pool:
+            return False
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return False
+        
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                UPDATE word_find_premium_games
+                SET completed = TRUE, won = %s
+                WHERE id = %s
+            """, (won, game_id))
+            
+            conn.commit()
+            return True
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error completing premium game: {e}", exc_info=True)
+        return False
+
+
+def create_game_embed(word_data: dict, attempts: list, max_attempts: int, user_stats: dict = None, game_type: str = 'daily'):
     """Create the game embed with current progress."""
     difficulty_colors = {
         'easy': discord.Color.green(),
@@ -350,9 +480,11 @@ def create_game_embed(word_data: dict, attempts: list, max_attempts: int, user_s
     difficulty = word_data.get('difficulty', 'medium')
     color = difficulty_colors.get(difficulty, discord.Color.blue())
     
+    title = "🔍 Word Find - Tägliches Wortratespiel" if game_type == 'daily' else "🔍 Word Find - Premium Spiel"
+    
     embed = discord.Embed(
-        title="🔍 Word Find - Tägliches Wortratespiel",
-        description=f"Errate das heutige Wort! Du hast {max_attempts} Versuche.\n"
+        title=title,
+        description=f"Errate das Wort! Du hast {max_attempts} Versuche.\n"
                    f"Schwierigkeit: **{difficulty.upper()}**",
         color=color
     )
@@ -411,3 +543,38 @@ def create_game_embed(word_data: dict, attempts: list, max_attempts: int, user_s
     embed.set_footer(text="💡 Tipp: Nähere dich dem Wort durch ähnliche Begriffe!")
     
     return embed
+
+
+def create_share_text(attempts: list, won: bool, game_type: str = 'daily'):
+    """Create shareable text for wordfind results (without spoiling the word)."""
+    date_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    
+    # Sort attempts by attempt number
+    sorted_attempts = sorted(attempts, key=lambda x: x['attempt_number'])
+    
+    # Create emoji representation
+    emoji_pattern = ""
+    for attempt in sorted_attempts:
+        score = attempt['similarity_score']
+        if score >= 100:
+            emoji_pattern += "🟩"  # Correct
+        elif score >= 80:
+            emoji_pattern += "🟧"  # Very hot
+        elif score >= 60:
+            emoji_pattern += "🟨"  # Hot
+        elif score >= 40:
+            emoji_pattern += "🟦"  # Warm
+        elif score >= 20:
+            emoji_pattern += "⬜"  # Cold
+        else:
+            emoji_pattern += "⬛"  # Very cold
+    
+    game_label = "Tägliches" if game_type == 'daily' else "Premium"
+    result = "✅" if won else "❌"
+    
+    share_text = f"🔍 Word Find {game_label} {date_str}\n"
+    share_text += f"{result} {len(attempts)}/20\n\n"
+    share_text += f"{emoji_pattern}\n\n"
+    share_text += "Spiele mit: /wordfind"
+    
+    return share_text
