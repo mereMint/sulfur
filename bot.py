@@ -41,6 +41,7 @@ from modules import api_helpers
 from modules import stock_market  # NEW: Stock market system
 from modules import news  # NEW: News system
 from modules import word_find  # NEW: Word Find game
+from modules import quests  # NEW: Quest system for tracking
 from modules.bot_enhancements import (
     handle_image_attachment,
     handle_unknown_emojis_in_message,
@@ -2921,6 +2922,17 @@ class ProfilePageView(discord.ui.View):
 
 
 
+# --- Leaderboard Helper Constants and Functions ---
+MAX_LEADERBOARD_NAME_LENGTH = 18
+MAX_WERWOLF_NAME_LENGTH = 16
+
+def truncate_name(name: str, max_length: int) -> str:
+    """Truncate a name if it exceeds max_length, adding ellipsis."""
+    if len(name) > max_length:
+        return name[:max_length - 3] + "..."
+    return name
+
+
 class LeaderboardPageView(discord.ui.View):
     """View for paginated leaderboard with different categories."""
     
@@ -2977,11 +2989,7 @@ class LeaderboardPageView(discord.ui.View):
             losses = player['losses']
             total_games = wins + losses
             win_rate = (wins / total_games * 100) if total_games > 0 else 0
-            name = player['display_name']
-            
-            # Truncate long names
-            if len(name) > 16:
-                name = name[:13] + "..."
+            name = truncate_name(player['display_name'], MAX_WERWOLF_NAME_LENGTH)
             
             leaderboard_text += f"{rank_display} **{name}** • `{wins}W-{losses}L` • `{win_rate:.0f}%`\n"
         
@@ -3031,11 +3039,7 @@ async def leaderboard(interaction: discord.Interaction):
         # Format level and XP compactly
         level = player['level']
         xp = player['xp']
-        name = player['display_name']
-        
-        # Truncate long names
-        if len(name) > 18:
-            name = name[:15] + "..."
+        name = truncate_name(player['display_name'], MAX_LEADERBOARD_NAME_LENGTH)
         
         leaderboard_text += f"{rank_display} **{name}** • Lvl `{level}` • `{xp:,}` XP\n"
 
@@ -7388,7 +7392,6 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
             
             # Update quest progress for daily word find
             if self.game_type == 'daily':
-                from modules import quests
                 await quests.update_quest_progress(db_helpers, self.user_id, 'daily_word_find', 1)
             
             # Mark premium game as completed if applicable
