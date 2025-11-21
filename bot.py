@@ -619,6 +619,7 @@ async def on_ready():
     # --- NEW: Initialize RPG system ---
     print("Initializing RPG system...")
     await rpg_system.initialize_rpg_tables(db_helpers)
+    await rpg_system.initialize_default_monsters(db_helpers)
     print("RPG system ready!")
 
     # --- NEW: Clean up leftover game channels on restart ---
@@ -2994,23 +2995,234 @@ async def rpg_command(interaction: discord.Interaction):
             inline=True
         )
         
-        # Actions (buttons will be added in future expansion)
+        # Actions
         embed.add_field(
             name="🎮 Verfügbare Aktionen",
-            value="🗡️ Abenteuer (In Entwicklung)\n"
+            value="🗡️ `/adventure` - Gehe auf Abenteuer\n"
                   "🏪 Shop (In Entwicklung)\n"
                   "⛩️ Tempel (In Entwicklung)\n"
                   f"🌍 Weltwechsel ({'🔒 Level 10 benötigt' if player['level'] < 10 else '✅ Verfügbar'})",
             inline=False
         )
         
-        embed.set_footer(text="Vollständiges RPG-System wird bald hinzugefügt!")
+        embed.set_footer(text="Weitere RPG-Features werden nach und nach hinzugefügt!")
         
         await interaction.followup.send(embed=embed)
         
     except Exception as e:
         logger.error(f"Error in RPG command: {e}", exc_info=True)
         await interaction.followup.send(f"❌ Ein Fehler ist aufgetreten: {e}")
+
+
+@tree.command(name="adventure", description="Gehe auf ein Abenteuer und kämpfe gegen Monster!")
+async def adventure_command(interaction: discord.Interaction):
+    """Start an adventure encounter."""
+    await interaction.response.defer()
+    
+    try:
+        user_id = interaction.user.id
+        
+        # Start adventure
+        monster, error = await rpg_system.start_adventure(db_helpers, user_id)
+        
+        if error:
+            await interaction.followup.send(f"❌ {error}")
+            return
+        
+        if not monster:
+            await interaction.followup.send("❌ Kein Monster gefunden.")
+            return
+        
+        # Initialize default monsters if needed
+        await rpg_system.initialize_default_monsters(db_helpers)
+        
+        # Create combat embed
+        embed = discord.Embed(
+            title=f"⚔️ Wilde Begegnung!",
+            description=f"Ein wilder **{monster['name']}** (Level {monster['level']}) erscheint!",
+            color=discord.Color.red()
+        )
+        
+        # Monster stats
+        embed.add_field(
+            name=f"🐉 {monster['name']}",
+            value=f"❤️ HP: {monster['health']}\n"
+                  f"⚔️ Angriff: {monster['strength']}\n"
+                  f"🛡️ Verteidigung: {monster['defense']}\n"
+                  f"⚡ Geschwindigkeit: {monster['speed']}",
+            inline=True
+        )
+        
+        # Rewards
+        embed.add_field(
+            name="🎁 Belohnungen",
+            value=f"💰 {monster['gold_reward']} Gold\n"
+                  f"⭐ {monster['xp_reward']} XP",
+            inline=True
+        )
+        
+        embed.set_footer(text="Wähle deine Aktion!")
+        
+        # Create combat view
+        view = RPGCombatView(user_id, monster)
+        await interaction.followup.send(embed=embed, view=view)
+        
+    except Exception as e:
+        logger.error(f"Error in adventure command: {e}", exc_info=True)
+        await interaction.followup.send(f"❌ Ein Fehler ist aufgetreten: {e}")
+
+
+class RPGCombatView(discord.ui.View):
+    """Interactive combat view for RPG battles."""
+    
+    def __init__(self, user_id: int, monster: dict):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.user_id = user_id
+        self.monster = monster
+        self.turn_count = 0
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Dies ist nicht dein Kampf!", ephemeral=True)
+            return False
+        return True
+    
+    @discord.ui.button(label="⚔️ Angreifen", style=discord.ButtonStyle.danger)
+    async def attack_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Attack the monster."""
+        await interaction.response.defer()
+        
+        try:
+            # Process combat turn
+            result = await rpg_system.process_combat_turn(db_helpers, self.user_id, self.monster, 'attack')
+            
+            if 'error' in result:
+                await interaction.followup.send(f"❌ Fehler: {result['error']}")
+                return
+            
+            self.turn_count += 1
+            
+            # Create result embed
+            embed = discord.Embed(
+                title=f"⚔️ Kampfrunde {self.turn_count}",
+                description="\n".join(result['messages']),
+                color=discord.Color.gold() if result.get('player_won') else discord.Color.orange()
+            )
+            
+            # Add health bars
+            player_health_pct = (result['player_health'] / (await rpg_system.get_player_profile(db_helpers, self.user_id))['max_health']) * 100
+            monster_health_pct = (result['monster_health'] / self.monster['health']) * 100 if self.monster['health'] > 0 else 0
+            
+            player_bar = self._create_health_bar(player_health_pct)
+            monster_bar = self._create_health_bar(monster_health_pct)
+            
+            embed.add_field(
+                name="❤️ Deine HP",
+                value=f"{player_bar} {result['player_health']}",
+                inline=True
+            )
+            
+            if not result['combat_over']:
+                embed.add_field(
+                    name=f"🐉 {self.monster['name']} HP",
+                    value=f"{monster_bar} {result['monster_health']}",
+                    inline=True
+                )
+            
+            # Check if combat is over
+            if result['combat_over']:
+                # Disable all buttons
+                for item in self.children:
+                    item.disabled = True
+                
+                if result['player_won']:
+                    embed.color = discord.Color.green()
+                    if result.get('rewards'):
+                        rewards = result['rewards']
+                        embed.add_field(
+                            name="🎉 Sieg!",
+                            value=f"**+{rewards['gold']} Gold**\n**+{rewards['xp']} XP**",
+                            inline=False
+                        )
+                        if rewards.get('leveled_up'):
+                            embed.add_field(
+                                name="🎊 Level Up!",
+                                value=f"Du bist jetzt **Level {rewards['new_level']}**!",
+                                inline=False
+                            )
+                else:
+                    embed.color = discord.Color.dark_red()
+                    embed.set_footer(text="Du wurdest mit halber HP ins Dorf zurückgebracht.")
+                
+                self.stop()
+            
+            await interaction.edit_original_response(embed=embed, view=self if not result['combat_over'] else None)
+            
+        except Exception as e:
+            logger.error(f"Error in combat: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Fehler: {e}")
+    
+    @discord.ui.button(label="🏃 Fliehen", style=discord.ButtonStyle.secondary)
+    async def run_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Try to run from combat."""
+        await interaction.response.defer()
+        
+        try:
+            result = await rpg_system.process_combat_turn(db_helpers, self.user_id, self.monster, 'run')
+            
+            if 'error' in result:
+                await interaction.followup.send(f"❌ Fehler: {result['error']}")
+                return
+            
+            embed = discord.Embed(
+                title="🏃 Fluchtversuch",
+                description="\n".join(result['messages']),
+                color=discord.Color.blue() if result['combat_over'] else discord.Color.orange()
+            )
+            
+            if result['combat_over']:
+                # Successfully fled
+                for item in self.children:
+                    item.disabled = True
+                self.stop()
+                await interaction.edit_original_response(embed=embed, view=None)
+            else:
+                # Failed to flee, show updated health
+                player = await rpg_system.get_player_profile(db_helpers, self.user_id)
+                health_pct = (result['player_health'] / player['max_health']) * 100
+                health_bar = self._create_health_bar(health_pct)
+                
+                embed.add_field(
+                    name="❤️ Deine HP",
+                    value=f"{health_bar} {result['player_health']}",
+                    inline=False
+                )
+                
+                if result['player_health'] <= 0:
+                    for item in self.children:
+                        item.disabled = True
+                    self.stop()
+                    embed.color = discord.Color.dark_red()
+                
+                await interaction.edit_original_response(embed=embed, view=self if result['player_health'] > 0 else None)
+            
+        except Exception as e:
+            logger.error(f"Error running from combat: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Fehler: {e}")
+    
+    def _create_health_bar(self, percentage: float) -> str:
+        """Create a visual health bar."""
+        filled = int(percentage / 10)
+        empty = 10 - filled
+        
+        if percentage > 60:
+            bar = "🟩" * filled + "⬜" * empty
+        elif percentage > 30:
+            bar = "🟨" * filled + "⬜" * empty
+        else:
+            bar = "🟥" * filled + "⬜" * empty
+        
+        return bar
 
 
 # --- Leaderboard Helper Constants and Functions ---
@@ -5512,7 +5724,8 @@ async def stock_market_command(interaction: discord.Interaction):
                   "💎 **Blue Chip** - Stabil, geringe Schwankungen\n"
                   "🪙 **Crypto** - Sehr volatil, schwache Trends\n"
                   "🎲 **Meme** - Extreme Volatilität, unvorhersehbar\n"
-                  "🛢️ **Commodity** - Mittlere Volatilität, stabile Trends",
+                  "🛢️ **Commodity** - Mittlere Volatilität, stabile Trends\n"
+                  "💼 **Fund** - Sehr stabil, sichere Investition",
             inline=False
         )
         
