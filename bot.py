@@ -44,6 +44,7 @@ from modules import word_find  # NEW: Word Find game
 from modules import quests  # NEW: Quest system for tracking
 from modules import wordle  # NEW: Wordle game
 from modules import themes  # NEW: Theme system
+from modules import horse_racing  # NEW: Horse racing game
 from modules.bot_enhancements import (
     handle_image_attachment,
     handle_unknown_emojis_in_message,
@@ -608,6 +609,11 @@ async def on_ready():
     print("Initializing theme system...")
     await themes.initialize_themes_table(db_helpers)
     print("Theme system ready!")
+    
+    # --- NEW: Initialize horse racing system ---
+    print("Initializing horse racing system...")
+    await horse_racing.initialize_horse_racing_table(db_helpers)
+    print("Horse racing system ready!")
 
     # --- NEW: Clean up leftover game channels on restart ---
     print("Checking for leftover game channels...")
@@ -5709,6 +5715,8 @@ active_blackjack_games = {}
 active_mines_games = {}
 active_rr_games = {}
 active_tower_games = {}
+active_horse_races = {}  # {channel_id: HorseRace instance}
+race_counter = 0  # Global race ID counter
 
 
 class BlackjackView(discord.ui.View):
@@ -7085,6 +7093,337 @@ class TowerOfTreasureView(discord.ui.View):
             del active_tower_games[self.user_id]
         
         self.stop()
+
+
+# --- Horse Racing Game ---
+
+@tree.command(name="horserace", description="Starte ein Pferderennen!")
+@app_commands.describe(
+    horses="Anzahl der Pferde (2-6, Standard: 6)"
+)
+async def horserace(interaction: discord.Interaction, horses: int = 6):
+    """Start a horse racing game in the current channel."""
+    await interaction.response.defer()
+    
+    try:
+        global race_counter
+        
+        # Check if user has casino access
+        user_id = interaction.user.id
+        has_casino = await db_helpers.has_feature_unlock(user_id, 'casino')
+        if not has_casino:
+            currency = config['modules']['economy']['currency_symbol']
+            price = config['modules']['economy']['shop']['features'].get('casino', 500)
+            await interaction.followup.send(
+                f"🐎 Du benötigst **Casino Access**, um Pferderennen zu spielen!\n"
+                f"Kaufe es im Shop für {price} {currency} mit `/shop`"
+            )
+            return
+        
+        channel_id = interaction.channel_id
+        
+        # Check if there's already an active race in this channel
+        if channel_id in active_horse_races:
+            await interaction.followup.send(
+                "⚠️ Es läuft bereits ein Rennen in diesem Kanal! Bitte warte, bis es beendet ist."
+            )
+            return
+        
+        # Validate horse count
+        horses = min(max(horses, 2), 6)
+        
+        # Create race
+        race_counter += 1
+        race = horse_racing.HorseRace(race_counter, horses)
+        active_horse_races[channel_id] = race
+        
+        # Create betting embed
+        embed = discord.Embed(
+            title="🐎 Pferderennen gestartet!",
+            description=f"**Rennen #{race.race_id}**\n\n"
+                       f"Platziere deine Wetten! Das Rennen startet in 60 Sekunden.\n"
+                       f"Verwende die Buttons unten, um auf ein Pferd zu wetten!",
+            color=discord.Color.gold()
+        )
+        
+        # Show horses
+        for i, horse in enumerate(race.horses):
+            embed.add_field(
+                name=f"{horse['emoji']} {horse['name']}",
+                value=f"Quote: {race.get_odds(i):.2f}x",
+                inline=True
+            )
+        
+        currency = config['modules']['economy']['currency_symbol']
+        embed.add_field(
+            name="💰 Wie wetten?",
+            value=f"Klicke auf einen Button und gib deinen Einsatz ein ({currency})",
+            inline=False
+        )
+        
+        # Create betting view
+        view = HorseRaceBettingView(race, config)
+        message = await interaction.followup.send(embed=embed, view=view)
+        
+        # Wait for betting period
+        await asyncio.sleep(60)
+        
+        # Close betting
+        race.is_betting_open = False
+        
+        # Check if there are any bets
+        if not race.bets:
+            await message.edit(content="⚠️ Keine Wetten platziert. Das Rennen wurde abgebrochen.", embed=None, view=None)
+            del active_horse_races[channel_id]
+            return
+        
+        # Update embed to show betting is closed
+        view.stop()
+        for item in view.children:
+            item.disabled = True
+        
+        embed.title = "🐎 Rennen läuft!"
+        embed.description = f"**Rennen #{race.race_id}**\n\nDie Wetten sind geschlossen! Das Rennen beginnt..."
+        embed.clear_fields()
+        
+        for i, horse in enumerate(race.horses):
+            total_bet_on_horse = sum(
+                bet['amount'] for bet in race.bets.values()
+                if bet['horse_index'] == i
+            )
+            embed.add_field(
+                name=f"{horse['emoji']} {horse['name']}",
+                value=f"Wetten: {total_bet_on_horse} {currency}\nQuote: {race.get_odds(i):.2f}x",
+                inline=True
+            )
+        
+        await message.edit(embed=embed, view=view)
+        
+        # Animate the race
+        for frame in range(horse_racing.ANIMATION_FRAMES):
+            await asyncio.sleep(horse_racing.FRAME_DELAY)
+            
+            # Simulate race progress
+            for i in range(race.horses_count):
+                if not race.finished[i]:
+                    move = random.randint(0, 3)
+                    race.positions[i] += move
+                    
+                    if race.positions[i] >= horse_racing.RACE_LENGTH:
+                        race.positions[i] = horse_racing.RACE_LENGTH
+                        race.finished[i] = True
+                        if i not in race.finish_order:
+                            race.finish_order.append(i)
+            
+            # Update visual
+            visual = race.get_race_visual()
+            embed.description = f"**Rennen #{race.race_id}**\n\n```\n{visual}\n```"
+            
+            try:
+                await message.edit(embed=embed)
+            except:
+                pass  # Message might have been deleted
+            
+            # Check if all horses finished
+            if all(race.finished):
+                break
+        
+        # Ensure all horses have finished
+        while not all(race.finished):
+            for i in range(race.horses_count):
+                if not race.finished[i]:
+                    race.finished[i] = True
+                    race.finish_order.append(i)
+        
+        # Calculate payouts
+        payouts = race.calculate_payouts()
+        
+        # Update balances and save results
+        for user_id, payout in payouts.items():
+            bet_amount = race.bets[user_id]['amount']
+            
+            # Deduct original bet
+            await db_helpers.add_balance(user_id, -bet_amount, "Horse Race Bet")
+            
+            # Add payout if won
+            if payout > 0:
+                await db_helpers.add_balance(user_id, payout, f"Horse Race Win (Rennen #{race.race_id})")
+        
+        # Save to database
+        await horse_racing.save_race_result(db_helpers, race, payouts)
+        
+        # Show results
+        winner_index = race.finish_order[0]
+        winner_horse = race.horses[winner_index]
+        
+        result_embed = discord.Embed(
+            title="🏁 Rennen beendet!",
+            description=f"**Rennen #{race.race_id}**\n\n"
+                       f"**Gewinner:** {winner_horse['emoji']} **{winner_horse['name']}**!",
+            color=winner_horse['color']
+        )
+        
+        # Show final standings
+        standings = ""
+        for place, idx in enumerate(race.finish_order, 1):
+            horse = race.horses[idx]
+            standings += f"{place}. {horse['emoji']} {horse['name']}\n"
+        
+        result_embed.add_field(
+            name="📊 Endergebnis",
+            value=standings,
+            inline=False
+        )
+        
+        # Show winner payouts
+        winner_list = []
+        loser_list = []
+        
+        for uid, payout in payouts.items():
+            try:
+                user = await client.fetch_user(uid)
+                bet_amount = race.bets[uid]['amount']
+                
+                if payout > 0:
+                    profit = payout - bet_amount
+                    winner_list.append(f"• {user.mention}: +{profit} {currency} (Quote: {race.get_odds(winner_index):.2f}x)")
+                else:
+                    loser_list.append(f"• {user.mention}: -{bet_amount} {currency}")
+            except:
+                pass
+        
+        if winner_list:
+            result_embed.add_field(
+                name="🎉 Gewinner",
+                value="\n".join(winner_list) if winner_list else "Niemand",
+                inline=False
+            )
+        
+        if loser_list:
+            result_embed.add_field(
+                name="😢 Verloren",
+                value="\n".join(loser_list)[:1024] if loser_list else "Niemand",  # Limit field length
+                inline=False
+            )
+        
+        await message.edit(embed=result_embed, view=None)
+        
+        # Clean up
+        del active_horse_races[channel_id]
+        
+    except Exception as e:
+        logger.error(f"Error in horse race command: {e}", exc_info=True)
+        await interaction.followup.send(f"Ein Fehler ist aufgetreten: {e}")
+        
+        # Clean up on error
+        if channel_id in active_horse_races:
+            del active_horse_races[channel_id]
+
+
+class HorseRaceBettingView(discord.ui.View):
+    """View for placing bets on horses."""
+    
+    def __init__(self, race: horse_racing.HorseRace, config: dict):
+        super().__init__(timeout=60)
+        self.race = race
+        self.config = config
+        
+        # Create button for each horse
+        for i, horse in enumerate(race.horses):
+            button = discord.ui.Button(
+                label=f"{horse['emoji']} {horse['name']}",
+                style=discord.ButtonStyle.primary,
+                custom_id=f"horse_{i}"
+            )
+            button.callback = self.create_bet_callback(i)
+            self.add_item(button)
+    
+    def create_bet_callback(self, horse_index: int):
+        """Create callback for betting on a specific horse."""
+        async def callback(interaction: discord.Interaction):
+            # Show modal for bet amount
+            modal = HorseRaceBetModal(self.race, horse_index, self.config)
+            await interaction.response.send_modal(modal)
+        return callback
+
+
+class HorseRaceBetModal(discord.ui.Modal, title="Platziere deine Wette"):
+    """Modal for entering bet amount."""
+    
+    def __init__(self, race: horse_racing.HorseRace, horse_index: int, config: dict):
+        super().__init__()
+        self.race = race
+        self.horse_index = horse_index
+        self.config = config
+        
+        horse = race.horses[horse_index]
+        self.title = f"Wette auf {horse['name']}"
+        
+        # Bet amount input
+        self.bet_input = discord.ui.TextInput(
+            label="Einsatz",
+            placeholder="Gib deinen Einsatz ein...",
+            required=True,
+            max_length=10
+        )
+        self.add_item(self.bet_input)
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            bet_amount = int(self.bet_input.value)
+            
+            if bet_amount <= 0:
+                await interaction.response.send_message(
+                    "❌ Der Einsatz muss positiv sein!",
+                    ephemeral=True
+                )
+                return
+            
+            # Check balance
+            user_id = interaction.user.id
+            balance = await db_helpers.get_balance(user_id)
+            
+            if balance < bet_amount:
+                currency = self.config['modules']['economy']['currency_symbol']
+                await interaction.response.send_message(
+                    f"❌ Nicht genug Guthaben! Du hast {balance} {currency}.",
+                    ephemeral=True
+                )
+                return
+            
+            # Place bet
+            success, message = self.race.place_bet(user_id, self.horse_index, bet_amount)
+            
+            if success:
+                horse = self.race.horses[self.horse_index]
+                odds = self.race.get_odds(self.horse_index)
+                currency = self.config['modules']['economy']['currency_symbol']
+                
+                await interaction.response.send_message(
+                    f"✅ Wette platziert!\n"
+                    f"**Pferd:** {horse['emoji']} {horse['name']}\n"
+                    f"**Einsatz:** {bet_amount} {currency}\n"
+                    f"**Aktuelle Quote:** {odds:.2f}x\n"
+                    f"**Möglicher Gewinn:** {int(bet_amount * odds)} {currency}",
+                    ephemeral=True
+                )
+            else:
+                await interaction.response.send_message(
+                    f"❌ {message}",
+                    ephemeral=True
+                )
+        
+        except ValueError:
+            await interaction.response.send_message(
+                "❌ Ungültiger Einsatz! Gib eine Zahl ein.",
+                ephemeral=True
+            )
+        except Exception as e:
+            logger.error(f"Error placing bet: {e}", exc_info=True)
+            await interaction.response.send_message(
+                f"❌ Ein Fehler ist aufgetreten: {e}",
+                ephemeral=True
+            )
 
 
 @tree.command(name="tower", description="Spiele Tower of Treasure - Klettere den Turm hinauf!")
