@@ -3146,10 +3146,70 @@ async def ww_start(interaction: discord.Interaction, ziel_spieler: int = None):
         del active_werwolf_games[game_text_channel.id]
         return
 
+    # --- NEW: Role Selection UI ---
+    # Get available roles for the game starter
+    from modules.werwolf import get_available_werwolf_roles, WerwolfRoleSelectionView
+    
+    available_roles = await get_available_werwolf_roles(author.id, db_helpers)
+    
+    # Only show role selection if user has unlocked special roles
+    if available_roles:
+        # Create role selection embed
+        embed = discord.Embed(
+            title="🐺 Werwolf Rollen-Auswahl",
+            description="Wähle, welche Rollen in diesem Spiel verfügbar sein sollen.\n"
+                       "Grüne Buttons = Ausgewählt | Graue Buttons = Nicht ausgewählt",
+            color=discord.Color.blue()
+        )
+        
+        # List available roles
+        role_list = "\n".join([f"✅ {role}" for role in available_roles])
+        embed.add_field(
+            name=f"Verfügbare Rollen ({len(available_roles)})",
+            value=role_list,
+            inline=False
+        )
+        
+        embed.set_footer(text="Werwölfe und Dorfbewohner sind immer dabei! • Zeitlimit: 2 Minuten")
+        
+        # Create and send the role selection view
+        role_view = WerwolfRoleSelectionView(author.id, available_roles, game)
+        role_message = await game.game_channel.send(embed=embed, view=role_view)
+        role_view.message = role_message
+        
+        # Wait for user to make selection or timeout
+        await role_view.wait()
+        
+        # Check if cancelled
+        if role_view.selected_roles is None:
+            await game.game_channel.send("Spielstart wurde abgebrochen.")
+            await game.end_game(config)
+            del active_werwolf_games[game_text_channel.id]
+            return
+        
+        # Use the selected roles
+        selected_roles = role_view.selected_roles
+    else:
+        # No special roles unlocked - inform user
+        info_embed = discord.Embed(
+            title="ℹ️ Keine speziellen Rollen",
+            description="Du hast noch keine speziellen Rollen freigeschaltet!\n"
+                       "Das Spiel wird nur mit **Werwölfen** und **Dorfbewohnern** gespielt.",
+            color=discord.Color.gold()
+        )
+        info_embed.add_field(
+            name="Rollen freischalten",
+            value="Besuche den Shop mit `/shop`, um spezielle Rollen zu kaufen!",
+            inline=False
+        )
+        await game.game_channel.send(embed=info_embed)
+        # Set selected_roles to empty set (no special roles)
+        selected_roles = set()
+
     # Automatically start the game
     # Bot filling logic is now handled inside start_game
     try:
-        error_message = await game.start_game(config, GEMINI_API_KEY, OPENAI_API_KEY, db_helpers, ziel_spieler)
+        error_message = await game.start_game(config, GEMINI_API_KEY, OPENAI_API_KEY, db_helpers, ziel_spieler, selected_roles)
         if error_message:
             await game.game_channel.send(error_message)
             del active_werwolf_games[game_text_channel.id]
