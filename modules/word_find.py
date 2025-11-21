@@ -73,8 +73,11 @@ async def initialize_word_find_table(db_helpers):
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     word VARCHAR(100) NOT NULL,
                     difficulty VARCHAR(20) NOT NULL,
-                    date DATE NOT NULL UNIQUE,
-                    INDEX idx_date (date)
+                    language VARCHAR(2) DEFAULT 'de',
+                    date DATE NOT NULL,
+                    UNIQUE KEY unique_date_lang (date, language),
+                    INDEX idx_date (date),
+                    INDEX idx_lang (language)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
@@ -207,8 +210,8 @@ def levenshtein_distance(s1: str, s2: str) -> int:
     return previous_row[-1]
 
 
-async def get_or_create_daily_word(db_helpers):
-    """Get today's word or create a new one."""
+async def get_or_create_daily_word(db_helpers, language='de'):
+    """Get today's word or create a new one for the specified language."""
     try:
         if not db_helpers.db_pool:
             return None
@@ -221,11 +224,11 @@ async def get_or_create_daily_word(db_helpers):
         try:
             today = datetime.now(timezone.utc).date()
             
-            # Check if today's word exists
+            # Check if today's word exists for this language
             cursor.execute("""
-                SELECT id, word, difficulty FROM word_find_daily
-                WHERE date = %s
-            """, (today,))
+                SELECT id, word, difficulty, language FROM word_find_daily
+                WHERE date = %s AND language = %s
+            """, (today, language))
             result = cursor.fetchone()
             
             if result:
@@ -241,7 +244,25 @@ async def get_or_create_daily_word(db_helpers):
             else:
                 difficulty = 'easy'
             
-            word = random.choice(WORD_LISTS[difficulty])
+            # Get language-specific word list
+            word_lists = get_word_lists(language)
+            word = random.choice(word_lists[difficulty])
+            
+            cursor.execute("""
+                INSERT INTO word_find_daily (word, difficulty, language, date)
+                VALUES (%s, %s, %s, %s)
+            """, (word, difficulty, language, today))
+            
+            conn.commit()
+            word_id = cursor.lastrowid
+            
+            return {'id': word_id, 'word': word, 'difficulty': difficulty, 'language': language}
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting/creating daily word: {e}", exc_info=True)
+        return None
             
             cursor.execute("""
                 INSERT INTO word_find_daily (word, difficulty, date)

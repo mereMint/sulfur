@@ -8226,8 +8226,11 @@ async def wordle_command(interaction: discord.Interaction):
     try:
         user_id = interaction.user.id
         
-        # Get today's word
-        word_data = await wordle.get_or_create_daily_word(db_helpers)
+        # Get user's language preference
+        user_lang = await db_helpers.get_user_language(user_id)
+        
+        # Get today's word for user's language
+        word_data = await wordle.get_or_create_daily_word(db_helpers, user_lang)
         
         if not word_data:
             await interaction.followup.send("❌ Fehler beim Laden des heutigen Wortes.", ephemeral=True)
@@ -8393,15 +8396,18 @@ class WordleGuessModal(discord.ui.Modal, title="Rate das Wort"):
         guess = self.guess_input.value.lower().strip()
         correct_word = self.word_data['word'].lower()
         word_id = self.word_data['id']
+        word_language = self.word_data.get('language', 'de')  # Default to German for backward compatibility
         
         # Validate guess (must be 5 letters, only letters)
         if len(guess) != 5 or not guess.isalpha():
             await interaction.followup.send("❌ Dein Wort muss genau 5 Buchstaben enthalten (nur Buchstaben erlaubt)!", ephemeral=True)
             return
         
-        # Validate that the guess is a valid word from the word list
-        if guess not in wordle.WORDLE_WORDS:
-            await interaction.followup.send("❌ Dieses Wort ist nicht in der Wortliste! Versuche ein anderes deutsches Wort.", ephemeral=True)
+        # Validate that the guess is a valid word from the appropriate language word list
+        valid_words = wordle.get_wordle_words(word_language)
+        if guess not in valid_words:
+            error_msg = "❌ This word is not in the word list! Try another English word." if word_language == 'en' else "❌ Dieses Wort ist nicht in der Wortliste! Versuche ein anderes deutsches Wort."
+            await interaction.followup.send(error_msg, ephemeral=True)
             return
         
         # Get current attempts
@@ -8505,8 +8511,11 @@ async def word_find_command(interaction: discord.Interaction):
     try:
         user_id = interaction.user.id
         
-        # Get today's word
-        word_data = await word_find.get_or_create_daily_word(db_helpers)
+        # Get user's language preference
+        user_lang = await db_helpers.get_user_language(user_id)
+        
+        # Get today's word for user's language
+        word_data = await word_find.get_or_create_daily_word(db_helpers, user_lang)
         
         if not word_data:
             await interaction.followup.send("❌ Fehler beim Laden des heutigen Wortes.", ephemeral=True)
@@ -8596,6 +8605,61 @@ async def word_find_command(interaction: discord.Interaction):
         logger.error(f"Error in word find command: {e}", exc_info=True)
         await interaction.followup.send(
             f"❌ Fehler beim Starten des Spiels: {str(e)}",
+            ephemeral=True
+        )
+
+
+# --- Language Command ---
+
+@tree.command(name="language", description="Ändere deine Spielsprache / Change your game language")
+@app_commands.describe(lang="Choose your language / Wähle deine Sprache")
+@app_commands.choices(lang=[
+    app_commands.Choice(name="🇩🇪 Deutsch (German)", value="de"),
+    app_commands.Choice(name="🇬🇧 English", value="en")
+])
+async def language_command(interaction: discord.Interaction, lang: app_commands.Choice[str]):
+    """Change language preference for Wordle and Word Find games."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        user_id = interaction.user.id
+        language = lang.value
+        
+        # Set the user's language preference
+        success = await db_helpers.set_user_language(user_id, language)
+        
+        if success:
+            if language == 'de':
+                embed = discord.Embed(
+                    title="🇩🇪 Sprache geändert",
+                    description="Deine Spielsprache wurde auf **Deutsch** gesetzt!\n\n"
+                               "Diese Einstellung gilt für:\n"
+                               "• Wordle\n"
+                               "• Word Find",
+                    color=discord.Color.green()
+                )
+            else:  # en
+                embed = discord.Embed(
+                    title="🇬🇧 Language Changed",
+                    description="Your game language has been set to **English**!\n\n"
+                               "This setting applies to:\n"
+                               "• Wordle\n"
+                               "• Word Find",
+                    color=discord.Color.green()
+                )
+            
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        else:
+            await interaction.followup.send(
+                "❌ Fehler beim Speichern der Spracheinstellung.\n"
+                "❌ Error saving language preference.",
+                ephemeral=True
+            )
+    
+    except Exception as e:
+        logger.error(f"Error in language command: {e}", exc_info=True)
+        await interaction.followup.send(
+            f"❌ Ein Fehler ist aufgetreten / An error occurred: {str(e)}",
             ephemeral=True
         )
 
@@ -9245,7 +9309,10 @@ async def on_message(message):
             except Exception as e:
                 logger.error(f"Error updating message quest progress: {e}", exc_info=True)
             
-            # --- NEW: Track daily_media quest (images/videos) ---
+            # --- NEW: Track daily_media quest (images/videos/links) ---
+            has_media = False
+            
+            # Check for image/video attachments
             if message.attachments:
                 has_media = any(
                     attachment.content_type and (
@@ -9254,11 +9321,23 @@ async def on_message(message):
                     )
                     for attachment in message.attachments
                 )
-                if has_media:
-                    try:
-                        quest_completed, _ = await quests.update_quest_progress(db_helpers, message.author.id, 'daily_media', 1)
-                    except Exception as e:
-                        logger.error(f"Error updating daily_media quest progress: {e}", exc_info=True)
+            
+            # Check for social media links if no media attachments found
+            if not has_media and message.content:
+                media_domains = [
+                    'youtube.com', 'youtu.be', 'spotify.com', 'instagram.com', 
+                    'twitter.com', 'x.com', 'tiktok.com', 'twitch.tv', 
+                    'soundcloud.com', 'vimeo.com', 'reddit.com', 'imgur.com',
+                    'tenor.com', 'giphy.com', 'pinterest.com', 'facebook.com'
+                ]
+                content_lower = message.content.lower()
+                has_media = any(domain in content_lower for domain in media_domains)
+            
+            if has_media:
+                try:
+                    quest_completed, _ = await quests.update_quest_progress(db_helpers, message.author.id, 'daily_media', 1)
+                except Exception as e:
+                    logger.error(f"Error updating daily_media quest progress: {e}", exc_info=True)
 
             new_level = await grant_xp(message.author.id, message.author.display_name, db_helpers.add_xp, config)
             if new_level:

@@ -119,8 +119,11 @@ async def initialize_wordle_table(db_helpers):
                 CREATE TABLE IF NOT EXISTS wordle_daily (
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     word VARCHAR(5) NOT NULL,
-                    date DATE NOT NULL UNIQUE,
-                    INDEX idx_date (date)
+                    language VARCHAR(2) DEFAULT 'de',
+                    date DATE NOT NULL,
+                    UNIQUE KEY unique_date_lang (date, language),
+                    INDEX idx_date (date),
+                    INDEX idx_lang (language)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
@@ -160,8 +163,8 @@ async def initialize_wordle_table(db_helpers):
         logger.error(f"Error initializing Wordle tables: {e}", exc_info=True)
 
 
-async def get_or_create_daily_word(db_helpers):
-    """Get or create today's Wordle word."""
+async def get_or_create_daily_word(db_helpers, language='de'):
+    """Get or create today's Wordle word for the specified language."""
     try:
         if not db_helpers.db_pool:
             logger.error("Database pool not available")
@@ -176,28 +179,29 @@ async def get_or_create_daily_word(db_helpers):
         try:
             today = datetime.now(timezone.utc).date()
             
-            # Check if today's word exists
+            # Check if today's word exists for this language
             cursor.execute("""
-                SELECT id, word FROM wordle_daily
-                WHERE date = %s
-            """, (today,))
+                SELECT id, word, language FROM wordle_daily
+                WHERE date = %s AND language = %s
+            """, (today, language))
             result = cursor.fetchone()
             
             if result:
                 return result
             
-            # Create new daily word
-            word = random.choice(WORDLE_WORDS)
+            # Create new daily word using language-specific word list
+            word_list = get_wordle_words(language)
+            word = random.choice(word_list)
             
             cursor.execute("""
-                INSERT INTO wordle_daily (word, date)
-                VALUES (%s, %s)
-            """, (word, today))
+                INSERT INTO wordle_daily (word, language, date)
+                VALUES (%s, %s, %s)
+            """, (word, language, today))
             
             conn.commit()
             word_id = cursor.lastrowid
             
-            return {'id': word_id, 'word': word}
+            return {'id': word_id, 'word': word, 'language': language}
         finally:
             cursor.close()
             conn.close()
