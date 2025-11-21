@@ -5442,20 +5442,13 @@ class MinesView(discord.ui.View):
     def _build_grid(self):
         """Builds the button grid for the mines game."""
         # Discord allows max 5 rows with 5 buttons each (25 total)
-        # We need room for the cashout button, so use 4x5 grid (20 cells + 5 buttons in last row)
+        # With share button, we need to accommodate the grid + cashout + share
         
-        # Calculate actual grid size to fit Discord limits
-        # With cashout button, we can have max 24 grid cells (4 rows of 5, last row has 4 cells + cashout)
         actual_grid_size = min(self.game.grid_size, 5)
         
-        button_count = 0
+        # Add all grid cells as buttons
         for row in range(actual_grid_size):
-            row_buttons = 0
             for col in range(actual_grid_size):
-                # On the last row, leave space for cashout button
-                if row == actual_grid_size - 1 and col == actual_grid_size - 1:
-                    break  # Skip last cell to make room for cashout
-                    
                 button = discord.ui.Button(
                     label="⬜",
                     style=discord.ButtonStyle.secondary,
@@ -5464,15 +5457,14 @@ class MinesView(discord.ui.View):
                 )
                 button.callback = self._create_callback(row, col)
                 self.add_item(button)
-                button_count += 1
-                row_buttons += 1
         
-        # Add cashout button in the last row
+        # Add cashout button as a grid cell that looks like it was already tapped (showing a mine)
+        # This will be in the last row as a separate control button
         cashout_button = discord.ui.Button(
-            label="💰 Cash Out",
+            label="💎 Cash Out",
             style=discord.ButtonStyle.success,
             custom_id="cashout",
-            row=actual_grid_size - 1  # Last row
+            row=4  # Last row
         )
         cashout_button.callback = self._cashout_callback
         self.add_item(cashout_button)
@@ -5559,6 +5551,13 @@ class MinesView(discord.ui.View):
                 f"Mines cashout at {multiplier}x"
             )
             
+            # --- NEW: Influence GAMBL stock ---
+            try:
+                won = profit > 0
+                await stock_market.record_gambling_activity(db_helpers, self.game.bet, won, winnings)
+            except Exception as e:
+                logger.error(f"Failed to record gambling stock influence: {e}")
+            
             currency = config['modules']['economy']['currency_symbol']
             embed = self.game.create_embed()
             embed.color = discord.Color.green()
@@ -5580,7 +5579,19 @@ class MinesView(discord.ui.View):
             for item in self.children:
                 item.disabled = True
             
-            await interaction.edit_original_response(embed=embed, view=self)
+            # Add share button
+            share_view = GamblingShareView(
+                game_type="mines",
+                result_data={
+                    'revealed_count': self.game.revealed_count,
+                    'multiplier': multiplier,
+                    'profit': profit,
+                    'balance': new_balance
+                },
+                user_id=self.user_id
+            )
+            
+            await interaction.edit_original_response(embed=embed, view=share_view)
             
             # Remove from active games
             if self.user_id in active_mines_games:
@@ -5616,6 +5627,12 @@ class MinesView(discord.ui.View):
                 "Hit a mine"
             )
             
+            # --- NEW: Influence GAMBL stock ---
+            try:
+                await stock_market.record_gambling_activity(db_helpers, self.game.bet, False, 0)
+            except Exception as e:
+                logger.error(f"Failed to record gambling stock influence: {e}")
+            
             embed.color = discord.Color.red()
             result_text = f"💥 **BOOM!** 💥\n"
             result_text += f"Du hast eine Mine getroffen!\n"
@@ -5627,6 +5644,19 @@ class MinesView(discord.ui.View):
             )
             embed.add_field(name="💰 Guthaben", value=f"{new_balance} {currency}", inline=True)
             embed.set_footer(text="Beim nächsten Mal vorsichtiger sein!")
+            
+            # Add share button for loss
+            share_view = GamblingShareView(
+                game_type="mines",
+                result_data={
+                    'revealed_count': self.game.revealed_count,
+                    'multiplier': 0,
+                    'profit': -self.game.bet,
+                    'balance': new_balance
+                },
+                user_id=self.user_id
+            )
+
         else:
             # Won - all safe cells revealed
             winnings = int(self.game.bet * self.game.get_current_multiplier())
@@ -5653,6 +5683,12 @@ class MinesView(discord.ui.View):
                 f"Completed all safe cells at {self.game.get_current_multiplier()}x"
             )
             
+            # --- NEW: Influence GAMBL stock ---
+            try:
+                await stock_market.record_gambling_activity(db_helpers, self.game.bet, True, int(self.game.bet * self.game.get_current_multiplier()))
+            except Exception as e:
+                logger.error(f"Failed to record gambling stock influence: {e}")
+            
             embed.color = discord.Color.gold()
             result_text = f"🎉 **PERFEKT!** 🎉\n"
             result_text += f"Alle sicheren Felder aufgedeckt!\n"
@@ -5664,12 +5700,26 @@ class MinesView(discord.ui.View):
             )
             embed.add_field(name="💰 Guthaben", value=f"{new_balance} {currency}", inline=True)
             embed.set_footer(text="🎊 Glückwunsch! Perfekt gespielt!")
+            
+            # Add share button for win
+            share_view = GamblingShareView(
+                game_type="mines",
+                result_data={
+                    'revealed_count': self.game.revealed_count,
+                    'multiplier': self.game.get_current_multiplier(),
+                    'profit': profit,
+                    'balance': new_balance
+                },
+                user_id=self.user_id
+            )
         
         # Disable all buttons and reveal all mines
         for item in self.children:
             item.disabled = True
         
-        await interaction.edit_original_response(embed=embed, view=self)
+        # Use share view if available, otherwise use self
+        final_view = share_view if 'share_view' in locals() else self
+        await interaction.edit_original_response(embed=embed, view=final_view)
         
         # Remove from active games
         if self.user_id in active_mines_games:
@@ -5829,9 +5879,81 @@ class GamblingShareView(discord.ui.View):
             embed.add_field(name="💰 Ergebnis", value=f"**{'+' if net_result >= 0 else ''}{net_result} {currency}**", inline=True)
             embed.set_footer(text=f"Gespielt von {interaction.user.display_name}")
         
+        elif self.game_type == "mines":
+            data = self.result_data
+            profit = data.get('profit', 0)
+            multiplier = data.get('multiplier', 0)
+            revealed_count = data.get('revealed_count', 0)
+            
+            if profit > 0:
+                title = "💎 Mines Gewinn!"
+                description = f"{interaction.user.mention} hat **+{profit} {currency}** gewonnen!"
+                color = discord.Color.green()
+            elif profit < 0:
+                title = "💥 Mines Verlust"
+                description = f"{interaction.user.mention} hat eine Mine getroffen!"
+                color = discord.Color.red()
+            else:
+                title = "💎 Mines Spiel"
+                description = f"{interaction.user.mention} hat Mines gespielt!"
+                color = discord.Color.blue()
+            
+            embed = discord.Embed(title=title, description=description, color=color)
+            
+            embed.add_field(
+                name="📊 Statistik",
+                value=f"Aufgedeckt: **{revealed_count}** Felder\nMultiplikator: **{multiplier:.2f}x**",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="💰 Ergebnis",
+                value=f"**{'+' if profit >= 0 else ''}{profit} {currency}**",
+                inline=True
+            )
+            
+            embed.set_footer(text=f"Gespielt von {interaction.user.display_name}")
+        
+        elif self.game_type == "tower":
+            data = self.result_data
+            profit = data.get('profit', 0)
+            floor = data.get('floor', 0)
+            max_floors = data.get('max_floors', 10)
+            difficulty = data.get('difficulty', 1)
+            
+            if profit > 0:
+                title = "🗼 Tower Gewinn!"
+                description = f"{interaction.user.mention} hat **+{profit} {currency}** gewonnen!"
+                color = discord.Color.gold()
+            elif profit < 0:
+                title = "💥 Tower Verlust"
+                description = f"{interaction.user.mention} ist im Tower gestürzt!"
+                color = discord.Color.red()
+            else:
+                title = "🗼 Tower Spiel"
+                description = f"{interaction.user.mention} hat Tower gespielt!"
+                color = discord.Color.blue()
+            
+            embed = discord.Embed(title=title, description=description, color=color)
+            
+            difficulty_emoji = '⭐' * difficulty
+            embed.add_field(
+                name="📊 Statistik",
+                value=f"Etage: **{floor}/{max_floors}**\nSchwierigkeit: {difficulty_emoji}",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="💰 Ergebnis",
+                value=f"**{'+' if profit >= 0 else ''}{profit} {currency}**",
+                inline=True
+            )
+            
+            embed.set_footer(text=f"Gespielt von {interaction.user.display_name}")
+        
         else:
             # Generic share
-            net_result = self.result_data.get('net_result', 0)
+            net_result = self.result_data.get('profit', self.result_data.get('net_result', 0))
             title = f"🎰 {self.game_type.capitalize()} Ergebnis"
             description = f"{interaction.user.mention} hat **{'+' if net_result >= 0 else ''}{net_result} {currency}** {'gewonnen' if net_result > 0 else 'verloren'}!"
             color = discord.Color.gold() if net_result > 0 else discord.Color.red()
@@ -6502,11 +6624,20 @@ class TowerOfTreasureView(discord.ui.View):
         
         embed.add_field(name="Neues Guthaben", value=f"{new_balance} {currency}", inline=True)
         
-        # Disable all buttons
-        for item in self.children:
-            item.disabled = True
+        # Create share view
+        share_view = GamblingShareView(
+            game_type="tower",
+            result_data={
+                'profit': winnings,
+                'floor': self.game.current_floor,
+                'max_floors': self.game.max_floors,
+                'difficulty': self.game.difficulty,
+                'balance': new_balance
+            },
+            user_id=self.user_id
+        )
         
-        await interaction.edit_original_response(embed=embed, view=self)
+        await interaction.edit_original_response(embed=embed, view=share_view)
         
         # Remove from active games
         if self.user_id in active_tower_games:

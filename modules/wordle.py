@@ -358,12 +358,19 @@ def check_guess(guess: str, correct_word: str):
     return result
 
 
-def create_game_embed(word_data: dict, attempts: list, user_stats: dict = None, is_game_over: bool = False, won: bool = False):
-    """Create the game embed with current progress."""
+def create_game_embed(word_data: dict, attempts: list, user_stats: dict = None, is_game_over: bool = False, won: bool = False, theme_id=None):
+    """Create the game embed with current progress and theme support."""
+    # Import themes here to avoid circular import
+    try:
+        from modules import themes
+        color = themes.get_theme_color(theme_id, 'success' if won else ('danger' if is_game_over else 'primary'))
+    except:
+        color = discord.Color.green() if won else (discord.Color.red() if is_game_over else discord.Color.blue())
+    
     embed = discord.Embed(
         title="🎮 Wordle - Tägliches Wortratespiel",
         description="Errate das 5-Buchstaben Wort in 6 Versuchen!",
-        color=discord.Color.green() if won else (discord.Color.red() if is_game_over else discord.Color.blue())
+        color=color
     )
     
     # Show attempts with color coding
