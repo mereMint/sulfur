@@ -46,38 +46,22 @@ if not WORD_LISTS_DE:
     ]
 }
 
-# Word lists for different difficulty levels - English
-WORD_LISTS_EN = {
-    'easy': [
-        'house', 'tree', 'dog', 'cat', 'car', 'book', 'table', 'chair',
-        'window', 'door', 'lamp', 'bed', 'kitchen', 'bath', 'garden', 'flower'
-    ],
-    'medium': [
-        'computer', 'telephone', 'internet', 'keyboard', 'screen', 'music',
-        'friend', 'family', 'work', 'school', 'vacation', 'weather', 'sun'
-    ],
-    'hard': [
-        'development', 'programming', 'algorithm', 'database', 'network',
-        'science', 'technology', 'innovation', 'creativity', 'philosophy'
-    ]
-}
-
 if not WORD_LISTS_EN:
     logger.warning("Using fallback English word lists")
     WORD_LISTS_EN = {
-    'easy': [
-        'house', 'tree', 'dog', 'cat', 'car', 'book', 'table', 'chair',
-        'window', 'door', 'lamp', 'bed', 'kitchen', 'bath', 'garden', 'flower'
-    ],
-    'medium': [
-        'computer', 'telephone', 'internet', 'keyboard', 'screen', 'music',
-        'friend', 'family', 'work', 'school', 'vacation', 'weather', 'sun'
-    ],
-    'hard': [
-        'development', 'programming', 'algorithm', 'database', 'network',
-        'science', 'technology', 'innovation', 'creativity', 'philosophy'
-    ]
-}
+        'easy': [
+            'house', 'tree', 'dog', 'cat', 'car', 'book', 'table', 'chair',
+            'window', 'door', 'lamp', 'bed', 'kitchen', 'bath', 'garden', 'flower'
+        ],
+        'medium': [
+            'computer', 'telephone', 'internet', 'keyboard', 'screen', 'music',
+            'friend', 'family', 'work', 'school', 'vacation', 'weather', 'sun'
+        ],
+        'hard': [
+            'development', 'programming', 'algorithm', 'database', 'network',
+            'science', 'technology', 'innovation', 'creativity', 'philosophy'
+        ]
+    }
 
 # Default to German for backward compatibility
 WORD_LISTS = WORD_LISTS_DE
@@ -302,22 +286,8 @@ async def get_or_create_daily_word(db_helpers, language='de'):
     except Exception as e:
         logger.error(f"Error getting/creating daily word: {e}", exc_info=True)
         return None
-            
-            cursor.execute("""
-                INSERT INTO word_find_daily (word, difficulty, date)
-                VALUES (%s, %s, %s)
-            """, (word, difficulty, today))
-            
-            conn.commit()
-            word_id = cursor.lastrowid
-            
-            return {'id': word_id, 'word': word, 'difficulty': difficulty}
-        finally:
-            cursor.close()
-            conn.close()
-    except Exception as e:
-        logger.error(f"Error getting/creating daily word: {e}", exc_info=True)
-        return None
+
+
 
 
 async def get_user_attempts(db_helpers, user_id: int, word_id: int):

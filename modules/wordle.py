@@ -114,9 +114,20 @@ WORDLE_WORDS = WORDLE_WORDS_DE
 
 logger.info(f"Loaded {len(WORDLE_WORDS_DE)} German words and {len(WORDLE_WORDS_EN)} English words for Wordle")
 
+# Convert to sets for O(1) lookup performance
+WORDLE_WORDS_DE_SET = set(WORDLE_WORDS_DE)
+WORDLE_WORDS_EN_SET = set(WORDLE_WORDS_EN)
+
 
 def get_wordle_words(language='de'):
-    """Get Wordle word list for specified language."""
+    """Get Wordle word set for specified language (optimized for fast lookups)."""
+    if language == 'en':
+        return WORDLE_WORDS_EN_SET
+    return WORDLE_WORDS_DE_SET
+
+
+def get_wordle_words_list(language='de'):
+    """Get Wordle word list for specified language (for selecting words)."""
     if language == 'en':
         return WORDLE_WORDS_EN
     return WORDLE_WORDS_DE
@@ -212,7 +223,7 @@ async def get_or_create_daily_word(db_helpers, language='de'):
                 return result
             
             # Create new daily word using language-specific word list
-            word_list = get_wordle_words(language)
+            word_list = get_wordle_words_list(language)  # Use list version for random.choice
             word = random.choice(word_list)
             
             cursor.execute("""

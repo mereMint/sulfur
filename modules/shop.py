@@ -42,9 +42,12 @@ async def create_color_role(guild: discord.Guild, member: discord.Member, color:
         bot_member = guild.get_member(guild.me.id)
         max_position = guild.me.top_role.position - 1 if bot_member else len(guild.roles) - 1
         
+        # Buffer to keep color roles slightly below bot roles for safety
+        COLOR_ROLE_POSITION_BUFFER = 10
+        
         # Place the new color role at the highest color role position, or just below bot's top role
         # This makes it the user's highest role (for color display) while keeping it below bot roles
-        target_position = min(max(highest_color_role_position, max_position - 10), max_position)
+        target_position = min(max(highest_color_role_position, max_position - COLOR_ROLE_POSITION_BUFFER), max_position)
         
         role = await guild.create_role(
             name=role_name,
