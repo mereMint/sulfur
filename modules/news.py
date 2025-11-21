@@ -474,9 +474,12 @@ class NewsPaginationView(discord.ui.View):
             await interaction.response.send_message("Das ist nicht deine Ansicht!", ephemeral=True)
             return
         
+        # Defer for faster response
+        await interaction.response.defer()
+        
         self.current_page = max(0, self.current_page - 1)
         self._update_buttons()
-        await interaction.response.edit_message(embed=self.get_current_embed(), view=self)
+        await interaction.edit_original_response(embed=self.get_current_embed(), view=self)
     
     @discord.ui.button(label="Weiter ▶️", style=discord.ButtonStyle.secondary, custom_id="news_next")
     async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -485,7 +488,10 @@ class NewsPaginationView(discord.ui.View):
             await interaction.response.send_message("Das ist nicht deine Ansicht!", ephemeral=True)
             return
         
+        # Defer for faster response
+        await interaction.response.defer()
+        
         self.current_page = min(len(self.articles) - 1, self.current_page + 1)
         self._update_buttons()
-        await interaction.response.edit_message(embed=self.get_current_embed(), view=self)
+        await interaction.edit_original_response(embed=self.get_current_embed(), view=self)
 

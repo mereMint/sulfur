@@ -2519,7 +2519,13 @@ async def profile(interaction: discord.Interaction, user: discord.Member = None)
     # Get equipped color display
     equipped_color = await db_helpers.get_user_equipped_color(target_user.id)
     color_display = equipped_color if equipped_color else "Keine Farbe ausgerüstet"
+    
+    # Check if user is boosting the server
+    is_boosting = target_user.premium_since is not None
+    boost_status = "💎 Boostet den Server!" if is_boosting else "Kein Boost"
+    
     embed.add_field(name="🎨 Farbe", value=f"`{color_display}`", inline=True)
+    embed.add_field(name="🚀 Server Boost", value=f"{boost_status}", inline=True)
 
     # Show purchased items/features - dynamically fetch all features
     all_features = await db_helpers.get_user_features(target_user.id)
@@ -2941,26 +2947,46 @@ class LeaderboardPageView(discord.ui.View):
         
         if not leaderboard:
             return discord.Embed(
-                title="🐺 Werwolf Leaderboard 🐺",
+                title="🐺 Werwolf Leaderboard",
                 description="Es gibt noch keine Statistiken. Spielt erst mal eine Runde!",
                 color=get_embed_color(self.config)
             )
         
         embed = discord.Embed(
-            title="🐺 Werwolf Leaderboard 🐺",
-            description="Die Top-Spieler mit den meisten Siegen.",
+            title="🐺 Werwolf Leaderboard",
+            description="*Top Werwolf-Spieler nach Siegen*",
             color=get_embed_color(self.config)
         )
         
+        # Create compact leaderboard with medal emojis
         leaderboard_text = ""
         for i, player in enumerate(leaderboard):
             rank = i + 1
-            win_loss_ratio = player['wins'] / (player['wins'] + player['losses']) if (player['wins'] + player['losses']) > 0 else 0
-            leaderboard_text += f"**{rank}. {player['display_name']}**\n"
-            leaderboard_text += f"   Wins: `{player['wins']}` | Losses: `{player['losses']}` | W/L: `{win_loss_ratio:.2f}`\n"
+            
+            # Medal emojis for top 3
+            if rank == 1:
+                rank_display = "🥇"
+            elif rank == 2:
+                rank_display = "🥈"
+            elif rank == 3:
+                rank_display = "🥉"
+            else:
+                rank_display = f"`{rank:>2}.`"
+            
+            wins = player['wins']
+            losses = player['losses']
+            total_games = wins + losses
+            win_rate = (wins / total_games * 100) if total_games > 0 else 0
+            name = player['display_name']
+            
+            # Truncate long names
+            if len(name) > 16:
+                name = name[:13] + "..."
+            
+            leaderboard_text += f"{rank_display} **{name}** • `{wins}W-{losses}L` • `{win_rate:.0f}%`\n"
         
-        embed.add_field(name="Rangliste", value=leaderboard_text, inline=False)
-        embed.set_footer(text="Wer hier nicht oben steht, ist ein Noob :xdx:")
+        embed.add_field(name="🎯 Rankings", value=leaderboard_text, inline=False)
+        embed.set_footer(text="W/L = Win/Loss Ratio • Werde Champion!")
         
         return embed
 
@@ -2980,15 +3006,45 @@ async def leaderboard(interaction: discord.Interaction):
         await interaction.followup.send("Noch niemand hat XP gesammelt. Schreibt ein paar Nachrichten!", ephemeral=True)
         return
 
-    embed = discord.Embed(title="🏆 Globales Leaderboard 🏆", description="Die aktivsten Mitglieder", color=get_embed_color(config))
+    # Create a more compact and visually pleasing embed
+    embed = discord.Embed(
+        title="🏆 Globales Leaderboard",
+        description="*Die aktivsten Server-Mitglieder*",
+        color=get_embed_color(config)
+    )
     
+    # Create compact leaderboard with medal emojis for top 3
     leaderboard_text = ""
     for i, player in enumerate(leaderboard_data):
-        leaderboard_text += f"**{i + 1}. {player['display_name']}** - Level {player['level']} ({player['xp']} XP)\n"
+        rank = i + 1
+        
+        # Medal emojis for top 3
+        if rank == 1:
+            rank_display = "🥇"
+        elif rank == 2:
+            rank_display = "🥈"
+        elif rank == 3:
+            rank_display = "🥉"
+        else:
+            rank_display = f"`{rank:>2}.`"
+        
+        # Format level and XP compactly
+        level = player['level']
+        xp = player['xp']
+        name = player['display_name']
+        
+        # Truncate long names
+        if len(name) > 18:
+            name = name[:15] + "..."
+        
+        leaderboard_text += f"{rank_display} **{name}** • Lvl `{level}` • `{xp:,}` XP\n"
 
-    embed.add_field(name="Top 10", value=leaderboard_text, inline=False)
+    embed.add_field(name="📊 Level Rankings", value=leaderboard_text, inline=False)
     
-    # Add view for switching to Werwolf leaderboard
+    # Add footer with helpful info
+    embed.set_footer(text="💡 Nutze die Buttons unten für weitere Leaderboards")
+    
+    # Add view for switching to other leaderboards
     view = LeaderboardPageView(config)
     await interaction.followup.send(embed=embed, view=view)
 
@@ -7329,6 +7385,11 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
             
             # Update stats
             await word_find.update_user_stats(db_helpers, self.user_id, True, attempt_num, self.game_type)
+            
+            # Update quest progress for daily word find
+            if self.game_type == 'daily':
+                from modules import quests
+                await quests.update_quest_progress(db_helpers, self.user_id, 'daily_word_find', 1)
             
             # Mark premium game as completed if applicable
             if self.game_type == 'premium':
