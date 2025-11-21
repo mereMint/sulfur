@@ -3918,6 +3918,45 @@ class ShopBuyView(discord.ui.View):
         # Define boost descriptions
         boost_details = {
             'xp_boost_1h': {
+    
+    @discord.ui.button(label="🎨 Themes", style=discord.ButtonStyle.primary, row=1)
+    async def themes_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Show theme options."""
+        await interaction.response.defer()
+        
+        # Get user's owned and equipped themes
+        owned_themes = await themes.get_user_owned_themes(db_helpers, self.member.id)
+        equipped_theme = await themes.get_user_theme(db_helpers, self.member.id)
+        
+        view = ThemeSelectView(self.member, owned_themes, equipped_theme)
+        embed = discord.Embed(
+            title="🎨 Themes",
+            description="Passe das Aussehen von Spielen und Befehlen an!\n\n"
+                       "Themes ändern Farben, Emojis und das gesamte Erscheinungsbild.",
+            color=discord.Color.purple()
+        )
+        
+        currency = self.config['modules']['economy']['currency_symbol']
+        
+        # Show all available themes
+        for theme_id, theme_data in themes.THEMES.items():
+            owned = theme_id in owned_themes
+            equipped = theme_id == equipped_theme
+            status = "✅ Ausgerüstet" if equipped else ("✓ Besessen" if owned else f"{theme_data['price']} {currency}")
+            
+            embed.add_field(
+                name=f"{theme_data['emoji']} {theme_data['name']} - {status}",
+                value=theme_data['description'],
+                inline=False
+            )
+        
+        if equipped_theme:
+            theme_name = themes.THEMES[equipped_theme]['name']
+            embed.set_footer(text=f"Aktuell ausgerüstet: {theme_name}")
+        else:
+            embed.set_footer(text="Kein Theme ausgerüstet (Standard-Ansicht)")
+        
+        await interaction.edit_original_response(embed=embed, view=view)
                 'name': '⚡ XP Boost (1 Stunde)',
                 'desc': '2x XP für alle Aktivitäten für 1 Stunde'
             },
@@ -4177,6 +4216,184 @@ class BoostSelectView(discord.ui.View):
             description=f"Boost-System wird bald implementiert!\nGewählter Boost: {boost}",
             color=discord.Color.orange()
         )
+        
+        await interaction.edit_original_response(embed=embed, view=None)
+
+
+class ThemeSelectView(discord.ui.View):
+    """View for selecting themes to purchase or equip."""
+    
+    def __init__(self, member: discord.Member, owned_themes: list, equipped_theme: str = None):
+        super().__init__(timeout=180)
+        self.member = member
+        self.owned_themes = owned_themes
+        self.equipped_theme = equipped_theme
+        
+        # Create select menu for themes
+        options = []
+        for theme_id, theme_data in themes.THEMES.items():
+            owned = theme_id in owned_themes
+            equipped = theme_id == equipped_theme
+            
+            if equipped:
+                status = "✅ Ausgerüstet"
+            elif owned:
+                status = "✓ Besessen"
+            else:
+                status = f"{theme_data['price']} 🪙"
+            
+            options.append(
+                discord.SelectOption(
+                    label=f"{theme_data['name']} - {status}",
+                    value=theme_id,
+                    description=theme_data['description'][:100],
+                    emoji=theme_data['emoji']
+                )
+            )
+        
+        # Add option to unequip theme
+        if equipped_theme:
+            options.append(
+                discord.SelectOption(
+                    label="Standard (Theme entfernen)",
+                    value="unequip",
+                    description="Zurück zur Standard-Ansicht",
+                    emoji="❌"
+                )
+            )
+        
+        select = discord.ui.Select(placeholder="Wähle ein Theme...", options=options)
+        select.callback = self.on_theme_select
+        self.add_item(select)
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.member.id:
+            await interaction.response.send_message("Du kannst diese Auswahl nicht bedienen.", ephemeral=True)
+            return False
+        return True
+    
+    async def on_theme_select(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        
+        theme_id = interaction.data['values'][0]
+        currency = config['modules']['economy']['currency_symbol']
+        
+        # Handle unequip
+        if theme_id == "unequip":
+            success, message = await themes.equip_theme(db_helpers, self.member.id, None)
+            if success:
+                embed = discord.Embed(
+                    title="❌ Theme entfernt",
+                    description="Du verwendest jetzt die Standard-Ansicht.",
+                    color=discord.Color.blue()
+                )
+            else:
+                embed = discord.Embed(
+                    title="❌ Fehler",
+                    description=message,
+                    color=discord.Color.red()
+                )
+            await interaction.edit_original_response(embed=embed, view=None)
+            return
+        
+        # Check if already owned
+        if theme_id in self.owned_themes:
+            # Equip the theme
+            success, message = await themes.equip_theme(db_helpers, self.member.id, theme_id)
+            if success:
+                theme_data = themes.THEMES[theme_id]
+                embed = discord.Embed(
+                    title=f"{theme_data['emoji']} Theme ausgerüstet!",
+                    description=f"Du verwendest jetzt das **{theme_data['name']}** Theme!",
+                    color=themes.get_theme_color(theme_id, 'success')
+                )
+                embed.add_field(
+                    name="Vorschau",
+                    value=f"**Farben:** Angepasst an {theme_data['name']}\n"
+                          f"**Turm:** {theme_data['game_assets']['tower_name']}\n"
+                          f"**Mines:** {theme_data['game_assets']['mines_safe']} {theme_data['game_assets']['mines_revealed']} {theme_data['game_assets']['mines_bomb']}",
+                    inline=False
+                )
+            else:
+                embed = discord.Embed(
+                    title="❌ Fehler",
+                    description=message,
+                    color=discord.Color.red()
+                )
+            await interaction.edit_original_response(embed=embed, view=None)
+            return
+        
+        # Purchase theme
+        theme_data = themes.THEMES[theme_id]
+        price = theme_data['price']
+        
+        # Check balance
+        balance = await db_helpers.get_balance(self.member.id)
+        if balance < price:
+            embed = discord.Embed(
+                title="❌ Nicht genug Guthaben",
+                description=f"Du hast {balance} {currency}, brauchst aber {price} {currency}.",
+                color=discord.Color.red()
+            )
+            await interaction.edit_original_response(embed=embed, view=None)
+            return
+        
+        # Purchase
+        success, message = await themes.purchase_theme(db_helpers, self.member.id, theme_id)
+        
+        if success:
+            # Deduct from balance
+            stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+            await db_helpers.add_balance(
+                self.member.id,
+                self.member.display_name,
+                -price,
+                config,
+                stat_period
+            )
+            
+            new_balance = await db_helpers.get_balance(self.member.id)
+            
+            # Log transaction
+            await db_helpers.log_transaction(
+                self.member.id,
+                'shop_purchase',
+                -price,
+                new_balance,
+                f"Purchased theme: {theme_data['name']}"
+            )
+            
+            # Auto-equip after purchase
+            await themes.equip_theme(db_helpers, self.member.id, theme_id)
+            
+            embed = discord.Embed(
+                title=f"✅ {theme_data['emoji']} Theme gekauft!",
+                description=f"Du hast das **{theme_data['name']}** Theme gekauft und ausgerüstet!",
+                color=themes.get_theme_color(theme_id, 'success')
+            )
+            embed.add_field(
+                name="Kosten",
+                value=f"{price} {currency}",
+                inline=True
+            )
+            embed.add_field(
+                name="Neues Guthaben",
+                value=f"{new_balance} {currency}",
+                inline=True
+            )
+            embed.add_field(
+                name="Vorschau",
+                value=f"**Farben:** Angepasst an {theme_data['name']}\n"
+                      f"**Turm:** {theme_data['game_assets']['tower_name']}\n"
+                      f"**Mines:** {theme_data['game_assets']['mines_safe']} {theme_data['game_assets']['mines_revealed']} {theme_data['game_assets']['mines_bomb']}",
+                inline=False
+            )
+        else:
+            embed = discord.Embed(
+                title="❌ Kauf fehlgeschlagen",
+                description=message,
+                color=discord.Color.red()
+            )
         
         await interaction.edit_original_response(embed=embed, view=None)
 
