@@ -260,7 +260,7 @@ last_processed_message_ids = deque(maxlen=500)
 recent_user_message_cache = {}  # (user_id, content) -> timestamp
 
 # --- NEW: Import and initialize DB helpers ---
-from modules.db_helpers import init_db_pool, initialize_database, apply_pending_migrations, get_leaderboard, add_xp, get_player_rank, get_level_leaderboard, save_message_to_history, get_chat_history, get_relationship_summary, update_relationship_summary, save_bulk_history, clear_channel_history, update_user_presence, add_balance, update_spotify_history, get_all_managed_channels, remove_managed_channel, get_managed_channel_config, update_managed_channel_config, log_message_stat, log_vc_minutes, get_wrapped_stats_for_period, get_user_wrapped_stats, log_stat_increment, get_spotify_history, get_player_profile, cleanup_custom_status_entries, log_mention_reply, log_vc_session, get_wrapped_extra_stats, get_xp_for_level, register_for_wrapped, unregister_from_wrapped, is_registered_for_wrapped, get_wrapped_registrations
+from modules.db_helpers import init_db_pool, initialize_database, apply_pending_migrations, get_leaderboard, add_xp, get_player_rank, get_level_leaderboard, save_message_to_history, get_chat_history, get_relationship_summary, update_relationship_summary, save_bulk_history, clear_channel_history, update_user_presence, add_balance, update_spotify_history, get_all_managed_channels, remove_managed_channel, get_managed_channel_config, update_managed_channel_config, log_message_stat, log_vc_minutes, get_wrapped_stats_for_period, get_user_wrapped_stats, log_stat_increment, get_spotify_history, get_player_profile, cleanup_custom_status_entries, log_mention_reply, log_vc_session, get_wrapped_extra_stats, get_xp_for_level, register_for_wrapped, unregister_from_wrapped, is_registered_for_wrapped, get_wrapped_registrations, get_money_leaderboard, get_games_leaderboard
 import modules.db_helpers as db_helpers
 db_helpers.init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
 from modules.level_system import grant_xp
@@ -2940,11 +2940,126 @@ class LeaderboardPageView(discord.ui.View):
         super().__init__(timeout=180)
         self.config = config
     
+    @discord.ui.button(label="💰 Money Leaderboard", style=discord.ButtonStyle.success)
+    async def money_leaderboard_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        embed = await self._create_money_leaderboard_embed()
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    
     @discord.ui.button(label="🐺 Werwolf Leaderboard", style=discord.ButtonStyle.secondary)
     async def werwolf_leaderboard_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
         embed = await self._create_werwolf_leaderboard_embed()
         await interaction.followup.send(embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="🎮 Games Played", style=discord.ButtonStyle.primary)
+    async def games_leaderboard_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        embed = await self._create_games_leaderboard_embed()
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    
+    async def _create_money_leaderboard_embed(self):
+        """Create embed with money leaderboard."""
+        leaderboard, error = await db_helpers.get_money_leaderboard()
+        
+        if error:
+            return discord.Embed(
+                title="Fehler",
+                description=f"Fehler beim Laden: {error}",
+                color=discord.Color.red()
+            )
+        
+        if not leaderboard:
+            return discord.Embed(
+                title="💰 Money Leaderboard",
+                description="Noch niemand hat Geld gesammelt. Zeit zum Verdienen!",
+                color=get_embed_color(self.config)
+            )
+        
+        currency = self.config.get('modules', {}).get('economy', {}).get('currency_symbol', '💵')
+        
+        embed = discord.Embed(
+            title="💰 Money Leaderboard",
+            description="*Top Spieler nach Kontostand*",
+            color=get_embed_color(self.config)
+        )
+        
+        # Create compact leaderboard with medal emojis
+        leaderboard_text = ""
+        for i, player in enumerate(leaderboard):
+            rank = i + 1
+            
+            # Medal emojis for top 3
+            if rank == 1:
+                rank_display = "🥇"
+            elif rank == 2:
+                rank_display = "🥈"
+            elif rank == 3:
+                rank_display = "🥉"
+            else:
+                rank_display = f"`{rank:>2}.`"
+            
+            balance = player['balance']
+            name = truncate_name(player['display_name'], MAX_LEADERBOARD_NAME_LENGTH)
+            
+            leaderboard_text += f"{rank_display} **{name}** • `{balance:,}` {currency}\n"
+        
+        embed.add_field(name="🏦 Rankings", value=leaderboard_text, inline=False)
+        embed.set_footer(text="💡 Verdiene Coins durch Daily, Quests und Mini-Games!")
+        
+        return embed
+    
+    async def _create_games_leaderboard_embed(self):
+        """Create embed with games played leaderboard."""
+        leaderboard, error = await db_helpers.get_games_leaderboard()
+        
+        if error:
+            return discord.Embed(
+                title="Fehler",
+                description=f"Fehler beim Laden: {error}",
+                color=discord.Color.red()
+            )
+        
+        if not leaderboard:
+            return discord.Embed(
+                title="🎮 Games Played Leaderboard",
+                description="Noch niemand hat Spiele gespielt!",
+                color=get_embed_color(self.config)
+            )
+        
+        embed = discord.Embed(
+            title="🎮 Games Played Leaderboard",
+            description="*Top Spieler nach Gesamtspielen*",
+            color=get_embed_color(self.config)
+        )
+        
+        # Create compact leaderboard with medal emojis
+        leaderboard_text = ""
+        for i, player in enumerate(leaderboard):
+            rank = i + 1
+            
+            # Medal emojis for top 3
+            if rank == 1:
+                rank_display = "🥇"
+            elif rank == 2:
+                rank_display = "🥈"
+            elif rank == 3:
+                rank_display = "🥉"
+            else:
+                rank_display = f"`{rank:>2}.`"
+            
+            total_games = player['total_games']
+            wins = player['wins']
+            losses = player['losses']
+            win_rate = (wins / total_games * 100) if total_games > 0 else 0
+            name = truncate_name(player['display_name'], MAX_LEADERBOARD_NAME_LENGTH)
+            
+            leaderboard_text += f"{rank_display} **{name}** • `{total_games}` Spiele • `{win_rate:.0f}%` WR\n"
+        
+        embed.add_field(name="🎯 Rankings", value=leaderboard_text, inline=False)
+        embed.set_footer(text="WR = Win Rate • Spiele mehr um aufzusteigen!")
+        
+        return embed
     
     async def _create_werwolf_leaderboard_embed(self):
         """Create embed with Werwolf leaderboard."""
@@ -3530,7 +3645,7 @@ class HelpView(discord.ui.View):
             ],
             "📊 Profile & Stats": [
                 ("profile", "Zeige dein Profil oder das eines anderen Benutzers"),
-                ("leaderboard", "Zeige das globale Level-Leaderboard"),
+                ("leaderboard", "Zeige globale Leaderboards (Level, Money, Werwolf, Games)"),
                 ("summary", "Zeige Sulfurs Meinung über einen Benutzer"),
                 ("spotify", "Zeige deine Spotify-Statistiken"),
             ],

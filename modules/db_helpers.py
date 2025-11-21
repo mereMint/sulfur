@@ -1852,6 +1852,56 @@ async def get_leaderboard():
         cursor.close()
         cnx.close()
 
+async def get_money_leaderboard():
+    """Fetches the top 10 players by balance."""
+    if not db_pool:
+        logger.warning("Database pool not available, cannot get money leaderboard")
+        return None, "Database pool not available."
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return None, "Konnte keine Verbindung zur Datenbank herstellen."
+
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        query = "SELECT display_name, balance FROM players ORDER BY balance DESC LIMIT 10"
+        cursor.execute(query)
+        results = cursor.fetchall()
+        return results, None
+    except mysql.connector.Error as err:
+        print(f"Error fetching money leaderboard: {err}")
+        return None, "Fehler beim Abrufen des Leaderboards."
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def get_games_leaderboard():
+    """Fetches the top 10 players by total games played (wins + losses)."""
+    if not db_pool:
+        logger.warning("Database pool not available, cannot get games leaderboard")
+        return None, "Database pool not available."
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return None, "Konnte keine Verbindung zur Datenbank herstellen."
+
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        query = """
+            SELECT display_name, wins, losses, (wins + losses) as total_games 
+            FROM players 
+            WHERE (wins + losses) > 0
+            ORDER BY total_games DESC 
+            LIMIT 10
+        """
+        cursor.execute(query)
+        results = cursor.fetchall()
+        return results, None
+    except mysql.connector.Error as err:
+        print(f"Error fetching games leaderboard: {err}")
+        return None, "Fehler beim Abrufen des Leaderboards."
+    finally:
+        cursor.close()
+        cnx.close()
+
 async def get_user_wrapped_stats(user_id, stat_period):
     """Fetches the Wrapped stats for a single user for a given period."""
     if not db_pool:
