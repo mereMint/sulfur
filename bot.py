@@ -4020,6 +4020,14 @@ class ShopBuyView(discord.ui.View):
             'jäger': {
                 'name': '🏹 Jäger',
                 'desc': 'Nimm beim Tod einen Spieler mit ins Grab'
+            },
+            'amor': {
+                'name': '💘 Amor',
+                'desc': 'Verliebe zwei Spieler - sie gewinnen oder verlieren zusammen'
+            },
+            'der_weisse': {
+                'name': '⚪ Der Weiße',
+                'desc': 'Überlebe einen Werwolf-Angriff'
             }
         }
         
