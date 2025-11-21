@@ -4261,7 +4261,12 @@ async def view_transactions(interaction: discord.Interaction, limit: int = 10):
         )
         
         for trans in transactions:
-            trans_type, amount, balance_after, description, created_at = trans
+            # Extract values from dictionary (get_transaction_history returns dicts)
+            trans_type = trans['transaction_type']
+            amount = int(trans['amount'])
+            balance_after = int(trans['balance_after'])
+            description = trans['description']
+            created_at = trans['created_at']
             
             # Get emoji based on transaction type
             type_emojis = {
