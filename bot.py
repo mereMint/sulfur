@@ -4617,11 +4617,11 @@ class BundleSelectView(discord.ui.View):
             for feature in bundle_features:
                 await db_helpers.add_feature_unlock(self.member.id, feature)
             
+            features_list = "\n".join([f"• {feature}" for feature in bundle_features])
             embed = discord.Embed(
                 title="✅ Bundle gekauft!",
                 description=f"Du hast das **{bundle_name}** Bundle erfolgreich gekauft!\n\n"
-                           f"Freigeschaltete Features:\n" + 
-                           "\n".join([f"• {feature}" for feature in bundle_features]),
+                           f"Freigeschaltete Features:\n{features_list}",
                 color=discord.Color.green()
             )
             embed.add_field(
