@@ -8133,9 +8133,25 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
         # Check if correct
         if guess == correct_word:
             # Win!
+            # Calculate rewards based on attempts (fewer attempts = better rewards)
+            base_xp = 40
+            base_money = 20
+            bonus_multiplier = max(1.0, (self.max_attempts - attempt_num + 1) / self.max_attempts)
+            xp_reward = int(base_xp * bonus_multiplier)
+            money_reward = int(base_money * bonus_multiplier)
+            
+            # Give XP reward
+            await db_helpers.add_xp(self.user_id, interaction.user.display_name, xp_reward)
+            
+            # Give money reward
+            await db_helpers.add_balance(self.user_id, interaction.user.display_name, money_reward, config)
+            
             embed = discord.Embed(
                 title="🎉 Glückwunsch!",
-                description=f"Du hast das Wort **{correct_word.upper()}** in {attempt_num} Versuchen erraten!",
+                description=f"Du hast das Wort **{correct_word.upper()}** in {attempt_num} Versuchen erraten!\n\n"
+                           f"**Belohnungen:**\n"
+                           f"🎯 +{xp_reward} XP\n"
+                           f"💰 +{money_reward} {config['modules']['economy']['currency_symbol']}",
                 color=discord.Color.gold()
             )
             
@@ -8383,6 +8399,11 @@ class WordleGuessModal(discord.ui.Modal, title="Rate das Wort"):
             await interaction.followup.send("❌ Dein Wort muss genau 5 Buchstaben enthalten (nur Buchstaben erlaubt)!", ephemeral=True)
             return
         
+        # Validate that the guess is a valid word from the word list
+        if guess not in wordle.WORDLE_WORDS:
+            await interaction.followup.send("❌ Dieses Wort ist nicht in der Wortliste! Versuche ein anderes deutsches Wort.", ephemeral=True)
+            return
+        
         # Get current attempts
         attempts = await wordle.get_user_attempts(db_helpers, self.user_id, word_id)
         attempt_num = len(attempts) + 1
@@ -8403,9 +8424,25 @@ class WordleGuessModal(discord.ui.Modal, title="Rate das Wort"):
         # Check if correct
         if guess == correct_word:
             # Win!
+            # Calculate rewards based on attempts (fewer attempts = better rewards)
+            base_xp = 50
+            base_money = 25
+            bonus_multiplier = max(1.0, (self.max_attempts - attempt_num + 1) / self.max_attempts)
+            xp_reward = int(base_xp * bonus_multiplier)
+            money_reward = int(base_money * bonus_multiplier)
+            
+            # Give XP reward
+            await db_helpers.add_xp(self.user_id, interaction.user.display_name, xp_reward)
+            
+            # Give money reward
+            await db_helpers.add_balance(self.user_id, interaction.user.display_name, money_reward, config)
+            
             embed = discord.Embed(
                 title="🎉 Glückwunsch!",
-                description=f"Du hast das Wort **{correct_word.upper()}** in {attempt_num} Versuchen erraten!",
+                description=f"Du hast das Wort **{correct_word.upper()}** in {attempt_num} Versuchen erraten!\n\n"
+                           f"**Belohnungen:**\n"
+                           f"🎯 +{xp_reward} XP\n"
+                           f"💰 +{money_reward} {config['modules']['economy']['currency_symbol']}",
                 color=discord.Color.gold()
             )
             

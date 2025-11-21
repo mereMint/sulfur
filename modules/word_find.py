@@ -10,8 +10,8 @@ from datetime import datetime, timezone, timedelta
 from modules.logger_utils import bot_logger as logger
 
 
-# Word lists for different difficulty levels
-WORD_LISTS = {
+# Word lists for different difficulty levels - German
+WORD_LISTS_DE = {
     'easy': [
         'haus', 'baum', 'hund', 'katze', 'auto', 'buch', 'tisch', 'stuhl', 
         'fenster', 'tür', 'lampe', 'bett', 'küche', 'bad', 'garten', 'blume'
@@ -25,6 +25,32 @@ WORD_LISTS = {
         'wissenschaft', 'technologie', 'innovation', 'kreativität', 'philosophie'
     ]
 }
+
+# Word lists for different difficulty levels - English
+WORD_LISTS_EN = {
+    'easy': [
+        'house', 'tree', 'dog', 'cat', 'car', 'book', 'table', 'chair',
+        'window', 'door', 'lamp', 'bed', 'kitchen', 'bath', 'garden', 'flower'
+    ],
+    'medium': [
+        'computer', 'telephone', 'internet', 'keyboard', 'screen', 'music',
+        'friend', 'family', 'work', 'school', 'vacation', 'weather', 'sun'
+    ],
+    'hard': [
+        'development', 'programming', 'algorithm', 'database', 'network',
+        'science', 'technology', 'innovation', 'creativity', 'philosophy'
+    ]
+}
+
+# Default to German for backward compatibility
+WORD_LISTS = WORD_LISTS_DE
+
+
+def get_word_lists(language='de'):
+    """Get Word Find word lists for specified language."""
+    if language == 'en':
+        return WORD_LISTS_EN
+    return WORD_LISTS_DE
 
 
 async def initialize_word_find_table(db_helpers):
