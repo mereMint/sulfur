@@ -2387,13 +2387,21 @@ async def get_user_features(user_id):
     if not db_pool:
         return []
     
-    async with get_db_connection() as (conn, cursor):
-        await cursor.execute(
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return []
+    
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        cursor.execute(
             "SELECT feature_name, purchased_at FROM feature_unlocks WHERE user_id = %s",
             (user_id,)
         )
-        results = await cursor.fetchall()
+        results = cursor.fetchall()
         return [r['feature_name'] for r in results]
+    finally:
+        cursor.close()
+        cnx.close()
 
 
 @db_operation("Log Shop Purchase")
@@ -2438,8 +2446,13 @@ async def get_purchase_history(user_id, limit=10):
     if not db_pool:
         return []
     
-    async with get_db_connection() as (conn, cursor):
-        await cursor.execute(
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return []
+    
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        cursor.execute(
             """
             SELECT item_type, item_name, price, purchased_at
             FROM shop_purchases
@@ -2449,7 +2462,10 @@ async def get_purchase_history(user_id, limit=10):
             """,
             (user_id, limit)
         )
-        return await cursor.fetchall()
+        return cursor.fetchall()
+    finally:
+        cursor.close()
+        cnx.close()
 
 
 @db_operation("Update Gambling Stats")
@@ -2460,8 +2476,13 @@ async def update_gambling_stats(user_id, game_type, wagered, won_amount):
     
     profit = won_amount - wagered
     
-    async with get_db_connection() as (conn, cursor):
-        await cursor.execute(
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return False
+    
+    cursor = cnx.cursor()
+    try:
+        cursor.execute(
             """
             INSERT INTO gambling_stats (user_id, game_type, total_games, total_wagered, total_won, total_lost, biggest_win, biggest_loss, last_played)
             VALUES (%s, %s, 1, %s, %s, %s, %s, %s, NOW())
@@ -2485,8 +2506,11 @@ async def update_gambling_stats(user_id, game_type, wagered, won_amount):
              profit if profit > 0 else 0,
              abs(profit) if profit < 0 else 0)
         )
-        await conn.commit()
+        cnx.commit()
         return True
+    finally:
+        cursor.close()
+        cnx.close()
 
 
 @db_operation("Get Gambling Stats")
@@ -2495,9 +2519,14 @@ async def get_gambling_stats(user_id, game_type=None):
     if not db_pool:
         return None
     
-    async with get_db_connection() as (conn, cursor):
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return None
+    
+    cursor = cnx.cursor(dictionary=True)
+    try:
         if game_type:
-            await cursor.execute(
+            cursor.execute(
                 """
                 SELECT * FROM gambling_stats
                 WHERE user_id = %s AND game_type = %s
@@ -2505,7 +2534,7 @@ async def get_gambling_stats(user_id, game_type=None):
                 (user_id, game_type)
             )
         else:
-            await cursor.execute(
+            cursor.execute(
                 """
                 SELECT * FROM gambling_stats
                 WHERE user_id = %s
@@ -2513,8 +2542,11 @@ async def get_gambling_stats(user_id, game_type=None):
                 (user_id,)
             )
         
-        results = await cursor.fetchall()
+        results = cursor.fetchall()
         return results if results else None
+    finally:
+        cursor.close()
+        cnx.close()
 
 
 @db_operation("Log Transaction")
@@ -2523,16 +2555,24 @@ async def log_transaction(user_id, transaction_type, amount, balance_after, desc
     if not db_pool:
         return False
     
-    async with get_db_connection() as (conn, cursor):
-        await cursor.execute(
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return False
+    
+    cursor = cnx.cursor()
+    try:
+        cursor.execute(
             """
             INSERT INTO transaction_history (user_id, transaction_type, amount, balance_after, description)
             VALUES (%s, %s, %s, %s, %s)
             """,
             (user_id, transaction_type, amount, balance_after, description)
         )
-        await conn.commit()
+        cnx.commit()
         return True
+    finally:
+        cursor.close()
+        cnx.close()
 
 
 @db_operation("Get Transaction History")
@@ -2541,8 +2581,13 @@ async def get_transaction_history(user_id, limit=20):
     if not db_pool:
         return []
     
-    async with get_db_connection() as (conn, cursor):
-        await cursor.execute(
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return []
+    
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        cursor.execute(
             """
             SELECT transaction_type, amount, balance_after, description, created_at
             FROM transaction_history
@@ -2552,7 +2597,10 @@ async def get_transaction_history(user_id, limit=20):
             """,
             (user_id, limit)
         )
-        return await cursor.fetchall()
+        return cursor.fetchall()
+    finally:
+        cursor.close()
+        cnx.close()
 
 
 # --- User Customization Functions ---
