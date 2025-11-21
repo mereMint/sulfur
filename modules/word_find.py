@@ -52,7 +52,24 @@ async def initialize_word_find_table(db_helpers):
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
+            # Table for premium games (separate from daily)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS word_find_premium_games (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    word VARCHAR(100) NOT NULL,
+                    difficulty VARCHAR(20) NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed BOOLEAN DEFAULT FALSE,
+                    won BOOLEAN DEFAULT FALSE,
+                    INDEX idx_user_created (user_id, created_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """)
+            
             # Table for user attempts
+            # Note: No foreign key constraint on word_id because it references different tables
+            # based on game_type (word_find_daily for 'daily', word_find_premium_games for 'premium')
+            # Referential integrity is maintained at the application level
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS word_find_attempts (
                     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -61,13 +78,13 @@ async def initialize_word_find_table(db_helpers):
                     guess VARCHAR(100) NOT NULL,
                     similarity_score FLOAT NOT NULL,
                     attempt_number INT NOT NULL,
+                    game_type ENUM('daily', 'premium') DEFAULT 'daily',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (word_id) REFERENCES word_find_daily(id) ON DELETE CASCADE,
-                    INDEX idx_user_word (user_id, word_id)
+                    INDEX idx_user_word_type (user_id, word_id, game_type)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
-            # Table for user stats
+            # Table for user stats (backwards compatible - supports both old and new schema)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS word_find_stats (
                     user_id BIGINT PRIMARY KEY,
@@ -76,6 +93,14 @@ async def initialize_word_find_table(db_helpers):
                     current_streak INT DEFAULT 0,
                     best_streak INT DEFAULT 0,
                     total_attempts INT DEFAULT 0,
+                    daily_games INT DEFAULT 0,
+                    daily_wins INT DEFAULT 0,
+                    daily_streak INT DEFAULT 0,
+                    daily_best_streak INT DEFAULT 0,
+                    daily_total_attempts INT DEFAULT 0,
+                    premium_games INT DEFAULT 0,
+                    premium_wins INT DEFAULT 0,
+                    premium_total_attempts INT DEFAULT 0,
                     last_played DATE
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
@@ -264,8 +289,8 @@ async def record_attempt(db_helpers, user_id: int, word_id: int, guess: str, sim
         return False
 
 
-async def update_user_stats(db_helpers, user_id: int, won: bool, attempts: int):
-    """Update user's Word Find statistics."""
+async def update_user_stats(db_helpers, user_id: int, won: bool, attempts: int, game_type: str = 'daily'):
+    """Update user's Word Find statistics (backwards compatible with old schema)."""
     try:
         if not db_helpers.db_pool:
             return
@@ -284,27 +309,57 @@ async def update_user_stats(db_helpers, user_id: int, won: bool, attempts: int):
             """, (user_id,))
             stats = cursor.fetchone()
             
-            if stats:
-                # Update existing stats
-                new_streak = stats['current_streak'] + 1 if won else 0
-                new_best_streak = max(stats['best_streak'], new_streak)
-                
-                cursor.execute("""
-                    UPDATE word_find_stats
-                    SET total_games = total_games + 1,
-                        total_wins = total_wins + %s,
-                        current_streak = %s,
-                        best_streak = %s,
-                        total_attempts = total_attempts + %s,
-                        last_played = %s
-                    WHERE user_id = %s
-                """, (1 if won else 0, new_streak, new_best_streak, attempts, today, user_id))
-            else:
-                # Create new stats
-                cursor.execute("""
-                    INSERT INTO word_find_stats (user_id, total_games, total_wins, current_streak, best_streak, total_attempts, last_played)
-                    VALUES (%s, 1, %s, %s, %s, %s, %s)
-                """, (user_id, 1 if won else 0, 1 if won else 0, 1 if won else 0, attempts, today))
+            if game_type == 'daily':
+                if stats:
+                    # Update existing daily stats
+                    new_streak = stats.get('daily_streak', stats.get('current_streak', 0)) + 1 if won else 0
+                    new_best_streak = max(stats.get('daily_best_streak', stats.get('best_streak', 0)), new_streak)
+                    
+                    # Update both old and new columns for backwards compatibility
+                    cursor.execute("""
+                        UPDATE word_find_stats
+                        SET total_games = total_games + 1,
+                            total_wins = total_wins + %s,
+                            current_streak = %s,
+                            best_streak = %s,
+                            total_attempts = total_attempts + %s,
+                            daily_games = daily_games + 1,
+                            daily_wins = daily_wins + %s,
+                            daily_streak = %s,
+                            daily_best_streak = %s,
+                            daily_total_attempts = daily_total_attempts + %s,
+                            last_played = %s
+                        WHERE user_id = %s
+                    """, (1 if won else 0, new_streak, new_best_streak, attempts,
+                          1 if won else 0, new_streak, new_best_streak, attempts, today, user_id))
+                else:
+                    # Create new stats (populate both old and new columns)
+                    cursor.execute("""
+                        INSERT INTO word_find_stats 
+                        (user_id, total_games, total_wins, current_streak, best_streak, total_attempts,
+                         daily_games, daily_wins, daily_streak, daily_best_streak, daily_total_attempts, last_played)
+                        VALUES (%s, 1, %s, %s, %s, %s, 1, %s, %s, %s, %s, %s)
+                    """, (user_id, 1 if won else 0, 1 if won else 0, 1 if won else 0, attempts,
+                          1 if won else 0, 1 if won else 0, 1 if won else 0, attempts, today))
+            else:  # premium
+                if stats:
+                    # Update existing premium stats (don't touch old columns for premium games)
+                    cursor.execute("""
+                        UPDATE word_find_stats
+                        SET premium_games = premium_games + 1,
+                            premium_wins = premium_wins + %s,
+                            premium_total_attempts = premium_total_attempts + %s,
+                            last_played = %s
+                        WHERE user_id = %s
+                    """, (1 if won else 0, attempts, today, user_id))
+                else:
+                    # Create new stats with premium game
+                    cursor.execute("""
+                        INSERT INTO word_find_stats 
+                        (user_id, premium_games, premium_wins, premium_total_attempts, last_played)
+                        VALUES (%s, 1, %s, %s, %s)
+                    """, (user_id, 1 if won else 0, attempts, today))
+            
             
             conn.commit()
         finally:
@@ -339,7 +394,123 @@ async def get_user_stats(db_helpers, user_id: int):
         return None
 
 
-def create_game_embed(word_data: dict, attempts: list, max_attempts: int, user_stats: dict = None):
+async def create_premium_game(db_helpers, user_id: int):
+    """Create a new premium game for a user."""
+    try:
+        if not db_helpers.db_pool:
+            return None
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return None
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            # Choose random difficulty and word
+            difficulty = random.choice(['easy', 'medium', 'hard'])
+            word = random.choice(WORD_LISTS[difficulty])
+            
+            cursor.execute("""
+                INSERT INTO word_find_premium_games (user_id, word, difficulty)
+                VALUES (%s, %s, %s)
+            """, (user_id, word, difficulty))
+            
+            conn.commit()
+            game_id = cursor.lastrowid
+            
+            return {'id': game_id, 'word': word, 'difficulty': difficulty, 'type': 'premium'}
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error creating premium game: {e}", exc_info=True)
+        return None
+
+
+async def get_user_attempts_by_type(db_helpers, user_id: int, word_id: int, game_type: str):
+    """Get user's attempts for a specific game (daily or premium)."""
+    try:
+        if not db_helpers.db_pool:
+            return []
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return []
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            cursor.execute("""
+                SELECT guess, similarity_score, attempt_number
+                FROM word_find_attempts
+                WHERE user_id = %s AND word_id = %s AND game_type = %s
+                ORDER BY similarity_score DESC
+            """, (user_id, word_id, game_type))
+            
+            return cursor.fetchall()
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting user attempts by type: {e}", exc_info=True)
+        return []
+
+
+async def record_attempt_with_type(db_helpers, user_id: int, word_id: int, guess: str, similarity: float, attempt_num: int, game_type: str):
+    """Record a guess attempt with game type."""
+    try:
+        if not db_helpers.db_pool:
+            return False
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return False
+        
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO word_find_attempts (user_id, word_id, guess, similarity_score, attempt_number, game_type)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (user_id, word_id, guess, similarity, attempt_num, game_type))
+            
+            conn.commit()
+            return True
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error recording attempt with type: {e}", exc_info=True)
+        return False
+
+
+async def complete_premium_game(db_helpers, game_id: int, won: bool):
+    """Mark a premium game as completed."""
+    try:
+        if not db_helpers.db_pool:
+            return False
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return False
+        
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                UPDATE word_find_premium_games
+                SET completed = TRUE, won = %s
+                WHERE id = %s
+            """, (won, game_id))
+            
+            conn.commit()
+            return True
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error completing premium game: {e}", exc_info=True)
+        return False
+
+
+def create_game_embed(word_data: dict, attempts: list, max_attempts: int, user_stats: dict = None, game_type: str = 'daily'):
     """Create the game embed with current progress."""
     difficulty_colors = {
         'easy': discord.Color.green(),
@@ -350,9 +521,11 @@ def create_game_embed(word_data: dict, attempts: list, max_attempts: int, user_s
     difficulty = word_data.get('difficulty', 'medium')
     color = difficulty_colors.get(difficulty, discord.Color.blue())
     
+    title = "🔍 Word Find - Tägliches Wortratespiel" if game_type == 'daily' else "🔍 Word Find - Premium Spiel"
+    
     embed = discord.Embed(
-        title="🔍 Word Find - Tägliches Wortratespiel",
-        description=f"Errate das heutige Wort! Du hast {max_attempts} Versuche.\n"
+        title=title,
+        description=f"Errate das Wort! Du hast {max_attempts} Versuche.\n"
                    f"Schwierigkeit: **{difficulty.upper()}**",
         color=color
     )
@@ -398,11 +571,25 @@ def create_game_embed(word_data: dict, attempts: list, max_attempts: int, user_s
     
     # Add user stats if available
     if user_stats:
-        win_rate = (user_stats['total_wins'] / user_stats['total_games'] * 100) if user_stats['total_games'] > 0 else 0
-        avg_attempts = (user_stats['total_attempts'] / user_stats['total_wins']) if user_stats['total_wins'] > 0 else 0
+        if game_type == 'daily':
+            total_games = user_stats.get('daily_games', 0)
+            total_wins = user_stats.get('daily_wins', 0)
+            current_streak = user_stats.get('daily_streak', 0)
+            best_streak = user_stats.get('daily_best_streak', 0)
+            total_attempts = user_stats.get('daily_total_attempts', 0)
+        else:  # premium
+            total_games = user_stats.get('premium_games', 0)
+            total_wins = user_stats.get('premium_wins', 0)
+            current_streak = 0  # No streak for premium games
+            best_streak = 0
+            total_attempts = user_stats.get('premium_total_attempts', 0)
         
-        stats_text = f"Spiele: `{user_stats['total_games']}` | Gewonnen: `{user_stats['total_wins']}` ({win_rate:.1f}%)\n"
-        stats_text += f"Streak: `{user_stats['current_streak']}` 🔥 | Best: `{user_stats['best_streak']}`\n"
+        win_rate = (total_wins / total_games * 100) if total_games > 0 else 0
+        avg_attempts = (total_attempts / total_wins) if total_wins > 0 else 0
+        
+        stats_text = f"Spiele: `{total_games}` | Gewonnen: `{total_wins}` ({win_rate:.1f}%)\n"
+        if game_type == 'daily':
+            stats_text += f"Streak: `{current_streak}` 🔥 | Best: `{best_streak}`\n"
         if avg_attempts > 0:
             stats_text += f"Ø Versuche pro Sieg: `{avg_attempts:.1f}`"
         
@@ -411,3 +598,38 @@ def create_game_embed(word_data: dict, attempts: list, max_attempts: int, user_s
     embed.set_footer(text="💡 Tipp: Nähere dich dem Wort durch ähnliche Begriffe!")
     
     return embed
+
+
+def create_share_text(attempts: list, won: bool, game_type: str = 'daily'):
+    """Create shareable text for wordfind results (without spoiling the word)."""
+    date_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    
+    # Sort attempts by attempt number
+    sorted_attempts = sorted(attempts, key=lambda x: x['attempt_number'])
+    
+    # Create emoji representation
+    emoji_pattern = ""
+    for attempt in sorted_attempts:
+        score = attempt['similarity_score']
+        if score >= 100:
+            emoji_pattern += "🟩"  # Correct
+        elif score >= 80:
+            emoji_pattern += "🟧"  # Very hot
+        elif score >= 60:
+            emoji_pattern += "🟨"  # Hot
+        elif score >= 40:
+            emoji_pattern += "🟦"  # Warm
+        elif score >= 20:
+            emoji_pattern += "⬜"  # Cold
+        else:
+            emoji_pattern += "⬛"  # Very cold
+    
+    game_label = "Tägliches" if game_type == 'daily' else "Premium"
+    result = "✅" if won else "❌"
+    
+    share_text = f"🔍 Word Find {game_label} {date_str}\n"
+    share_text += f"{result} {len(attempts)}/20\n\n"
+    share_text += f"{emoji_pattern}\n\n"
+    share_text += "Spiele mit: /wordfind"
+    
+    return share_text

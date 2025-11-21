@@ -2593,6 +2593,12 @@ class ProfilePageView(discord.ui.View):
         embed = await self._create_detective_stats_embed()
         await interaction.followup.send(embed=embed, ephemeral=True)
     
+    @discord.ui.button(label="📝 Word Find Stats", style=discord.ButtonStyle.secondary, row=1)
+    async def wordfind_stats_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        embed = await self._create_wordfind_stats_embed()
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    
     async def _create_werwolf_stats_embed(self):
         """Create embed with Werwolf-specific stats."""
         profile_data, error = await db_helpers.get_player_profile(self.user.id)
@@ -2811,6 +2817,114 @@ class ProfilePageView(discord.ui.View):
             return discord.Embed(
                 title="Fehler",
                 description=f"Fehler beim Laden der Detective-Statistiken: {str(e)}",
+                color=discord.Color.red()
+            )
+    
+    async def _create_wordfind_stats_embed(self):
+        """Create embed with Word Find game stats."""
+        try:
+            stats = await word_find.get_user_stats(db_helpers, self.user.id)
+            
+            if not stats:
+                return discord.Embed(
+                    title=f"📝 Word Find Stats - {self.user.display_name}",
+                    description="Noch keine Word Find Spiele gespielt!",
+                    color=discord.Color.blue()
+                )
+            
+            embed = discord.Embed(
+                title=f"📝 Word Find Stats - {self.user.display_name}",
+                description="Deine Word Find Statistiken",
+                color=discord.Color.blue()
+            )
+            embed.set_thumbnail(url=self.user.display_avatar.url)
+            
+            # Daily game stats (use new columns if available, fall back to old)
+            daily_games = stats.get('daily_games') or stats.get('total_games', 0)
+            daily_wins = stats.get('daily_wins') or stats.get('total_wins', 0)
+            daily_attempts = stats.get('daily_total_attempts') or stats.get('total_attempts', 0)
+            daily_streak = stats.get('daily_streak') or stats.get('current_streak', 0)
+            daily_best_streak = stats.get('daily_best_streak') or stats.get('best_streak', 0)
+            
+            # Premium game stats (new columns only)
+            premium_games = stats.get('premium_games', 0)
+            premium_wins = stats.get('premium_wins', 0)
+            premium_attempts = stats.get('premium_total_attempts', 0)
+            
+            # Calculate daily stats
+            daily_win_rate = (daily_wins / daily_games * 100) if daily_games > 0 else 0
+            daily_avg_attempts = (daily_attempts / daily_wins) if daily_wins > 0 else 0
+            
+            # Daily stats section
+            if daily_games > 0:
+                embed.add_field(
+                    name="📅 Tägliche Spiele",
+                    value=f"Spiele: `{daily_games}` | Siege: `{daily_wins}` | Rate: `{daily_win_rate:.1f}%`\n"
+                          f"Streak: 🔥 `{daily_streak}` | Best: ⭐ `{daily_best_streak}`\n"
+                          f"Ø Versuche: `{daily_avg_attempts:.1f}`",
+                    inline=False
+                )
+                
+                # Daily win rate progress bar
+                bar_length = 20
+                filled = int((daily_win_rate / 100) * bar_length)
+                bar = '█' * filled + '░' * (bar_length - filled)
+                
+                # Rating based on daily win rate
+                if daily_win_rate >= 80:
+                    rating = "🏆 Wortmeister"
+                elif daily_win_rate >= 60:
+                    rating = "🎖️ Wortexperte"
+                elif daily_win_rate >= 40:
+                    rating = "📖 Wortkenner"
+                elif daily_win_rate >= 20:
+                    rating = "📝 Anfänger"
+                else:
+                    rating = "🤔 Übe weiter!"
+                
+                embed.add_field(
+                    name=f"Daily Erfolgsrate: {daily_win_rate:.1f}%",
+                    value=f"`{bar}`\n{rating}",
+                    inline=False
+                )
+            
+            # Premium stats section (only show if user has played premium games)
+            if premium_games > 0:
+                premium_win_rate = (premium_wins / premium_games * 100) if premium_games > 0 else 0
+                premium_avg_attempts = (premium_attempts / premium_wins) if premium_wins > 0 else 0
+                
+                embed.add_field(
+                    name="💎 Premium Spiele",
+                    value=f"Spiele: `{premium_games}` | Siege: `{premium_wins}` | Rate: `{premium_win_rate:.1f}%`\n"
+                          f"Ø Versuche: `{premium_avg_attempts:.1f}`",
+                    inline=False
+                )
+                
+                # Premium win rate progress bar
+                bar_length = 20
+                filled = int((premium_win_rate / 100) * bar_length)
+                bar = '█' * filled + '░' * (bar_length - filled)
+                
+                embed.add_field(
+                    name=f"Premium Erfolgsrate: {premium_win_rate:.1f}%",
+                    value=f"`{bar}`",
+                    inline=False
+                )
+            
+            # Last played
+            if stats.get('last_played'):
+                last_played = stats['last_played']
+                embed.set_footer(text=f"Zuletzt gespielt: {last_played.strftime('%Y-%m-%d')}")
+            else:
+                embed.set_footer(text="Noch nie gespielt!")
+            
+            return embed
+            
+        except Exception as e:
+            logger.error(f"Error creating word find stats embed: {e}", exc_info=True)
+            return discord.Embed(
+                title="Fehler",
+                description=f"Fehler beim Laden der Word Find Statistiken: {str(e)}",
                 color=discord.Color.red()
             )
 
@@ -7046,12 +7160,13 @@ async def trolly(interaction: discord.Interaction):
 class WordFindView(discord.ui.View):
     """UI view for Word Find game with guess input."""
     
-    def __init__(self, user_id: int, word_data: dict, max_attempts: int, unlimited: bool = False):
+    def __init__(self, user_id: int, word_data: dict, max_attempts: int, has_premium: bool = False, game_type: str = 'daily'):
         super().__init__(timeout=300)
         self.user_id = user_id
         self.word_data = word_data
         self.max_attempts = max_attempts
-        self.unlimited = unlimited
+        self.has_premium = has_premium
+        self.game_type = game_type
     
     @discord.ui.button(label="Wort raten", style=discord.ButtonStyle.primary, emoji="🔍")
     async def guess_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -7061,7 +7176,7 @@ class WordFindView(discord.ui.View):
             return
         
         # Create modal for input
-        modal = WordGuessModal(self.user_id, self.word_data, self.max_attempts, self.unlimited)
+        modal = WordGuessModal(self.user_id, self.word_data, self.max_attempts, self.has_premium, self.game_type)
         await interaction.response.send_modal(modal)
     
     @discord.ui.button(label="Aufgeben", style=discord.ButtonStyle.danger, emoji="❌")
@@ -7083,7 +7198,11 @@ class WordFindView(discord.ui.View):
         )
         
         # Update stats (loss)
-        await word_find.update_user_stats(db_helpers, self.user_id, False, self.max_attempts)
+        await word_find.update_user_stats(db_helpers, self.user_id, False, self.max_attempts, self.game_type)
+        
+        # Mark premium game as completed if applicable
+        if self.game_type == 'premium':
+            await word_find.complete_premium_game(db_helpers, self.word_data['id'], False)
         
         # Get stats
         user_stats = await word_find.get_user_stats(db_helpers, self.user_id)
@@ -7102,6 +7221,65 @@ class WordFindView(discord.ui.View):
         await interaction.edit_original_response(embed=embed, view=self)
 
 
+class WordFindCompletedView(discord.ui.View):
+    """UI view for completed Word Find game with share and new game options."""
+    
+    def __init__(self, user_id: int, attempts: list, won: bool, has_premium: bool = False, game_type: str = 'daily'):
+        super().__init__(timeout=300)
+        self.user_id = user_id
+        self.attempts = attempts
+        self.won = won
+        self.has_premium = has_premium
+        self.game_type = game_type
+        
+        # Only show new game button for premium users on daily games
+        if not has_premium or game_type != 'daily':
+            self.remove_item(self.new_game_button)
+    
+    @discord.ui.button(label="Teilen", style=discord.ButtonStyle.success, emoji="📤", row=0)
+    async def share_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handle share button click."""
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht dein Spiel!", ephemeral=True)
+            return
+        
+        # Create shareable text
+        share_text = word_find.create_share_text(self.attempts, self.won, self.game_type)
+        
+        await interaction.response.send_message(
+            f"Teile dein Ergebnis:\n\n```\n{share_text}\n```",
+            ephemeral=True
+        )
+    
+    @discord.ui.button(label="Neues Spiel", style=discord.ButtonStyle.primary, emoji="🎮", row=0)
+    async def new_game_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handle new game button click (premium only)."""
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht dein Spiel!", ephemeral=True)
+            return
+        
+        await interaction.response.defer()
+        
+        # Create new premium game
+        premium_game = await word_find.create_premium_game(db_helpers, self.user_id)
+        
+        if not premium_game:
+            await interaction.followup.send("❌ Fehler beim Erstellen eines neuen Spiels.", ephemeral=True)
+            return
+        
+        # Get user stats
+        user_stats = await word_find.get_user_stats(db_helpers, self.user_id)
+        
+        # Create new game embed
+        embed = word_find.create_game_embed(premium_game, [], 20, user_stats, 'premium')
+        embed.set_footer(text="💎 Premium Spiel - Du hast 20 Versuche!")
+        
+        # Create view for new game
+        view = WordFindView(self.user_id, premium_game, 20, self.has_premium, 'premium')
+        
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+
 class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
     """Modal for entering word guess."""
     
@@ -7113,12 +7291,13 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
         required=True
     )
     
-    def __init__(self, user_id: int, word_data: dict, max_attempts: int, unlimited: bool):
+    def __init__(self, user_id: int, word_data: dict, max_attempts: int, has_premium: bool, game_type: str = 'daily'):
         super().__init__()
         self.user_id = user_id
         self.word_data = word_data
         self.max_attempts = max_attempts
-        self.unlimited = unlimited
+        self.has_premium = has_premium
+        self.game_type = game_type
     
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer()
@@ -7127,8 +7306,12 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
         correct_word = self.word_data['word'].lower()
         word_id = self.word_data['id']
         
-        # Get current attempts
-        attempts = await word_find.get_user_attempts(db_helpers, self.user_id, word_id)
+        # Get current attempts based on game type
+        if self.game_type == 'daily':
+            attempts = await word_find.get_user_attempts(db_helpers, self.user_id, word_id)
+        else:
+            attempts = await word_find.get_user_attempts_by_type(db_helpers, self.user_id, word_id, 'premium')
+        
         attempt_num = len(attempts) + 1
         
         # Check if already guessed this word
@@ -7136,16 +7319,19 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
             await interaction.followup.send("Du hast dieses Wort bereits geraten!", ephemeral=True)
             return
         
-        # Check if max attempts reached (only for non-unlimited)
-        if not self.unlimited and attempt_num > self.max_attempts:
+        # Check if max attempts reached
+        if attempt_num > self.max_attempts:
             await interaction.followup.send("Du hast alle Versuche aufgebraucht!", ephemeral=True)
             return
         
         # Calculate similarity
         similarity = word_find.calculate_word_similarity(guess, correct_word)
         
-        # Record attempt
-        await word_find.record_attempt(db_helpers, self.user_id, word_id, guess, similarity, attempt_num)
+        # Record attempt with game type
+        if self.game_type == 'daily':
+            await word_find.record_attempt(db_helpers, self.user_id, word_id, guess, similarity, attempt_num)
+        else:
+            await word_find.record_attempt_with_type(db_helpers, self.user_id, word_id, guess, similarity, attempt_num, 'premium')
         
         # Check if correct
         if guess == correct_word:
@@ -7157,10 +7343,19 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
             )
             
             # Update stats
-            await word_find.update_user_stats(db_helpers, self.user_id, True, attempt_num)
+            await word_find.update_user_stats(db_helpers, self.user_id, True, attempt_num, self.game_type)
             
-            # Get updated stats
+            # Mark premium game as completed if applicable
+            if self.game_type == 'premium':
+                await word_find.complete_premium_game(db_helpers, word_id, True)
+            
+            # Get updated stats and attempts for sharing
             user_stats = await word_find.get_user_stats(db_helpers, self.user_id)
+            if self.game_type == 'daily':
+                all_attempts = await word_find.get_user_attempts(db_helpers, self.user_id, word_id)
+            else:
+                all_attempts = await word_find.get_user_attempts_by_type(db_helpers, self.user_id, word_id, 'premium')
+            
             if user_stats:
                 embed.add_field(
                     name="📊 Deine Statistiken",
@@ -7169,26 +7364,38 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
                     inline=False
                 )
             
-            await interaction.edit_original_response(embed=embed, view=None)
+            # Show completed view with share button (and new game button for premium users)
+            view = WordFindCompletedView(self.user_id, all_attempts, True, self.has_premium, self.game_type)
+            await interaction.edit_original_response(embed=embed, view=view)
         else:
             # Update display with new attempt
-            attempts = await word_find.get_user_attempts(db_helpers, self.user_id, word_id)
+            if self.game_type == 'daily':
+                attempts = await word_find.get_user_attempts(db_helpers, self.user_id, word_id)
+            else:
+                attempts = await word_find.get_user_attempts_by_type(db_helpers, self.user_id, word_id, 'premium')
+            
             user_stats = await word_find.get_user_stats(db_helpers, self.user_id)
             
-            embed = word_find.create_game_embed(self.word_data, attempts, self.max_attempts, user_stats)
+            embed = word_find.create_game_embed(self.word_data, attempts, self.max_attempts, user_stats, self.game_type)
             
             # Check if max attempts reached
-            if not self.unlimited and attempt_num >= self.max_attempts:
+            if attempt_num >= self.max_attempts:
                 embed.title = "❌ Keine Versuche mehr!"
                 embed.description = f"Das gesuchte Wort war: **{correct_word.upper()}**"
                 embed.color = discord.Color.red()
                 
                 # Update stats (loss)
-                await word_find.update_user_stats(db_helpers, self.user_id, False, attempt_num)
+                await word_find.update_user_stats(db_helpers, self.user_id, False, attempt_num, self.game_type)
                 
-                await interaction.edit_original_response(embed=embed, view=None)
+                # Mark premium game as completed if applicable
+                if self.game_type == 'premium':
+                    await word_find.complete_premium_game(db_helpers, word_id, False)
+                
+                # Show completed view with share button (and new game button for premium users)
+                view = WordFindCompletedView(self.user_id, attempts, False, self.has_premium, self.game_type)
+                await interaction.edit_original_response(embed=embed, view=view)
             else:
-                view = WordFindView(self.user_id, self.word_data, self.max_attempts, self.unlimited)
+                view = WordFindView(self.user_id, self.word_data, self.max_attempts, self.has_premium, self.game_type)
                 await interaction.edit_original_response(embed=embed, view=view)
 
 
@@ -7207,45 +7414,83 @@ async def word_find_command(interaction: discord.Interaction):
             await interaction.followup.send("❌ Fehler beim Laden des heutigen Wortes.", ephemeral=True)
             return
         
-        # Check if user has unlimited access
-        has_unlimited = await db_helpers.has_feature_unlock(user_id, 'unlimited_word_find')
+        # Check if user has premium access
+        has_premium = await db_helpers.has_feature_unlock(user_id, 'unlimited_word_find')
         
-        # Get user's attempts for today
+        # Get user's attempts for today (always 20 max for both free and premium)
         attempts = await word_find.get_user_attempts(db_helpers, user_id, word_data['id'])
-        
-        # For regular players, limit to 20 attempts per day
-        max_attempts = 999 if has_unlimited else 20
+        max_attempts = 20
         
         # Check if already completed today (guessed correctly)
         if any(a['similarity_score'] >= 100.0 for a in attempts):
-            await interaction.followup.send(
-                "✅ Du hast das heutige Wort bereits erraten! Komm morgen wieder!",
-                ephemeral=True
+            user_stats = await word_find.get_user_stats(db_helpers, user_id)
+            
+            embed = discord.Embed(
+                title="✅ Bereits abgeschlossen!",
+                description="Du hast das heutige Wort bereits erraten!",
+                color=discord.Color.green()
             )
+            
+            if user_stats:
+                embed.add_field(
+                    name="📊 Deine Statistiken",
+                    value=f"Spiele: `{user_stats['total_games']}` | Gewonnen: `{user_stats['total_wins']}`\n"
+                          f"Streak: `{user_stats['current_streak']}` 🔥 | Best: `{user_stats['best_streak']}`",
+                    inline=False
+                )
+            
+            # Show share button and new game button for premium users
+            view = WordFindCompletedView(user_id, attempts, True, has_premium, 'daily')
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
             return
         
-        # Check if max attempts reached (for non-unlimited users)
-        if not has_unlimited and len(attempts) >= max_attempts:
+        # Check if max attempts reached
+        if len(attempts) >= max_attempts:
             correct_word = word_data['word']
-            await interaction.followup.send(
-                f"❌ Du hast alle {max_attempts} Versuche für heute aufgebraucht!\n"
-                f"Das gesuchte Wort war: **{correct_word.upper()}**\n\n"
-                f"💡 Kaufe **Unlimited Word Find** im Shop für unbegrenzte Versuche!",
-                ephemeral=True
+            user_stats = await word_find.get_user_stats(db_helpers, user_id)
+            
+            embed = discord.Embed(
+                title="❌ Keine Versuche mehr!",
+                description=f"Das gesuchte Wort war: **{correct_word.upper()}**",
+                color=discord.Color.red()
             )
+            
+            if user_stats:
+                embed.add_field(
+                    name="📊 Deine Statistiken",
+                    value=f"Spiele: `{user_stats['total_games']}` | Gewonnen: `{user_stats['total_wins']}`",
+                    inline=False
+                )
+            
+            if has_premium:
+                embed.add_field(
+                    name="💎 Premium Vorteil",
+                    value="Als Premium-Nutzer kannst du zusätzliche Spiele spielen!",
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="💡 Tipp",
+                    value=f"Kaufe **Unlimited Word Find** im Shop für zusätzliche Spiele!",
+                    inline=False
+                )
+            
+            # Show share button and new game button for premium users
+            view = WordFindCompletedView(user_id, attempts, False, has_premium, 'daily')
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
             return
         
         # Get user stats
         user_stats = await word_find.get_user_stats(db_helpers, user_id)
         
         # Create game embed
-        embed = word_find.create_game_embed(word_data, attempts, max_attempts, user_stats)
+        embed = word_find.create_game_embed(word_data, attempts, max_attempts, user_stats, 'daily')
         
-        if has_unlimited:
-            embed.set_footer(text="💎 Unlimited Word Find - Unbegrenzte Versuche!")
+        if has_premium:
+            embed.set_footer(text="💎 Premium: Nach dem Abschluss kannst du neue Spiele starten!")
         
         # Create view with guess button
-        view = WordFindView(user_id, word_data, max_attempts, has_unlimited)
+        view = WordFindView(user_id, word_data, max_attempts, has_premium, 'daily')
         
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         
