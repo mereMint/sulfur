@@ -21,6 +21,217 @@ JÄGER = "Jäger"
 AMOR = "Amor"  # Cupid - creates lovers
 DER_WEISSE = "Der Weiße"  # The White - can survive one werewolf attack
 
+# Mapping of feature unlock names to role names for ownership checking
+ROLE_UNLOCK_MAPPING = [
+    ('werwolf_role_seherin', SEHERIN),
+    ('werwolf_role_hexe', HEXE),
+    ('werwolf_role_dönerstopfer', DÖNERSTOPFER),
+    ('werwolf_role_jäger', JÄGER),
+    ('werwolf_role_amor', AMOR),
+    ('werwolf_role_der_weisse', DER_WEISSE)
+]
+
+# Helper function to get available roles for a user
+async def get_available_werwolf_roles(user_id, db_helpers):
+    """Get roles available based on what the user owns.
+    
+    Args:
+        user_id: Discord user ID
+        db_helpers: Database helpers module
+        
+    Returns:
+        List of role names (strings) that the user has unlocked
+    """
+    available_roles = []
+    
+    # Check each special role
+    for feature_name, role_name in ROLE_UNLOCK_MAPPING:
+        has_role = await db_helpers.has_feature_unlock(user_id, feature_name)
+        if has_role:
+            available_roles.append(role_name)
+    
+    return available_roles
+
+
+class RoleToggleButton(discord.ui.Button):
+    """Toggle button for individual roles in the role selection UI."""
+    
+    def __init__(self, role_name):
+        """Initialize a role toggle button.
+        
+        Args:
+            role_name: The name of the role (e.g., 'Seherin', 'Hexe')
+        """
+        self.role_name = role_name
+        self.is_selected = True  # All roles start as selected
+        
+        # Map role names to emojis for better UX
+        role_emojis = {
+            SEHERIN: "🔮",
+            HEXE: "🧪",
+            DÖNERSTOPFER: "🌯",
+            JÄGER: "🏹",
+            AMOR: "💘",
+            DER_WEISSE: "⚪"
+        }
+        
+        emoji = role_emojis.get(role_name, "⭐")
+        
+        super().__init__(
+            label=f"{emoji} {role_name}",
+            style=discord.ButtonStyle.primary,
+            custom_id=f"role_{role_name}"
+        )
+    
+    async def callback(self, interaction: discord.Interaction):
+        """Handle button click to toggle role selection."""
+        # Only the game starter can toggle roles
+        if interaction.user.id != self.view.starter_id:
+            await interaction.response.send_message(
+                "Nur der Spielersteller kann Rollen auswählen!",
+                ephemeral=True
+            )
+            return
+        
+        # Toggle the selection state
+        self.is_selected = not self.is_selected
+        
+        # Update button style to reflect state
+        self.style = discord.ButtonStyle.primary if self.is_selected else discord.ButtonStyle.secondary
+        
+        # Update the view's selected roles set
+        if self.is_selected:
+            self.view.selected_roles.add(self.role_name)
+        else:
+            self.view.selected_roles.discard(self.role_name)
+        
+        # Update the embed to show current selection
+        await self.view.update_selection_message(interaction)
+
+
+class WerwolfRoleSelectionView(discord.ui.View):
+    """Allow game creator to select which roles to include in the game."""
+    
+    def __init__(self, starter_id, available_roles, game_instance):
+        """Initialize the role selection view.
+        
+        Args:
+            starter_id: Discord user ID of the game starter
+            available_roles: List of role names the user has unlocked
+            game_instance: The WerwolfGame instance
+        """
+        super().__init__(timeout=120)  # 2 minutes to select roles
+        self.starter_id = starter_id
+        self.selected_roles = set(available_roles)  # All selected by default
+        self.game_instance = game_instance
+        self.message = None  # Will store the message for updating
+        
+        # Create toggle buttons for each available role
+        for role in available_roles:
+            self.add_item(RoleToggleButton(role))
+    
+    @discord.ui.button(label="✅ Spiel starten", style=discord.ButtonStyle.success, row=4)
+    async def start_game_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Start the game with the selected roles."""
+        # Only the game starter can start the game
+        if interaction.user.id != self.starter_id:
+            await interaction.response.send_message(
+                "Nur der Spielersteller kann das Spiel starten!",
+                ephemeral=True
+            )
+            return
+        
+        await interaction.response.defer()
+        
+        # Disable all buttons to prevent multiple starts
+        for item in self.children:
+            item.disabled = True
+        
+        # Update message to show selection is locked
+        if self.message:
+            embed = self.message.embeds[0]
+            embed.color = discord.Color.green()
+            embed.set_footer(text="Rollenauswahl abgeschlossen! Das Spiel startet...")
+            await self.message.edit(embed=embed, view=self)
+        
+        # Proceed with game start
+        self.stop()
+    
+    @discord.ui.button(label="❌ Abbrechen", style=discord.ButtonStyle.danger, row=4)
+    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Cancel the game setup."""
+        # Only the game starter can cancel
+        if interaction.user.id != self.starter_id:
+            await interaction.response.send_message(
+                "Nur der Spielersteller kann das Spiel abbrechen!",
+                ephemeral=True
+            )
+            return
+        
+        await interaction.response.defer()
+        
+        # Mark as cancelled
+        self.selected_roles = None
+        self.stop()
+    
+    async def update_selection_message(self, interaction: discord.Interaction):
+        """Update the embed to show current role selection."""
+        selected_count = len(self.selected_roles)
+        
+        # Build list of selected and unselected roles
+        selected_list = []
+        unselected_list = []
+        
+        for item in self.children:
+            if isinstance(item, RoleToggleButton):
+                if item.is_selected:
+                    selected_list.append(f"✅ {item.role_name}")
+                else:
+                    unselected_list.append(f"❌ {item.role_name}")
+        
+        embed = discord.Embed(
+            title="🐺 Werwolf Rollen-Auswahl",
+            description="Wähle, welche Rollen in diesem Spiel verfügbar sein sollen.\n"
+                       "Grüne Buttons = Ausgewählt | Graue Buttons = Nicht ausgewählt",
+            color=discord.Color.blue()
+        )
+        
+        if selected_list:
+            embed.add_field(
+                name=f"Ausgewählte Rollen ({selected_count})",
+                value="\n".join(selected_list),
+                inline=False
+            )
+        
+        if unselected_list:
+            embed.add_field(
+                name="Nicht ausgewählte Rollen",
+                value="\n".join(unselected_list),
+                inline=False
+            )
+        
+        embed.set_footer(text="Werwölfe und Dorfbewohner sind immer dabei!")
+        
+        # Update the view
+        await interaction.response.edit_message(embed=embed, view=self)
+    
+    async def on_timeout(self):
+        """Handle timeout - start game with current selection."""
+        if self.message and self.selected_roles is not None:
+            embed = self.message.embeds[0]
+            embed.color = discord.Color.orange()
+            embed.set_footer(text="Zeit abgelaufen! Das Spiel startet mit der aktuellen Auswahl...")
+            
+            for item in self.children:
+                item.disabled = True
+            
+            try:
+                await self.message.edit(embed=embed, view=self)
+            except (discord.NotFound, discord.HTTPException):
+                # Message was deleted or Discord API error - ignore
+                pass
+
+
 class WerwolfPlayer:
     """Represents a player in the game."""
     def __init__(self, user):
@@ -239,8 +450,17 @@ class WerwolfGame:
             if str(player.user.id) == name_lower or player.user.display_name.lower() == name_lower:
                 return player
         return None
-    async def start_game(self, config, gemini_key, openai_key, db_helpers, ziel_spieler=None):
-        """Assigns roles and starts the first night."""
+    async def start_game(self, config, gemini_key, openai_key, db_helpers, ziel_spieler=None, selected_roles=None):
+        """Assigns roles and starts the first night.
+        
+        Args:
+            config: Bot configuration
+            gemini_key: Gemini API key
+            openai_key: OpenAI API key
+            db_helpers: Database helpers module
+            ziel_spieler: Target number of players (bots will fill if needed)
+            selected_roles: Set/list of role names to include (special roles only)
+        """
         if self.phase != "joining":
             return "Das Spiel läuft bereits."
         
@@ -278,22 +498,30 @@ class WerwolfGame:
         player_count = len(self.players) # Recalculate after adding bots
 
         # --- Role Assignment ---
-        # Logic adjusted for small player counts
+        # If selected_roles is None, use all roles (backward compatibility)
+        # If selected_roles is provided, only use those special roles
+        if selected_roles is None:
+            # Default behavior - include all roles based on player count
+            selected_roles = {SEHERIN, HEXE, DÖNERSTOPFER, JÄGER, AMOR, DER_WEISSE}
+        
+        # Calculate how many of each role based on player count
+        # These calculations determine the maximum for each role
         if player_count == 1:
             num_werwolfe = 1
             num_seherin, num_hexe, num_döner, num_jäger, num_amor, num_weisse = 0, 0, 0, 0, 0, 0
         elif player_count == 2:
             num_werwolfe = 1
-            num_seherin = 1
+            num_seherin = 1 if SEHERIN in selected_roles else 0
             num_hexe, num_döner, num_jäger, num_amor, num_weisse = 0, 0, 0, 0, 0
         else:
             num_werwolfe = max(1, player_count // 3)
-            num_seherin = 1 if player_count > 2 else 0
-            num_hexe = 1 if player_count >= 7 else 0
-            num_döner = 1 if player_count >= 9 else 0
-            num_jäger = 1 if player_count >= 5 else 0
-            num_amor = 1 if player_count >= 8 else 0  # NEW: Amor for 8+ players
-            num_weisse = 1 if player_count >= 10 else 0  # NEW: Der Weiße for 10+ players
+            # Only assign role if it's in selected_roles
+            num_seherin = 1 if (player_count > 2 and SEHERIN in selected_roles) else 0
+            num_hexe = 1 if (player_count >= 7 and HEXE in selected_roles) else 0
+            num_döner = 1 if (player_count >= 9 and DÖNERSTOPFER in selected_roles) else 0
+            num_jäger = 1 if (player_count >= 5 and JÄGER in selected_roles) else 0
+            num_amor = 1 if (player_count >= 8 and AMOR in selected_roles) else 0
+            num_weisse = 1 if (player_count >= 10 and DER_WEISSE in selected_roles) else 0
         
         num_dorfbewohner = player_count - num_werwolfe - num_seherin - num_hexe - num_döner - num_jäger - num_amor - num_weisse
 
@@ -461,6 +689,19 @@ class WerwolfGame:
                     if target_to_poison and target_to_poison.is_alive:
                         await self.handle_night_action(bot_hexe, "poison", target_to_poison, self.config, self.gemini_api_key, self.openai_api_key)
 
+        # --- NEW: Bot Amor action (only on first night) ---
+        bot_amor = next((p for p in bot_players if p.role == AMOR), None)
+        if bot_amor and self.day_number == 1 and not self.amor_has_chosen:
+            print(f"    - Bot '{bot_amor.user.display_name}' (Amor) is choosing lovers...")
+            # Choose two random players (excluding Amor itself)
+            potential_lovers = [p for p in self.get_alive_players() if p.user.id != bot_amor.user.id]
+            if len(potential_lovers) >= 2:
+                lovers = random.sample(potential_lovers, 2)
+                lover1, lover2 = lovers[0], lovers[1]
+                # Set the lover_target attribute that handle_night_action expects
+                lover1.lover_target = lover2
+                await self.handle_night_action(bot_amor, "love", lover1, self.config, self.gemini_api_key, self.openai_api_key)
+
         # The night now ends only when all special roles have acted.
 
     async def handle_night_action(self, author_player, command, target_player, config, gemini_key, openai_key):
@@ -597,6 +838,7 @@ class WerwolfGame:
         human_seer = next((p for p in alive_players if p.role == SEHERIN and not self.is_bot_player(p)), None)
         human_hexe = next((p for p in alive_players if p.role == HEXE and not self.is_bot_player(p)), None)
         human_döner = next((p for p in alive_players if p.role == DÖNERSTOPFER and not self.is_bot_player(p)), None)
+        human_amor = next((p for p in alive_players if p.role == AMOR and not self.is_bot_player(p)), None)
         
         # Conditions to end night:
         # All human special roles must have acted (or not exist)
@@ -607,9 +849,11 @@ class WerwolfGame:
                     (human_hexe and not human_hexe.has_healing_potion and not human_hexe.has_kill_potion) or 
                     not human_hexe)
         döner_done = self.döner_mute_target_id is not None or not human_döner
+        # Amor is done if they've chosen lovers OR if it's not the first night OR they don't exist
+        amor_done = self.amor_has_chosen or self.day_number > 1 or not human_amor
 
         
-        if seer_done and wolves_done and hexe_done and döner_done:
+        if seer_done and wolves_done and hexe_done and döner_done and amor_done:
             # Prevent this from being called multiple times by a race condition
             if self.phase == "day_transition":
                 return
@@ -978,7 +1222,7 @@ class WerwolfGame:
         if winner_team and config:
             winning_roles = []
             if winner_team == "Dorfbewohner":
-                winning_roles = [DORFBEWOHNER, SEHERIN, HEXE, DÖNERSTOPFER, JÄGER]
+                winning_roles = [DORFBEWOHNER, SEHERIN, HEXE, DÖNERSTOPFER, JÄGER, AMOR, DER_WEISSE]
             elif winner_team == "Werwölfe":
                 winning_roles = [WERWOLF]
 

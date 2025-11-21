@@ -111,8 +111,8 @@ def check_port_in_timewait(port):
                     print(f"  Port {port} has connections in TIME-WAIT state:")
                     print(f"    {line}")
                     return True
-    except:
-        pass
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+        pass  # netstat command not available or failed
     
     return False
 

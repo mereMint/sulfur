@@ -40,6 +40,7 @@ from modules.api_helpers import get_chat_response, get_relationship_summary_from
 from modules import api_helpers
 from modules import stock_market  # NEW: Stock market system
 from modules import news  # NEW: News system
+from modules import word_find  # NEW: Word Find game
 from modules.bot_enhancements import (
     handle_image_attachment,
     handle_unknown_emojis_in_message,
@@ -250,8 +251,8 @@ except Exception as e:
     try:
         with open(INSTANCE_LOCK_FILE, 'w', encoding='utf-8') as f:
             f.write(str(current_pid))
-    except:
-        pass
+    except (IOError, OSError) as e:
+        logger.warning(f"Could not create lock file: {e}")
 
 # In-memory caches for duplicate suppression
 last_processed_message_ids = deque(maxlen=500)
@@ -589,6 +590,11 @@ async def on_ready():
     print("Initializing news system...")
     await news.initialize_news_table(db_helpers)
     print("News system ready!")
+    
+    # --- NEW: Initialize word find system ---
+    print("Initializing word find system...")
+    await word_find.initialize_word_find_table(db_helpers)
+    print("Word find system ready!")
 
     # --- NEW: Clean up leftover game channels on restart ---
     print("Checking for leftover game channels...")
@@ -2528,7 +2534,9 @@ async def profile(interaction: discord.Interaction, user: discord.Member = None)
 
     # Show purchased items/features
     has_dm = await db_helpers.has_feature_unlock(target_user.id, 'dm_access')
-    has_games = await db_helpers.has_feature_unlock(target_user.id, 'games_access')
+    has_casino = await db_helpers.has_feature_unlock(target_user.id, 'casino')
+    has_detective = await db_helpers.has_feature_unlock(target_user.id, 'detective')
+    has_trolly = await db_helpers.has_feature_unlock(target_user.id, 'trolly')
     
     # Check for individual Werwolf roles
     has_seherin = await db_helpers.has_feature_unlock(target_user.id, 'werwolf_role_seherin')
@@ -2538,7 +2546,9 @@ async def profile(interaction: discord.Interaction, user: discord.Member = None)
     
     features = []
     if has_dm: features.append("✉️ DM Access")
-    if has_games: features.append("🎮 Games Access")
+    if has_casino: features.append("🎰 Casino Access")
+    if has_detective: features.append("🔍 Detective Game")
+    if has_trolly: features.append("🚃 Trolly Problem")
     
     werwolf_roles = []
     if has_seherin: werwolf_roles.append("🔮 Seherin")
@@ -3136,10 +3146,70 @@ async def ww_start(interaction: discord.Interaction, ziel_spieler: int = None):
         del active_werwolf_games[game_text_channel.id]
         return
 
+    # --- NEW: Role Selection UI ---
+    # Get available roles for the game starter
+    from modules.werwolf import get_available_werwolf_roles, WerwolfRoleSelectionView
+    
+    available_roles = await get_available_werwolf_roles(author.id, db_helpers)
+    
+    # Only show role selection if user has unlocked special roles
+    if available_roles:
+        # Create role selection embed
+        embed = discord.Embed(
+            title="🐺 Werwolf Rollen-Auswahl",
+            description="Wähle, welche Rollen in diesem Spiel verfügbar sein sollen.\n"
+                       "Grüne Buttons = Ausgewählt | Graue Buttons = Nicht ausgewählt",
+            color=discord.Color.blue()
+        )
+        
+        # List available roles
+        role_list = "\n".join([f"✅ {role}" for role in available_roles])
+        embed.add_field(
+            name=f"Verfügbare Rollen ({len(available_roles)})",
+            value=role_list,
+            inline=False
+        )
+        
+        embed.set_footer(text="Werwölfe und Dorfbewohner sind immer dabei! • Zeitlimit: 2 Minuten")
+        
+        # Create and send the role selection view
+        role_view = WerwolfRoleSelectionView(author.id, available_roles, game)
+        role_message = await game.game_channel.send(embed=embed, view=role_view)
+        role_view.message = role_message
+        
+        # Wait for user to make selection or timeout
+        await role_view.wait()
+        
+        # Check if cancelled
+        if role_view.selected_roles is None:
+            await game.game_channel.send("Spielstart wurde abgebrochen.")
+            await game.end_game(config)
+            del active_werwolf_games[game_text_channel.id]
+            return
+        
+        # Use the selected roles
+        selected_roles = role_view.selected_roles
+    else:
+        # No special roles unlocked - inform user
+        info_embed = discord.Embed(
+            title="ℹ️ Keine speziellen Rollen",
+            description="Du hast noch keine speziellen Rollen freigeschaltet!\n"
+                       "Das Spiel wird nur mit **Werwölfen** und **Dorfbewohnern** gespielt.",
+            color=discord.Color.gold()
+        )
+        info_embed.add_field(
+            name="Rollen freischalten",
+            value="Besuche den Shop mit `/shop`, um spezielle Rollen zu kaufen!",
+            inline=False
+        )
+        await game.game_channel.send(embed=info_embed)
+        # Set selected_roles to empty set (no special roles)
+        selected_roles = set()
+
     # Automatically start the game
     # Bot filling logic is now handled inside start_game
     try:
-        error_message = await game.start_game(config, GEMINI_API_KEY, OPENAI_API_KEY, db_helpers, ziel_spieler)
+        error_message = await game.start_game(config, GEMINI_API_KEY, OPENAI_API_KEY, db_helpers, ziel_spieler, selected_roles)
         if error_message:
             await game.game_channel.send(error_message)
             del active_werwolf_games[game_text_channel.id]
@@ -3290,6 +3360,7 @@ class HelpView(discord.ui.View):
                 ("rr", "Spiele Russian Roulette - hohes Risiko, hohe Belohnung"),
                 ("detective", "Löse einen KI-generierten Mordfall"),
                 ("trolly", "Stelle dich einem moralischen Dilemma"),
+                ("wordfind", "Errate das tägliche Wort mit Nähehinweisen"),
             ],
             "💰 Economy": [
                 ("daily", "Hole deine tägliche Belohnung ab"),
@@ -3515,9 +3586,21 @@ class ShopBuyView(discord.ui.View):
                 'name': '💬 DM Access',
                 'desc': 'Der Bot kann dir private Nachrichten senden.'
             },
-            'games_access': {
-                'name': '🎮 Games Access',
+            'casino': {
+                'name': '🎰 Casino',
                 'desc': 'Spiele Blackjack, Roulette, Mines und Russian Roulette!'
+            },
+            'detective': {
+                'name': '🔍 Detective Game',
+                'desc': 'Löse spannende Kriminalfälle!'
+            },
+            'trolly': {
+                'name': '🚃 Trolly Problem',
+                'desc': 'Stelle dich moralischen Dilemmata!'
+            },
+            'unlimited_word_find': {
+                'name': '📝 Unlimited Word Find',
+                'desc': 'Spiele Word Find ohne tägliches Limit!'
             }
         }
         
@@ -3671,9 +3754,21 @@ class FeatureSelectView(discord.ui.View):
                 'name': 'DM Access',
                 'description': 'Erlaube dem Bot, dir DMs zu senden'
             },
-            'games_access': {
-                'name': 'Games Access',
+            'casino': {
+                'name': 'Casino',
                 'description': 'Spiele Blackjack, Roulette & mehr'
+            },
+            'detective': {
+                'name': 'Detective Game',
+                'description': 'Löse spannende Kriminalfälle'
+            },
+            'trolly': {
+                'name': 'Trolly Problem',
+                'description': 'Moralische Dilemmata'
+            },
+            'unlimited_word_find': {
+                'name': 'Unlimited Word Find',
+                'description': 'Unbegrenztes Word Find Spiel'
             }
         }
         
@@ -4019,6 +4114,7 @@ async def view_transactions(interaction: discord.Interaction, limit: int = 10):
                 'gambling': '🎰',
                 'transfer': '💸',
                 'purchase': '🛒',
+                'shop_purchase': '🛒',
                 'boost': '⚡',
                 'role_purchase': '🎨'
             }
@@ -4924,11 +5020,19 @@ class BlackjackView(discord.ui.View):
         else:
             embed.set_footer(text="Knapp! Beim nächsten Mal vielleicht mehr Glück!")
         
-        # Disable all buttons
-        for item in self.children:
-            item.disabled = True
+        # Create share button view
+        share_view = GamblingShareView(
+            game_type="blackjack",
+            result_data={
+                'result': result,
+                'net_result': winnings,
+                'bet': self.game.bet,
+                'balance': new_balance
+            },
+            user_id=self.user_id
+        )
         
-        await interaction.edit_original_response(embed=embed, view=self)
+        await interaction.edit_original_response(embed=embed, view=share_view)
         
         # Remove from active games
         if self.user_id in active_blackjack_games:
@@ -5193,6 +5297,18 @@ async def blackjack(interaction: discord.Interaction, bet: int):
     
     user_id = interaction.user.id
     
+    # Check if user has casino access
+    has_casino = await db_helpers.has_feature_unlock(user_id, 'casino')
+    if not has_casino:
+        currency = config['modules']['economy']['currency_symbol']
+        price = config['modules']['economy']['shop']['features'].get('casino', 500)
+        await interaction.followup.send(
+            f"🎰 Du benötigst **Casino Access**, um Blackjack zu spielen!\n"
+            f"Kaufe es im Shop für {price} {currency} mit `/shopbuy`",
+            ephemeral=True
+        )
+        return
+    
     # Check if user already has an active game
     if user_id in active_blackjack_games:
         await interaction.followup.send("Du hast bereits ein aktives Blackjack-Spiel!", ephemeral=True)
@@ -5229,6 +5345,118 @@ async def blackjack(interaction: discord.Interaction, bet: int):
     embed = game.create_embed()
     
     await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+
+# --- Gambling Share Button View ---
+
+class GamblingShareView(discord.ui.View):
+    """View with share button for gambling results."""
+    
+    def __init__(self, game_type: str, result_data: dict, user_id: int):
+        super().__init__(timeout=300)
+        self.game_type = game_type
+        self.result_data = result_data
+        self.user_id = user_id
+    
+    @discord.ui.button(label="Ergebnis teilen", style=discord.ButtonStyle.primary, emoji="📢")
+    async def share_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Share gambling result publicly."""
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht dein Ergebnis!", ephemeral=True)
+            return
+        
+        await interaction.response.defer()
+        
+        # Create public embed based on game type
+        currency = config['modules']['economy']['currency_symbol']
+        
+        if self.game_type == "roulette":
+            data = self.result_data
+            result_number = data['result_number']
+            net_result = data['net_result']
+            
+            # Determine color emoji
+            if result_number == 0:
+                result_emoji = "🟢"
+                color = discord.Color.green()
+            elif result_number in RouletteGame.RED:
+                result_emoji = "🔴"
+                color = discord.Color.gold() if net_result > 0 else discord.Color.red()
+            else:
+                result_emoji = "⚫"
+                color = discord.Color.gold() if net_result > 0 else discord.Color.dark_grey()
+            
+            if net_result > 0:
+                title = "🎉 Roulette Gewinn!"
+                description = f"{interaction.user.mention} hat **+{net_result} {currency}** gewonnen!"
+            elif net_result < 0:
+                title = "💸 Roulette Verlust"
+                description = f"{interaction.user.mention} hat **{net_result} {currency}** verloren."
+            else:
+                title = "🤝 Roulette Break Even"
+                description = f"{interaction.user.mention} ist Break Even gegangen!"
+            
+            embed = discord.Embed(
+                title=title,
+                description=description,
+                color=color
+            )
+            
+            embed.add_field(
+                name="🎯 Gewinnende Zahl",
+                value=f"{result_emoji} **{result_number}**",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="💰 Nettoergebnis",
+                value=f"**{'+' if net_result >= 0 else ''}{net_result} {currency}**",
+                inline=True
+            )
+            
+            embed.set_footer(text=f"Gespielt von {interaction.user.display_name}")
+            
+        elif self.game_type == "blackjack":
+            data = self.result_data
+            result = data['result']
+            net_result = data['net_result']
+            
+            if result == 'blackjack':
+                title = "🃏 BLACKJACK! 21!"
+                color = discord.Color.gold()
+            elif result == 'win':
+                title = "✅ Blackjack Gewinn!"
+                color = discord.Color.green()
+            elif result == 'lose':
+                title = "❌ Blackjack Verlust"
+                color = discord.Color.red()
+            else:
+                title = "🤝 Blackjack Push"
+                color = discord.Color.blue()
+            
+            description = f"{interaction.user.mention} hat **{'+' if net_result >= 0 else ''}{net_result} {currency}** {'gewonnen' if net_result > 0 else 'verloren'}!"
+            
+            embed = discord.Embed(title=title, description=description, color=color)
+            embed.add_field(name="💰 Ergebnis", value=f"**{'+' if net_result >= 0 else ''}{net_result} {currency}**", inline=True)
+            embed.set_footer(text=f"Gespielt von {interaction.user.display_name}")
+        
+        else:
+            # Generic share
+            net_result = self.result_data.get('net_result', 0)
+            title = f"🎰 {self.game_type.capitalize()} Ergebnis"
+            description = f"{interaction.user.mention} hat **{'+' if net_result >= 0 else ''}{net_result} {currency}** {'gewonnen' if net_result > 0 else 'verloren'}!"
+            color = discord.Color.gold() if net_result > 0 else discord.Color.red()
+            
+            embed = discord.Embed(title=title, description=description, color=color)
+            embed.set_footer(text=f"Gespielt von {interaction.user.display_name}")
+        
+        # Send to channel
+        await interaction.channel.send(embed=embed)
+        
+        # Disable share button after sharing
+        button.disabled = True
+        button.label = "Geteilt! ✅"
+        await interaction.edit_original_response(view=self)
 
 
 class RouletteView(discord.ui.View):
@@ -5283,8 +5511,8 @@ class RouletteView(discord.ui.View):
             embed.description = frame
             try:
                 await interaction.edit_original_response(embed=embed)
-            except:
-                pass
+            except discord.HTTPException:
+                pass  # Interaction might have timed out or been deleted
         
         # Spin the wheel
         result_number = RouletteGame.spin()
@@ -5408,11 +5636,21 @@ class RouletteView(discord.ui.View):
         else:
             embed.set_footer(text="Viel Glück beim nächsten Mal!")
         
-        # Disable all buttons
-        for item in self.children:
-            item.disabled = True
+        # Create share button view
+        share_view = GamblingShareView(
+            game_type="roulette",
+            result_data={
+                'result_number': result_number,
+                'bets': self.bets,
+                'bet_amount': self.bet_amount,
+                'total_winnings': total_winnings,
+                'net_result': net_result,
+                'balance': new_balance
+            },
+            user_id=self.user_id
+        )
         
-        await interaction.edit_original_response(embed=embed, view=self)
+        await interaction.edit_original_response(embed=embed, view=share_view)
         self.stop()
     
     def _create_wheel_display(self, result: int):
@@ -5593,6 +5831,18 @@ async def roulette(interaction: discord.Interaction, bet: int):
     
     user_id = interaction.user.id
     
+    # Check if user has casino access
+    has_casino = await db_helpers.has_feature_unlock(user_id, 'casino')
+    if not has_casino:
+        currency = config['modules']['economy']['currency_symbol']
+        price = config['modules']['economy']['shop']['features'].get('casino', 500)
+        await interaction.followup.send(
+            f"🎰 Du benötigst **Casino Access**, um Roulette zu spielen!\n"
+            f"Kaufe es im Shop für {price} {currency} mit `/shopbuy`",
+            ephemeral=True
+        )
+        return
+    
     # Validate bet amount
     min_bet = config['modules']['economy']['games']['roulette']['min_bet']
     max_bet = config['modules']['economy']['games']['roulette']['max_bet']
@@ -5648,6 +5898,18 @@ async def mines(interaction: discord.Interaction, bet: int):
         await interaction.response.defer(ephemeral=True)
         
         user_id = interaction.user.id
+        
+        # Check if user has casino access
+        has_casino = await db_helpers.has_feature_unlock(user_id, 'casino')
+        if not has_casino:
+            currency = config['modules']['economy']['currency_symbol']
+            price = config['modules']['economy']['shop']['features'].get('casino', 500)
+            await interaction.followup.send(
+                f"🎰 Du benötigst **Casino Access**, um Mines zu spielen!\n"
+                f"Kaufe es im Shop für {price} {currency} mit `/shopbuy`",
+                ephemeral=True
+            )
+            return
         
         # Check if user already has an active game
         if user_id in active_mines_games:
@@ -5707,7 +5969,7 @@ async def mines(interaction: discord.Interaction, bet: int):
                 "Ein unerwarteter Fehler ist aufgetreten. Bitte versuche es später erneut.",
                 ephemeral=True
             )
-        except:
+        except discord.HTTPException:
             pass  # Interaction might already have been responded to
 
 
@@ -5882,6 +6144,18 @@ async def tower(interaction: discord.Interaction, bet: int, difficulty: int = 1)
         
         user_id = interaction.user.id
         
+        # Check if user has casino access
+        has_casino = await db_helpers.has_feature_unlock(user_id, 'casino')
+        if not has_casino:
+            currency = config['modules']['economy']['currency_symbol']
+            price = config['modules']['economy']['shop']['features'].get('casino', 500)
+            await interaction.followup.send(
+                f"🎰 Du benötigst **Casino Access**, um Tower of Treasure zu spielen!\n"
+                f"Kaufe es im Shop für {price} {currency} mit `/shopbuy`",
+                ephemeral=True
+            )
+            return
+        
         # Check if user already has an active game
         if user_id in active_tower_games:
             await interaction.followup.send("Du hast bereits ein aktives Tower-Spiel!", ephemeral=True)
@@ -5961,8 +6235,8 @@ async def tower(interaction: discord.Interaction, bet: int, difficulty: int = 1)
                 "❌ Ein Fehler ist aufgetreten. Bitte versuche es später erneut.",
                 ephemeral=True
             )
-        except:
-            pass
+        except discord.HTTPException:
+            pass  # Interaction might have timed out or been deleted
 
 
 class RussianRouletteView(discord.ui.View):
@@ -6520,6 +6794,18 @@ async def detective(interaction: discord.Interaction):
     try:
         user_id = interaction.user.id
         
+        # Check if user has detective access
+        has_detective = await db_helpers.has_feature_unlock(user_id, 'detective')
+        if not has_detective:
+            currency = config['modules']['economy']['currency_symbol']
+            price = config['modules']['economy']['shop']['features'].get('detective', 1000)
+            await interaction.followup.send(
+                f"🔍 Du benötigst **Detective Game Access**, um Fälle zu lösen!\n"
+                f"Kaufe es im Shop für {price} {currency} mit `/shopbuy`",
+                ephemeral=True
+            )
+            return
+        
         # Check if user already has an active game
         if user_id in active_detective_games:
             await interaction.followup.send("Du hast bereits einen aktiven Fall!", ephemeral=True)
@@ -6680,6 +6966,18 @@ async def trolly(interaction: discord.Interaction):
         user_id = interaction.user.id
         display_name = interaction.user.display_name
         
+        # Check if user has trolly access
+        has_trolly = await db_helpers.has_feature_unlock(user_id, 'trolly')
+        if not has_trolly:
+            currency = config['modules']['economy']['currency_symbol']
+            price = config['modules']['economy']['shop']['features'].get('trolly', 250)
+            await interaction.followup.send(
+                f"🚃 Du benötigst **Trolly Problem Access**, um dieses Feature zu nutzen!\n"
+                f"Kaufe es im Shop für {price} {currency} mit `/shopbuy`",
+                ephemeral=True
+            )
+            return
+        
         # Gather user data for personalization
         user_data = await trolly_problem.gather_user_data_for_trolly(
             db_helpers,
@@ -6692,8 +6990,8 @@ async def trolly(interaction: discord.Interaction):
             try:
                 bestie = await client.fetch_user(int(user_data['server_bestie_id']))
                 user_data['server_bestie'] = bestie.display_name
-            except:
-                pass
+            except (discord.HTTPException, discord.NotFound, ValueError):
+                pass  # User not found or invalid ID
         
         # Get or generate the trolly problem (from database or AI)
         problem = await trolly_problem.get_or_generate_trolly_problem(
@@ -6739,6 +7037,222 @@ async def trolly(interaction: discord.Interaction):
         logger.error(f"Error in trolly command: {e}", exc_info=True)
         await interaction.followup.send(
             f"❌ Fehler beim Generieren des Trolly-Problems: {str(e)}",
+            ephemeral=True
+        )
+
+
+# --- Word Find Game View ---
+
+class WordFindView(discord.ui.View):
+    """UI view for Word Find game with guess input."""
+    
+    def __init__(self, user_id: int, word_data: dict, max_attempts: int, unlimited: bool = False):
+        super().__init__(timeout=300)
+        self.user_id = user_id
+        self.word_data = word_data
+        self.max_attempts = max_attempts
+        self.unlimited = unlimited
+    
+    @discord.ui.button(label="Wort raten", style=discord.ButtonStyle.primary, emoji="🔍")
+    async def guess_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handle guess button click."""
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht dein Spiel!", ephemeral=True)
+            return
+        
+        # Create modal for input
+        modal = WordGuessModal(self.user_id, self.word_data, self.max_attempts, self.unlimited)
+        await interaction.response.send_modal(modal)
+    
+    @discord.ui.button(label="Aufgeben", style=discord.ButtonStyle.danger, emoji="❌")
+    async def give_up_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handle give up button."""
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht dein Spiel!", ephemeral=True)
+            return
+        
+        await interaction.response.defer()
+        
+        # Show the correct word
+        correct_word = self.word_data['word']
+        
+        embed = discord.Embed(
+            title="❌ Aufgegeben!",
+            description=f"Das gesuchte Wort war: **{correct_word.upper()}**",
+            color=discord.Color.red()
+        )
+        
+        # Update stats (loss)
+        await word_find.update_user_stats(db_helpers, self.user_id, False, self.max_attempts)
+        
+        # Get stats
+        user_stats = await word_find.get_user_stats(db_helpers, self.user_id)
+        if user_stats:
+            embed.add_field(
+                name="📊 Deine Statistiken",
+                value=f"Spiele: `{user_stats['total_games']}` | Gewonnen: `{user_stats['total_wins']}`\n"
+                      f"Streak verloren! 💔",
+                inline=False
+            )
+        
+        # Disable all buttons
+        for item in self.children:
+            item.disabled = True
+        
+        await interaction.edit_original_response(embed=embed, view=self)
+
+
+class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
+    """Modal for entering word guess."""
+    
+    guess_input = discord.ui.TextInput(
+        label="Dein Ratewort",
+        placeholder="Gib dein Wort ein...",
+        min_length=2,
+        max_length=50,
+        required=True
+    )
+    
+    def __init__(self, user_id: int, word_data: dict, max_attempts: int, unlimited: bool):
+        super().__init__()
+        self.user_id = user_id
+        self.word_data = word_data
+        self.max_attempts = max_attempts
+        self.unlimited = unlimited
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        
+        guess = self.guess_input.value.lower().strip()
+        correct_word = self.word_data['word'].lower()
+        word_id = self.word_data['id']
+        
+        # Get current attempts
+        attempts = await word_find.get_user_attempts(db_helpers, self.user_id, word_id)
+        attempt_num = len(attempts) + 1
+        
+        # Check if already guessed this word
+        if any(a['guess'].lower() == guess for a in attempts):
+            await interaction.followup.send("Du hast dieses Wort bereits geraten!", ephemeral=True)
+            return
+        
+        # Check if max attempts reached (only for non-unlimited)
+        if not self.unlimited and attempt_num > self.max_attempts:
+            await interaction.followup.send("Du hast alle Versuche aufgebraucht!", ephemeral=True)
+            return
+        
+        # Calculate similarity
+        similarity = word_find.calculate_word_similarity(guess, correct_word)
+        
+        # Record attempt
+        await word_find.record_attempt(db_helpers, self.user_id, word_id, guess, similarity, attempt_num)
+        
+        # Check if correct
+        if guess == correct_word:
+            # Win!
+            embed = discord.Embed(
+                title="🎉 Glückwunsch!",
+                description=f"Du hast das Wort **{correct_word.upper()}** in {attempt_num} Versuchen erraten!",
+                color=discord.Color.gold()
+            )
+            
+            # Update stats
+            await word_find.update_user_stats(db_helpers, self.user_id, True, attempt_num)
+            
+            # Get updated stats
+            user_stats = await word_find.get_user_stats(db_helpers, self.user_id)
+            if user_stats:
+                embed.add_field(
+                    name="📊 Deine Statistiken",
+                    value=f"Spiele: `{user_stats['total_games']}` | Gewonnen: `{user_stats['total_wins']}`\n"
+                          f"Streak: `{user_stats['current_streak']}` 🔥 | Best: `{user_stats['best_streak']}`",
+                    inline=False
+                )
+            
+            await interaction.edit_original_response(embed=embed, view=None)
+        else:
+            # Update display with new attempt
+            attempts = await word_find.get_user_attempts(db_helpers, self.user_id, word_id)
+            user_stats = await word_find.get_user_stats(db_helpers, self.user_id)
+            
+            embed = word_find.create_game_embed(self.word_data, attempts, self.max_attempts, user_stats)
+            
+            # Check if max attempts reached
+            if not self.unlimited and attempt_num >= self.max_attempts:
+                embed.title = "❌ Keine Versuche mehr!"
+                embed.description = f"Das gesuchte Wort war: **{correct_word.upper()}**"
+                embed.color = discord.Color.red()
+                
+                # Update stats (loss)
+                await word_find.update_user_stats(db_helpers, self.user_id, False, attempt_num)
+                
+                await interaction.edit_original_response(embed=embed, view=None)
+            else:
+                view = WordFindView(self.user_id, self.word_data, self.max_attempts, self.unlimited)
+                await interaction.edit_original_response(embed=embed, view=view)
+
+
+@tree.command(name="wordfind", description="Spiele Word Find - Errate das tägliche Wort!")
+async def word_find_command(interaction: discord.Interaction):
+    """Play the daily Word Find game."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        user_id = interaction.user.id
+        
+        # Get today's word
+        word_data = await word_find.get_or_create_daily_word(db_helpers)
+        
+        if not word_data:
+            await interaction.followup.send("❌ Fehler beim Laden des heutigen Wortes.", ephemeral=True)
+            return
+        
+        # Check if user has unlimited access
+        has_unlimited = await db_helpers.has_feature_unlock(user_id, 'unlimited_word_find')
+        
+        # Get user's attempts for today
+        attempts = await word_find.get_user_attempts(db_helpers, user_id, word_data['id'])
+        
+        # For regular players, limit to 20 attempts per day
+        max_attempts = 999 if has_unlimited else 20
+        
+        # Check if already completed today (guessed correctly)
+        if any(a['similarity_score'] >= 100.0 for a in attempts):
+            await interaction.followup.send(
+                "✅ Du hast das heutige Wort bereits erraten! Komm morgen wieder!",
+                ephemeral=True
+            )
+            return
+        
+        # Check if max attempts reached (for non-unlimited users)
+        if not has_unlimited and len(attempts) >= max_attempts:
+            correct_word = word_data['word']
+            await interaction.followup.send(
+                f"❌ Du hast alle {max_attempts} Versuche für heute aufgebraucht!\n"
+                f"Das gesuchte Wort war: **{correct_word.upper()}**\n\n"
+                f"💡 Kaufe **Unlimited Word Find** im Shop für unbegrenzte Versuche!",
+                ephemeral=True
+            )
+            return
+        
+        # Get user stats
+        user_stats = await word_find.get_user_stats(db_helpers, user_id)
+        
+        # Create game embed
+        embed = word_find.create_game_embed(word_data, attempts, max_attempts, user_stats)
+        
+        if has_unlimited:
+            embed.set_footer(text="💎 Unlimited Word Find - Unbegrenzte Versuche!")
+        
+        # Create view with guess button
+        view = WordFindView(user_id, word_data, max_attempts, has_unlimited)
+        
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error in word find command: {e}", exc_info=True)
+        await interaction.followup.send(
+            f"❌ Fehler beim Starten des Spiels: {str(e)}",
             ephemeral=True
         )
 
@@ -6847,6 +7361,18 @@ async def russian_roulette(interaction: discord.Interaction, bet: int = None):
     await interaction.response.defer(ephemeral=True)
     
     user_id = interaction.user.id
+    
+    # Check if user has casino access
+    has_casino = await db_helpers.has_feature_unlock(user_id, 'casino')
+    if not has_casino:
+        currency = config['modules']['economy']['currency_symbol']
+        price = config['modules']['economy']['shop']['features'].get('casino', 500)
+        await interaction.followup.send(
+            f"🎰 Du benötigst **Casino Access**, um Russian Roulette zu spielen!\n"
+            f"Kaufe es im Shop für {price} {currency} mit `/shopbuy`",
+            ephemeral=True
+        )
+        return
     
     # Check if user already has an active game
     if user_id in active_rr_games:
@@ -7282,6 +7808,39 @@ async def on_message(message):
                     await message.channel.send(result)
                 else:
                     await message.channel.send(f"Du wirst {target_player.user.display_name} morgen das Maul stopfen.")
+                return
+                
+            elif command == "love":
+                if len(parts) < 3:
+                    await message.channel.send("Verwendung: `love <name1> <name2>`")
+                    return
+                # Parse the two names from the command
+                # We need to find where one name ends and the next begins
+                # Simple approach: try each split point
+                found = False
+                for i in range(1, len(parts)):
+                    name1 = " ".join(parts[1:i+1])
+                    name2 = " ".join(parts[i+1:])
+                    
+                    if not name2:  # No second name
+                        continue
+                        
+                    lover1 = user_game.get_player_by_name(name1)
+                    lover2 = user_game.get_player_by_name(name2)
+                    
+                    if lover1 and lover2:
+                        # Set the lover_target attribute that werwolf.py expects
+                        lover1.lover_target = lover2
+                        result = await user_game.handle_night_action(user_player, "love", lover1, config, GEMINI_API_KEY, OPENAI_API_KEY)
+                        if result:
+                            await message.channel.send(result)
+                        else:
+                            await message.channel.send(f"Du hast {lover1.user.display_name} und {lover2.user.display_name} zu Verliebten gemacht.")
+                        found = True
+                        break
+                
+                if not found:
+                    await message.channel.send("Konnte die beiden Spieler nicht finden. Verwendung: `love <name1> <name2>`")
                 return
             
             # If we get here, it's not a recognized game command, treat as chatbot
