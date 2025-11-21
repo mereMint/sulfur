@@ -6,12 +6,31 @@ Classic Wordle game with 5-letter word guessing.
 import discord
 import random
 import json
+import os
 from datetime import datetime, timezone, timedelta
 from modules.logger_utils import bot_logger as logger
 
 
-# 5-letter German words for Wordle (ONLY 5-letter words!)
-WORDLE_WORDS_DE = [
+# Load word lists from configuration files
+def load_word_list(filename):
+    """Load word list from JSON file."""
+    try:
+        filepath = os.path.join('config', filename)
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading word list from {filename}: {e}")
+        return []
+
+
+# Load language-specific word lists
+WORDLE_WORDS_DE = load_word_list('wordle_words_de.json')
+WORDLE_WORDS_EN = load_word_list('wordle_words_en.json')
+
+# Fallback hardcoded words in case files don't exist (for backward compatibility)
+if not WORDLE_WORDS_DE:
+    logger.warning("Using fallback German word list")
+    WORDLE_WORDS_DE = [
     'apfel', 'bauer', 'brief', 'brust', 'dampf', 'decke', 'draht', 'eisen', 'engel', 'ernte',
     'essen', 'fahne', 'feuer', 'fisch', 'fluss', 'forst', 'frost', 'gabel', 'geist', 'hafen',
     'hagel', 'haken', 'halle', 'hirte', 'hitze', 'honig', 'hotel', 'insel', 'kabel', 'kampf',
@@ -33,8 +52,9 @@ WORDLE_WORDS_DE = [
     'zucht', 'zunge', 'zwang', 'zweck', 'zweig', 'zwerg', 'zwirn',
 ]
 
-# 5-letter English words for Wordle (ONLY 5-letter words!)
-WORDLE_WORDS_EN = [
+if not WORDLE_WORDS_EN:
+    logger.warning("Using fallback English word list")
+    WORDLE_WORDS_EN = [
     'about', 'above', 'abuse', 'adapt', 'admit', 'adopt', 'adult', 'after', 'again', 'agent',
     'agree', 'ahead', 'alarm', 'album', 'alert', 'alien', 'align', 'alike', 'alive', 'allow',
     'alone', 'along', 'alter', 'among', 'angel', 'anger', 'angle', 'angry', 'apart', 'apple',
@@ -91,6 +111,8 @@ WORDLE_WORDS_EN = [
 
 # Default to German for backward compatibility
 WORDLE_WORDS = WORDLE_WORDS_DE
+
+logger.info(f"Loaded {len(WORDLE_WORDS_DE)} German words and {len(WORDLE_WORDS_EN)} English words for Wordle")
 
 
 def get_wordle_words(language='de'):

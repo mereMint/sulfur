@@ -6,12 +6,32 @@ Daily word guessing game with proximity-based hints.
 import discord
 import random
 import asyncio
+import json
+import os
 from datetime import datetime, timezone, timedelta
 from modules.logger_utils import bot_logger as logger
 
 
-# Word lists for different difficulty levels - German
-WORD_LISTS_DE = {
+# Load word lists from configuration files
+def load_word_list_dict(filename):
+    """Load word list dictionary from JSON file."""
+    try:
+        filepath = os.path.join('config', filename)
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading word list from {filename}: {e}")
+        return {}
+
+
+# Load language-specific word lists
+WORD_LISTS_DE = load_word_list_dict('word_find_words_de.json')
+WORD_LISTS_EN = load_word_list_dict('word_find_words_en.json')
+
+# Fallback hardcoded words in case files don't exist (for backward compatibility)
+if not WORD_LISTS_DE:
+    logger.warning("Using fallback German word lists")
+    WORD_LISTS_DE = {
     'easy': [
         'haus', 'baum', 'hund', 'katze', 'auto', 'buch', 'tisch', 'stuhl', 
         'fenster', 'tür', 'lampe', 'bett', 'küche', 'bad', 'garten', 'blume'
@@ -42,8 +62,27 @@ WORD_LISTS_EN = {
     ]
 }
 
+if not WORD_LISTS_EN:
+    logger.warning("Using fallback English word lists")
+    WORD_LISTS_EN = {
+    'easy': [
+        'house', 'tree', 'dog', 'cat', 'car', 'book', 'table', 'chair',
+        'window', 'door', 'lamp', 'bed', 'kitchen', 'bath', 'garden', 'flower'
+    ],
+    'medium': [
+        'computer', 'telephone', 'internet', 'keyboard', 'screen', 'music',
+        'friend', 'family', 'work', 'school', 'vacation', 'weather', 'sun'
+    ],
+    'hard': [
+        'development', 'programming', 'algorithm', 'database', 'network',
+        'science', 'technology', 'innovation', 'creativity', 'philosophy'
+    ]
+}
+
 # Default to German for backward compatibility
 WORD_LISTS = WORD_LISTS_DE
+
+logger.info(f"Loaded Word Find word lists: DE={len(WORD_LISTS_DE.get('easy', []))+len(WORD_LISTS_DE.get('medium', []))+len(WORD_LISTS_DE.get('hard', []))} words, EN={len(WORD_LISTS_EN.get('easy', []))+len(WORD_LISTS_EN.get('medium', []))+len(WORD_LISTS_EN.get('hard', []))} words")
 
 
 def get_word_lists(language='de'):
