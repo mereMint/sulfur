@@ -6,12 +6,32 @@ Daily word guessing game with proximity-based hints.
 import discord
 import random
 import asyncio
+import json
+import os
 from datetime import datetime, timezone, timedelta
 from modules.logger_utils import bot_logger as logger
 
 
-# Word lists for different difficulty levels
-WORD_LISTS = {
+# Load word lists from configuration files
+def load_word_list_dict(filename):
+    """Load word list dictionary from JSON file."""
+    try:
+        filepath = os.path.join('config', filename)
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"Error loading word list from {filename}: {e}")
+        return {}
+
+
+# Load language-specific word lists
+WORD_LISTS_DE = load_word_list_dict('word_find_words_de.json')
+WORD_LISTS_EN = load_word_list_dict('word_find_words_en.json')
+
+# Fallback hardcoded words in case files don't exist (for backward compatibility)
+if not WORD_LISTS_DE:
+    logger.warning("Using fallback German word lists")
+    WORD_LISTS_DE = {
     'easy': [
         'haus', 'baum', 'hund', 'katze', 'auto', 'buch', 'tisch', 'stuhl', 
         'fenster', 'tür', 'lampe', 'bett', 'küche', 'bad', 'garten', 'blume'
@@ -25,6 +45,35 @@ WORD_LISTS = {
         'wissenschaft', 'technologie', 'innovation', 'kreativität', 'philosophie'
     ]
 }
+
+if not WORD_LISTS_EN:
+    logger.warning("Using fallback English word lists")
+    WORD_LISTS_EN = {
+        'easy': [
+            'house', 'tree', 'dog', 'cat', 'car', 'book', 'table', 'chair',
+            'window', 'door', 'lamp', 'bed', 'kitchen', 'bath', 'garden', 'flower'
+        ],
+        'medium': [
+            'computer', 'telephone', 'internet', 'keyboard', 'screen', 'music',
+            'friend', 'family', 'work', 'school', 'vacation', 'weather', 'sun'
+        ],
+        'hard': [
+            'development', 'programming', 'algorithm', 'database', 'network',
+            'science', 'technology', 'innovation', 'creativity', 'philosophy'
+        ]
+    }
+
+# Default to German for backward compatibility
+WORD_LISTS = WORD_LISTS_DE
+
+logger.info(f"Loaded Word Find word lists: DE={len(WORD_LISTS_DE.get('easy', []))+len(WORD_LISTS_DE.get('medium', []))+len(WORD_LISTS_DE.get('hard', []))} words, EN={len(WORD_LISTS_EN.get('easy', []))+len(WORD_LISTS_EN.get('medium', []))+len(WORD_LISTS_EN.get('hard', []))} words")
+
+
+def get_word_lists(language='de'):
+    """Get Word Find word lists for specified language."""
+    if language == 'en':
+        return WORD_LISTS_EN
+    return WORD_LISTS_DE
 
 
 async def initialize_word_find_table(db_helpers):
@@ -47,8 +96,11 @@ async def initialize_word_find_table(db_helpers):
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     word VARCHAR(100) NOT NULL,
                     difficulty VARCHAR(20) NOT NULL,
-                    date DATE NOT NULL UNIQUE,
-                    INDEX idx_date (date)
+                    language VARCHAR(2) DEFAULT 'de',
+                    date DATE NOT NULL,
+                    UNIQUE KEY unique_date_lang (date, language),
+                    INDEX idx_date (date),
+                    INDEX idx_lang (language)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
@@ -181,8 +233,8 @@ def levenshtein_distance(s1: str, s2: str) -> int:
     return previous_row[-1]
 
 
-async def get_or_create_daily_word(db_helpers):
-    """Get today's word or create a new one."""
+async def get_or_create_daily_word(db_helpers, language='de'):
+    """Get today's word or create a new one for the specified language."""
     try:
         if not db_helpers.db_pool:
             return None
@@ -195,11 +247,11 @@ async def get_or_create_daily_word(db_helpers):
         try:
             today = datetime.now(timezone.utc).date()
             
-            # Check if today's word exists
+            # Check if today's word exists for this language
             cursor.execute("""
-                SELECT id, word, difficulty FROM word_find_daily
-                WHERE date = %s
-            """, (today,))
+                SELECT id, word, difficulty, language FROM word_find_daily
+                WHERE date = %s AND language = %s
+            """, (today, language))
             result = cursor.fetchone()
             
             if result:
@@ -215,23 +267,27 @@ async def get_or_create_daily_word(db_helpers):
             else:
                 difficulty = 'easy'
             
-            word = random.choice(WORD_LISTS[difficulty])
+            # Get language-specific word list
+            word_lists = get_word_lists(language)
+            word = random.choice(word_lists[difficulty])
             
             cursor.execute("""
-                INSERT INTO word_find_daily (word, difficulty, date)
-                VALUES (%s, %s, %s)
-            """, (word, difficulty, today))
+                INSERT INTO word_find_daily (word, difficulty, language, date)
+                VALUES (%s, %s, %s, %s)
+            """, (word, difficulty, language, today))
             
             conn.commit()
             word_id = cursor.lastrowid
             
-            return {'id': word_id, 'word': word, 'difficulty': difficulty}
+            return {'id': word_id, 'word': word, 'difficulty': difficulty, 'language': language}
         finally:
             cursor.close()
             conn.close()
     except Exception as e:
         logger.error(f"Error getting/creating daily word: {e}", exc_info=True)
         return None
+
+
 
 
 async def get_user_attempts(db_helpers, user_id: int, word_id: int):

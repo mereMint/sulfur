@@ -1,0 +1,47 @@
+{
+  "easy": [
+    "house",
+    "tree",
+    "dog",
+    "cat",
+    "car",
+    "book",
+    "table",
+    "chair",
+    "window",
+    "door",
+    "lamp",
+    "bed",
+    "kitchen",
+    "bath",
+    "garden",
+    "flower"
+  ],
+  "medium": [
+    "computer",
+    "telephone",
+    "internet",
+    "keyboard",
+    "screen",
+    "music",
+    "friend",
+    "family",
+    "work",
+    "school",
+    "vacation",
+    "weather",
+    "sun"
+  ],
+  "hard": [
+    "development",
+    "programming",
+    "algorithm",
+    "database",
+    "network",
+    "science",
+    "technology",
+    "innovation",
+    "creativity",
+    "philosophy"
+  ]
+}

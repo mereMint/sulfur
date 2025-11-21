@@ -2725,3 +2725,66 @@ async def get_user_customization(user_id):
     finally:
         cursor.close()
         cnx.close()
+
+
+@db_operation("Set User Language")
+async def set_user_language(user_id, language):
+    """Sets the user's preferred language for games (de or en)."""
+    if not db_pool:
+        return False
+    
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return False
+    
+    cursor = cnx.cursor()
+    try:
+        # First ensure the language column exists
+        cursor.execute("""
+            ALTER TABLE user_customization 
+            ADD COLUMN IF NOT EXISTS language VARCHAR(2) DEFAULT 'de'
+        """)
+        
+        cursor.execute(
+            """
+            INSERT INTO user_customization (user_id, language)
+            VALUES (%s, %s)
+            ON DUPLICATE KEY UPDATE language = %s
+            """,
+            (user_id, language, language)
+        )
+        cnx.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Error setting user language: {e}", exc_info=True)
+        return False
+    finally:
+        cursor.close()
+        cnx.close()
+
+
+@db_operation("Get User Language")
+async def get_user_language(user_id):
+    """Gets the user's preferred language (defaults to 'de')."""
+    if not db_pool:
+        return 'de'
+    
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return 'de'
+    
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            "SELECT language FROM user_customization WHERE user_id = %s",
+            (user_id,)
+        )
+        result = cursor.fetchone()
+        return result['language'] if result and result.get('language') else 'de'
+    except Exception as e:
+        logger.error(f"Error getting user language: {e}", exc_info=True)
+        return 'de'
+    finally:
+        cursor.close()
+        cnx.close()
+
