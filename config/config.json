@@ -152,6 +152,13 @@
             "features": ["unlimited_word_find", "unlimited_wordle"],
             "price": 800,
             "discount": 200
+          },
+          "ai_games_bundle": {
+            "name": "AI Games Bundle",
+            "description": "Detective Game + Trolly Problem",
+            "features": ["detective", "trolly"],
+            "price": 1000,
+            "discount": 250
           }
         },
         "boosts": {

@@ -5,6 +5,7 @@ Classic Wordle game with 5-letter word guessing.
 
 import discord
 import random
+import json
 from datetime import datetime, timezone, timedelta
 from modules.logger_utils import bot_logger as logger
 
@@ -249,7 +250,6 @@ async def update_user_stats(db_helpers, user_id: int, won: bool, attempts: int):
             
             if stats:
                 # Parse guess distribution
-                import json
                 guess_dist = json.loads(stats.get('guess_distribution', '{}')) if stats.get('guess_distribution') else {}
                 
                 # Update distribution if won
@@ -271,7 +271,6 @@ async def update_user_stats(db_helpers, user_id: int, won: bool, attempts: int):
                 """, (1 if won else 0, new_streak, new_best_streak, json.dumps(guess_dist), today, user_id))
             else:
                 # Create new stats
-                import json
                 guess_dist = {str(attempts): 1} if won else {}
                 
                 cursor.execute("""
@@ -428,17 +427,23 @@ def create_game_embed(word_data: dict, attempts: list, user_stats: dict = None, 
     return embed
 
 
-def create_share_text(attempts: list, won: bool):
-    """Create shareable text for Wordle results."""
+def create_share_text(attempts: list, correct_word: str, won: bool):
+    """Create shareable text for Wordle results with accurate colored squares."""
     share_lines = [f"Wordle {datetime.now(timezone.utc).date()} {len(attempts)}/6"]
     share_lines.append("")
     
     for attempt in attempts:
+        guess = attempt.get('guess', '')
+        result = check_guess(guess, correct_word)
+        
         line = ""
-        # Since we don't have access to the correct word here, we'll use a simplified version
-        # The actual result is stored in check_guess
-        for _ in range(5):
-            line += "⬜"
+        for letter, status in result:
+            if status == 'correct':
+                line += "🟩"
+            elif status == 'present':
+                line += "🟨"
+            else:
+                line += "⬜"
         share_lines.append(line)
     
     return "\n".join(share_lines)

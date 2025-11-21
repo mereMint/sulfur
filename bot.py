@@ -3918,6 +3918,32 @@ class ShopBuyView(discord.ui.View):
         # Define boost descriptions
         boost_details = {
             'xp_boost_1h': {
+                'name': '⚡ XP Boost (1 Stunde)',
+                'desc': '2x XP für alle Aktivitäten für 1 Stunde'
+            },
+            'xp_boost_24h': {
+                'name': '⚡⚡ XP Boost (24 Stunden)',
+                'desc': '2x XP für alle Aktivitäten für 24 Stunden'
+            },
+            'gambling_multiplier_1h': {
+                'name': '🎰 Gambling Boost (1 Stunde)',
+                'desc': '1.5x Gewinnmultiplikator für alle Spiele für 1 Stunde'
+            },
+            'gambling_multiplier_24h': {
+                'name': '🎰🎰 Gambling Boost (24 Stunden)',
+                'desc': '1.5x Gewinnmultiplikator für alle Spiele für 24 Stunden'
+            }
+        }
+        
+        for boost, price in boosts.items():
+            details = boost_details.get(boost, {'name': boost, 'desc': 'Temporary boost'})
+            embed.add_field(
+                name=f"{details['name']} - {price} {currency}",
+                value=details['desc'],
+                inline=False
+            )
+        
+        await interaction.edit_original_response(embed=embed, view=view)
     
     @discord.ui.button(label="🎨 Themes", style=discord.ButtonStyle.primary, row=1)
     async def themes_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -3957,34 +3983,8 @@ class ShopBuyView(discord.ui.View):
             embed.set_footer(text="Kein Theme ausgerüstet (Standard-Ansicht)")
         
         await interaction.edit_original_response(embed=embed, view=view)
-                'name': '⚡ XP Boost (1 Stunde)',
-                'desc': '2x XP für alle Aktivitäten für 1 Stunde'
-            },
-            'xp_boost_24h': {
-                'name': '⚡⚡ XP Boost (24 Stunden)',
-                'desc': '2x XP für alle Aktivitäten für 24 Stunden'
-            },
-            'gambling_multiplier_1h': {
-                'name': '🎰 Gambling Boost (1 Stunde)',
-                'desc': '1.5x Gewinnmultiplikator für alle Spiele für 1 Stunde'
-            },
-            'gambling_multiplier_24h': {
-                'name': '🎰🎰 Gambling Boost (24 Stunden)',
-                'desc': '1.5x Gewinnmultiplikator für alle Spiele für 24 Stunden'
-            }
-        }
-        
-        for boost, price in boosts.items():
-            details = boost_details.get(boost, {'name': boost, 'desc': 'Temporary boost'})
-            embed.add_field(
-                name=f"{details['name']} - {price} {currency}",
-                value=details['desc'],
-                inline=False
-            )
-        
-        await interaction.edit_original_response(embed=embed, view=view)
     
-    @discord.ui.button(label="🐺 Werwolf Rollen", style=discord.ButtonStyle.red)
+    @discord.ui.button(label="🐺 Werwolf Rollen", style=discord.ButtonStyle.red, row=1)
     async def werwolf_roles_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Show Werwolf role unlock options."""
         await interaction.response.defer()
@@ -8087,7 +8087,7 @@ async def wordle_command(interaction: discord.Interaction):
                 )
             
             # Show share button
-            view = WordleCompletedView(user_id, attempts, True)
+            view = WordleCompletedView(user_id, attempts, True, word_data)
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
             return
         
@@ -8114,7 +8114,7 @@ async def wordle_command(interaction: discord.Interaction):
                 )
             
             # Show share button
-            view = WordleCompletedView(user_id, attempts, False)
+            view = WordleCompletedView(user_id, attempts, False, word_data)
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
             return
         
@@ -8165,11 +8165,12 @@ class WordleView(discord.ui.View):
 class WordleCompletedView(discord.ui.View):
     """UI view for completed Wordle game with share option."""
     
-    def __init__(self, user_id: int, attempts: list, won: bool):
+    def __init__(self, user_id: int, attempts: list, won: bool, word_data: dict = None):
         super().__init__(timeout=300)
         self.user_id = user_id
         self.attempts = attempts
         self.won = won
+        self.word_data = word_data
     
     @discord.ui.button(label="Teilen", style=discord.ButtonStyle.success, emoji="📤")
     async def share_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -8178,13 +8179,14 @@ class WordleCompletedView(discord.ui.View):
             await interaction.response.send_message("Das ist nicht dein Spiel!", ephemeral=True)
             return
         
-        # Create shareable text
-        share_text = f"Wordle {datetime.now(timezone.utc).date()} {len(self.attempts)}/6\n\n"
-        
-        # We need the correct word to generate accurate share text
-        # For now, create simplified share text
-        for attempt in self.attempts:
-            share_text += "🟩🟨⬜⬜⬜\n"  # Placeholder - actual colors would need word_data
+        # Create shareable text with accurate colors
+        if self.word_data:
+            share_text = wordle.create_share_text(self.attempts, self.word_data['word'], self.won)
+        else:
+            # Fallback if word_data not provided
+            share_text = f"Wordle {datetime.now(timezone.utc).date()} {len(self.attempts)}/6\n\n"
+            for attempt in self.attempts:
+                share_text += "🟩🟨⬜⬜⬜\n"
         
         await interaction.response.send_message(
             f"Teile dein Ergebnis:\n\n```\n{share_text}\n```",
@@ -8273,7 +8275,7 @@ class WordleGuessModal(discord.ui.Modal, title="Rate das Wort"):
                 )
             
             # Show completed view with share button
-            view = WordleCompletedView(self.user_id, all_attempts, True)
+            view = WordleCompletedView(self.user_id, all_attempts, True, self.word_data)
             await interaction.edit_original_response(embed=embed, view=view)
         else:
             # Update display with new attempt
@@ -8290,7 +8292,7 @@ class WordleGuessModal(discord.ui.Modal, title="Rate das Wort"):
                 await wordle.update_user_stats(db_helpers, self.user_id, False, attempt_num)
                 
                 # Show completed view with share button
-                view = WordleCompletedView(self.user_id, attempts, False)
+                view = WordleCompletedView(self.user_id, attempts, False, self.word_data)
                 await interaction.edit_original_response(embed=embed, view=view)
             else:
                 embed = wordle.create_game_embed(self.word_data, attempts, user_stats, theme_id=self.theme_id)
