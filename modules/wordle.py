@@ -9,6 +9,7 @@ import json
 import os
 from datetime import datetime, timezone, timedelta
 from modules.logger_utils import bot_logger as logger
+from modules import word_service
 
 
 # Load word lists from configuration files
@@ -222,9 +223,16 @@ async def get_or_create_daily_word(db_helpers, language='de'):
             if result:
                 return result
             
-            # Create new daily word using language-specific word list
-            word_list = get_wordle_words_list(language)  # Use list version for random.choice
-            word = random.choice(word_list)
+            # Create new daily word using word service (external API or fallback)
+            logger.info(f"Fetching new daily word for Wordle ({language})")
+            words = await word_service.get_random_words(1, language=language, min_length=5, max_length=5)
+            if words and len(words) > 0:
+                word = words[0]
+            else:
+                # Fallback to hardcoded list if service fails
+                logger.warning("Word service failed, using hardcoded list")
+                word_list = get_wordle_words_list(language)
+                word = random.choice(word_list)
             
             cursor.execute("""
                 INSERT INTO wordle_daily (word, language, date)

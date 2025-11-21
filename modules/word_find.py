@@ -10,6 +10,7 @@ import json
 import os
 from datetime import datetime, timezone, timedelta
 from modules.logger_utils import bot_logger as logger
+from modules import word_service
 
 
 # Load word lists from configuration files
@@ -257,19 +258,29 @@ async def get_or_create_daily_word(db_helpers, language='de'):
             if result:
                 return result
             
-            # Create new daily word
+            # Create new daily word using word service
             # Choose difficulty based on day of week (harder on weekends)
             weekday = datetime.now(timezone.utc).weekday()
             if weekday >= 5:  # Saturday, Sunday
                 difficulty = 'hard'
+                min_len, max_len = 10, 15
             elif weekday >= 3:  # Thursday, Friday
                 difficulty = 'medium'
+                min_len, max_len = 7, 10
             else:
                 difficulty = 'easy'
+                min_len, max_len = 4, 7
             
-            # Get language-specific word list
-            word_lists = get_word_lists(language)
-            word = random.choice(word_lists[difficulty])
+            # Fetch word from service
+            logger.info(f"Fetching new daily word for Word Find ({language}, {difficulty})")
+            words = await word_service.get_random_words(1, language=language, min_length=min_len, max_length=max_len)
+            if words and len(words) > 0:
+                word = words[0]
+            else:
+                # Fallback to hardcoded list if service fails
+                logger.warning("Word service failed, using hardcoded list")
+                word_lists = get_word_lists(language)
+                word = random.choice(word_lists[difficulty])
             
             cursor.execute("""
                 INSERT INTO word_find_daily (word, difficulty, language, date)
