@@ -81,7 +81,7 @@ async def initialize_word_find_table(db_helpers):
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
-            # Table for user stats
+            # Table for user stats (backwards compatible - supports both old and new schema)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS word_find_stats (
                     user_id BIGINT PRIMARY KEY,
@@ -90,6 +90,14 @@ async def initialize_word_find_table(db_helpers):
                     current_streak INT DEFAULT 0,
                     best_streak INT DEFAULT 0,
                     total_attempts INT DEFAULT 0,
+                    daily_games INT DEFAULT 0,
+                    daily_wins INT DEFAULT 0,
+                    daily_streak INT DEFAULT 0,
+                    daily_best_streak INT DEFAULT 0,
+                    daily_total_attempts INT DEFAULT 0,
+                    premium_games INT DEFAULT 0,
+                    premium_wins INT DEFAULT 0,
+                    premium_total_attempts INT DEFAULT 0,
                     last_played DATE
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
@@ -278,8 +286,8 @@ async def record_attempt(db_helpers, user_id: int, word_id: int, guess: str, sim
         return False
 
 
-async def update_user_stats(db_helpers, user_id: int, won: bool, attempts: int):
-    """Update user's Word Find statistics."""
+async def update_user_stats(db_helpers, user_id: int, won: bool, attempts: int, game_type: str = 'daily'):
+    """Update user's Word Find statistics (backwards compatible with old schema)."""
     try:
         if not db_helpers.db_pool:
             return
@@ -298,27 +306,57 @@ async def update_user_stats(db_helpers, user_id: int, won: bool, attempts: int):
             """, (user_id,))
             stats = cursor.fetchone()
             
-            if stats:
-                # Update existing stats
-                new_streak = stats['current_streak'] + 1 if won else 0
-                new_best_streak = max(stats['best_streak'], new_streak)
-                
-                cursor.execute("""
-                    UPDATE word_find_stats
-                    SET total_games = total_games + 1,
-                        total_wins = total_wins + %s,
-                        current_streak = %s,
-                        best_streak = %s,
-                        total_attempts = total_attempts + %s,
-                        last_played = %s
-                    WHERE user_id = %s
-                """, (1 if won else 0, new_streak, new_best_streak, attempts, today, user_id))
-            else:
-                # Create new stats
-                cursor.execute("""
-                    INSERT INTO word_find_stats (user_id, total_games, total_wins, current_streak, best_streak, total_attempts, last_played)
-                    VALUES (%s, 1, %s, %s, %s, %s, %s)
-                """, (user_id, 1 if won else 0, 1 if won else 0, 1 if won else 0, attempts, today))
+            if game_type == 'daily':
+                if stats:
+                    # Update existing daily stats
+                    new_streak = stats.get('daily_streak', stats.get('current_streak', 0)) + 1 if won else 0
+                    new_best_streak = max(stats.get('daily_best_streak', stats.get('best_streak', 0)), new_streak)
+                    
+                    # Update both old and new columns for backwards compatibility
+                    cursor.execute("""
+                        UPDATE word_find_stats
+                        SET total_games = total_games + 1,
+                            total_wins = total_wins + %s,
+                            current_streak = %s,
+                            best_streak = %s,
+                            total_attempts = total_attempts + %s,
+                            daily_games = daily_games + 1,
+                            daily_wins = daily_wins + %s,
+                            daily_streak = %s,
+                            daily_best_streak = %s,
+                            daily_total_attempts = daily_total_attempts + %s,
+                            last_played = %s
+                        WHERE user_id = %s
+                    """, (1 if won else 0, new_streak, new_best_streak, attempts,
+                          1 if won else 0, new_streak, new_best_streak, attempts, today, user_id))
+                else:
+                    # Create new stats (populate both old and new columns)
+                    cursor.execute("""
+                        INSERT INTO word_find_stats 
+                        (user_id, total_games, total_wins, current_streak, best_streak, total_attempts,
+                         daily_games, daily_wins, daily_streak, daily_best_streak, daily_total_attempts, last_played)
+                        VALUES (%s, 1, %s, %s, %s, %s, 1, %s, %s, %s, %s, %s)
+                    """, (user_id, 1 if won else 0, 1 if won else 0, 1 if won else 0, attempts,
+                          1 if won else 0, 1 if won else 0, 1 if won else 0, attempts, today))
+            else:  # premium
+                if stats:
+                    # Update existing premium stats (don't touch old columns for premium games)
+                    cursor.execute("""
+                        UPDATE word_find_stats
+                        SET premium_games = premium_games + 1,
+                            premium_wins = premium_wins + %s,
+                            premium_total_attempts = premium_total_attempts + %s,
+                            last_played = %s
+                        WHERE user_id = %s
+                    """, (1 if won else 0, attempts, today, user_id))
+                else:
+                    # Create new stats with premium game
+                    cursor.execute("""
+                        INSERT INTO word_find_stats 
+                        (user_id, premium_games, premium_wins, premium_total_attempts, last_played)
+                        VALUES (%s, 1, %s, %s, %s)
+                    """, (user_id, 1 if won else 0, attempts, today))
+            
             
             conn.commit()
         finally:
@@ -530,11 +568,25 @@ def create_game_embed(word_data: dict, attempts: list, max_attempts: int, user_s
     
     # Add user stats if available
     if user_stats:
-        win_rate = (user_stats['total_wins'] / user_stats['total_games'] * 100) if user_stats['total_games'] > 0 else 0
-        avg_attempts = (user_stats['total_attempts'] / user_stats['total_wins']) if user_stats['total_wins'] > 0 else 0
+        if game_type == 'daily':
+            total_games = user_stats.get('daily_games', 0)
+            total_wins = user_stats.get('daily_wins', 0)
+            current_streak = user_stats.get('daily_streak', 0)
+            best_streak = user_stats.get('daily_best_streak', 0)
+            total_attempts = user_stats.get('daily_total_attempts', 0)
+        else:  # premium
+            total_games = user_stats.get('premium_games', 0)
+            total_wins = user_stats.get('premium_wins', 0)
+            current_streak = 0  # No streak for premium games
+            best_streak = 0
+            total_attempts = user_stats.get('premium_total_attempts', 0)
         
-        stats_text = f"Spiele: `{user_stats['total_games']}` | Gewonnen: `{user_stats['total_wins']}` ({win_rate:.1f}%)\n"
-        stats_text += f"Streak: `{user_stats['current_streak']}` 🔥 | Best: `{user_stats['best_streak']}`\n"
+        win_rate = (total_wins / total_games * 100) if total_games > 0 else 0
+        avg_attempts = (total_attempts / total_wins) if total_wins > 0 else 0
+        
+        stats_text = f"Spiele: `{total_games}` | Gewonnen: `{total_wins}` ({win_rate:.1f}%)\n"
+        if game_type == 'daily':
+            stats_text += f"Streak: `{current_streak}` 🔥 | Best: `{best_streak}`\n"
         if avg_attempts > 0:
             stats_text += f"Ø Versuche pro Sieg: `{avg_attempts:.1f}`"
         

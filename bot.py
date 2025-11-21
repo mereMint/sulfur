@@ -2839,49 +2839,80 @@ class ProfilePageView(discord.ui.View):
             )
             embed.set_thumbnail(url=self.user.display_avatar.url)
             
-            # Basic stats
-            total_games = stats['total_games'] or 0
-            total_wins = stats['total_wins'] or 0
-            total_attempts = stats['total_attempts'] or 0
-            current_streak = stats['current_streak'] or 0
-            best_streak = stats['best_streak'] or 0
+            # Daily game stats (use new columns if available, fall back to old)
+            daily_games = stats.get('daily_games') or stats.get('total_games', 0)
+            daily_wins = stats.get('daily_wins') or stats.get('total_wins', 0)
+            daily_attempts = stats.get('daily_total_attempts') or stats.get('total_attempts', 0)
+            daily_streak = stats.get('daily_streak') or stats.get('current_streak', 0)
+            daily_best_streak = stats.get('daily_best_streak') or stats.get('best_streak', 0)
             
-            win_rate = (total_wins / total_games * 100) if total_games > 0 else 0
-            avg_attempts = (total_attempts / total_wins) if total_wins > 0 else 0
+            # Premium game stats (new columns only)
+            premium_games = stats.get('premium_games', 0)
+            premium_wins = stats.get('premium_wins', 0)
+            premium_attempts = stats.get('premium_total_attempts', 0)
             
-            embed.add_field(name="Spiele gesamt", value=f"`{total_games}`", inline=True)
-            embed.add_field(name="Gewonnen", value=f"✅ `{total_wins}`", inline=True)
-            embed.add_field(name="Win-Rate", value=f"`{win_rate:.1f}%`", inline=True)
+            # Calculate daily stats
+            daily_win_rate = (daily_wins / daily_games * 100) if daily_games > 0 else 0
+            daily_avg_attempts = (daily_attempts / daily_wins) if daily_wins > 0 else 0
             
-            embed.add_field(name="Aktueller Streak", value=f"🔥 `{current_streak}`", inline=True)
-            embed.add_field(name="Bester Streak", value=f"⭐ `{best_streak}`", inline=True)
-            embed.add_field(name="Ø Versuche", value=f"`{avg_attempts:.1f}`", inline=True)
+            # Daily stats section
+            if daily_games > 0:
+                embed.add_field(
+                    name="📅 Tägliche Spiele",
+                    value=f"Spiele: `{daily_games}` | Siege: `{daily_wins}` | Rate: `{daily_win_rate:.1f}%`\n"
+                          f"Streak: 🔥 `{daily_streak}` | Best: ⭐ `{daily_best_streak}`\n"
+                          f"Ø Versuche: `{daily_avg_attempts:.1f}`",
+                    inline=False
+                )
+                
+                # Daily win rate progress bar
+                bar_length = 20
+                filled = int((daily_win_rate / 100) * bar_length)
+                bar = '█' * filled + '░' * (bar_length - filled)
+                
+                # Rating based on daily win rate
+                if daily_win_rate >= 80:
+                    rating = "🏆 Wortmeister"
+                elif daily_win_rate >= 60:
+                    rating = "🎖️ Wortexperte"
+                elif daily_win_rate >= 40:
+                    rating = "📖 Wortkenner"
+                elif daily_win_rate >= 20:
+                    rating = "📝 Anfänger"
+                else:
+                    rating = "🤔 Übe weiter!"
+                
+                embed.add_field(
+                    name=f"Daily Erfolgsrate: {daily_win_rate:.1f}%",
+                    value=f"`{bar}`\n{rating}",
+                    inline=False
+                )
             
-            # Win rate progress bar
-            bar_length = 20
-            filled = int((win_rate / 100) * bar_length)
-            bar = '█' * filled + '░' * (bar_length - filled)
-            
-            # Rating based on win rate
-            if win_rate >= 80:
-                rating = "🏆 Wortmeister"
-            elif win_rate >= 60:
-                rating = "🎖️ Wortexperte"
-            elif win_rate >= 40:
-                rating = "📖 Wortkenner"
-            elif win_rate >= 20:
-                rating = "📝 Anfänger"
-            else:
-                rating = "🤔 Übe weiter!"
-            
-            embed.add_field(
-                name=f"Erfolgsrate: {win_rate:.1f}%",
-                value=f"`{bar}`\n{rating}",
-                inline=False
-            )
+            # Premium stats section (only show if user has played premium games)
+            if premium_games > 0:
+                premium_win_rate = (premium_wins / premium_games * 100) if premium_games > 0 else 0
+                premium_avg_attempts = (premium_attempts / premium_wins) if premium_wins > 0 else 0
+                
+                embed.add_field(
+                    name="💎 Premium Spiele",
+                    value=f"Spiele: `{premium_games}` | Siege: `{premium_wins}` | Rate: `{premium_win_rate:.1f}%`\n"
+                          f"Ø Versuche: `{premium_avg_attempts:.1f}`",
+                    inline=False
+                )
+                
+                # Premium win rate progress bar
+                bar_length = 20
+                filled = int((premium_win_rate / 100) * bar_length)
+                bar = '█' * filled + '░' * (bar_length - filled)
+                
+                embed.add_field(
+                    name=f"Premium Erfolgsrate: {premium_win_rate:.1f}%",
+                    value=f"`{bar}`",
+                    inline=False
+                )
             
             # Last played
-            if stats['last_played']:
+            if stats.get('last_played'):
                 last_played = stats['last_played']
                 embed.set_footer(text=f"Zuletzt gespielt: {last_played.strftime('%Y-%m-%d')}")
             else:
@@ -7167,7 +7198,7 @@ class WordFindView(discord.ui.View):
         )
         
         # Update stats (loss)
-        await word_find.update_user_stats(db_helpers, self.user_id, False, self.max_attempts)
+        await word_find.update_user_stats(db_helpers, self.user_id, False, self.max_attempts, self.game_type)
         
         # Mark premium game as completed if applicable
         if self.game_type == 'premium':
@@ -7312,7 +7343,7 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
             )
             
             # Update stats
-            await word_find.update_user_stats(db_helpers, self.user_id, True, attempt_num)
+            await word_find.update_user_stats(db_helpers, self.user_id, True, attempt_num, self.game_type)
             
             # Mark premium game as completed if applicable
             if self.game_type == 'premium':
@@ -7354,7 +7385,7 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
                 embed.color = discord.Color.red()
                 
                 # Update stats (loss)
-                await word_find.update_user_stats(db_helpers, self.user_id, False, attempt_num)
+                await word_find.update_user_stats(db_helpers, self.user_id, False, attempt_num, self.game_type)
                 
                 # Mark premium game as completed if applicable
                 if self.game_type == 'premium':
