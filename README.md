@@ -26,7 +26,7 @@ A feature-rich Discord bot with AI capabilities, economy system, mini-games, and
 Use `/help` in Discord to see all available commands organized by category:
 - 🎮 **Games** - Blackjack, Roulette, Mines, Tower, Detective, Russian Roulette, Trolly
 - 💰 **Economy** - Daily rewards, Shop, Quests, Stock market, Transactions
-- 📊 **Profile & Stats** - Profile, Leaderboard, Summary, Spotify stats
+- 📊 **Profile & Stats** - Profile, Leaderboards (Level, Money, Werwolf, Games), Summary, Spotify stats
 - 🎭 **Werwolf** - Multiplayer werewolf game with voice channels
 - 🎤 **Voice** - Join-to-create voice channels with custom settings
 - ⚙️ **Other** - News, Privacy, Wrapped statistics
@@ -83,7 +83,7 @@ cd sulfur && bash termux_quickstart.sh
 - **Shop System** - Custom color roles, feature unlocks, purchase history
 - **Stock Market** - Trade 10+ stocks with realistic price simulation
 - **Daily Rewards** - Claim daily coins (resets every 24 hours)
-- **Leaderboards** - Track top earners and active members
+- **Leaderboards** - Track top earners, active members, Werwolf champions, and most games played
 
 ### 🤖 AI Capabilities
 - **Multi-Model Support** - Gemini and OpenAI models
