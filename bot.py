@@ -4308,6 +4308,51 @@ class ThemeSelectView(discord.ui.View):
         select.callback = self.on_theme_select
         self.add_item(select)
     
+    @discord.ui.button(label="🔍 Vorschau", style=discord.ButtonStyle.secondary, row=1)
+    async def preview_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Show preview of all themes."""
+        await interaction.response.defer(ephemeral=True)
+        
+        # Create preview embed
+        embed = discord.Embed(
+            title="🎨 Theme Vorschau",
+            description="Hier ist eine Vorschau aller verfügbaren Themes:",
+            color=discord.Color.blue()
+        )
+        
+        for theme_id, theme_data in themes.THEMES.items():
+            owned = theme_id in self.owned_themes
+            equipped = theme_id == self.equipped_theme
+            currency = config['modules']['economy']['currency_symbol']
+            
+            if equipped:
+                status = "✅ Ausgerüstet"
+            elif owned:
+                status = "✓ Besessen"
+            else:
+                status = f"💰 {theme_data['price']} {currency}"
+            
+            # Create a preview with theme colors and assets
+            preview_text = (
+                f"**{status}**\n"
+                f"*{theme_data['description']}*\n\n"
+                f"**Spiel-Assets:**\n"
+                f"• Turm: {theme_data['game_assets']['tower_name']}\n"
+                f"• Mines Sicher: {theme_data['game_assets']['mines_safe']}\n"
+                f"• Mines Aufgedeckt: {theme_data['game_assets']['mines_revealed']}\n"
+                f"• Mines Bombe: {theme_data['game_assets']['mines_bomb']}\n"
+                f"• Roulette: {theme_data['game_assets']['roulette_wheel']}\n"
+                f"• Profil: {theme_data['game_assets']['profile_accent']}"
+            )
+            
+            embed.add_field(
+                name=f"{theme_data['emoji']} {theme_data['name']}",
+                value=preview_text,
+                inline=False
+            )
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.member.id:
             await interaction.response.send_message("Du kannst diese Auswahl nicht bedienen.", ephemeral=True)

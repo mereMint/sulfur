@@ -129,6 +129,106 @@ THEMES = {
             'roulette_wheel': '🎪',
             'profile_accent': '🌅'
         }
+    },
+    'cyberpunk': {
+        'name': 'Cyberpunk',
+        'emoji': '🌐',
+        'description': 'Futuristic neon theme with electric colors',
+        'price': 2500,
+        'colors': {
+            'primary': discord.Color.from_rgb(0, 255, 255),
+            'success': discord.Color.from_rgb(57, 255, 20),
+            'danger': discord.Color.from_rgb(255, 0, 110),
+            'warning': discord.Color.from_rgb(255, 0, 255)
+        },
+        'game_assets': {
+            'tower_name': '🌐 Cyber-Turm',
+            'mines_safe': '🔋',  # Battery
+            'mines_bomb': '⚡',  # Lightning
+            'mines_revealed': '💠',  # Diamond with dot
+            'roulette_wheel': '🎮',
+            'profile_accent': '🌐'
+        }
+    },
+    'steampunk': {
+        'name': 'Steampunk',
+        'emoji': '⚙️',
+        'description': 'Victorian era mechanical theme with brass and copper',
+        'price': 2200,
+        'colors': {
+            'primary': discord.Color.from_rgb(205, 127, 50),
+            'success': discord.Color.from_rgb(184, 134, 11),
+            'danger': discord.Color.from_rgb(139, 69, 19),
+            'warning': discord.Color.from_rgb(218, 165, 32)
+        },
+        'game_assets': {
+            'tower_name': '⚙️ Dampf-Turm',
+            'mines_safe': '🔧',  # Wrench
+            'mines_bomb': '💣',  # Bomb
+            'mines_revealed': '⚙️',  # Gear
+            'roulette_wheel': '🎡',
+            'profile_accent': '⚙️'
+        }
+    },
+    'arctic': {
+        'name': 'Arctic',
+        'emoji': '❄️',
+        'description': 'Cool icy theme with winter blues and whites',
+        'price': 1900,
+        'colors': {
+            'primary': discord.Color.from_rgb(173, 216, 230),
+            'success': discord.Color.from_rgb(135, 206, 250),
+            'danger': discord.Color.from_rgb(70, 130, 180),
+            'warning': discord.Color.from_rgb(176, 224, 230)
+        },
+        'game_assets': {
+            'tower_name': '❄️ Eis-Turm',
+            'mines_safe': '⛄',  # Snowman
+            'mines_bomb': '🌨️',  # Snow cloud
+            'mines_revealed': '💎',  # Diamond
+            'roulette_wheel': '🎿',
+            'profile_accent': '❄️'
+        }
+    },
+    'halloween': {
+        'name': 'Halloween',
+        'emoji': '🎃',
+        'description': 'Spooky Halloween theme with orange and black',
+        'price': 2100,
+        'colors': {
+            'primary': discord.Color.from_rgb(255, 140, 0),
+            'success': discord.Color.from_rgb(255, 165, 0),
+            'danger': discord.Color.from_rgb(139, 0, 0),
+            'warning': discord.Color.from_rgb(255, 69, 0)
+        },
+        'game_assets': {
+            'tower_name': '🎃 Spuk-Turm',
+            'mines_safe': '🕷️',  # Spider
+            'mines_bomb': '👻',  # Ghost
+            'mines_revealed': '🦇',  # Bat
+            'roulette_wheel': '🎭',
+            'profile_accent': '🎃'
+        }
+    },
+    'retro': {
+        'name': 'Retro',
+        'emoji': '📼',
+        'description': 'Nostalgic 80s theme with vibrant retro colors',
+        'price': 2000,
+        'colors': {
+            'primary': discord.Color.from_rgb(255, 20, 147),
+            'success': discord.Color.from_rgb(0, 255, 255),
+            'danger': discord.Color.from_rgb(255, 0, 255),
+            'warning': discord.Color.from_rgb(255, 255, 0)
+        },
+        'game_assets': {
+            'tower_name': '📼 Retro-Turm',
+            'mines_safe': '📺',  # TV
+            'mines_bomb': '💾',  # Floppy disk
+            'mines_revealed': '🕹️',  # Joystick
+            'roulette_wheel': '🎧',
+            'profile_accent': '📼'
+        }
     }
 }
 
