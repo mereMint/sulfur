@@ -347,7 +347,7 @@ class MinesGame:
             bomb_emoji = themes.get_theme_asset(theme_id, 'mines_bomb')
             revealed_emoji = themes.get_theme_asset(theme_id, 'mines_revealed')
             color = themes.get_theme_color(theme_id, 'primary')
-        except:
+        except (ImportError, ModuleNotFoundError, AttributeError) as e:
             safe_emoji = "⬜"
             bomb_emoji = "💣"
             revealed_emoji = "💎"
@@ -499,7 +499,7 @@ class TowerOfTreasureGame:
             from modules import themes
             tower_name = themes.get_theme_asset(theme_id, 'tower_name')
             color = themes.get_theme_color(theme_id, 'primary')
-        except:
+        except (ImportError, ModuleNotFoundError, AttributeError) as e:
             tower_name = "🗼 Tower of Treasure"
             color = discord.Color.gold()
         

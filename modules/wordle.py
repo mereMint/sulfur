@@ -62,7 +62,7 @@ WORDLE_WORDS = [
     'zahl', 'zahn', 'zange', 'zank', 'zaum', 'zaun', 'zeche', 'zehe', 'zeichen',
     'zeiger', 'zeile', 'zeit', 'zelt', 'ziege', 'ziegel', 'ziel', 'zierde', 'ziffer',
     'zins', 'zipfel', 'zirkel', 'zither', 'zoll', 'zopf', 'zorn', 'zuber', 'zucht',
-    'zucker', 'zug', 'zunge', 'zwang', 'zweck', 'zweig', 'zwerg', 'zwerg', 'zwilling',
+    'zucker', 'zug', 'zunge', 'zwang', 'zweck', 'zweig', 'zwerg', 'zwilling',
     'zwirn'
 ]
 
@@ -363,7 +363,7 @@ def create_game_embed(word_data: dict, attempts: list, user_stats: dict = None, 
     try:
         from modules import themes
         color = themes.get_theme_color(theme_id, 'success' if won else ('danger' if is_game_over else 'primary'))
-    except:
+    except (ImportError, ModuleNotFoundError, AttributeError) as e:
         color = discord.Color.green() if won else (discord.Color.red() if is_game_over else discord.Color.blue())
     
     embed = discord.Embed(

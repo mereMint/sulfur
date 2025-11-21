@@ -8221,7 +8221,7 @@ class WordleGuessModal(discord.ui.Modal, title="Rate das Wort"):
         
         # Validate guess (must be 5 letters, only letters)
         if len(guess) != 5 or not guess.isalpha():
-            await interaction.followup.send("❌ Dein Wort muss genau 5 Buchstaben enthalten!", ephemeral=True)
+            await interaction.followup.send("❌ Dein Wort muss genau 5 Buchstaben enthalten (nur Buchstaben erlaubt)!", ephemeral=True)
             return
         
         # Get current attempts
