@@ -391,6 +391,13 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
             await interaction.followup.send(message, ephemeral=True)
         else:
             await interaction.response.send_message(message, ephemeral=True)
+    except discord.errors.NotFound as e:
+        # This can happen if the original interaction token expires (after 3 seconds for initial response, 15 minutes for followup).
+        # This is normal and expected for slow operations, so only log as debug
+        if "Unknown interaction" in str(e):
+            logger.debug(f"Interaction {interaction.id} expired before error message could be sent")
+        else:
+            logger.warning(f"Failed to send error message for interaction {interaction.id}: {e}")
     except discord.errors.HTTPException as e:
         # This can happen if the original interaction token expires or is invalid.
         logger.warning(f"Failed to send error message for interaction {interaction.id}: {e}")
@@ -831,7 +838,7 @@ async def update_stock_market():
 async def generate_news():
     """Generate news articles every 6 hours."""
     try:
-        await news.generate_news_article(db_helpers, api_helpers, config)
+        await news.generate_news_article(db_helpers, api_helpers, config, GEMINI_API_KEY, OPENAI_API_KEY)
         logger.info("News article generated")
     except Exception as e:
         logger.error(f"Error generating news: {e}", exc_info=True)
@@ -2508,7 +2515,13 @@ async def summary(interaction: discord.Interaction, user: discord.Member = None)
 async def profile(interaction: discord.Interaction, user: discord.Member = None):
     """Displays a user's profile with various stats."""
     target_user = user or interaction.user
-    await interaction.response.defer(ephemeral=False) # Use ephemeral=False if the response should be public
+    
+    # Try to defer, but handle if interaction already expired
+    try:
+        await interaction.response.defer(ephemeral=False) # Use ephemeral=False if the response should be public
+    except discord.errors.NotFound:
+        logger.warning(f"Profile command interaction {interaction.id} already expired before defer")
+        return
 
     profile_data, error = await db_helpers.get_player_profile(target_user.id)
 
@@ -7652,7 +7665,12 @@ async def roulette(interaction: discord.Interaction, bet: int):
 async def mines(interaction: discord.Interaction, bet: int):
     """Start a Mines game."""
     try:
-        await interaction.response.defer(ephemeral=True)
+        # Try to defer, but handle if interaction already expired
+        try:
+            await interaction.response.defer(ephemeral=True)
+        except discord.errors.NotFound:
+            logger.warning(f"Mines command interaction {interaction.id} already expired before defer")
+            return
         
         user_id = interaction.user.id
         

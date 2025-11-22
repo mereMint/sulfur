@@ -349,6 +349,7 @@ def initialize_database():
                 equipped_color VARCHAR(7),
                 embed_color VARCHAR(7),
                 profile_background VARCHAR(255),
+                language VARCHAR(2) DEFAULT 'de',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             )
