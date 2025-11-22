@@ -232,10 +232,13 @@ class HorseRace:
         available = []
         current_pos = self.positions[horse_index]
         
-        # Find average position to determine if horse is behind or leading
-        avg_pos = sum(self.positions) / len(self.positions)
-        is_leading = current_pos >= avg_pos
-        is_behind = current_pos < avg_pos
+        # Determine position relative to other horses
+        # Sort positions to find rank
+        sorted_positions = sorted(self.positions, reverse=True)
+        horse_rank = sorted_positions.index(current_pos) + 1  # 1-based rank
+        
+        is_leading = horse_rank <= 2  # Top 2 positions
+        is_behind = horse_rank >= self.horses_count - 1  # Bottom 2 positions
         is_near_end = current_pos >= (RACE_LENGTH * 0.7)  # In last 30% of race
         
         for ability_key, ability in ABILITIES.items():
