@@ -564,3 +564,347 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
     except Exception as e:
         logger.error(f"Error processing combat turn: {e}", exc_info=True)
         return {'error': str(e)}
+
+
+# Default Shop Items
+DEFAULT_SHOP_ITEMS = [
+    # Common Weapons
+    {'name': 'Rostiges Schwert', 'type': 'weapon', 'rarity': 'common', 'description': 'Ein altes, rostiges Schwert', 'damage': 15, 'damage_type': 'physical', 'price': 50, 'required_level': 1},
+    {'name': 'Holzstab', 'type': 'weapon', 'rarity': 'common', 'description': 'Ein einfacher Holzstab', 'damage': 12, 'damage_type': 'physical', 'price': 40, 'required_level': 1},
+    
+    # Uncommon Weapons
+    {'name': 'Stahlschwert', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Ein gut geschmiedetes Stahlschwert', 'damage': 25, 'damage_type': 'physical', 'price': 200, 'required_level': 3},
+    {'name': 'Kampfaxt', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Eine schwere Kampfaxt', 'damage': 30, 'damage_type': 'physical', 'price': 250, 'required_level': 4},
+    
+    # Rare Weapons
+    {'name': 'Flammenschwert', 'type': 'weapon', 'rarity': 'rare', 'description': 'Ein mit Flammen verzaubertes Schwert', 'damage': 40, 'damage_type': 'fire', 'price': 500, 'required_level': 6},
+    {'name': 'Frosthammer', 'type': 'weapon', 'rarity': 'rare', 'description': 'Ein eiskalter Kriegshammer', 'damage': 45, 'damage_type': 'ice', 'price': 550, 'required_level': 7},
+    
+    # Epic Weapons
+    {'name': 'Blitzklinge', 'type': 'weapon', 'rarity': 'epic', 'description': 'Eine mit Blitzen geladene Klinge', 'damage': 60, 'damage_type': 'lightning', 'price': 1000, 'required_level': 10},
+    
+    # Common Skills
+    {'name': 'Feuerball', 'type': 'skill', 'rarity': 'common', 'description': 'Wirft einen Feuerball', 'damage': 20, 'damage_type': 'fire', 'price': 100, 'required_level': 2, 'effects': json.dumps({'burn': 0.3})},
+    {'name': 'Heilung', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Heilt den Spieler', 'price': 150, 'required_level': 3, 'effects': json.dumps({'heal': 30})},
+    
+    # Uncommon Skills
+    {'name': 'Blitzstoß', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Schleudert einen Blitz', 'damage': 35, 'damage_type': 'lightning', 'price': 300, 'required_level': 5, 'effects': json.dumps({'static': 0.4})},
+    {'name': 'Schildwall', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Erhöht die Verteidigung', 'price': 250, 'required_level': 4, 'effects': json.dumps({'shield': 1})},
+]
+
+
+async def initialize_shop_items(db_helpers):
+    """Initialize default shop items in the database."""
+    try:
+        if not db_helpers.db_pool:
+            return
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return
+        
+        cursor = conn.cursor()
+        try:
+            # Check if items exist
+            cursor.execute("SELECT COUNT(*) FROM rpg_items WHERE created_by IS NULL")
+            count = cursor.fetchone()[0]
+            
+            if count == 0:
+                # Insert default items
+                for item in DEFAULT_SHOP_ITEMS:
+                    cursor.execute("""
+                        INSERT INTO rpg_items 
+                        (name, type, rarity, description, damage, damage_type, price, required_level, effects)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (item['name'], item['type'], item['rarity'], item['description'],
+                          item.get('damage', 0), item.get('damage_type'), item['price'],
+                          item['required_level'], item.get('effects')))
+                
+                conn.commit()
+                logger.info(f"Initialized {len(DEFAULT_SHOP_ITEMS)} default shop items")
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error initializing shop items: {e}", exc_info=True)
+
+
+async def get_shop_items(db_helpers, player_level: int):
+    """Get shop items available for player level."""
+    try:
+        if not db_helpers.db_pool:
+            return []
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return []
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            cursor.execute("""
+                SELECT * FROM rpg_items
+                WHERE required_level <= %s AND created_by IS NULL
+                ORDER BY required_level ASC, price ASC
+            """, (player_level,))
+            
+            return cursor.fetchall()
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting shop items: {e}", exc_info=True)
+        return []
+
+
+async def purchase_item(db_helpers, user_id: int, item_id: int):
+    """Purchase an item from the shop."""
+    try:
+        if not db_helpers.db_pool:
+            return False, "Datenbank nicht verfügbar"
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return False, "Datenbankverbindung fehlgeschlagen"
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            # Get item
+            cursor.execute("SELECT * FROM rpg_items WHERE id = %s", (item_id,))
+            item = cursor.fetchone()
+            
+            if not item:
+                return False, "Item nicht gefunden"
+            
+            # Get player
+            cursor.execute("SELECT * FROM rpg_players WHERE user_id = %s", (user_id,))
+            player = cursor.fetchone()
+            
+            if not player:
+                return False, "Spieler nicht gefunden"
+            
+            # Check level requirement
+            if player['level'] < item['required_level']:
+                return False, f"Level {item['required_level']} benötigt"
+            
+            # Check gold
+            if player['gold'] < item['price']:
+                return False, "Nicht genug Gold"
+            
+            # Add to inventory
+            cursor.execute("""
+                INSERT INTO rpg_inventory (user_id, item_id, item_type, quantity)
+                VALUES (%s, %s, %s, 1)
+                ON DUPLICATE KEY UPDATE quantity = quantity + 1
+            """, (user_id, item_id, item['type']))
+            
+            # Deduct gold
+            cursor.execute("""
+                UPDATE rpg_players SET gold = gold - %s WHERE user_id = %s
+            """, (item['price'], user_id))
+            
+            conn.commit()
+            return True, "Item gekauft"
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error purchasing item: {e}", exc_info=True)
+        return False, "Fehler beim Kauf"
+
+
+async def get_player_inventory(db_helpers, user_id: int):
+    """Get player's inventory."""
+    try:
+        if not db_helpers.db_pool:
+            return []
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return []
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            cursor.execute("""
+                SELECT i.*, it.name, it.type, it.rarity, it.damage, it.description
+                FROM rpg_inventory i
+                JOIN rpg_items it ON i.item_id = it.id
+                WHERE i.user_id = %s
+                ORDER BY it.rarity DESC, it.name ASC
+            """, (user_id,))
+            
+            return cursor.fetchall()
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting inventory: {e}", exc_info=True)
+        return []
+
+
+async def get_equipped_items(db_helpers, user_id: int):
+    """Get player's equipped items."""
+    try:
+        if not db_helpers.db_pool:
+            return {}
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return {}
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            cursor.execute("SELECT * FROM rpg_equipped WHERE user_id = %s", (user_id,))
+            result = cursor.fetchone()
+            
+            if not result:
+                # Create empty equipped row
+                cursor.execute("INSERT INTO rpg_equipped (user_id) VALUES (%s)", (user_id,))
+                conn.commit()
+                return {'user_id': user_id, 'weapon_id': None, 'skill1_id': None, 'skill2_id': None}
+            
+            return result
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting equipped items: {e}", exc_info=True)
+        return {}
+
+
+async def get_item_by_id(db_helpers, item_id: int):
+    """Get item by ID."""
+    try:
+        if not db_helpers.db_pool or not item_id:
+            return None
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return None
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            cursor.execute("SELECT * FROM rpg_items WHERE id = %s", (item_id,))
+            return cursor.fetchone()
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting item: {e}", exc_info=True)
+        return None
+
+
+async def equip_item(db_helpers, user_id: int, item_id: int, item_type: str):
+    """Equip an item."""
+    try:
+        if not db_helpers.db_pool:
+            return False
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return False
+        
+        cursor = conn.cursor()
+        try:
+            # Check if player has item
+            cursor.execute("""
+                SELECT 1 FROM rpg_inventory WHERE user_id = %s AND item_id = %s
+            """, (user_id, item_id))
+            
+            if not cursor.fetchone():
+                return False
+            
+            # Equip item
+            if item_type == 'weapon':
+                cursor.execute("""
+                    INSERT INTO rpg_equipped (user_id, weapon_id)
+                    VALUES (%s, %s)
+                    ON DUPLICATE KEY UPDATE weapon_id = %s
+                """, (user_id, item_id, item_id))
+            elif item_type == 'skill':
+                # Try slot 1 first, then slot 2
+                cursor.execute("SELECT skill1_id, skill2_id FROM rpg_equipped WHERE user_id = %s", (user_id,))
+                result = cursor.fetchone()
+                
+                if not result or result[0] is None:
+                    cursor.execute("""
+                        INSERT INTO rpg_equipped (user_id, skill1_id)
+                        VALUES (%s, %s)
+                        ON DUPLICATE KEY UPDATE skill1_id = %s
+                    """, (user_id, item_id, item_id))
+                else:
+                    cursor.execute("""
+                        UPDATE rpg_equipped SET skill2_id = %s WHERE user_id = %s
+                    """, (item_id, user_id))
+            
+            conn.commit()
+            return True
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error equipping item: {e}", exc_info=True)
+        return False
+
+
+async def heal_player(db_helpers, user_id: int, cost: int):
+    """Heal player to full health."""
+    try:
+        if not db_helpers.db_pool:
+            return False
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return False
+        
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                UPDATE rpg_players 
+                SET health = max_health, gold = gold - %s
+                WHERE user_id = %s AND gold >= %s
+            """, (cost, user_id, cost))
+            
+            conn.commit()
+            return cursor.rowcount > 0
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error healing player: {e}", exc_info=True)
+        return False
+
+
+async def apply_blessing(db_helpers, user_id: int, blessing_type: str, cost: int):
+    """Apply a temporary blessing to player."""
+    try:
+        if not db_helpers.db_pool:
+            return False
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return False
+        
+        cursor = conn.cursor()
+        try:
+            # Deduct gold
+            cursor.execute("""
+                UPDATE rpg_players 
+                SET gold = gold - %s
+                WHERE user_id = %s AND gold >= %s
+            """, (cost, user_id, cost))
+            
+            if cursor.rowcount == 0:
+                return False
+            
+            # TODO: Store blessing in a separate table with expiration
+            # For now, just deduct the gold
+            
+            conn.commit()
+            return True
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error applying blessing: {e}", exc_info=True)
+        return False
+
