@@ -3284,6 +3284,85 @@ async def adventure_command(interaction: discord.Interaction):
         await interaction.followup.send(f"❌ Ein Fehler ist aufgetreten: {e}")
 
 
+@tree.command(name="rpgadmin", description="Admin: Erstelle benutzerdefinierte Items und Loot")
+@app_commands.describe(
+    name="Name des Items",
+    item_type="Typ des Items (weapon, skill, consumable)",
+    rarity="Seltenheit (common, uncommon, rare, epic, legendary)",
+    damage="Schaden (für Waffen)",
+    price="Preis im Shop",
+    required_level="Benötigtes Level",
+    description="Beschreibung des Items"
+)
+async def rpg_admin_command(
+    interaction: discord.Interaction,
+    name: str,
+    item_type: str,
+    rarity: str,
+    price: int,
+    required_level: int,
+    description: str,
+    damage: int = 0
+):
+    """Admin command to create custom RPG items."""
+    # Check if user is admin
+    is_admin = interaction.user.guild_permissions.administrator or interaction.user.id == int(os.getenv("OWNER_ID", 0))
+    
+    if not is_admin:
+        await interaction.response.send_message("❌ Nur Admins können diesen Befehl verwenden!", ephemeral=True)
+        return
+    
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        # Validate inputs
+        valid_types = ['weapon', 'skill', 'consumable']
+        if item_type not in valid_types:
+            await interaction.followup.send(f"❌ Ungültiger Typ! Verwende: {', '.join(valid_types)}")
+            return
+        
+        valid_rarities = ['common', 'uncommon', 'rare', 'epic', 'legendary']
+        if rarity not in valid_rarities:
+            await interaction.followup.send(f"❌ Ungültige Seltenheit! Verwende: {', '.join(valid_rarities)}")
+            return
+        
+        # Create item
+        success, item_id = await rpg_system.create_custom_item(
+            db_helpers,
+            name=name,
+            item_type=item_type,
+            rarity=rarity,
+            description=description,
+            damage=damage,
+            price=price,
+            required_level=required_level,
+            created_by=interaction.user.id
+        )
+        
+        if success:
+            rarity_color = rpg_system.RARITY_COLORS.get(rarity, discord.Color.light_grey())
+            embed = discord.Embed(
+                title="✅ Item erstellt!",
+                description=f"**{name}** wurde erfolgreich erstellt!",
+                color=rarity_color
+            )
+            embed.add_field(name="Typ", value=item_type, inline=True)
+            embed.add_field(name="Seltenheit", value=rarity.capitalize(), inline=True)
+            embed.add_field(name="Preis", value=f"{price} Gold", inline=True)
+            embed.add_field(name="Schaden", value=str(damage), inline=True)
+            embed.add_field(name="Level", value=str(required_level), inline=True)
+            embed.add_field(name="Item ID", value=str(item_id), inline=True)
+            embed.add_field(name="Beschreibung", value=description, inline=False)
+            
+            await interaction.followup.send(embed=embed)
+        else:
+            await interaction.followup.send(f"❌ Fehler beim Erstellen des Items: {item_id}")
+    
+    except Exception as e:
+        logger.error(f"Error in RPG admin command: {e}", exc_info=True)
+        await interaction.followup.send(f"❌ Ein Fehler ist aufgetreten: {e}")
+
+
 class RPGCombatView(discord.ui.View):
     """Interactive combat view for RPG battles."""
     
@@ -9090,13 +9169,14 @@ async def trolly(interaction: discord.Interaction):
 class WordFindView(discord.ui.View):
     """UI view for Word Find game with guess input."""
     
-    def __init__(self, user_id: int, word_data: dict, max_attempts: int, has_premium: bool = False, game_type: str = 'daily'):
+    def __init__(self, user_id: int, word_data: dict, max_attempts: int, has_premium: bool = False, game_type: str = 'daily', theme_id=None):
         super().__init__(timeout=300)
         self.user_id = user_id
         self.word_data = word_data
         self.max_attempts = max_attempts
         self.has_premium = has_premium
         self.game_type = game_type
+        self.theme_id = theme_id
     
     @discord.ui.button(label="Wort raten", style=discord.ButtonStyle.primary, emoji="🔍")
     async def guess_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -9106,7 +9186,7 @@ class WordFindView(discord.ui.View):
             return
         
         # Create modal for input
-        modal = WordGuessModal(self.user_id, self.word_data, self.max_attempts, self.has_premium, self.game_type)
+        modal = WordGuessModal(self.user_id, self.word_data, self.max_attempts, self.has_premium, self.game_type, self.theme_id)
         await interaction.response.send_modal(modal)
     
     @discord.ui.button(label="Aufgeben", style=discord.ButtonStyle.danger, emoji="❌")
@@ -9201,11 +9281,11 @@ class WordFindCompletedView(discord.ui.View):
         user_stats = await word_find.get_user_stats(db_helpers, self.user_id)
         
         # Create new game embed
-        embed = word_find.create_game_embed(premium_game, [], 20, user_stats, 'premium')
+        embed = word_find.create_game_embed(premium_game, [], 20, user_stats, 'premium', None)  # No theme for now
         embed.set_footer(text="💎 Premium Spiel - Du hast 20 Versuche!")
         
         # Create view for new game
-        view = WordFindView(self.user_id, premium_game, 20, self.has_premium, 'premium')
+        view = WordFindView(self.user_id, premium_game, 20, self.has_premium, 'premium', None)
         
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
@@ -9221,13 +9301,14 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
         required=True
     )
     
-    def __init__(self, user_id: int, word_data: dict, max_attempts: int, has_premium: bool, game_type: str = 'daily'):
+    def __init__(self, user_id: int, word_data: dict, max_attempts: int, has_premium: bool, game_type: str = 'daily', theme_id=None):
         super().__init__()
         self.user_id = user_id
         self.word_data = word_data
         self.max_attempts = max_attempts
         self.has_premium = has_premium
         self.game_type = game_type
+        self.theme_id = theme_id
     
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer()
@@ -9326,7 +9407,7 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
             
             user_stats = await word_find.get_user_stats(db_helpers, self.user_id)
             
-            embed = word_find.create_game_embed(self.word_data, attempts, self.max_attempts, user_stats, self.game_type)
+            embed = word_find.create_game_embed(self.word_data, attempts, self.max_attempts, user_stats, self.game_type, self.theme_id)
             
             # Check if max attempts reached
             if attempt_num >= self.max_attempts:
@@ -9345,7 +9426,7 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
                 view = WordFindCompletedView(self.user_id, attempts, False, self.has_premium, self.game_type)
                 await interaction.edit_original_response(embed=embed, view=view)
             else:
-                view = WordFindView(self.user_id, self.word_data, self.max_attempts, self.has_premium, self.game_type)
+                view = WordFindView(self.user_id, self.word_data, self.max_attempts, self.has_premium, self.game_type, self.theme_id)
                 await interaction.edit_original_response(embed=embed, view=view)
 
 
@@ -9723,14 +9804,17 @@ async def word_find_command(interaction: discord.Interaction):
         # Get user stats
         user_stats = await word_find.get_user_stats(db_helpers, user_id)
         
+        # Get user's theme
+        user_theme = await themes.get_user_theme(db_helpers, user_id)
+        
         # Create game embed
-        embed = word_find.create_game_embed(word_data, attempts, max_attempts, user_stats, 'daily')
+        embed = word_find.create_game_embed(word_data, attempts, max_attempts, user_stats, 'daily', user_theme)
         
         if has_premium:
             embed.set_footer(text="💎 Premium: Nach dem Abschluss kannst du neue Spiele starten!")
         
         # Create view with guess button
-        view = WordFindView(user_id, word_data, max_attempts, has_premium, 'daily')
+        view = WordFindView(user_id, word_data, max_attempts, has_premium, 'daily', user_theme)
         
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         

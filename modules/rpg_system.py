@@ -908,3 +908,34 @@ async def apply_blessing(db_helpers, user_id: int, blessing_type: str, cost: int
         logger.error(f"Error applying blessing: {e}", exc_info=True)
         return False
 
+
+async def create_custom_item(db_helpers, name: str, item_type: str, rarity: str, description: str, 
+                            damage: int = 0, price: int = 100, required_level: int = 1, created_by: int = None):
+    """Create a custom item (admin function)."""
+    try:
+        if not db_helpers.db_pool:
+            return False, "Datenbank nicht verfügbar"
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return False, "Datenbankverbindung fehlgeschlagen"
+        
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO rpg_items 
+                (name, type, rarity, description, damage, price, required_level, created_by)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """, (name, item_type, rarity, description, damage, price, required_level, created_by))
+            
+            conn.commit()
+            item_id = cursor.lastrowid
+            return True, item_id
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error creating custom item: {e}", exc_info=True)
+        return False, str(e)
+
+
