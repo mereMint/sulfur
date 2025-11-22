@@ -236,67 +236,80 @@ def levenshtein_distance(s1: str, s2: str) -> int:
 
 async def get_or_create_daily_word(db_helpers, language='de'):
     """Get today's word or create a new one for the specified language."""
+    if not db_helpers.db_pool:
+        logger.error("Database pool not available for Word Find")
+        return None
+    
+    conn = db_helpers.db_pool.get_connection()
+    if not conn:
+        logger.error("Could not get database connection for Word Find")
+        return None
+    
+    cursor = conn.cursor(dictionary=True)
     try:
-        if not db_helpers.db_pool:
-            return None
+        today = datetime.now(timezone.utc).date()
         
-        conn = db_helpers.db_pool.get_connection()
-        if not conn:
-            return None
+        # Check if today's word exists for this language
+        cursor.execute("""
+            SELECT id, word, difficulty, language FROM word_find_daily
+            WHERE date = %s AND language = %s
+        """, (today, language))
+        result = cursor.fetchone()
         
-        cursor = conn.cursor(dictionary=True)
+        if result:
+            logger.debug(f"Found existing Word Find word for {today} ({language}): {result['word']}")
+            return result
+        
+        # Create new daily word using word service
+        # Choose difficulty based on day of week (harder on weekends)
+        weekday = datetime.now(timezone.utc).weekday()
+        if weekday >= 5:  # Saturday, Sunday
+            difficulty = 'hard'
+            min_len, max_len = 10, 15
+        elif weekday >= 3:  # Thursday, Friday
+            difficulty = 'medium'
+            min_len, max_len = 7, 10
+        else:
+            difficulty = 'easy'
+            min_len, max_len = 4, 7
+        
+        # Fetch word from service
+        logger.info(f"Fetching new daily word for Word Find ({language}, {difficulty})")
         try:
-            today = datetime.now(timezone.utc).date()
-            
-            # Check if today's word exists for this language
-            cursor.execute("""
-                SELECT id, word, difficulty, language FROM word_find_daily
-                WHERE date = %s AND language = %s
-            """, (today, language))
-            result = cursor.fetchone()
-            
-            if result:
-                return result
-            
-            # Create new daily word using word service
-            # Choose difficulty based on day of week (harder on weekends)
-            weekday = datetime.now(timezone.utc).weekday()
-            if weekday >= 5:  # Saturday, Sunday
-                difficulty = 'hard'
-                min_len, max_len = 10, 15
-            elif weekday >= 3:  # Thursday, Friday
-                difficulty = 'medium'
-                min_len, max_len = 7, 10
-            else:
-                difficulty = 'easy'
-                min_len, max_len = 4, 7
-            
-            # Fetch word from service
-            logger.info(f"Fetching new daily word for Word Find ({language}, {difficulty})")
             words = await word_service.get_random_words(1, language=language, min_length=min_len, max_length=max_len)
             if words and len(words) > 0:
                 word = words[0]
             else:
                 # Fallback to hardcoded list if service fails
-                logger.warning("Word service failed, using hardcoded list")
+                logger.warning("Word service failed, using hardcoded list for Word Find")
                 word_lists = get_word_lists(language)
                 word = random.choice(word_lists[difficulty])
-            
-            cursor.execute("""
-                INSERT INTO word_find_daily (word, difficulty, language, date)
-                VALUES (%s, %s, %s, %s)
-            """, (word, difficulty, language, today))
-            
-            conn.commit()
-            word_id = cursor.lastrowid
-            
-            return {'id': word_id, 'word': word, 'difficulty': difficulty, 'language': language}
-        finally:
-            cursor.close()
-            conn.close()
+        except Exception as e:
+            logger.error(f"Error fetching word from service: {e}")
+            word_lists = get_word_lists(language)
+            word = random.choice(word_lists[difficulty])
+        
+        cursor.execute("""
+            INSERT INTO word_find_daily (word, difficulty, language, date)
+            VALUES (%s, %s, %s, %s)
+        """, (word, difficulty, language, today))
+        
+        conn.commit()
+        word_id = cursor.lastrowid
+        
+        logger.info(f"Created new Word Find word for {today} ({language}, {difficulty}): {word}")
+        return {'id': word_id, 'word': word, 'difficulty': difficulty, 'language': language}
     except Exception as e:
-        logger.error(f"Error getting/creating daily word: {e}", exc_info=True)
+        logger.error(f"Database error in get_or_create_daily_word: {e}", exc_info=True)
+        try:
+            conn.rollback()
+        except (Exception, AttributeError):
+            pass  # Connection may already be closed or invalid
         return None
+    finally:
+        cursor.close()
+        conn.close()
+
 
 
 

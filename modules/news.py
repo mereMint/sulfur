@@ -42,7 +42,7 @@ async def initialize_news_table(db_helpers):
         logger.error(f"Error initializing news table: {e}", exc_info=True)
 
 
-async def generate_news_article(db_helpers, api_helpers, config):
+async def generate_news_article(db_helpers, api_helpers, config, gemini_key=None, openai_key=None):
     """
     Generate a news article about recent server events.
     Uses AI to create engaging content.
@@ -67,7 +67,7 @@ async def generate_news_article(db_helpers, api_helpers, config):
                 return
             
             # Generate article using AI
-            article = await create_article_with_ai(api_helpers, news_data, config)
+            article = await create_article_with_ai(api_helpers, news_data, config, gemini_key, openai_key)
             
             if article:
                 # Save article to database
@@ -187,7 +187,7 @@ async def gather_news_data(db_helpers, cursor):
         cursor.execute("""
             SELECT gs.user_id, p.display_name, gs.biggest_win
             FROM gambling_stats gs
-            LEFT JOIN players p ON gs.user_id = p.user_id
+            LEFT JOIN players p ON gs.user_id = p.discord_id
             WHERE gs.last_played > DATE_SUB(NOW(), INTERVAL 24 HOUR)
             AND gs.biggest_win IS NOT NULL
             ORDER BY gs.biggest_win DESC
@@ -209,7 +209,7 @@ async def gather_news_data(db_helpers, cursor):
     return news_data
 
 
-async def create_article_with_ai(api_helpers, news_data, config):
+async def create_article_with_ai(api_helpers, news_data, config, gemini_key=None, openai_key=None):
     """Use AI to create an engaging news article with context-aware headline."""
     try:
         # Build prompt for AI with emphasis on generating contextual headlines
@@ -291,9 +291,12 @@ EREIGNISSE:\n\n"""
         
         prompt += "\nSchreibe einen packenden Artikel mit einem kreativen Titel und dramatischem, aber informativem Inhalt!"
         
-        # Call AI API
-        from modules import api_helpers as api_module
-        response = await api_module.get_chat_response(prompt, [], config, utility_call=True)
+        # Call AI API with proper parameters
+        # get_chat_response(history, user_prompt, user_display_name, system_prompt, config, gemini_key, openai_key)
+        system_prompt = "Du bist ein professioneller Nachrichtenjournalist."
+        response, error_message, _ = await api_helpers.get_chat_response(
+            [], prompt, "News System", system_prompt, config, gemini_key, openai_key
+        )
         
         if response:
             # Parse response

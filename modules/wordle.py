@@ -201,12 +201,12 @@ async def get_or_create_daily_word(db_helpers, language='de'):
     """Get or create today's Wordle word for the specified language."""
     try:
         if not db_helpers.db_pool:
-            logger.error("Database pool not available")
+            logger.error("Database pool not available for Wordle")
             return None
         
         conn = db_helpers.db_pool.get_connection()
         if not conn:
-            logger.error("Could not get database connection")
+            logger.error("Could not get database connection for Wordle")
             return None
         
         cursor = conn.cursor(dictionary=True)
@@ -221,16 +221,22 @@ async def get_or_create_daily_word(db_helpers, language='de'):
             result = cursor.fetchone()
             
             if result:
+                logger.debug(f"Found existing Wordle word for {today} ({language}): {result['word']}")
                 return result
             
             # Create new daily word using word service (external API or fallback)
             logger.info(f"Fetching new daily word for Wordle ({language})")
-            words = await word_service.get_random_words(1, language=language, min_length=5, max_length=5)
-            if words and len(words) > 0:
-                word = words[0]
-            else:
-                # Fallback to hardcoded list if service fails
-                logger.warning("Word service failed, using hardcoded list")
+            try:
+                words = await word_service.get_random_words(1, language=language, min_length=5, max_length=5)
+                if words and len(words) > 0:
+                    word = words[0]
+                else:
+                    # Fallback to hardcoded list if service fails
+                    logger.warning("Word service failed, using hardcoded list for Wordle")
+                    word_list = get_wordle_words_list(language)
+                    word = random.choice(word_list)
+            except Exception as e:
+                logger.error(f"Error fetching word from service: {e}")
                 word_list = get_wordle_words_list(language)
                 word = random.choice(word_list)
             
@@ -242,7 +248,15 @@ async def get_or_create_daily_word(db_helpers, language='de'):
             conn.commit()
             word_id = cursor.lastrowid
             
+            logger.info(f"Created new Wordle word for {today} ({language}): {word}")
             return {'id': word_id, 'word': word, 'language': language}
+        except Exception as e:
+            logger.error(f"Database error in get_or_create_daily_word: {e}", exc_info=True)
+            try:
+                conn.rollback()
+            except (Exception, AttributeError):
+                pass  # Connection may already be closed or invalid
+            return None
         finally:
             cursor.close()
             conn.close()

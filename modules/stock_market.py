@@ -187,6 +187,9 @@ async def update_stock_prices(db_helpers):
                 # Prevent negative or zero prices
                 new_price = max(new_price, 0.01)
                 
+                # Round to 2 decimal places to fit DECIMAL(15, 2)
+                new_price = round(new_price, 2)
+                
                 # Update trend (with mean reversion)
                 new_trend = (trend * 0.7) + (price_change_pct * 0.3)
                 
