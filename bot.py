@@ -620,6 +620,7 @@ async def on_ready():
     print("Initializing RPG system...")
     await rpg_system.initialize_rpg_tables(db_helpers)
     await rpg_system.initialize_default_monsters(db_helpers)
+    await rpg_system.initialize_shop_items(db_helpers)
     print("RPG system ready!")
 
     # --- NEW: Clean up leftover game channels on restart ---
@@ -2998,20 +2999,231 @@ async def rpg_command(interaction: discord.Interaction):
         # Actions
         embed.add_field(
             name="🎮 Verfügbare Aktionen",
-            value="🗡️ `/adventure` - Gehe auf Abenteuer\n"
-                  "🏪 Shop (In Entwicklung)\n"
-                  "⛩️ Tempel (In Entwicklung)\n"
-                  f"🌍 Weltwechsel ({'🔒 Level 10 benötigt' if player['level'] < 10 else '✅ Verfügbar'})",
+            value="Wähle eine Aktion aus den Buttons unten!",
             inline=False
         )
         
-        embed.set_footer(text="Weitere RPG-Features werden nach und nach hinzugefügt!")
+        embed.set_footer(text="Nutze die Buttons um dein Abenteuer zu beginnen!")
         
-        await interaction.followup.send(embed=embed)
+        # Create view with action buttons
+        view = RPGMenuView(user_id, player)
+        await interaction.followup.send(embed=embed, view=view)
         
     except Exception as e:
         logger.error(f"Error in RPG command: {e}", exc_info=True)
         await interaction.followup.send(f"❌ Ein Fehler ist aufgetreten: {e}")
+
+
+class RPGMenuView(discord.ui.View):
+    """Interactive menu view for RPG actions."""
+    
+    def __init__(self, user_id: int, player: dict):
+        super().__init__(timeout=300)
+        self.user_id = user_id
+        self.player = player
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Dies ist nicht dein Menü!", ephemeral=True)
+            return False
+        return True
+    
+    @discord.ui.button(label="🗡️ Abenteuer", style=discord.ButtonStyle.danger, row=0)
+    async def adventure_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Start an adventure encounter."""
+        await interaction.response.defer()
+        
+        try:
+            # Start adventure
+            monster, error = await rpg_system.start_adventure(db_helpers, self.user_id)
+            
+            if error:
+                await interaction.followup.send(f"❌ {error}", ephemeral=True)
+                return
+            
+            if not monster:
+                await interaction.followup.send("❌ Kein Monster gefunden.", ephemeral=True)
+                return
+            
+            # Create combat embed
+            embed = discord.Embed(
+                title=f"⚔️ Wilde Begegnung!",
+                description=f"Ein wilder **{monster['name']}** (Level {monster['level']}) erscheint!",
+                color=discord.Color.red()
+            )
+            
+            # Monster stats
+            embed.add_field(
+                name=f"🐉 {monster['name']}",
+                value=f"❤️ HP: {monster['health']}\n"
+                      f"⚔️ Angriff: {monster['strength']}\n"
+                      f"🛡️ Verteidigung: {monster['defense']}\n"
+                      f"⚡ Geschwindigkeit: {monster['speed']}",
+                inline=True
+            )
+            
+            # Rewards
+            embed.add_field(
+                name="🎁 Belohnungen",
+                value=f"💰 {monster['gold_reward']} Gold\n"
+                      f"⭐ {monster['xp_reward']} XP",
+                inline=True
+            )
+            
+            embed.set_footer(text="Wähle deine Aktion!")
+            
+            # Create combat view
+            view = RPGCombatView(self.user_id, monster)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            
+        except Exception as e:
+            logger.error(f"Error in adventure button: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Ein Fehler ist aufgetreten: {e}", ephemeral=True)
+    
+    @discord.ui.button(label="🏪 Shop", style=discord.ButtonStyle.success, row=0)
+    async def shop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Open the RPG shop."""
+        await interaction.response.defer()
+        
+        try:
+            # Get available items
+            items = await rpg_system.get_shop_items(db_helpers, self.player['level'])
+            
+            if not items:
+                await interaction.followup.send("❌ Keine Items verfügbar.", ephemeral=True)
+                return
+            
+            embed = discord.Embed(
+                title="🏪 RPG Shop",
+                description=f"Dein Gold: **{self.player['gold']}** 💰",
+                color=discord.Color.gold()
+            )
+            
+            for item in items[:10]:  # Show max 10 items
+                rarity_color = rpg_system.RARITY_COLORS.get(item['rarity'], discord.Color.light_grey())
+                embed.add_field(
+                    name=f"{item['name']} ({item['rarity'].capitalize()})",
+                    value=f"💰 Preis: {item['price']}\n"
+                          f"📝 {item['description'][:50]}...\n"
+                          f"⚔️ Schaden: {item.get('damage', 0)}",
+                    inline=True
+                )
+            
+            embed.set_footer(text="Wähle ein Item zum Kaufen!")
+            
+            view = RPGShopView(self.user_id, items, self.player['gold'])
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            
+        except Exception as e:
+            logger.error(f"Error in shop button: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Ein Fehler ist aufgetreten: {e}", ephemeral=True)
+    
+    @discord.ui.button(label="⛩️ Tempel", style=discord.ButtonStyle.primary, row=0)
+    async def temple_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Open the temple for healing and blessings."""
+        await interaction.response.defer()
+        
+        try:
+            embed = discord.Embed(
+                title="⛩️ Tempel der Heilung",
+                description="Willkommen im heiligen Tempel!",
+                color=discord.Color.from_rgb(255, 215, 0)
+            )
+            
+            # Calculate healing cost
+            missing_hp = self.player['max_health'] - self.player['health']
+            heal_cost = int(missing_hp * 0.5)  # 0.5 gold per HP
+            
+            if missing_hp > 0:
+                embed.add_field(
+                    name="💚 Heilung",
+                    value=f"Fehlende HP: {missing_hp}\n"
+                          f"Kosten: {heal_cost} Gold",
+                    inline=True
+                )
+            else:
+                embed.add_field(
+                    name="💚 Heilung",
+                    value="Du bist bereits vollständig geheilt!",
+                    inline=True
+                )
+            
+            # Blessing options
+            embed.add_field(
+                name="✨ Segen",
+                value="🔮 Temporärer XP-Boost: 100 Gold\n"
+                      "⚔️ Temporärer Stärke-Boost: 150 Gold\n"
+                      "🛡️ Temporärer Verteidigungs-Boost: 150 Gold",
+                inline=False
+            )
+            
+            embed.set_footer(text=f"Dein Gold: {self.player['gold']} 💰")
+            
+            view = RPGTempleView(self.user_id, self.player, missing_hp, heal_cost)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            
+        except Exception as e:
+            logger.error(f"Error in temple button: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Ein Fehler ist aufgetreten: {e}", ephemeral=True)
+    
+    @discord.ui.button(label="🎒 Inventar", style=discord.ButtonStyle.secondary, row=1)
+    async def inventory_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Open player inventory."""
+        await interaction.response.defer()
+        
+        try:
+            # Get player inventory and equipped items
+            inventory = await rpg_system.get_player_inventory(db_helpers, self.user_id)
+            equipped = await rpg_system.get_equipped_items(db_helpers, self.user_id)
+            
+            embed = discord.Embed(
+                title="🎒 Dein Inventar",
+                description=f"Level {self.player['level']} | Gold: {self.player['gold']} 💰",
+                color=discord.Color.blue()
+            )
+            
+            # Show equipped items
+            equipped_text = ""
+            if equipped.get('weapon_id'):
+                weapon = await rpg_system.get_item_by_id(db_helpers, equipped['weapon_id'])
+                if weapon:
+                    equipped_text += f"⚔️ Waffe: **{weapon['name']}** (Schaden: {weapon['damage']})\n"
+            else:
+                equipped_text += "⚔️ Waffe: *Keine*\n"
+            
+            if equipped.get('skill1_id'):
+                skill1 = await rpg_system.get_item_by_id(db_helpers, equipped['skill1_id'])
+                if skill1:
+                    equipped_text += f"🔮 Skill 1: **{skill1['name']}**\n"
+            else:
+                equipped_text += "🔮 Skill 1: *Keine*\n"
+            
+            if equipped.get('skill2_id'):
+                skill2 = await rpg_system.get_item_by_id(db_helpers, equipped['skill2_id'])
+                if skill2:
+                    equipped_text += f"🔮 Skill 2: **{skill2['name']}**\n"
+            else:
+                equipped_text += "🔮 Skill 2: *Keine*\n"
+            
+            embed.add_field(name="📦 Ausgerüstet", value=equipped_text, inline=False)
+            
+            # Show inventory items
+            if inventory:
+                inv_text = ""
+                for item in inventory[:15]:  # Show max 15 items
+                    inv_text += f"• {item['name']} ({item['type']}) x{item['quantity']}\n"
+                embed.add_field(name="🎁 Items", value=inv_text or "*Leer*", inline=False)
+            else:
+                embed.add_field(name="🎁 Items", value="*Leer*", inline=False)
+            
+            embed.set_footer(text="Wähle ein Item zum Ausrüsten!")
+            
+            view = RPGInventoryView(self.user_id, inventory, equipped)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            
+        except Exception as e:
+            logger.error(f"Error in inventory button: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Ein Fehler ist aufgetreten: {e}", ephemeral=True)
 
 
 @tree.command(name="adventure", description="Gehe auf ein Abenteuer und kämpfe gegen Monster!")
@@ -3072,6 +3284,85 @@ async def adventure_command(interaction: discord.Interaction):
         await interaction.followup.send(f"❌ Ein Fehler ist aufgetreten: {e}")
 
 
+@tree.command(name="rpgadmin", description="Admin: Erstelle benutzerdefinierte Items und Loot")
+@app_commands.describe(
+    name="Name des Items",
+    item_type="Typ des Items (weapon, skill, consumable)",
+    rarity="Seltenheit (common, uncommon, rare, epic, legendary)",
+    damage="Schaden (für Waffen)",
+    price="Preis im Shop",
+    required_level="Benötigtes Level",
+    description="Beschreibung des Items"
+)
+async def rpg_admin_command(
+    interaction: discord.Interaction,
+    name: str,
+    item_type: str,
+    rarity: str,
+    price: int,
+    required_level: int,
+    description: str,
+    damage: int = 0
+):
+    """Admin command to create custom RPG items."""
+    # Check if user is admin
+    is_admin = interaction.user.guild_permissions.administrator or interaction.user.id == int(os.getenv("OWNER_ID", 0))
+    
+    if not is_admin:
+        await interaction.response.send_message("❌ Nur Admins können diesen Befehl verwenden!", ephemeral=True)
+        return
+    
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        # Validate inputs
+        valid_types = ['weapon', 'skill', 'consumable']
+        if item_type not in valid_types:
+            await interaction.followup.send(f"❌ Ungültiger Typ! Verwende: {', '.join(valid_types)}")
+            return
+        
+        valid_rarities = ['common', 'uncommon', 'rare', 'epic', 'legendary']
+        if rarity not in valid_rarities:
+            await interaction.followup.send(f"❌ Ungültige Seltenheit! Verwende: {', '.join(valid_rarities)}")
+            return
+        
+        # Create item
+        success, item_id = await rpg_system.create_custom_item(
+            db_helpers,
+            name=name,
+            item_type=item_type,
+            rarity=rarity,
+            description=description,
+            damage=damage,
+            price=price,
+            required_level=required_level,
+            created_by=interaction.user.id
+        )
+        
+        if success:
+            rarity_color = rpg_system.RARITY_COLORS.get(rarity, discord.Color.light_grey())
+            embed = discord.Embed(
+                title="✅ Item erstellt!",
+                description=f"**{name}** wurde erfolgreich erstellt!",
+                color=rarity_color
+            )
+            embed.add_field(name="Typ", value=item_type, inline=True)
+            embed.add_field(name="Seltenheit", value=rarity.capitalize(), inline=True)
+            embed.add_field(name="Preis", value=f"{price} Gold", inline=True)
+            embed.add_field(name="Schaden", value=str(damage), inline=True)
+            embed.add_field(name="Level", value=str(required_level), inline=True)
+            embed.add_field(name="Item ID", value=str(item_id), inline=True)
+            embed.add_field(name="Beschreibung", value=description, inline=False)
+            
+            await interaction.followup.send(embed=embed)
+        else:
+            await interaction.followup.send(f"❌ Fehler beim Erstellen des Items: {item_id}")
+    
+    except Exception as e:
+        logger.error(f"Error in RPG admin command: {e}", exc_info=True)
+        await interaction.followup.send(f"❌ Ein Fehler ist aufgetreten: {e}")
+
+
 class RPGCombatView(discord.ui.View):
     """Interactive combat view for RPG battles."""
     
@@ -3079,6 +3370,7 @@ class RPGCombatView(discord.ui.View):
         super().__init__(timeout=300)  # 5 minute timeout
         self.user_id = user_id
         self.monster = monster
+        self.monster_max_health = monster['health']  # Store original max health
         self.turn_count = 0
     
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -3110,8 +3402,9 @@ class RPGCombatView(discord.ui.View):
             )
             
             # Add health bars
-            player_health_pct = (result['player_health'] / (await rpg_system.get_player_profile(db_helpers, self.user_id))['max_health']) * 100
-            monster_health_pct = (result['monster_health'] / self.monster['health']) * 100 if self.monster['health'] > 0 else 0
+            player = await rpg_system.get_player_profile(db_helpers, self.user_id)
+            player_health_pct = (result['player_health'] / player['max_health']) * 100 if player else 0
+            monster_health_pct = (result['monster_health'] / self.monster_max_health) * 100 if self.monster_max_health > 0 else 0
             
             player_bar = self._create_health_bar(player_health_pct)
             monster_bar = self._create_health_bar(monster_health_pct)
@@ -3223,6 +3516,232 @@ class RPGCombatView(discord.ui.View):
             bar = "🟥" * filled + "⬜" * empty
         
         return bar
+
+
+class RPGShopView(discord.ui.View):
+    """View for RPG shop item selection."""
+    
+    def __init__(self, user_id: int, items: list, player_gold: int):
+        super().__init__(timeout=300)
+        self.user_id = user_id
+        self.items = items
+        self.player_gold = player_gold
+        
+        # Add select menu for items
+        options = []
+        for i, item in enumerate(items[:25]):  # Max 25 options
+            options.append(discord.SelectOption(
+                label=f"{item['name']} ({item['price']} Gold)",
+                description=f"{item['type']} - {item['rarity']}",
+                value=str(item['id'])
+            ))
+        
+        if options:
+            select = discord.ui.Select(
+                placeholder="Wähle ein Item zum Kaufen...",
+                options=options,
+                row=0
+            )
+            select.callback = self.item_selected
+            self.add_item(select)
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Dies ist nicht dein Shop!", ephemeral=True)
+            return False
+        return True
+    
+    async def item_selected(self, interaction: discord.Interaction):
+        """Handle item purchase."""
+        await interaction.response.defer()
+        
+        try:
+            item_id = int(interaction.data['values'][0])
+            item = next((i for i in self.items if i['id'] == item_id), None)
+            
+            if not item:
+                await interaction.followup.send("❌ Item nicht gefunden.", ephemeral=True)
+                return
+            
+            # Purchase item
+            success, message = await rpg_system.purchase_item(db_helpers, self.user_id, item_id)
+            
+            if success:
+                embed = discord.Embed(
+                    title="✅ Kauf erfolgreich!",
+                    description=f"Du hast **{item['name']}** für {item['price']} Gold gekauft!",
+                    color=discord.Color.green()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+            else:
+                await interaction.followup.send(f"❌ {message}", ephemeral=True)
+                
+        except Exception as e:
+            logger.error(f"Error purchasing item: {e}", exc_info=True)
+            await interaction.followup.send("❌ Fehler beim Kauf.", ephemeral=True)
+
+
+class RPGTempleView(discord.ui.View):
+    """View for temple healing and blessings."""
+    
+    def __init__(self, user_id: int, player: dict, missing_hp: int, heal_cost: int):
+        super().__init__(timeout=300)
+        self.user_id = user_id
+        self.player = player
+        self.missing_hp = missing_hp
+        self.heal_cost = heal_cost
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Dies ist nicht dein Tempel!", ephemeral=True)
+            return False
+        return True
+    
+    @discord.ui.button(label="💚 Heilen", style=discord.ButtonStyle.success)
+    async def heal_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Heal the player."""
+        await interaction.response.defer()
+        
+        try:
+            if self.missing_hp <= 0:
+                await interaction.followup.send("❌ Du bist bereits vollständig geheilt!", ephemeral=True)
+                return
+            
+            if self.player['gold'] < self.heal_cost:
+                await interaction.followup.send(f"❌ Nicht genug Gold! Du brauchst {self.heal_cost} Gold.", ephemeral=True)
+                return
+            
+            # Heal player
+            success = await rpg_system.heal_player(db_helpers, self.user_id, self.heal_cost)
+            
+            if success:
+                embed = discord.Embed(
+                    title="💚 Geheilt!",
+                    description=f"Du wurdest vollständig geheilt!\nKosten: {self.heal_cost} Gold",
+                    color=discord.Color.green()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Heilung fehlgeschlagen.", ephemeral=True)
+                
+        except Exception as e:
+            logger.error(f"Error healing player: {e}", exc_info=True)
+            await interaction.followup.send("❌ Fehler bei der Heilung.", ephemeral=True)
+    
+    @discord.ui.button(label="🔮 XP Segen", style=discord.ButtonStyle.primary)
+    async def xp_blessing_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Give XP blessing."""
+        await interaction.response.defer()
+        
+        try:
+            cost = 100
+            if self.player['gold'] < cost:
+                await interaction.followup.send(f"❌ Nicht genug Gold! Du brauchst {cost} Gold.", ephemeral=True)
+                return
+            
+            # Apply blessing
+            success = await rpg_system.apply_blessing(db_helpers, self.user_id, 'xp_boost', cost)
+            
+            if success:
+                embed = discord.Embed(
+                    title="✨ Segen erhalten!",
+                    description="XP-Boost für 1 Stunde aktiv! (+50% XP)",
+                    color=discord.Color.gold()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Segen fehlgeschlagen.", ephemeral=True)
+                
+        except Exception as e:
+            logger.error(f"Error applying blessing: {e}", exc_info=True)
+            await interaction.followup.send("❌ Fehler beim Segen.", ephemeral=True)
+
+
+class RPGInventoryView(discord.ui.View):
+    """View for inventory management and equipment."""
+    
+    def __init__(self, user_id: int, inventory: list, equipped: dict):
+        super().__init__(timeout=300)
+        self.user_id = user_id
+        self.inventory = inventory or []
+        self.equipped = equipped
+        
+        # Add select menu for weapons
+        weapon_options = []
+        for item in [i for i in self.inventory if i.get('type') == 'weapon'][:25]:
+            weapon_options.append(discord.SelectOption(
+                label=item['name'],
+                description=f"Schaden: {item.get('damage', 0)}",
+                value=str(item['id'])
+            ))
+        
+        if weapon_options:
+            weapon_select = discord.ui.Select(
+                placeholder="Waffe ausrüsten...",
+                options=weapon_options,
+                row=0
+            )
+            weapon_select.callback = self.equip_weapon
+            self.add_item(weapon_select)
+        
+        # Add select menu for skills
+        skill_options = []
+        for item in [i for i in self.inventory if i.get('type') == 'skill'][:25]:
+            skill_options.append(discord.SelectOption(
+                label=item['name'],
+                description=f"Typ: Skill",
+                value=str(item['id'])
+            ))
+        
+        if skill_options:
+            skill_select = discord.ui.Select(
+                placeholder="Skill ausrüsten...",
+                options=skill_options,
+                row=1
+            )
+            skill_select.callback = self.equip_skill
+            self.add_item(skill_select)
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Dies ist nicht dein Inventar!", ephemeral=True)
+            return False
+        return True
+    
+    async def equip_weapon(self, interaction: discord.Interaction):
+        """Equip a weapon."""
+        await interaction.response.defer()
+        
+        try:
+            item_id = int(interaction.data['values'][0])
+            success = await rpg_system.equip_item(db_helpers, self.user_id, item_id, 'weapon')
+            
+            if success:
+                await interaction.followup.send("✅ Waffe ausgerüstet!", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Konnte Waffe nicht ausrüsten.", ephemeral=True)
+                
+        except Exception as e:
+            logger.error(f"Error equipping weapon: {e}", exc_info=True)
+            await interaction.followup.send("❌ Fehler beim Ausrüsten.", ephemeral=True)
+    
+    async def equip_skill(self, interaction: discord.Interaction):
+        """Equip a skill."""
+        await interaction.response.defer()
+        
+        try:
+            item_id = int(interaction.data['values'][0])
+            # Try to equip in slot 1, then slot 2
+            success = await rpg_system.equip_item(db_helpers, self.user_id, item_id, 'skill')
+            
+            if success:
+                await interaction.followup.send("✅ Skill ausgerüstet!", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Konnte Skill nicht ausrüsten.", ephemeral=True)
+                
+        except Exception as e:
+            logger.error(f"Error equipping skill: {e}", exc_info=True)
+            await interaction.followup.send("❌ Fehler beim Ausrüsten.", ephemeral=True)
 
 
 # --- Leaderboard Helper Constants and Functions ---
@@ -8650,13 +9169,14 @@ async def trolly(interaction: discord.Interaction):
 class WordFindView(discord.ui.View):
     """UI view for Word Find game with guess input."""
     
-    def __init__(self, user_id: int, word_data: dict, max_attempts: int, has_premium: bool = False, game_type: str = 'daily'):
+    def __init__(self, user_id: int, word_data: dict, max_attempts: int, has_premium: bool = False, game_type: str = 'daily', theme_id=None):
         super().__init__(timeout=300)
         self.user_id = user_id
         self.word_data = word_data
         self.max_attempts = max_attempts
         self.has_premium = has_premium
         self.game_type = game_type
+        self.theme_id = theme_id
     
     @discord.ui.button(label="Wort raten", style=discord.ButtonStyle.primary, emoji="🔍")
     async def guess_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -8666,7 +9186,7 @@ class WordFindView(discord.ui.View):
             return
         
         # Create modal for input
-        modal = WordGuessModal(self.user_id, self.word_data, self.max_attempts, self.has_premium, self.game_type)
+        modal = WordGuessModal(self.user_id, self.word_data, self.max_attempts, self.has_premium, self.game_type, self.theme_id)
         await interaction.response.send_modal(modal)
     
     @discord.ui.button(label="Aufgeben", style=discord.ButtonStyle.danger, emoji="❌")
@@ -8761,11 +9281,11 @@ class WordFindCompletedView(discord.ui.View):
         user_stats = await word_find.get_user_stats(db_helpers, self.user_id)
         
         # Create new game embed
-        embed = word_find.create_game_embed(premium_game, [], 20, user_stats, 'premium')
+        embed = word_find.create_game_embed(premium_game, [], 20, user_stats, 'premium', None)  # No theme for now
         embed.set_footer(text="💎 Premium Spiel - Du hast 20 Versuche!")
         
         # Create view for new game
-        view = WordFindView(self.user_id, premium_game, 20, self.has_premium, 'premium')
+        view = WordFindView(self.user_id, premium_game, 20, self.has_premium, 'premium', None)
         
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
@@ -8781,13 +9301,14 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
         required=True
     )
     
-    def __init__(self, user_id: int, word_data: dict, max_attempts: int, has_premium: bool, game_type: str = 'daily'):
+    def __init__(self, user_id: int, word_data: dict, max_attempts: int, has_premium: bool, game_type: str = 'daily', theme_id=None):
         super().__init__()
         self.user_id = user_id
         self.word_data = word_data
         self.max_attempts = max_attempts
         self.has_premium = has_premium
         self.game_type = game_type
+        self.theme_id = theme_id
     
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer()
@@ -8886,7 +9407,7 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
             
             user_stats = await word_find.get_user_stats(db_helpers, self.user_id)
             
-            embed = word_find.create_game_embed(self.word_data, attempts, self.max_attempts, user_stats, self.game_type)
+            embed = word_find.create_game_embed(self.word_data, attempts, self.max_attempts, user_stats, self.game_type, self.theme_id)
             
             # Check if max attempts reached
             if attempt_num >= self.max_attempts:
@@ -8905,7 +9426,7 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
                 view = WordFindCompletedView(self.user_id, attempts, False, self.has_premium, self.game_type)
                 await interaction.edit_original_response(embed=embed, view=view)
             else:
-                view = WordFindView(self.user_id, self.word_data, self.max_attempts, self.has_premium, self.game_type)
+                view = WordFindView(self.user_id, self.word_data, self.max_attempts, self.has_premium, self.game_type, self.theme_id)
                 await interaction.edit_original_response(embed=embed, view=view)
 
 
@@ -9283,14 +9804,17 @@ async def word_find_command(interaction: discord.Interaction):
         # Get user stats
         user_stats = await word_find.get_user_stats(db_helpers, user_id)
         
+        # Get user's theme
+        user_theme = await themes.get_user_theme(db_helpers, user_id)
+        
         # Create game embed
-        embed = word_find.create_game_embed(word_data, attempts, max_attempts, user_stats, 'daily')
+        embed = word_find.create_game_embed(word_data, attempts, max_attempts, user_stats, 'daily', user_theme)
         
         if has_premium:
             embed.set_footer(text="💎 Premium: Nach dem Abschluss kannst du neue Spiele starten!")
         
         # Create view with guess button
-        view = WordFindView(user_id, word_data, max_attempts, has_premium, 'daily')
+        view = WordFindView(user_id, word_data, max_attempts, has_premium, 'daily', user_theme)
         
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         
