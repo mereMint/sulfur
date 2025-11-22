@@ -310,18 +310,7 @@ async def get_or_create_daily_word(db_helpers, language='de'):
     except Exception as e:
         logger.error(f"Error getting/creating daily Word Find word: {e}", exc_info=True)
         return None
-            """, (word, difficulty, language, today))
-            
-            conn.commit()
-            word_id = cursor.lastrowid
-            
-            return {'id': word_id, 'word': word, 'difficulty': difficulty, 'language': language}
-        finally:
-            cursor.close()
-            conn.close()
-    except Exception as e:
-        logger.error(f"Error getting/creating daily word: {e}", exc_info=True)
-        return None
+
 
 
 
