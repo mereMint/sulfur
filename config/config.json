@@ -159,6 +159,13 @@
             "features": ["detective", "trolly"],
             "price": 1000,
             "discount": 250
+          },
+          "white_wolf_bundle": {
+            "name": "🐺 White Wolf Bundle",
+            "description": "Amor + Der Weiße - Spezielle Werwolf-Rollen",
+            "features": ["werwolf_role_amor", "werwolf_role_der_weisse"],
+            "price": 3000,
+            "discount": 600
           }
         },
         "boosts": {
@@ -171,7 +178,9 @@
           "seherin": 1500,
           "hexe": 1500,
           "dönerstopfer": 1200,
-          "jäger": 1200
+          "jäger": 1200,
+          "amor": 1800,
+          "der_weisse": 1800
         }
       },
       "games": {
