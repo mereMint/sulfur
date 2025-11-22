@@ -238,10 +238,12 @@ async def get_or_create_daily_word(db_helpers, language='de'):
     """Get today's word or create a new one for the specified language."""
     try:
         if not db_helpers.db_pool:
+            logger.error("Database pool not available for Word Find")
             return None
         
         conn = db_helpers.db_pool.get_connection()
         if not conn:
+            logger.error("Could not get database connection for Word Find")
             return None
         
         cursor = conn.cursor(dictionary=True)
@@ -256,6 +258,7 @@ async def get_or_create_daily_word(db_helpers, language='de'):
             result = cursor.fetchone()
             
             if result:
+                logger.debug(f"Found existing Word Find word for {today} ({language}): {result['word']}")
                 return result
             
             # Create new daily word using word service
@@ -273,18 +276,40 @@ async def get_or_create_daily_word(db_helpers, language='de'):
             
             # Fetch word from service
             logger.info(f"Fetching new daily word for Word Find ({language}, {difficulty})")
-            words = await word_service.get_random_words(1, language=language, min_length=min_len, max_length=max_len)
-            if words and len(words) > 0:
-                word = words[0]
-            else:
-                # Fallback to hardcoded list if service fails
-                logger.warning("Word service failed, using hardcoded list")
+            try:
+                words = await word_service.get_random_words(1, language=language, min_length=min_len, max_length=max_len)
+                if words and len(words) > 0:
+                    word = words[0]
+                else:
+                    # Fallback to hardcoded list if service fails
+                    logger.warning("Word service failed, using hardcoded list for Word Find")
+                    word_lists = get_word_lists(language)
+                    word = random.choice(word_lists[difficulty])
+            except Exception as e:
+                logger.error(f"Error fetching word from service: {e}")
                 word_lists = get_word_lists(language)
                 word = random.choice(word_lists[difficulty])
             
             cursor.execute("""
                 INSERT INTO word_find_daily (word, difficulty, language, date)
                 VALUES (%s, %s, %s, %s)
+            """, (word, difficulty, language, today))
+            
+            conn.commit()
+            word_id = cursor.lastrowid
+            
+            logger.info(f"Created new Word Find word for {today} ({language}, {difficulty}): {word}")
+            return {'id': word_id, 'word': word, 'difficulty': difficulty, 'language': language}
+        except Exception as e:
+            logger.error(f"Database error in get_or_create_daily_word: {e}", exc_info=True)
+            conn.rollback()
+            return None
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting/creating daily Word Find word: {e}", exc_info=True)
+        return None
             """, (word, difficulty, language, today))
             
             conn.commit()
