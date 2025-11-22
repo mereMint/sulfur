@@ -8098,6 +8098,15 @@ async def horserace(interaction: discord.Interaction, horses: int = 6):
             inline=False
         )
         
+        # Show special abilities triggered
+        ability_summary = race.get_ability_summary()
+        if ability_summary and "No special abilities" not in ability_summary:
+            result_embed.add_field(
+                name="⚡ Spezialfähigkeiten",
+                value=ability_summary,
+                inline=False
+            )
+        
         # Show winner payouts
         winner_list = []
         loser_list = []

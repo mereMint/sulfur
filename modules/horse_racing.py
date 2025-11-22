@@ -13,7 +13,7 @@ from modules.logger_utils import bot_logger as logger
 # Configuration
 HOUSE_EDGE = 0.10  # 10% house edge (configurable)
 
-# Horse data with names and emojis
+# Horse data with names, emojis, and abilities
 HORSES = [
     {'name': 'Thunder', 'emoji': '🐎', 'color': discord.Color.dark_gold()},
     {'name': 'Lightning', 'emoji': '⚡', 'color': discord.Color.gold()},
@@ -23,10 +23,62 @@ HORSES = [
     {'name': 'Spirit', 'emoji': '✨', 'color': discord.Color.purple()},
 ]
 
+# Special abilities that can trigger during race
+ABILITIES = {
+    'speed_boost': {
+        'name': 'Speed Boost',
+        'emoji': '💨',
+        'description': 'Gains extra speed!',
+        'bonus_move': 2
+    },
+    'turbo': {
+        'name': 'Turbo',
+        'emoji': '⚡',
+        'description': 'Lightning fast acceleration!',
+        'bonus_move': 3
+    },
+    'comeback': {
+        'name': 'Comeback',
+        'emoji': '🔥',
+        'description': 'Comeback from behind!',
+        'bonus_move': 4,
+        'requires_behind': True  # Only triggers when behind
+    },
+    'steady': {
+        'name': 'Steady Pace',
+        'emoji': '🎯',
+        'description': 'Consistent performance',
+        'bonus_move': 1,
+        'always_triggers': True
+    },
+    'sprint': {
+        'name': 'Final Sprint',
+        'emoji': '🏃',
+        'description': 'Sprint to the finish!',
+        'bonus_move': 3,
+        'requires_near_end': True  # Only triggers near finish line
+    },
+    'stumble': {
+        'name': 'Stumble',
+        'emoji': '💢',
+        'description': 'Lost footing!',
+        'bonus_move': -1,
+        'is_negative': True
+    },
+    'leaders_edge': {
+        'name': "Leader's Edge",
+        'emoji': '👑',
+        'description': 'Maintaining the lead!',
+        'bonus_move': 2,
+        'requires_leading': True  # Only triggers when in lead
+    }
+]
+
 # Race track settings
 RACE_LENGTH = 20  # Length of the race track
 ANIMATION_FRAMES = 15  # Number of animation frames
 FRAME_DELAY = 1.5  # Seconds between frames
+ABILITY_TRIGGER_CHANCE = 0.3  # 30% chance per turn to trigger an ability
 
 
 class HorseRace:
@@ -50,6 +102,8 @@ class HorseRace:
         self.is_racing = False
         self.is_betting_open = True
         self.created_at = datetime.now(timezone.utc)
+        self.ability_log = []  # Track ability triggers for display
+        self.horse_abilities = {}  # Track which abilities each horse can use
     
     def place_bet(self, user_id: int, horse_index: int, amount: int) -> tuple:
         """
@@ -115,7 +169,7 @@ class HorseRace:
     
     async def simulate_race(self):
         """
-        Simulate the race progression.
+        Simulate the race progression with special abilities.
         Updates positions for all horses.
         """
         self.is_racing = True
@@ -124,10 +178,35 @@ class HorseRace:
         while not all(self.finished):
             for i in range(self.horses_count):
                 if not self.finished[i]:
-                    # Random movement between 0-3 spaces
-                    # Some horses have slight advantages (randomness)
-                    move = random.randint(0, 3)
-                    self.positions[i] += move
+                    # Base random movement between 1-3 spaces
+                    base_move = random.randint(1, 3)
+                    bonus_move = 0
+                    triggered_ability = None
+                    
+                    # Check if horse can trigger an ability
+                    if random.random() < ABILITY_TRIGGER_CHANCE:
+                        # Get available abilities based on position
+                        available_abilities = self._get_available_abilities(i)
+                        
+                        if available_abilities:
+                            # Randomly select an ability
+                            ability_key = random.choice(available_abilities)
+                            ability = ABILITIES[ability_key]
+                            bonus_move = ability['bonus_move']
+                            triggered_ability = ability
+                            
+                            # Log the ability trigger
+                            horse_name = self.horses[i]['name']
+                            self.ability_log.append({
+                                'horse': horse_name,
+                                'horse_index': i,
+                                'ability': ability,
+                                'position': self.positions[i]
+                            })
+                    
+                    # Calculate total movement
+                    total_move = max(0, base_move + bonus_move)
+                    self.positions[i] += total_move
                     
                     # Check if finished
                     if self.positions[i] >= RACE_LENGTH:
@@ -139,6 +218,43 @@ class HorseRace:
             await asyncio.sleep(0.1)
         
         return self.finish_order
+    
+    def _get_available_abilities(self, horse_index: int) -> list:
+        """
+        Get list of abilities that can trigger for this horse based on current position.
+        
+        Args:
+            horse_index: Index of the horse
+        
+        Returns:
+            List of ability keys that can trigger
+        """
+        available = []
+        current_pos = self.positions[horse_index]
+        
+        # Find average position to determine if horse is behind or leading
+        avg_pos = sum(self.positions) / len(self.positions)
+        is_leading = current_pos >= avg_pos
+        is_behind = current_pos < avg_pos
+        is_near_end = current_pos >= (RACE_LENGTH * 0.7)  # In last 30% of race
+        
+        for ability_key, ability in ABILITIES.items():
+            can_trigger = True
+            
+            # Check position requirements
+            if ability.get('requires_leading') and not is_leading:
+                can_trigger = False
+            
+            if ability.get('requires_behind') and not is_behind:
+                can_trigger = False
+            
+            if ability.get('requires_near_end') and not is_near_end:
+                can_trigger = False
+            
+            if can_trigger:
+                available.append(ability_key)
+        
+        return available
     
     def get_race_visual(self) -> str:
         """
@@ -169,6 +285,36 @@ class HorseRace:
             lines.append(line)
         
         return '\n'.join(lines)
+    
+    def get_ability_summary(self) -> str:
+        """
+        Get a summary of abilities triggered during the race.
+        
+        Returns:
+            Formatted string of ability triggers
+        """
+        if not self.ability_log:
+            return "No special abilities triggered during this race."
+        
+        # Group abilities by horse
+        summary_lines = []
+        horses_with_abilities = {}
+        
+        for log_entry in self.ability_log:
+            horse = log_entry['horse']
+            ability = log_entry['ability']
+            
+            if horse not in horses_with_abilities:
+                horses_with_abilities[horse] = []
+            
+            horses_with_abilities[horse].append(ability)
+        
+        summary_lines.append("**Special Abilities Triggered:**")
+        for horse, abilities in horses_with_abilities.items():
+            ability_names = [f"{a['emoji']} {a['name']}" for a in abilities]
+            summary_lines.append(f"• {horse}: {', '.join(ability_names)}")
+        
+        return '\n'.join(summary_lines)
     
     def calculate_payouts(self, db_helpers=None) -> dict:
         """
