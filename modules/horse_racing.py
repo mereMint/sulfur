@@ -238,7 +238,7 @@ class HorseRace:
         horse_rank = horses_ahead + 1  # 1-based rank
         
         is_leading = horse_rank <= 2  # Top 2 positions
-        is_behind = self.horses_count >= 3 and horse_rank > self.horses_count - 2  # Bottom 2 positions (if 3+ horses)
+        is_behind = horse_rank >= self.horses_count - 1  # Bottom 2 positions (rank N-1 or N)
         is_near_end = current_pos >= (RACE_LENGTH * 0.7)  # In last 30% of race
         
         for ability_key, ability in ABILITIES.items():
