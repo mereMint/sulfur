@@ -254,7 +254,7 @@ async def get_or_create_daily_word(db_helpers, language='de'):
             logger.error(f"Database error in get_or_create_daily_word: {e}", exc_info=True)
             try:
                 conn.rollback()
-            except:
+            except (Exception, AttributeError):
                 pass  # Connection may already be closed or invalid
             return None
         finally:
