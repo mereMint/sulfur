@@ -233,12 +233,12 @@ class HorseRace:
         current_pos = self.positions[horse_index]
         
         # Determine position relative to other horses
-        # Sort positions to find rank
-        sorted_positions = sorted(self.positions, reverse=True)
-        horse_rank = sorted_positions.index(current_pos) + 1  # 1-based rank
+        # Count horses ahead of this one (handling ties)
+        horses_ahead = sum(1 for pos in self.positions if pos > current_pos)
+        horse_rank = horses_ahead + 1  # 1-based rank
         
         is_leading = horse_rank <= 2  # Top 2 positions
-        is_behind = horse_rank >= self.horses_count - 1  # Bottom 2 positions
+        is_behind = horse_rank >= max(1, self.horses_count - 1)  # Bottom 2 positions
         is_near_end = current_pos >= (RACE_LENGTH * 0.7)  # In last 30% of race
         
         for ability_key, ability in ABILITIES.items():
