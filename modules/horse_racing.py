@@ -11,11 +11,11 @@ from modules.logger_utils import bot_logger as logger
 
 
 # Configuration
-HOUSE_EDGE = 0.05  # 5% house edge (reduced for better payouts)
-SIMULATED_BETS_MIN = 5  # Minimum number of simulated bets
-SIMULATED_BETS_MAX = 15  # Maximum number of simulated bets
-SIMULATED_BET_MIN = 10  # Minimum simulated bet amount
-SIMULATED_BET_MAX = 100  # Maximum simulated bet amount
+HOUSE_EDGE: float = 0.05  # 5% house edge - reduces player winnings slightly to sustain the game economy
+SIMULATED_BETS_MIN: int = 5  # Minimum number of simulated bets to add to each race
+SIMULATED_BETS_MAX: int = 15  # Maximum number of simulated bets to add to each race
+SIMULATED_BET_MIN: int = 10  # Minimum amount for each simulated bet in coins
+SIMULATED_BET_MAX: int = 100  # Maximum amount for each simulated bet in coins
 
 # Horse data with names, emojis, and abilities
 # Includes horses inspired by Umamusume Pretty Derby (based on real racehorses)

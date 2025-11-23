@@ -8566,25 +8566,32 @@ async def horserace(interaction: discord.Interaction, horses: int = 6):
         message = await interaction.followup.send(embed=embed, view=view)
         
         # Wait for betting period with odds updates every 10 seconds
-        for countdown in range(60, 0, -10):
+        for i in range(6):  # 6 iterations = 60 seconds
             await asyncio.sleep(10)
+            
+            # Calculate remaining time
+            remaining_seconds = 60 - ((i + 1) * 10)
+            
+            # Don't update if time is up
+            if remaining_seconds <= 0:
+                break
             
             # Update odds display
             embed.clear_fields()
-            for i, horse in enumerate(race.horses):
+            for j, horse in enumerate(race.horses):
                 total_bet_on_horse = sum(
                     bet['amount'] for bet in race.bets.values()
-                    if bet['horse_index'] == i
+                    if bet['horse_index'] == j
                 )
                 embed.add_field(
                     name=f"{horse['emoji']} {horse['name']}",
-                    value=f"Quote: {race.get_odds(i):.2f}x\nWetten: {total_bet_on_horse} {currency}",
+                    value=f"Quote: {race.get_odds(j):.2f}x\nWetten: {total_bet_on_horse} {currency}",
                     inline=True
                 )
             
             embed.add_field(
                 name="💰 Wie wetten?",
-                value=f"Klicke auf einen Button und gib deinen Einsatz ein ({currency})\n⏰ Noch **{countdown-10} Sekunden**!",
+                value=f"Klicke auf einen Button und gib deinen Einsatz ein ({currency})\n⏰ Noch **{remaining_seconds} Sekunden**!",
                 inline=False
             )
             
