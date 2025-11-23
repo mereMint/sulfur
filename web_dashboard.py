@@ -1352,6 +1352,7 @@ def reset_rpg_player():
                 'message': 'user_id is required'
             }), 400
         
+        # Validate and convert user_id to integer
         try:
             user_id = int(data.get('user_id'))
         except (ValueError, TypeError):
@@ -1382,8 +1383,7 @@ def reset_rpg_player():
             conn = db_helpers.db_pool.get_connection()
             cursor = conn.cursor()
             
-            # Pre-defined queries for each table to avoid SQL injection
-            # Uses whitelist validation but with separate query strings
+            # Pre-defined queries for each table to prevent SQL injection
             DELETE_QUERIES = {
                 'rpg_players': "DELETE FROM rpg_players WHERE user_id = %s",
                 'rpg_inventory': "DELETE FROM rpg_inventory WHERE user_id = %s",
@@ -1396,7 +1396,7 @@ def reset_rpg_player():
                     # Check if table exists
                     cursor.execute("SHOW TABLES LIKE %s", (table_name,))
                     if cursor.fetchone():
-                        # Delete user data from table using pre-defined query
+                        # Delete user data using pre-defined query
                         cursor.execute(delete_query, (user_id,))
                         affected = cursor.rowcount
                         if affected > 0:
@@ -1416,11 +1416,6 @@ def reset_rpg_player():
                 cursor.close()
             if conn:
                 conn.close()
-    except ValueError as e:
-        return jsonify({
-            'success': False,
-            'message': f'Invalid user ID: {str(e)}'
-        }), 400
     except Exception as e:
         logger.error(f"Error resetting RPG player: {e}")
         return jsonify({

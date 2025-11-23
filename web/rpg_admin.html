@@ -697,7 +697,8 @@
             return;
         }
         
-        // Validate that userId is numeric to prevent injection
+        // Validate that userId is numeric (format checking for user experience)
+        // Actual injection prevention is handled by backend parameterized queries
         if (!/^\d+$/.test(userId)) {
             alert('User ID must be a valid number');
             return;
