@@ -165,6 +165,157 @@ MONSTER_ABILITIES = {
     }
 }
 
+# Skill Tree System
+# Players can unlock passive abilities and active skills using skill points
+SKILL_TREE = {
+    # Warrior Path - Focuses on strength and defense
+    'warrior': {
+        'name': 'Krieger',
+        'emoji': '⚔️',
+        'description': 'Meister des Nahkampfs und der Verteidigung',
+        'skills': {
+            'heavy_strike': {
+                'name': 'Schwerer Schlag',
+                'type': 'passive',
+                'description': '+10% Schaden mit Waffen',
+                'cost': 1,
+                'requires': None,
+                'effect': {'damage_bonus': 0.10}
+            },
+            'iron_skin': {
+                'name': 'Eisenhaut',
+                'type': 'passive',
+                'description': '+5 Verteidigung',
+                'cost': 1,
+                'requires': None,
+                'effect': {'defense_bonus': 5}
+            },
+            'berserker': {
+                'name': 'Berserker',
+                'type': 'passive',
+                'description': '+20% Schaden, -10% Verteidigung',
+                'cost': 2,
+                'requires': 'heavy_strike',
+                'effect': {'damage_bonus': 0.20, 'defense_penalty': 0.10}
+            },
+            'shield_master': {
+                'name': 'Schildmeister',
+                'type': 'passive',
+                'description': '+15 Verteidigung, +10% HP',
+                'cost': 2,
+                'requires': 'iron_skin',
+                'effect': {'defense_bonus': 15, 'health_bonus': 0.10}
+            },
+            'battle_cry': {
+                'name': 'Schlachtruf',
+                'type': 'active',
+                'description': 'Erhöht Angriff für 3 Runden',
+                'cost': 2,
+                'requires': 'berserker',
+                'effect': {'attack_buff': 0.30, 'duration': 3}
+            }
+        }
+    },
+    
+    # Rogue Path - Focuses on dexterity and critical hits
+    'rogue': {
+        'name': 'Schurke',
+        'emoji': '🗡️',
+        'description': 'Meister der Geschicklichkeit und kritischen Treffer',
+        'skills': {
+            'swift_strikes': {
+                'name': 'Schnelle Schläge',
+                'type': 'passive',
+                'description': '+5 Geschwindigkeit',
+                'cost': 1,
+                'requires': None,
+                'effect': {'speed_bonus': 5}
+            },
+            'keen_eye': {
+                'name': 'Scharfes Auge',
+                'type': 'passive',
+                'description': '+10% Kritische Trefferchance',
+                'cost': 1,
+                'requires': None,
+                'effect': {'crit_chance_bonus': 0.10}
+            },
+            'assassin': {
+                'name': 'Assassine',
+                'type': 'passive',
+                'description': '+25% Kritischer Schaden',
+                'cost': 2,
+                'requires': 'keen_eye',
+                'effect': {'crit_damage_bonus': 0.25}
+            },
+            'shadow_step': {
+                'name': 'Schattenschritt',
+                'type': 'passive',
+                'description': '+15% Ausweichen',
+                'cost': 2,
+                'requires': 'swift_strikes',
+                'effect': {'dodge_bonus': 0.15}
+            },
+            'backstab': {
+                'name': 'Meucheln',
+                'type': 'active',
+                'description': 'Garantierter kritischer Treffer',
+                'cost': 3,
+                'requires': 'assassin',
+                'effect': {'guaranteed_crit': True, 'crit_multiplier': 2.0}
+            }
+        }
+    },
+    
+    # Mage Path - Focuses on magic and special effects
+    'mage': {
+        'name': 'Magier',
+        'emoji': '🔮',
+        'description': 'Meister der arkanen Künste und Elemente',
+        'skills': {
+            'arcane_power': {
+                'name': 'Arkane Kraft',
+                'type': 'passive',
+                'description': '+15% Skill-Schaden',
+                'cost': 1,
+                'requires': None,
+                'effect': {'skill_damage_bonus': 0.15}
+            },
+            'mana_shield': {
+                'name': 'Manaschild',
+                'type': 'passive',
+                'description': '+10% Schadensreduzierung',
+                'cost': 1,
+                'requires': None,
+                'effect': {'damage_reduction': 0.10}
+            },
+            'elemental_master': {
+                'name': 'Elementarmeister',
+                'type': 'passive',
+                'description': '+30% Elementarschaden',
+                'cost': 2,
+                'requires': 'arcane_power',
+                'effect': {'elemental_damage_bonus': 0.30}
+            },
+            'arcane_barrier': {
+                'name': 'Arkane Barriere',
+                'type': 'passive',
+                'description': '+20% Schadensreduzierung',
+                'cost': 2,
+                'requires': 'mana_shield',
+                'effect': {'damage_reduction': 0.20}
+            },
+            'meteor': {
+                'name': 'Meteor',
+                'type': 'active',
+                'description': 'Gewaltiger Elementarschaden',
+                'cost': 3,
+                'requires': 'elemental_master',
+                'effect': {'base_damage': 80, 'element': 'fire'}
+            }
+        }
+    }
+}
+
 # Item Rarities
 RARITIES = ['common', 'uncommon', 'rare', 'epic', 'legendary']
 RARITY_COLORS = {
@@ -242,6 +393,18 @@ async def initialize_rpg_tables(db_helpers):
                     weapon_id INT NULL,
                     skill1_id INT NULL,
                     skill2_id INT NULL
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """)
+            
+            # Skill tree unlocks
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS rpg_skill_tree (
+                    user_id BIGINT NOT NULL,
+                    skill_path VARCHAR(50) NOT NULL,
+                    skill_key VARCHAR(100) NOT NULL,
+                    unlocked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, skill_path, skill_key),
+                    INDEX idx_user (user_id)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
@@ -1525,6 +1688,183 @@ async def reset_skill_points(db_helpers, user_id: int, cost: int):
     except Exception as e:
         logger.error(f"Error resetting skill points: {e}", exc_info=True)
         return False
+
+
+async def get_unlocked_skills(db_helpers, user_id: int):
+    """Get all unlocked skills from the skill tree for a user."""
+    try:
+        if not db_helpers.db_pool:
+            return {}
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return {}
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            cursor.execute("""
+                SELECT skill_path, skill_key, unlocked_at
+                FROM rpg_skill_tree
+                WHERE user_id = %s
+                ORDER BY unlocked_at ASC
+            """, (user_id,))
+            
+            skills = cursor.fetchall()
+            
+            # Organize by path
+            unlocked = {}
+            for skill in skills:
+                path = skill['skill_path']
+                if path not in unlocked:
+                    unlocked[path] = []
+                unlocked[path].append(skill['skill_key'])
+            
+            return unlocked
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting unlocked skills: {e}", exc_info=True)
+        return {}
+
+
+async def unlock_skill(db_helpers, user_id: int, skill_path: str, skill_key: str):
+    """
+    Unlock a skill from the skill tree.
+    
+    Args:
+        user_id: User ID
+        skill_path: Path in skill tree ('warrior', 'rogue', 'mage')
+        skill_key: Skill identifier within the path
+    
+    Returns:
+        (success, message) tuple
+    """
+    try:
+        if not db_helpers.db_pool:
+            return False, "Datenbank nicht verfügbar"
+        
+        # Validate skill exists
+        if skill_path not in SKILL_TREE:
+            return False, "Ungültiger Skill-Pfad"
+        
+        if skill_key not in SKILL_TREE[skill_path]['skills']:
+            return False, "Skill nicht gefunden"
+        
+        skill = SKILL_TREE[skill_path]['skills'][skill_key]
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return False, "Datenbankverbindung fehlgeschlagen"
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            # Get player
+            cursor.execute("SELECT * FROM rpg_players WHERE user_id = %s", (user_id,))
+            player = cursor.fetchone()
+            
+            if not player:
+                return False, "Spieler nicht gefunden"
+            
+            # Check if player has enough skill points
+            if player['skill_points'] < skill['cost']:
+                return False, f"Nicht genug Skillpunkte (benötigt: {skill['cost']}, verfügbar: {player['skill_points']})"
+            
+            # Get unlocked skills
+            unlocked = await get_unlocked_skills(db_helpers, user_id)
+            path_unlocked = unlocked.get(skill_path, [])
+            
+            # Check if already unlocked
+            if skill_key in path_unlocked:
+                return False, "Skill bereits freigeschaltet"
+            
+            # Check prerequisites
+            if skill['requires'] and skill['requires'] not in path_unlocked:
+                required_skill = SKILL_TREE[skill_path]['skills'][skill['requires']]
+                return False, f"Benötigt: {required_skill['name']}"
+            
+            # Unlock skill
+            cursor.execute("""
+                INSERT INTO rpg_skill_tree (user_id, skill_path, skill_key)
+                VALUES (%s, %s, %s)
+            """, (user_id, skill_path, skill_key))
+            
+            # Deduct skill points
+            cursor.execute("""
+                UPDATE rpg_players
+                SET skill_points = skill_points - %s
+                WHERE user_id = %s
+            """, (skill['cost'], user_id))
+            
+            conn.commit()
+            return True, f"**{skill['name']}** freigeschaltet!"
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error unlocking skill: {e}", exc_info=True)
+        return False, str(e)
+
+
+async def reset_skill_tree(db_helpers, user_id: int, cost: int):
+    """Reset entire skill tree and refund skill points."""
+    try:
+        if not db_helpers.db_pool:
+            return False, "Datenbank nicht verfügbar"
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return False, "Datenbankverbindung fehlgeschlagen"
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            # Get player
+            cursor.execute("SELECT gold FROM rpg_players WHERE user_id = %s", (user_id,))
+            player = cursor.fetchone()
+            
+            if not player:
+                return False, "Spieler nicht gefunden"
+            
+            # Check if player has enough gold
+            if player['gold'] < cost:
+                return False, f"Nicht genug Gold (benötigt: {cost})"
+            
+            # Get all unlocked skills to calculate refund
+            cursor.execute("""
+                SELECT st.skill_path, st.skill_key
+                FROM rpg_skill_tree st
+                WHERE st.user_id = %s
+            """, (user_id,))
+            
+            unlocked_skills = cursor.fetchall()
+            
+            # Calculate total skill points to refund
+            points_to_refund = 0
+            for skill_row in unlocked_skills:
+                skill = SKILL_TREE[skill_row['skill_path']]['skills'][skill_row['skill_key']]
+                points_to_refund += skill['cost']
+            
+            # Delete all unlocked skills
+            cursor.execute("""
+                DELETE FROM rpg_skill_tree WHERE user_id = %s
+            """, (user_id,))
+            
+            # Refund skill points and deduct gold
+            cursor.execute("""
+                UPDATE rpg_players
+                SET skill_points = skill_points + %s,
+                    gold = gold - %s
+                WHERE user_id = %s
+            """, (points_to_refund, cost, user_id))
+            
+            conn.commit()
+            return True, f"Skill-Baum zurückgesetzt! {points_to_refund} Skillpunkte zurückerhalten."
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error resetting skill tree: {e}", exc_info=True)
+        return False, str(e)
 
 
 async def create_custom_item(db_helpers, name: str, item_type: str, rarity: str, description: str, 
