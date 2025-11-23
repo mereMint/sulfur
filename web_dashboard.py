@@ -1339,6 +1339,72 @@ def delete_skill(path_key, skill_key):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/rpg/player/reset', methods=['POST'])
+def reset_rpg_player():
+    """Reset a player's RPG data to fresh start."""
+    try:
+        data = request.json
+        user_id = int(data.get('user_id'))
+        confirm = data.get('confirm', False)
+        
+        if not confirm:
+            return jsonify({
+                'success': False,
+                'message': 'Confirmation required. Set confirm=true to proceed with reset.'
+            }), 400
+        
+        if not db_helpers.db_pool:
+            return jsonify({
+                'success': False,
+                'message': 'Database pool not initialized'
+            }), 500
+        
+        conn = None
+        cursor = None
+        deleted_tables = []
+        
+        try:
+            conn = db_helpers.db_pool.get_connection()
+            cursor = conn.cursor()
+            
+            # List of RPG tables to clear for this user
+            rpg_tables_to_clean = [
+                ('rpg_players', 'user_id'),
+                ('rpg_inventory', 'user_id'),
+                ('rpg_equipped', 'user_id'),
+                ('rpg_skill_tree', 'user_id'),
+            ]
+            
+            for table, id_column in rpg_tables_to_clean:
+                try:
+                    # Check if table exists
+                    cursor.execute(f"SHOW TABLES LIKE '{table}'")
+                    if cursor.fetchone():
+                        # Delete user data from table
+                        cursor.execute(f"DELETE FROM {table} WHERE {id_column} = %s", (user_id,))
+                        affected = cursor.rowcount
+                        if affected > 0:
+                            deleted_tables.append(f"{table} ({affected} rows)")
+                except Exception as e:
+                    logger.warning(f"Error clearing {table}: {e}")
+            
+            conn.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': f'RPG data cleared for user {user_id}',
+                'tables_cleared': deleted_tables
+            })
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
+    except Exception as e:
+        logger.error(f"Error resetting RPG player: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 # ========== Economy Dashboard APIs ==========
 
 @app.route('/economy', methods=['GET'])
