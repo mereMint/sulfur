@@ -11,17 +11,158 @@ from typing import Optional, Dict, List, Tuple
 from modules.logger_utils import bot_logger as logger
 
 
-# Status Effects
+# Status Effects - Applied during combat
+# These can be used by both players (via items/skills) and monsters (via abilities)
 STATUS_EFFECTS = {
-    'burn': {'name': 'Brennen', 'emoji': '🔥', 'dmg_per_turn': 5, 'duration': 3},
-    'poison': {'name': 'Vergiftung', 'emoji': '🧪', 'dmg_per_turn': 7, 'duration': 4},
-    'darkness': {'name': 'Dunkelheit', 'emoji': '🌑', 'acc_reduction': 0.3, 'duration': 2},
-    'light': {'name': 'Licht', 'emoji': '✨', 'acc_bonus': 0.2, 'duration': 3},
-    'static': {'name': 'Statisch', 'emoji': '⚡', 'paralyze_chance': 0.3, 'duration': 2},
-    'freeze': {'name': 'Gefroren', 'emoji': '❄️', 'immobilize': True, 'duration': 1},
-    'heal': {'name': 'Regeneration', 'emoji': '💚', 'heal_per_turn': 10, 'duration': 3},
-    'shield': {'name': 'Schild', 'emoji': '🛡️', 'dmg_reduction': 0.5, 'duration': 2},
-    'rage': {'name': 'Wut', 'emoji': '😡', 'atk_bonus': 0.5, 'def_reduction': 0.3, 'duration': 2}
+    'burn': {
+        'name': 'Brennen', 
+        'emoji': '🔥', 
+        'dmg_per_turn': 5, 
+        'duration': 3,
+        'description': 'Nimmt 5 Schaden pro Runde für 3 Runden'
+    },
+    'poison': {
+        'name': 'Vergiftung', 
+        'emoji': '🧪', 
+        'dmg_per_turn': 7, 
+        'duration': 4,
+        'description': 'Nimmt 7 Schaden pro Runde für 4 Runden'
+    },
+    'darkness': {
+        'name': 'Dunkelheit', 
+        'emoji': '🌑', 
+        'acc_reduction': 0.3, 
+        'duration': 2,
+        'description': 'Reduziert Trefferchance um 30% für 2 Runden'
+    },
+    'light': {
+        'name': 'Licht', 
+        'emoji': '✨', 
+        'acc_bonus': 0.2, 
+        'duration': 3,
+        'description': 'Erhöht Trefferchance um 20% für 3 Runden'
+    },
+    'static': {
+        'name': 'Statisch', 
+        'emoji': '⚡', 
+        'paralyze_chance': 0.3, 
+        'duration': 2,
+        'description': '30% Chance pro Runde gelähmt zu werden für 2 Runden'
+    },
+    'freeze': {
+        'name': 'Gefroren', 
+        'emoji': '❄️', 
+        'immobilize': True, 
+        'duration': 1,
+        'description': 'Kann für 1 Runde nicht handeln'
+    },
+    'heal': {
+        'name': 'Regeneration', 
+        'emoji': '💚', 
+        'heal_per_turn': 10, 
+        'duration': 3,
+        'description': 'Heilt 10 HP pro Runde für 3 Runden'
+    },
+    'shield': {
+        'name': 'Schild', 
+        'emoji': '🛡️', 
+        'dmg_reduction': 0.5, 
+        'duration': 2,
+        'description': 'Reduziert eingehenden Schaden um 50% für 2 Runden'
+    },
+    'rage': {
+        'name': 'Wut', 
+        'emoji': '😡', 
+        'atk_bonus': 0.5, 
+        'def_reduction': 0.3, 
+        'duration': 2,
+        'description': 'Erhöht Angriff um 50%, reduziert Verteidigung um 30% für 2 Runden'
+    }
+}
+
+# Monster Abilities - Special abilities that can be assigned to monsters
+# These are triggered during combat and can apply status effects or modify combat
+MONSTER_ABILITIES = {
+    'fire_breath': {
+        'name': 'Feueratem',
+        'emoji': '🔥',
+        'description': 'Speit Flammen und verursacht brennenden Schaden',
+        'effect_type': 'status',
+        'status_effect': 'burn',
+        'trigger_chance': 0.3
+    },
+    'poison_spit': {
+        'name': 'Giftspeier',
+        'emoji': '🧪',
+        'description': 'Spuckt Gift und vergiftet das Ziel',
+        'effect_type': 'status',
+        'status_effect': 'poison',
+        'trigger_chance': 0.25
+    },
+    'shadow_cloak': {
+        'name': 'Schattenumhang',
+        'emoji': '🌑',
+        'description': 'Hüllt sich in Schatten und erschwert das Treffen',
+        'effect_type': 'status',
+        'status_effect': 'darkness',
+        'trigger_chance': 0.2
+    },
+    'lightning_strike': {
+        'name': 'Blitzschlag',
+        'emoji': '⚡',
+        'description': 'Schlägt mit Blitzen zu und kann lähmen',
+        'effect_type': 'status',
+        'status_effect': 'static',
+        'trigger_chance': 0.3
+    },
+    'frost_nova': {
+        'name': 'Frostnova',
+        'emoji': '❄️',
+        'description': 'Erzeugt eisige Kälte und friert das Ziel ein',
+        'effect_type': 'status',
+        'status_effect': 'freeze',
+        'trigger_chance': 0.15
+    },
+    'battle_roar': {
+        'name': 'Kriegsschrei',
+        'emoji': '😡',
+        'description': 'Brüllt wütend und erhöht die eigene Stärke',
+        'effect_type': 'status',
+        'status_effect': 'rage',
+        'trigger_chance': 0.25
+    },
+    'regeneration': {
+        'name': 'Regeneration',
+        'emoji': '💚',
+        'description': 'Heilt sich selbst über mehrere Runden',
+        'effect_type': 'status',
+        'status_effect': 'heal',
+        'trigger_chance': 0.2
+    },
+    'armor_up': {
+        'name': 'Panzerung',
+        'emoji': '🛡️',
+        'description': 'Verstärkt die Rüstung und reduziert Schaden',
+        'effect_type': 'status',
+        'status_effect': 'shield',
+        'trigger_chance': 0.2
+    },
+    'critical_strike': {
+        'name': 'Kritischer Schlag',
+        'emoji': '💥',
+        'description': 'Führt einen verheerenden kritischen Angriff aus',
+        'effect_type': 'damage_boost',
+        'damage_multiplier': 2.5,
+        'trigger_chance': 0.2
+    },
+    'life_drain': {
+        'name': 'Lebensentzug',
+        'emoji': '🩸',
+        'description': 'Stiehlt Leben vom Ziel und heilt sich selbst',
+        'effect_type': 'lifesteal',
+        'lifesteal_percent': 0.5,
+        'trigger_chance': 0.25
+    }
 }
 
 # Item Rarities
@@ -139,8 +280,22 @@ async def initialize_rpg_tables(db_helpers):
                     gold_reward INT DEFAULT 10,
                     loot_table JSON,
                     spawn_rate FLOAT DEFAULT 1.0,
+                    abilities JSON,
                     INDEX idx_world (world),
                     INDEX idx_level (level)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """)
+            
+            # Monster abilities reference table (for documentation and easy access)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS rpg_monster_abilities (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    ability_key VARCHAR(50) UNIQUE NOT NULL,
+                    name VARCHAR(100) NOT NULL,
+                    description TEXT,
+                    effect_type VARCHAR(50),
+                    effect_value JSON,
+                    INDEX idx_ability_key (ability_key)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
@@ -244,26 +399,26 @@ async def gain_xp(db_helpers, user_id: int, xp_amount: int):
         return None
 
 
-# Default Monsters
+# Default Monsters with abilities
 DEFAULT_MONSTERS = [
     # Overworld monsters (Level 1-10)
-    {'name': 'Schleimling', 'world': 'overworld', 'level': 1, 'health': 30, 'strength': 3, 'defense': 2, 'speed': 5, 'xp_reward': 15, 'gold_reward': 10},
-    {'name': 'Goblin', 'world': 'overworld', 'level': 2, 'health': 45, 'strength': 5, 'defense': 3, 'speed': 6, 'xp_reward': 25, 'gold_reward': 20},
-    {'name': 'Wilder Wolf', 'world': 'overworld', 'level': 3, 'health': 60, 'strength': 7, 'defense': 4, 'speed': 10, 'xp_reward': 35, 'gold_reward': 25},
-    {'name': 'Skelett-Krieger', 'world': 'overworld', 'level': 4, 'health': 70, 'strength': 9, 'defense': 6, 'speed': 7, 'xp_reward': 50, 'gold_reward': 35},
-    {'name': 'Ork-Schläger', 'world': 'overworld', 'level': 5, 'health': 90, 'strength': 12, 'defense': 8, 'speed': 6, 'xp_reward': 65, 'gold_reward': 50},
-    {'name': 'Dunkler Magier', 'world': 'overworld', 'level': 6, 'health': 80, 'strength': 15, 'defense': 5, 'speed': 9, 'xp_reward': 80, 'gold_reward': 60},
-    {'name': 'Troll', 'world': 'overworld', 'level': 7, 'health': 120, 'strength': 16, 'defense': 12, 'speed': 4, 'xp_reward': 100, 'gold_reward': 75},
-    {'name': 'Geist', 'world': 'overworld', 'level': 8, 'health': 100, 'strength': 18, 'defense': 8, 'speed': 12, 'xp_reward': 120, 'gold_reward': 85},
-    {'name': 'Oger', 'world': 'overworld', 'level': 9, 'health': 150, 'strength': 20, 'defense': 15, 'speed': 5, 'xp_reward': 150, 'gold_reward': 100},
-    {'name': 'Drache (Jung)', 'world': 'overworld', 'level': 10, 'health': 180, 'strength': 25, 'defense': 18, 'speed': 10, 'xp_reward': 200, 'gold_reward': 150},
+    {'name': 'Schleimling', 'world': 'overworld', 'level': 1, 'health': 30, 'strength': 3, 'defense': 2, 'speed': 5, 'xp_reward': 15, 'gold_reward': 10, 'abilities': ['poison_spit']},
+    {'name': 'Goblin', 'world': 'overworld', 'level': 2, 'health': 45, 'strength': 5, 'defense': 3, 'speed': 6, 'xp_reward': 25, 'gold_reward': 20, 'abilities': ['critical_strike']},
+    {'name': 'Wilder Wolf', 'world': 'overworld', 'level': 3, 'health': 60, 'strength': 7, 'defense': 4, 'speed': 10, 'xp_reward': 35, 'gold_reward': 25, 'abilities': ['battle_roar']},
+    {'name': 'Skelett-Krieger', 'world': 'overworld', 'level': 4, 'health': 70, 'strength': 9, 'defense': 6, 'speed': 7, 'xp_reward': 50, 'gold_reward': 35, 'abilities': ['armor_up']},
+    {'name': 'Ork-Schläger', 'world': 'overworld', 'level': 5, 'health': 90, 'strength': 12, 'defense': 8, 'speed': 6, 'xp_reward': 65, 'gold_reward': 50, 'abilities': ['battle_roar', 'critical_strike']},
+    {'name': 'Dunkler Magier', 'world': 'overworld', 'level': 6, 'health': 80, 'strength': 15, 'defense': 5, 'speed': 9, 'xp_reward': 80, 'gold_reward': 60, 'abilities': ['shadow_cloak', 'life_drain']},
+    {'name': 'Troll', 'world': 'overworld', 'level': 7, 'health': 120, 'strength': 16, 'defense': 12, 'speed': 4, 'xp_reward': 100, 'gold_reward': 75, 'abilities': ['regeneration', 'armor_up']},
+    {'name': 'Geist', 'world': 'overworld', 'level': 8, 'health': 100, 'strength': 18, 'defense': 8, 'speed': 12, 'xp_reward': 120, 'gold_reward': 85, 'abilities': ['shadow_cloak', 'life_drain']},
+    {'name': 'Oger', 'world': 'overworld', 'level': 9, 'health': 150, 'strength': 20, 'defense': 15, 'speed': 5, 'xp_reward': 150, 'gold_reward': 100, 'abilities': ['battle_roar', 'critical_strike', 'regeneration']},
+    {'name': 'Drache (Jung)', 'world': 'overworld', 'level': 10, 'health': 180, 'strength': 25, 'defense': 18, 'speed': 10, 'xp_reward': 200, 'gold_reward': 150, 'abilities': ['fire_breath', 'critical_strike']},
     
     # Underworld monsters (Level 10+)
-    {'name': 'Dämon', 'world': 'underworld', 'level': 12, 'health': 220, 'strength': 30, 'defense': 20, 'speed': 12, 'xp_reward': 300, 'gold_reward': 200},
-    {'name': 'Höllenhund', 'world': 'underworld', 'level': 14, 'health': 250, 'strength': 35, 'defense': 22, 'speed': 15, 'xp_reward': 400, 'gold_reward': 250},
-    {'name': 'Schattenbestie', 'world': 'underworld', 'level': 16, 'health': 280, 'strength': 40, 'defense': 25, 'speed': 14, 'xp_reward': 500, 'gold_reward': 300},
-    {'name': 'Todesritter', 'world': 'underworld', 'level': 18, 'health': 320, 'strength': 45, 'defense': 30, 'speed': 11, 'xp_reward': 650, 'gold_reward': 400},
-    {'name': 'Drache (Erwachsen)', 'world': 'underworld', 'level': 20, 'health': 400, 'strength': 50, 'defense': 35, 'speed': 13, 'xp_reward': 800, 'gold_reward': 500},
+    {'name': 'Dämon', 'world': 'underworld', 'level': 12, 'health': 220, 'strength': 30, 'defense': 20, 'speed': 12, 'xp_reward': 300, 'gold_reward': 200, 'abilities': ['fire_breath', 'life_drain', 'battle_roar']},
+    {'name': 'Höllenhund', 'world': 'underworld', 'level': 14, 'health': 250, 'strength': 35, 'defense': 22, 'speed': 15, 'xp_reward': 400, 'gold_reward': 250, 'abilities': ['fire_breath', 'critical_strike']},
+    {'name': 'Schattenbestie', 'world': 'underworld', 'level': 16, 'health': 280, 'strength': 40, 'defense': 25, 'speed': 14, 'xp_reward': 500, 'gold_reward': 300, 'abilities': ['shadow_cloak', 'poison_spit', 'life_drain']},
+    {'name': 'Todesritter', 'world': 'underworld', 'level': 18, 'health': 320, 'strength': 45, 'defense': 30, 'speed': 11, 'xp_reward': 650, 'gold_reward': 400, 'abilities': ['frost_nova', 'armor_up', 'critical_strike']},
+    {'name': 'Drache (Erwachsen)', 'world': 'underworld', 'level': 20, 'health': 400, 'strength': 50, 'defense': 35, 'speed': 13, 'xp_reward': 800, 'gold_reward': 500, 'abilities': ['fire_breath', 'lightning_strike', 'critical_strike', 'regeneration']},
 ]
 
 
@@ -284,15 +439,16 @@ async def initialize_default_monsters(db_helpers):
             count = cursor.fetchone()[0]
             
             if count == 0:
-                # Insert default monsters
+                # Insert default monsters with abilities
                 for monster in DEFAULT_MONSTERS:
+                    abilities_json = json.dumps(monster.get('abilities', []))
                     cursor.execute("""
                         INSERT INTO rpg_monsters 
-                        (name, world, level, health, strength, defense, speed, xp_reward, gold_reward)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        (name, world, level, health, strength, defense, speed, xp_reward, gold_reward, abilities)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, (monster['name'], monster['world'], monster['level'], monster['health'],
                           monster['strength'], monster['defense'], monster['speed'],
-                          monster['xp_reward'], monster['gold_reward']))
+                          monster['xp_reward'], monster['gold_reward'], abilities_json))
                 
                 conn.commit()
                 logger.info(f"Initialized {len(DEFAULT_MONSTERS)} default monsters")
@@ -304,7 +460,10 @@ async def initialize_default_monsters(db_helpers):
 
 
 async def get_random_monster(db_helpers, player_level: int, world: str):
-    """Get a random monster appropriate for player level and world."""
+    """
+    Get a random monster appropriate for player level and world.
+    Monster stats are varied by ±10-20% from base values for variety.
+    """
     try:
         if not db_helpers.db_pool:
             return None
@@ -326,7 +485,38 @@ async def get_random_monster(db_helpers, player_level: int, world: str):
                 LIMIT 1
             """, (world, min_level, max_level))
             
-            return cursor.fetchone()
+            monster = cursor.fetchone()
+            
+            if monster:
+                # Add stat variations (±10-20% from base stats)
+                variation_min = 0.85  # -15%
+                variation_max = 1.20  # +20%
+                
+                # Store original stats as 'base_stats' before variation
+                monster['base_health'] = monster['health']
+                monster['base_strength'] = monster['strength']
+                monster['base_defense'] = monster['defense']
+                monster['base_speed'] = monster['speed']
+                
+                # Apply random variations to each stat
+                monster['health'] = int(monster['health'] * random.uniform(variation_min, variation_max))
+                monster['strength'] = int(monster['strength'] * random.uniform(variation_min, variation_max))
+                monster['defense'] = int(monster['defense'] * random.uniform(variation_min, variation_max))
+                monster['speed'] = int(monster['speed'] * random.uniform(variation_min, variation_max))
+                
+                # Store max health for combat
+                monster['max_health'] = monster['health']
+                
+                # Parse abilities JSON if present
+                if monster.get('abilities'):
+                    if isinstance(monster['abilities'], str):
+                        monster['abilities'] = json.loads(monster['abilities'])
+                else:
+                    monster['abilities'] = []
+                
+                logger.debug(f"Generated monster: {monster['name']} (Level {monster['level']}) with varied stats")
+            
+            return monster
         finally:
             cursor.close()
             conn.close()
