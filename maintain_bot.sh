@@ -1321,8 +1321,8 @@ while true; do
     # Initialize bot start time for crash detection
     BOT_START_TIME=$(date +%s)
     
-    local start_attempts=0
-    local max_start_attempts=3
+    start_attempts=0
+    max_start_attempts=3
     while [ $start_attempts -lt $max_start_attempts ]; do
         if start_bot; then
             break
