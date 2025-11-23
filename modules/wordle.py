@@ -499,21 +499,6 @@ async def complete_premium_game(db_helpers, game_id: int, won: bool):
     except Exception as e:
         logger.error(f"Error completing premium Wordle game: {e}", exc_info=True)
         return False
-        cursor = conn.cursor()
-        try:
-            cursor.execute("""
-                INSERT INTO wordle_attempts (user_id, word_id, guess, attempt_number)
-                VALUES (%s, %s, %s, %s)
-            """, (user_id, word_id, guess, attempt_num))
-            
-            conn.commit()
-            return True
-        finally:
-            cursor.close()
-            conn.close()
-    except Exception as e:
-        logger.error(f"Error recording Wordle attempt: {e}", exc_info=True)
-        return False
 
 
 async def update_user_stats(db_helpers, user_id: int, won: bool, attempts: int):

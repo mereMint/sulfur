@@ -10197,32 +10197,6 @@ async def wordle_command(interaction: discord.Interaction):
             f"❌ Fehler beim Starten des Spiels: {str(e)}",
             ephemeral=True
         )
-            
-            # Show share button
-            view = WordleCompletedView(user_id, attempts, False, word_data)
-            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-            return
-        
-        # Get user stats
-        user_stats = await wordle.get_user_stats(db_helpers, user_id)
-        
-        # Get user's theme
-        user_theme = await themes.get_user_theme(db_helpers, user_id)
-        
-        # Create game embed
-        embed = wordle.create_game_embed(word_data, attempts, user_stats, theme_id=user_theme)
-        
-        # Create view with guess button
-        view = WordleView(user_id, word_data, max_attempts, user_theme)
-        
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-        
-    except Exception as e:
-        logger.error(f"Error in wordle command: {e}", exc_info=True)
-        await interaction.followup.send(
-            f"❌ Fehler beim Starten des Spiels: {str(e)}",
-            ephemeral=True
-        )
 
 
 class WordleView(discord.ui.View):
