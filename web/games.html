@@ -1,0 +1,305 @@
+{% extends "layout.html" %}
+
+{% block title %}Games Dashboard - Sulfur Bot{% endblock %}
+
+{% block extra_styles %}
+<style>
+    .game-card {
+        background: linear-gradient(135deg, rgba(83, 52, 131, 0.3) 0%, rgba(233, 69, 96, 0.3) 100%);
+        border: 2px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+        transition: all 0.3s ease;
+        text-align: center;
+    }
+    
+    .game-card:hover {
+        border-color: var(--accent-primary);
+        transform: scale(1.02);
+    }
+    
+    .game-icon {
+        font-size: 3rem;
+        margin-bottom: 1rem;
+    }
+    
+    .game-stat {
+        font-size: 1.5rem;
+        font-weight: bold;
+        color: var(--accent-primary);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4 fade-in">
+    <div class="col-12">
+        <h2 class="gradient-text mb-4">
+            <i class="bi bi-controller"></i> Games Dashboard
+        </h2>
+    </div>
+</div>
+
+<!-- Game Statistics -->
+<div class="row mb-4 fade-in">
+    <div class="col-md-3 col-sm-6 mb-3">
+        <div class="game-card">
+            <div class="game-icon">🐺</div>
+            <h5>Werwolf</h5>
+            <div class="game-stat" id="werwolf-games">0</div>
+            <small class="text-muted">Total Games</small>
+            <div class="mt-2">
+                <small class="text-muted" id="werwolf-players">0 Players</small>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 col-sm-6 mb-3">
+        <div class="game-card">
+            <div class="game-icon">🕵️</div>
+            <h5>Detective</h5>
+            <div class="game-stat" id="detective-games">0</div>
+            <small class="text-muted">Total Cases</small>
+            <div class="mt-2">
+                <small class="text-muted" id="detective-players">0 Players</small>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 col-sm-6 mb-3">
+        <div class="game-card">
+            <div class="game-icon">📝</div>
+            <h5>Wordle</h5>
+            <div class="game-stat" id="wordle-games">0</div>
+            <small class="text-muted">Total Games</small>
+            <div class="mt-2">
+                <small class="text-muted" id="wordle-players">0 Players</small>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 col-sm-6 mb-3">
+        <div class="game-card">
+            <div class="game-icon">🎰</div>
+            <h5>Casino</h5>
+            <div class="game-stat" id="casino-games">0</div>
+            <small class="text-muted">Total Games</small>
+            <div class="mt-2">
+                <small class="text-muted">All Games Combined</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Game Leaderboards -->
+<div class="row fade-in">
+    <div class="col-12 mb-4">
+        <div class="card p-4">
+            <h4 class="section-title mb-4">
+                <i class="bi bi-trophy-fill"></i> Game Leaderboards
+            </h4>
+            
+            <ul class="nav nav-pills mb-3" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="detective-lb-tab" data-bs-toggle="pill" 
+                            data-bs-target="#detective-lb" type="button" role="tab"
+                            onclick="loadGameLeaderboard('detective')">
+                        🕵️ Detective
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="wordle-lb-tab" data-bs-toggle="pill" 
+                            data-bs-target="#wordle-lb" type="button" role="tab"
+                            onclick="loadGameLeaderboard('wordle')">
+                        📝 Wordle
+                    </button>
+                </li>
+            </ul>
+            
+            <div class="tab-content">
+                <!-- Detective Leaderboard -->
+                <div class="tab-pane fade show active" id="detective-lb" role="tabpanel">
+                    <div class="table-responsive">
+                        <table class="table table-dark table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Rank</th>
+                                    <th>Player</th>
+                                    <th>Cases Solved</th>
+                                    <th>Accuracy</th>
+                                    <th>Streak</th>
+                                    <th>Best Streak</th>
+                                </tr>
+                            </thead>
+                            <tbody id="detective-leaderboard">
+                                <tr><td colspan="6" class="text-center">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <!-- Wordle Leaderboard -->
+                <div class="tab-pane fade" id="wordle-lb" role="tabpanel">
+                    <div class="table-responsive">
+                        <table class="table table-dark table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Rank</th>
+                                    <th>Player</th>
+                                    <th>Games Won</th>
+                                    <th>Avg Attempts</th>
+                                </tr>
+                            </thead>
+                            <tbody id="wordle-leaderboard">
+                                <tr><td colspan="4" class="text-center">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Casino Breakdown -->
+<div class="row fade-in">
+    <div class="col-md-4 mb-4">
+        <div class="card p-4 text-center">
+            <h5 class="mb-3">🃏 Blackjack</h5>
+            <div class="game-stat" id="blackjack-games">0</div>
+            <small class="text-muted">Games Played</small>
+        </div>
+    </div>
+    <div class="col-md-4 mb-4">
+        <div class="card p-4 text-center">
+            <h5 class="mb-3">🎡 Roulette</h5>
+            <div class="game-stat" id="roulette-games">0</div>
+            <small class="text-muted">Games Played</small>
+        </div>
+    </div>
+    <div class="col-md-4 mb-4">
+        <div class="card p-4 text-center">
+            <h5 class="mb-3">💣 Mines</h5>
+            <div class="game-stat" id="mines-games">0</div>
+            <small class="text-muted">Games Played</small>
+        </div>
+    </div>
+</div>
+
+<style>
+    .section-title {
+        color: var(--accent-primary);
+        border-bottom: 2px solid var(--border-color);
+        padding-bottom: 0.5rem;
+        font-weight: 600;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        loadGamesStats();
+        loadGameLeaderboard('detective');
+        
+        // Refresh every minute
+        setInterval(loadGamesStats, 60000);
+    });
+    
+    async function loadGamesStats() {
+        try {
+            const response = await fetch('/api/games/stats');
+            const data = await response.json();
+            
+            // Update Werwolf stats
+            if (data.werwolf) {
+                document.getElementById('werwolf-games').textContent = 
+                    data.werwolf.total_games.toLocaleString();
+                document.getElementById('werwolf-players').textContent = 
+                    `${data.werwolf.total_players.toLocaleString()} Players`;
+            }
+            
+            // Update Detective stats
+            if (data.detective) {
+                document.getElementById('detective-games').textContent = 
+                    data.detective.total_games.toLocaleString();
+                document.getElementById('detective-players').textContent = 
+                    `${data.detective.total_players.toLocaleString()} Players`;
+            }
+            
+            // Update Wordle stats
+            if (data.wordle) {
+                document.getElementById('wordle-games').textContent = 
+                    data.wordle.total_games.toLocaleString();
+                document.getElementById('wordle-players').textContent = 
+                    `${data.wordle.total_players.toLocaleString()} Players`;
+            }
+            
+            // Update Casino stats
+            if (data.casino) {
+                const totalCasino = data.casino.blackjack_games + 
+                                   data.casino.roulette_games + 
+                                   data.casino.mines_games;
+                document.getElementById('casino-games').textContent = 
+                    totalCasino.toLocaleString();
+                document.getElementById('blackjack-games').textContent = 
+                    data.casino.blackjack_games.toLocaleString();
+                document.getElementById('roulette-games').textContent = 
+                    data.casino.roulette_games.toLocaleString();
+                document.getElementById('mines-games').textContent = 
+                    data.casino.mines_games.toLocaleString();
+            }
+        } catch (error) {
+            console.error('Error loading games stats:', error);
+        }
+    }
+    
+    async function loadGameLeaderboard(gameType) {
+        try {
+            const response = await fetch(`/api/games/${gameType}/leaderboard`);
+            const data = await response.json();
+            
+            const tableId = `${gameType}-leaderboard`;
+            const table = document.getElementById(tableId);
+            
+            if (data.leaderboard && data.leaderboard.length > 0) {
+                let html = '';
+                data.leaderboard.forEach((player, index) => {
+                    const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '';
+                    
+                    if (gameType === 'detective') {
+                        const winRate = player.total_cases > 0 
+                            ? ((player.cases_solved / player.total_cases) * 100).toFixed(1) 
+                            : '0.0';
+                        html += `
+                            <tr>
+                                <td>${medal} #${index + 1}</td>
+                                <td>${player.display_name || player.username || 'Unknown'}</td>
+                                <td><strong>${player.cases_solved}</strong> / ${player.total_cases}</td>
+                                <td><span class="badge bg-success">${winRate}%</span></td>
+                                <td>${player.streak || 0}</td>
+                                <td>${player.best_streak || 0}</td>
+                            </tr>
+                        `;
+                    } else if (gameType === 'wordle') {
+                        html += `
+                            <tr>
+                                <td>${medal} #${index + 1}</td>
+                                <td>User ${player.user_id}</td>
+                                <td><strong>${player.games_won}</strong></td>
+                                <td><span class="badge bg-info">${parseFloat(player.avg_attempts).toFixed(1)}</span></td>
+                            </tr>
+                        `;
+                    }
+                });
+                table.innerHTML = html;
+            } else {
+                const colspan = gameType === 'detective' ? 6 : 4;
+                table.innerHTML = `<tr><td colspan="${colspan}" class="text-center">No data available</td></tr>`;
+            }
+        } catch (error) {
+            console.error(`Error loading ${gameType} leaderboard:`, error);
+        }
+    }
+</script>
+{% endblock %}

@@ -5,6 +5,7 @@ import subprocess
 import threading
 import time
 import logging
+import asyncio
 from flask import Flask, render_template, jsonify, request, flash, redirect, url_for
 from flask_socketio import SocketIO, emit
 
@@ -19,6 +20,25 @@ if not logger.handlers:
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter('[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s'))
     logger.addHandler(handler)
+
+
+# --- Helper function for async operations ---
+def run_async(coro):
+    """
+    Helper to run async functions in sync Flask routes.
+    Uses asyncio.run() which properly manages event loop lifecycle.
+    """
+    try:
+        return asyncio.run(coro)
+    except RuntimeError:
+        # Fallback for environments where asyncio.run() isn't available
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
+
 
 # --- Configuration ---
 
@@ -292,18 +312,12 @@ def ai_usage_viewer():
 def ai_dashboard():
     """Renders the AI usage dashboard with statistics and charts."""
     from modules.db_helpers import get_ai_usage_stats
-    import asyncio
     
     try:
         # Get stats for different time periods
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        stats_7days = loop.run_until_complete(get_ai_usage_stats(7))
-        stats_30days = loop.run_until_complete(get_ai_usage_stats(30))
-        stats_all = loop.run_until_complete(get_ai_usage_stats(365))
-        
-        loop.close()
+        stats_7days = run_async(get_ai_usage_stats(7))
+        stats_30days = run_async(get_ai_usage_stats(30))
+        stats_all = run_async(get_ai_usage_stats(365))
         
         # Calculate totals
         total_calls = sum(stat['total_calls'] for stat in stats_all)
@@ -395,13 +409,9 @@ def api_ai_usage():
         
         # Import here to avoid circular import
         from modules.db_helpers import get_ai_usage_stats
-        import asyncio
         
         # Run async function in sync context
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        stats = loop.run_until_complete(get_ai_usage_stats(days))
-        loop.close()
+        stats = run_async(get_ai_usage_stats(days))
         
         # Group by model and feature for better display
         by_model = {}
@@ -537,7 +547,6 @@ def api_update_setting():
 def api_wrapped_stats():
     """API endpoint to get wrapped registration statistics."""
     try:
-        import asyncio
         from modules.db_helpers import get_wrapped_registrations, get_user_wrapped_stats
         from datetime import datetime
         
@@ -554,10 +563,7 @@ def api_wrapped_stats():
             return registrations
         
         # Run async function
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        registrations = loop.run_until_complete(fetch_stats())
-        loop.close()
+        registrations = run_async(fetch_stats())
         
         return jsonify({'registrations': registrations})
     except Exception as e:
@@ -568,17 +574,13 @@ def api_wrapped_stats():
 def api_level_leaderboard():
     """API endpoint to get level leaderboard."""
     try:
-        import asyncio
         from modules.db_helpers import get_level_leaderboard
         
         async def fetch_leaderboard():
             leaderboard, error = await get_level_leaderboard()
             return leaderboard if not error else []
         
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        leaderboard = loop.run_until_complete(fetch_leaderboard())
-        loop.close()
+        leaderboard = run_async(fetch_leaderboard())
         
         return jsonify({'leaderboard': leaderboard})
     except Exception as e:
@@ -589,17 +591,13 @@ def api_level_leaderboard():
 def api_ww_leaderboard():
     """API endpoint to get Werwolf leaderboard."""
     try:
-        import asyncio
         from modules.db_helpers import get_leaderboard
         
         async def fetch_leaderboard():
             leaderboard, error = await get_leaderboard()
             return leaderboard if not error else []
         
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        leaderboard = loop.run_until_complete(fetch_leaderboard())
-        loop.close()
+        leaderboard = run_async(fetch_leaderboard())
         
         return jsonify({'leaderboard': leaderboard})
     except Exception as e:
@@ -661,7 +659,6 @@ def admin_save_history():
 def admin_clear_history():
     """Clear chat history for a channel."""
     try:
-        import asyncio
         from modules.db_helpers import clear_channel_history
         
         data = request.json
@@ -673,10 +670,7 @@ def admin_clear_history():
                 return {'success': False, 'message': f'Error: {error}'}
             return {'success': True, 'message': f'Deleted {deleted_count} messages'}
         
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(clear_history())
-        loop.close()
+        result = run_async(clear_history())
         
         return jsonify(result)
     except Exception as e:
@@ -686,7 +680,6 @@ def admin_clear_history():
 def admin_delete_memory():
     """Delete bot memory for a user."""
     try:
-        import asyncio
         from modules.db_helpers import update_relationship_summary
         
         data = request.json
@@ -696,10 +689,7 @@ def admin_delete_memory():
             await update_relationship_summary(user_id, None)
             return {'success': True, 'message': f'Memory deleted for user {user_id}'}
         
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(delete_user_memory())
-        loop.close()
+        result = run_async(delete_user_memory())
         
         return jsonify(result)
     except Exception as e:
@@ -756,7 +746,6 @@ def admin_preview_wrapped():
 def admin_delete_user_data():
     """Delete all data for a specific user from the database."""
     try:
-        import asyncio
         
         data = request.json
         user_id = int(data.get('user_id'))
@@ -1132,7 +1121,6 @@ def init_rpg_monsters():
     try:
         # Import RPG system to access default monsters
         from modules import rpg_system
-        import asyncio
         
         # Run async function
         loop = asyncio.new_event_loop()
@@ -1152,7 +1140,6 @@ def init_rpg_items():
     try:
         # Import RPG system to access default items
         from modules import rpg_system
-        import asyncio
         
         # Run async function
         loop = asyncio.new_event_loop()
@@ -1349,6 +1336,427 @@ def delete_skill(path_key, skill_key):
         return jsonify({'success': True, 'message': f'Skill {skill_key} deleted'})
     except Exception as e:
         logger.error(f"Error deleting skill: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ========== Economy Dashboard APIs ==========
+
+@app.route('/economy', methods=['GET'])
+def economy_dashboard():
+    """Renders the economy dashboard page."""
+    return render_template('economy.html')
+
+
+@app.route('/api/economy/stats', methods=['GET'])
+def economy_stats():
+    """Get overall economy statistics."""
+    try:
+        if not db_helpers.db_pool:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        conn = db_helpers.db_pool.get_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        try:
+            # Total coins in circulation
+            cursor.execute("SELECT COALESCE(SUM(coins), 0) as total_coins FROM user_stats")
+            total_coins = cursor.fetchone()['total_coins']
+            
+            # Total users with coins
+            cursor.execute("SELECT COUNT(*) as total_users FROM user_stats WHERE coins > 0")
+            total_users = cursor.fetchone()['total_users']
+            
+            # Average coins per user
+            avg_coins = total_coins / total_users if total_users > 0 else 0
+            
+            # Richest users
+            cursor.execute("""
+                SELECT user_id, display_name, username, coins 
+                FROM user_stats 
+                WHERE coins > 0 
+                ORDER BY coins DESC 
+                LIMIT 10
+            """)
+            richest_users = cursor.fetchall()
+            
+            # Recent transactions
+            cursor.execute("""
+                SELECT t.*, u.display_name, u.username 
+                FROM transactions t
+                LEFT JOIN user_stats u ON t.user_id = u.user_id
+                ORDER BY t.timestamp DESC 
+                LIMIT 20
+            """)
+            recent_transactions = cursor.fetchall()
+            
+            # Transaction volume by type
+            cursor.execute("""
+                SELECT transaction_type, COUNT(*) as count, SUM(amount) as total_amount
+                FROM transactions
+                WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                GROUP BY transaction_type
+                ORDER BY total_amount DESC
+            """)
+            transaction_types = cursor.fetchall()
+            
+            return jsonify({
+                'total_coins': int(total_coins),
+                'total_users': total_users,
+                'avg_coins': round(avg_coins, 2),
+                'richest_users': richest_users,
+                'recent_transactions': recent_transactions,
+                'transaction_types': transaction_types
+            })
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting economy stats: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/economy/stocks', methods=['GET'])
+def economy_stocks():
+    """Get stock market data."""
+    try:
+        if not db_helpers.db_pool:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        conn = db_helpers.db_pool.get_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        try:
+            # Get all stocks
+            cursor.execute("""
+                SELECT * FROM stocks
+                ORDER BY symbol ASC
+            """)
+            stocks = cursor.fetchall()
+            
+            # Get top stock holders
+            cursor.execute("""
+                SELECT so.symbol, so.user_id, so.quantity, 
+                       u.display_name, u.username, s.current_price
+                FROM stocks_owned so
+                JOIN user_stats u ON so.user_id = u.user_id
+                JOIN stocks s ON so.symbol = s.symbol
+                WHERE so.quantity > 0
+                ORDER BY (so.quantity * s.current_price) DESC
+                LIMIT 20
+            """)
+            top_holders = cursor.fetchall()
+            
+            return jsonify({
+                'stocks': stocks,
+                'top_holders': top_holders
+            })
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting stock data: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ========== Games Dashboard APIs ==========
+
+@app.route('/games', methods=['GET'])
+def games_dashboard():
+    """Renders the games dashboard page."""
+    return render_template('games.html')
+
+
+@app.route('/api/games/stats', methods=['GET'])
+def games_stats():
+    """Get overall games statistics."""
+    try:
+        if not db_helpers.db_pool:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        conn = db_helpers.db_pool.get_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        stats = {}
+        
+        try:
+            # Werwolf stats
+            cursor.execute("SELECT COUNT(*) as total_games FROM werwolf_games")
+            werwolf_games = cursor.fetchone()['total_games']
+            
+            cursor.execute("""
+                SELECT COUNT(DISTINCT user_id) as total_players 
+                FROM werwolf_user_stats
+            """)
+            werwolf_players = cursor.fetchone()['total_players']
+            
+            stats['werwolf'] = {
+                'total_games': werwolf_games,
+                'total_players': werwolf_players
+            }
+            
+            # Detective stats
+            cursor.execute("SELECT COUNT(*) as total_games FROM detective_games")
+            detective_games = cursor.fetchone()['total_games']
+            
+            cursor.execute("""
+                SELECT COUNT(DISTINCT user_id) as total_players 
+                FROM detective_user_stats
+            """)
+            detective_players = cursor.fetchone()['total_players']
+            
+            stats['detective'] = {
+                'total_games': detective_games,
+                'total_players': detective_players
+            }
+            
+            # Wordle stats  
+            cursor.execute("""
+                SELECT COUNT(*) as total_games FROM wordle_games WHERE completed = TRUE
+            """)
+            wordle_games = cursor.fetchone()['total_games']
+            
+            cursor.execute("""
+                SELECT COUNT(DISTINCT user_id) as total_players 
+                FROM wordle_games
+            """)
+            wordle_players = cursor.fetchone()['total_players']
+            
+            stats['wordle'] = {
+                'total_games': wordle_games,
+                'total_players': wordle_players
+            }
+            
+            # Casino games
+            cursor.execute("SELECT COUNT(*) as total_games FROM blackjack_games")
+            blackjack_games = cursor.fetchone()['total_games']
+            
+            cursor.execute("SELECT COUNT(*) as total_games FROM roulette_games")
+            roulette_games = cursor.fetchone()['total_games']
+            
+            cursor.execute("SELECT COUNT(*) as total_games FROM mines_games")
+            mines_games = cursor.fetchone()['total_games']
+            
+            stats['casino'] = {
+                'blackjack_games': blackjack_games,
+                'roulette_games': roulette_games,
+                'mines_games': mines_games
+            }
+            
+            return jsonify(stats)
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting games stats: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/games/<game_type>/leaderboard', methods=['GET'])
+def game_leaderboard(game_type):
+    """Get leaderboard for a specific game."""
+    try:
+        if not db_helpers.db_pool:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        conn = db_helpers.db_pool.get_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        try:
+            if game_type == 'detective':
+                cursor.execute("""
+                    SELECT u.display_name, u.username, d.user_id,
+                           d.cases_solved, d.total_cases, d.accuracy,
+                           d.streak, d.best_streak
+                    FROM detective_user_stats d
+                    JOIN user_stats u ON d.user_id = u.user_id
+                    ORDER BY d.cases_solved DESC, d.accuracy DESC
+                    LIMIT 50
+                """)
+            elif game_type == 'wordle':
+                cursor.execute("""
+                    SELECT user_id, COUNT(*) as games_won,
+                           AVG(attempts) as avg_attempts
+                    FROM wordle_games
+                    WHERE completed = TRUE AND won = TRUE
+                    GROUP BY user_id
+                    ORDER BY games_won DESC, avg_attempts ASC
+                    LIMIT 50
+                """)
+            else:
+                return jsonify({'error': 'Invalid game type'}), 400
+            
+            leaderboard = cursor.fetchall()
+            return jsonify({'leaderboard': leaderboard})
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting game leaderboard: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ========== System Health APIs ==========
+
+@app.route('/system', methods=['GET'])
+def system_dashboard():
+    """Renders the system health dashboard page."""
+    return render_template('system.html')
+
+
+@app.route('/api/system/health', methods=['GET'])
+def system_health():
+    """Get system health metrics."""
+    try:
+        import psutil
+        import os
+        
+        # Get current process
+        process = psutil.Process(os.getpid())
+        
+        # Memory usage
+        memory_info = process.memory_info()
+        memory_mb = memory_info.rss / 1024 / 1024
+        
+        # CPU usage
+        cpu_percent = process.cpu_percent(interval=0.1)
+        
+        # System-wide stats
+        system_memory = psutil.virtual_memory()
+        system_cpu = psutil.cpu_percent(interval=0.1)
+        
+        # Disk usage
+        disk = psutil.disk_usage('/')
+        
+        # Database health
+        db_healthy = False
+        db_pool_size = 0
+        if db_helpers.db_pool:
+            try:
+                conn = db_helpers.db_pool.get_connection()
+                if conn:
+                    db_healthy = True
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT 1")
+                    cursor.close()
+                    conn.close()
+                    db_pool_size = db_helpers.db_pool.pool_size if hasattr(db_helpers.db_pool, 'pool_size') else 5
+            except Exception as e:
+                logger.warning(f"Database health check failed: {e}")
+        
+        # Check for errors in recent logs
+        error_count = 0
+        warning_count = 0
+        latest_log = get_latest_log_file()
+        if latest_log and os.path.exists(latest_log):
+            try:
+                with open(latest_log, 'r', encoding='utf-8', errors='ignore') as f:
+                    lines = f.readlines()
+                    recent_lines = lines[-1000:] if len(lines) > 1000 else lines
+                    for line in recent_lines:
+                        line_lower = line.lower()
+                        if 'error' in line_lower and not 'no error' in line_lower:
+                            error_count += 1
+                        elif 'warning' in line_lower:
+                            warning_count += 1
+            except Exception as e:
+                logger.error(f"Error reading log file: {e}")
+        
+        # Bot uptime (from status file)
+        uptime_seconds = 0
+        bot_status = 'Unknown'
+        try:
+            if os.path.exists('config/bot_status.json'):
+                with open('config/bot_status.json', 'r', encoding='utf-8-sig') as f:
+                    status_data = json.load(f)
+                    bot_status = status_data.get('status', 'Unknown')
+                    if 'timestamp' in status_data:
+                        from datetime import datetime
+                        status_time = datetime.fromisoformat(status_data['timestamp'].replace('Z', '+00:00'))
+                        now = datetime.now(status_time.tzinfo)
+                        uptime_seconds = (now - status_time).total_seconds()
+        except Exception as e:
+            logger.warning(f"Error reading bot status: {e}")
+        
+        return jsonify({
+            'process': {
+                'memory_mb': round(memory_mb, 2),
+                'cpu_percent': round(cpu_percent, 2),
+                'uptime_seconds': uptime_seconds
+            },
+            'system': {
+                'memory_percent': system_memory.percent,
+                'memory_used_gb': round(system_memory.used / 1024 / 1024 / 1024, 2),
+                'memory_total_gb': round(system_memory.total / 1024 / 1024 / 1024, 2),
+                'cpu_percent': round(system_cpu, 2),
+                'disk_percent': disk.percent,
+                'disk_used_gb': round(disk.used / 1024 / 1024 / 1024, 2),
+                'disk_total_gb': round(disk.total / 1024 / 1024 / 1024, 2)
+            },
+            'database': {
+                'healthy': db_healthy,
+                'pool_size': db_pool_size
+            },
+            'logs': {
+                'error_count': error_count,
+                'warning_count': warning_count
+            },
+            'bot_status': bot_status
+        })
+    except ImportError:
+        return jsonify({
+            'error': 'psutil not installed',
+            'message': 'Install psutil for system metrics: pip install psutil'
+        }), 500
+    except Exception as e:
+        logger.error(f"Error getting system health: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/system/api_quotas', methods=['GET'])
+def api_quotas():
+    """Get API usage quotas and limits."""
+    try:
+        # Load config for API limits
+        config = {}
+        try:
+            with open('config/config.json', 'r', encoding='utf-8') as f:
+                config = json.load(f)
+        except Exception as e:
+            logger.warning(f"Error loading config: {e}")
+        
+        # Get AI usage for current month
+        from modules.db_helpers import get_ai_usage_stats
+        
+        # Use asyncio.run() for better event loop management
+        stats_30days = asyncio.run(get_ai_usage_stats(30))
+        
+        # Calculate totals
+        total_calls = sum(stat['total_calls'] for stat in stats_30days)
+        total_input_tokens = sum(stat['total_input_tokens'] for stat in stats_30days)
+        total_output_tokens = sum(stat['total_output_tokens'] for stat in stats_30days)
+        total_cost = sum(stat['total_cost'] for stat in stats_30days)
+        
+        # API limits from config or defaults
+        # Note: These are general estimates - check your API provider's documentation for exact limits
+        provider = config.get('api', {}).get('provider', 'unknown')
+        gemini_limit = config.get('api', {}).get('gemini', {}).get('rate_limit_rpm', 1500)
+        openai_limit = config.get('api', {}).get('openai', {}).get('rate_limit_rpd', 10000)
+        
+        return jsonify({
+            'current_usage': {
+                'total_calls_30d': total_calls,
+                'total_tokens_30d': total_input_tokens + total_output_tokens,
+                'total_cost_30d': round(total_cost, 2)
+            },
+            'limits': {
+                'gemini_rpm': gemini_limit,
+                'openai_rpd': openai_limit,
+                'note': 'Limits are estimates. Verify with your API provider.'
+            },
+            'provider': provider
+        })
+    except Exception as e:
+        logger.error(f"Error getting API quotas: {e}")
         return jsonify({'error': str(e)}), 500
 
 

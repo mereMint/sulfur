@@ -1,9 +1,27 @@
 {% extends "layout.html" %}
 {% block title %}Database Viewer{% endblock %}
 
+{% block extra_styles %}
+<style>
+    .table-search {
+        position: sticky;
+        top: 0;
+        background: var(--bg-card);
+        z-index: 10;
+        padding: 1rem 0;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
-<h3>Database Viewer</h3>
-<p class="text-muted">Browse and explore all database tables.</p>
+<div class="row mb-4 fade-in">
+    <div class="col-12">
+        <h2 class="gradient-text mb-4">
+            <i class="bi bi-database"></i> Database Viewer
+        </h2>
+        <p class="text-muted">Browse, search, and export database tables.</p>
+    </div>
+</div>
 
 {% if error %}
     <div class="alert alert-danger">{{ error }}</div>
@@ -32,89 +50,126 @@
 </div>
 
 <!-- Table Selection -->
-<div class="mb-4">
-    <label for="tableSelect" class="form-label">Select Table:</label>
-    <select class="form-select" id="tableSelect" onchange="window.location.href='?table=' + this.value">
-        <option value="">-- Select a table --</option>
-        {% for table in all_tables %}
-            <option value="{{ table }}" {% if table == selected_table %}selected{% endif %}>{{ table }}</option>
-        {% endfor %}
-    </select>
+<div class="card mb-4 fade-in">
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-8">
+                <label for="tableSelect" class="form-label"><strong>Select Table:</strong></label>
+                <select class="form-select" id="tableSelect" onchange="window.location.href='?table=' + this.value">
+                    <option value="">-- Select a table --</option>
+                    {% for table in all_tables %}
+                        <option value="{{ table }}" {% if table == selected_table %}selected{% endif %}>{{ table }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% if selected_table %}
+            <div class="col-md-4 d-flex align-items-end">
+                <div class="btn-group w-100" role="group">
+                    <button class="btn btn-success" onclick="exportTable('{{ selected_table }}', 'csv')">
+                        <i class="bi bi-file-earmark-spreadsheet"></i> Export CSV
+                    </button>
+                    <button class="btn btn-info" onclick="exportTable('{{ selected_table }}', 'json')">
+                        <i class="bi bi-filetype-json"></i> Export JSON
+                    </button>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
 </div>
 
 <!-- Table Data Display -->
 {% if selected_table and table_data is not none %}
-    <h4 class="mt-4">{{ selected_table }}</h4>
-    <p class="text-muted">Total rows: {{ total_rows }} | Showing page {{ current_page }} of {{ total_pages }}</p>
-    
-    {% if table_data %}
-        <div class="table-responsive">
-            <table class="table table-striped table-bordered table-hover table-sm">
-                <thead class="table-dark">
-                    <tr>
-                        {% for key in table_data[0].keys() %}
-                            <th>{{ key }}</th>
-                        {% endfor %}
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for row in table_data %}
-                        <tr>
-                            {% for value in row.values() %}
-                                <td>
-                                    <div style="max-width: 300px; max-height: 100px; overflow: auto; white-space: pre-wrap; word-break: break-word;">
-                                        {{ value }}
-                                    </div>
-                                </td>
-                            {% endfor %}
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+    <div class="card fade-in">
+        <div class="card-header">
+            <div class="row align-items-center">
+                <div class="col-md-6">
+                    <h4 class="mb-0">📊 {{ selected_table }}</h4>
+                    <small class="text-muted">Total rows: {{ total_rows }} | Page {{ current_page }} of {{ total_pages }}</small>
+                </div>
+                <div class="col-md-6">
+                    <input type="text" class="form-control" id="tableSearch" placeholder="🔍 Search in table..." onkeyup="filterTable()">
+                </div>
+            </div>
         </div>
+        <div class="card-body p-0">
+            {% if table_data %}
+                <div class="table-responsive" style="max-height: 70vh;">
+                    <table class="table table-dark table-striped table-hover mb-0" id="dataTable">
+                        <thead class="table-dark" style="position: sticky; top: 0; z-index: 5;">
+                            <tr>
+                                {% for key in table_data[0].keys() %}
+                                    <th style="cursor: pointer;" onclick="sortTable({{ loop.index0 }})">
+                                        {{ key }} <i class="bi bi-chevron-expand text-muted"></i>
+                                    </th>
+                                {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in table_data %}
+                                <tr>
+                                    {% for value in row.values() %}
+                                        <td>
+                                            <div style="max-width: 300px; max-height: 100px; overflow: auto; white-space: pre-wrap; word-break: break-word;">
+                                                {{ value if value is not none else '-' }}
+                                            </div>
+                                        </td>
+                                    {% endfor %}
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
         
         <!-- Pagination -->
         {% if total_pages > 1 %}
-        <nav aria-label="Table pagination">
-            <ul class="pagination">
-                {% if current_page > 1 %}
-                    <li class="page-item">
-                        <a class="page-link" href="?table={{ selected_table }}&page=1&per_page={{ per_page }}">First</a>
-                    </li>
-                    <li class="page-item">
-                        <a class="page-link" href="?table={{ selected_table }}&page={{ current_page - 1 }}&per_page={{ per_page }}">Previous</a>
-                    </li>
-                {% endif %}
-                
-                <li class="page-item active">
-                    <span class="page-link">Page {{ current_page }} of {{ total_pages }}</span>
-                </li>
-                
-                {% if current_page < total_pages %}
-                    <li class="page-item">
-                        <a class="page-link" href="?table={{ selected_table }}&page={{ current_page + 1 }}&per_page={{ per_page }}">Next</a>
-                    </li>
-                    <li class="page-item">
-                        <a class="page-link" href="?table={{ selected_table }}&page={{ total_pages }}&per_page={{ per_page }}">Last</a>
-                    </li>
-                {% endif %}
-            </ul>
-        </nav>
-        
-        <!-- Rows per page selector -->
-        <div class="mb-3">
-            <label for="perPageSelect" class="form-label">Rows per page:</label>
-            <select class="form-select" id="perPageSelect" style="width: auto;" onchange="window.location.href='?table={{ selected_table }}&page=1&per_page=' + this.value">
-                <option value="25" {% if per_page == 25 %}selected{% endif %}>25</option>
-                <option value="50" {% if per_page == 50 %}selected{% endif %}>50</option>
-                <option value="100" {% if per_page == 100 %}selected{% endif %}>100</option>
-                <option value="200" {% if per_page == 200 %}selected{% endif %}>200</option>
-            </select>
+        <div class="card-footer">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <nav aria-label="Table pagination">
+                        <ul class="pagination mb-0">
+                            {% if current_page > 1 %}
+                                <li class="page-item">
+                                    <a class="page-link" href="?table={{ selected_table }}&page=1&per_page={{ per_page }}">First</a>
+                                </li>
+                                <li class="page-item">
+                                    <a class="page-link" href="?table={{ selected_table }}&page={{ current_page - 1 }}&per_page={{ per_page }}">Previous</a>
+                                </li>
+                            {% endif %}
+                            
+                            <li class="page-item active">
+                                <span class="page-link">Page {{ current_page }} of {{ total_pages }}</span>
+                            </li>
+                            
+                            {% if current_page < total_pages %}
+                                <li class="page-item">
+                                    <a class="page-link" href="?table={{ selected_table }}&page={{ current_page + 1 }}&per_page={{ per_page }}">Next</a>
+                                </li>
+                                <li class="page-item">
+                                    <a class="page-link" href="?table={{ selected_table }}&page={{ total_pages }}&per_page={{ per_page }}">Last</a>
+                                </li>
+                            {% endif %}
+                        </ul>
+                    </nav>
+                </div>
+                <div class="col-md-4">
+                    <label for="perPageSelect" class="form-label small mb-1">Rows per page:</label>
+                    <select class="form-select form-select-sm" id="perPageSelect" onchange="window.location.href='?table={{ selected_table }}&page=1&per_page=' + this.value">
+                        <option value="25" {% if per_page == 25 %}selected{% endif %}>25</option>
+                        <option value="50" {% if per_page == 50 %}selected{% endif %}>50</option>
+                        <option value="100" {% if per_page == 100 %}selected{% endif %}>100</option>
+                        <option value="200" {% if per_page == 200 %}selected{% endif %}>200</option>
+                    </select>
+                </div>
+            </div>
         </div>
         {% endif %}
     {% else %}
-        <p>No data in this table.</p>
+        <div class="card-body">
+            <p class="text-muted mb-0">No data in this table.</p>
+        </div>
     {% endif %}
+    </div>
 {% elif selected_table %}
     <div class="alert alert-warning">Please select a table from the dropdown above.</div>
 {% endif %}
@@ -181,6 +236,146 @@ function deleteUserData() {
             <p>Failed to delete user data: ${error}</p>
         </div>`;
     });
+}
+
+function filterTable() {
+    const input = document.getElementById('tableSearch');
+    const filter = input.value.toLowerCase();
+    const table = document.getElementById('dataTable');
+    if (!table) return;
+    
+    const tr = table.getElementsByTagName('tr');
+    
+    for (let i = 1; i < tr.length; i++) {
+        let show = false;
+        const td = tr[i].getElementsByTagName('td');
+        
+        for (let j = 0; j < td.length; j++) {
+            if (td[j]) {
+                const txtValue = td[j].textContent || td[j].innerText;
+                if (txtValue.toLowerCase().indexOf(filter) > -1) {
+                    show = true;
+                    break;
+                }
+            }
+        }
+        
+        tr[i].style.display = show ? '' : 'none';
+    }
+}
+
+function sortTable(columnIndex) {
+    const table = document.getElementById('dataTable');
+    if (!table) return;
+    
+    const tbody = table.tBodies[0];
+    const rows = Array.from(tbody.rows);
+    
+    // Determine sort direction
+    const header = table.tHead.rows[0].cells[columnIndex];
+    const icon = header.querySelector('i');
+    const isAscending = icon.classList.contains('bi-chevron-up');
+    
+    // Update icons
+    table.tHead.rows[0].querySelectorAll('i').forEach(i => {
+        i.className = 'bi bi-chevron-expand text-muted';
+    });
+    icon.className = isAscending ? 'bi bi-chevron-down text-primary' : 'bi bi-chevron-up text-primary';
+    
+    // Sort rows
+    rows.sort((a, b) => {
+        const aText = a.cells[columnIndex].textContent.trim();
+        const bText = b.cells[columnIndex].textContent.trim();
+        
+        // Try to parse as numbers
+        const aNum = parseFloat(aText);
+        const bNum = parseFloat(bText);
+        
+        if (!isNaN(aNum) && !isNaN(bNum)) {
+            return isAscending ? bNum - aNum : aNum - bNum;
+        }
+        
+        // String comparison
+        return isAscending ? bText.localeCompare(aText) : aText.localeCompare(bText);
+    });
+    
+    // Re-append rows
+    rows.forEach(row => tbody.appendChild(row));
+}
+
+function exportTable(tableName, format) {
+    const table = document.getElementById('dataTable');
+    if (!table) {
+        alert('No table data to export');
+        return;
+    }
+    
+    if (format === 'csv') {
+        exportCSV(table, tableName);
+    } else if (format === 'json') {
+        exportJSON(table, tableName);
+    }
+}
+
+function exportCSV(table, tableName) {
+    let csv = [];
+    
+    // Headers
+    const headers = [];
+    for (let cell of table.tHead.rows[0].cells) {
+        headers.push('"' + cell.textContent.trim().replace(/"/g, '""') + '"');
+    }
+    csv.push(headers.join(','));
+    
+    // Rows
+    for (let row of table.tBodies[0].rows) {
+        if (row.style.display === 'none') continue; // Skip filtered rows
+        
+        const rowData = [];
+        for (let cell of row.cells) {
+            const text = cell.textContent.trim().replace(/"/g, '""');
+            rowData.push('"' + text + '"');
+        }
+        csv.push(rowData.join(','));
+    }
+    
+    // Download
+    const csvContent = csv.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${tableName}_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+}
+
+function exportJSON(table, tableName) {
+    const headers = [];
+    for (let cell of table.tHead.rows[0].cells) {
+        headers.push(cell.textContent.trim());
+    }
+    
+    const rows = [];
+    for (let row of table.tBodies[0].rows) {
+        if (row.style.display === 'none') continue; // Skip filtered rows
+        
+        const rowData = {};
+        for (let i = 0; i < row.cells.length; i++) {
+            rowData[headers[i]] = row.cells[i].textContent.trim();
+        }
+        rows.push(rowData);
+    }
+    
+    // Download
+    const jsonContent = JSON.stringify(rows, null, 2);
+    const blob = new Blob([jsonContent], { type: 'application/json' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${tableName}_${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    window.URL.revokeObjectURL(url);
 }
 </script>
 {% endblock %}
