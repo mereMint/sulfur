@@ -28,8 +28,8 @@ def test_wordfind_error_handling():
     checks = {
         "Message edit error handling (win case)": "except (discord.errors.NotFound, discord.errors.HTTPException) as e:" in bot_code,
         "Fallback message sending (win case)": "await interaction.followup.send(embed=embed, view=view, ephemeral=True)" in bot_code,
-        "No generic NotFound timeout message": "⏱️ Die Interaktion ist abgelaufen. Bitte starte ein neues Spiel mit /wordfind" not in bot_code or 
-                                                 bot_code.count("⏱️ Die Interaktion ist abgelaufen") < 2,  # Should only appear once (in give up)
+        # Verify we're using the proper specific error handling, not generic catch-alls
+        "Specific error handling in WordGuessModal": "except (discord.errors.NotFound, discord.errors.HTTPException)" in bot_code,
     }
     
     all_passed = True

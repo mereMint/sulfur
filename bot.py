@@ -7,6 +7,7 @@ import subprocess
 import socket
 import signal
 import sys
+import math
 from collections import deque
 import re
 from datetime import datetime, timedelta, timezone
@@ -959,6 +960,9 @@ async def flush_active_game_time(user_id: int):
     """
     Helper function to flush active game time for quest tracking.
     This is called when a user checks their quests to ensure current game sessions are counted.
+    
+    Note: The timer is reset after flushing to prevent double-counting when the game stops
+    or when flush is called again. The time between flushes continues to be tracked normally.
     """
     try:
         if user_id not in game_start_times:
@@ -977,11 +981,11 @@ async def flush_active_game_time(user_id: int):
             await db_helpers.log_game_session(user_id, stat_period, game_name, duration_minutes)
             
             # Update quest progress
-            import math
             quest_minutes = math.ceil(duration_minutes)
             await quests.update_quest_progress(db_helpers, user_id, 'game_minutes', quest_minutes)
             
-            # Reset the start time to now (so we don't double-count)
+            # Reset the start time to now to prevent double-counting
+            # The next flush or game stop will only count time from this point forward
             game_start_times[user_id] = (game_name, now)
             
             logger.debug(f"Flushed {duration_minutes:.1f} minutes of {game_name} for user {user_id}")
