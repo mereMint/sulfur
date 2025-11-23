@@ -119,16 +119,57 @@ logger.info(f"Loaded {len(WORDLE_WORDS_DE)} German words and {len(WORDLE_WORDS_E
 WORDLE_WORDS_DE_SET = set(WORDLE_WORDS_DE)
 WORDLE_WORDS_EN_SET = set(WORDLE_WORDS_EN)
 
+# Constants for word validation expansion
+VALIDATION_WORD_COUNT = 10000  # Max words to fetch from fallback lists
+WORDLE_WORD_LENGTH = 5  # Standard Wordle word length
+
+# Create expanded validation sets by importing additional words from word_service
+# This allows more valid guesses while keeping curated solution words
+try:
+    from modules.word_service import get_fallback_german_words, get_fallback_english_words
+    
+    # Get comprehensive word lists for validation (5-letter words only)
+    expanded_de_words = get_fallback_german_words(
+        count=VALIDATION_WORD_COUNT, 
+        min_length=WORDLE_WORD_LENGTH, 
+        max_length=WORDLE_WORD_LENGTH
+    )
+    expanded_en_words = get_fallback_english_words(
+        count=VALIDATION_WORD_COUNT, 
+        min_length=WORDLE_WORD_LENGTH, 
+        max_length=WORDLE_WORD_LENGTH
+    )
+    
+    # Combine curated words with expanded validation words
+    WORDLE_VALID_GUESSES_DE = WORDLE_WORDS_DE_SET | set(expanded_de_words)
+    WORDLE_VALID_GUESSES_EN = WORDLE_WORDS_EN_SET | set(expanded_en_words)
+    
+    logger.info(f"Expanded Wordle validation: DE={len(WORDLE_VALID_GUESSES_DE)} words, EN={len(WORDLE_VALID_GUESSES_EN)} words")
+except Exception as e:
+    logger.warning(f"Could not load expanded word lists: {e}. Using curated lists only.")
+    WORDLE_VALID_GUESSES_DE = WORDLE_WORDS_DE_SET
+    WORDLE_VALID_GUESSES_EN = WORDLE_WORDS_EN_SET
+
 
 def get_wordle_words(language='de'):
-    """Get Wordle word set for specified language (optimized for fast lookups)."""
+    """
+    Get Wordle word set for validation (accepts a wide range of valid words).
+    
+    This is used for validating user guesses - it includes both curated solution words
+    and a comprehensive dictionary of valid 5-letter words.
+    """
     if language == 'en':
-        return WORDLE_WORDS_EN_SET
-    return WORDLE_WORDS_DE_SET
+        return WORDLE_VALID_GUESSES_EN
+    return WORDLE_VALID_GUESSES_DE
 
 
 def get_wordle_words_list(language='de'):
-    """Get Wordle word list for specified language (for selecting words)."""
+    """
+    Get Wordle word list for selecting daily solution words.
+    
+    This uses the curated word list (not the expanded validation list)
+    to ensure daily words are common and appropriate.
+    """
     if language == 'en':
         word_list = WORDLE_WORDS_EN
     else:

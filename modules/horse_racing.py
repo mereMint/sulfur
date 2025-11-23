@@ -104,6 +104,10 @@ ANIMATION_FRAMES = 15  # Number of animation frames
 FRAME_DELAY = 1.5  # Seconds between frames
 ABILITY_TRIGGER_CHANCE = 0.3  # 30% chance per turn to trigger an ability
 
+# Display settings for mobile compatibility
+MAX_HORSE_NAME_LENGTH = 12  # Maximum characters before truncation
+TRUNCATED_NAME_LENGTH = 11  # Length to truncate to (leaving room for ellipsis)
+
 
 class HorseRace:
     """Manages a single horse race instance."""
@@ -309,12 +313,19 @@ class HorseRace:
             # Add finish line
             track_str = ''.join(track) + '🏁'
             
+            # Truncate long horse names to fit on mobile
+            horse_name = horse['name']
+            if len(horse_name) > MAX_HORSE_NAME_LENGTH:
+                horse_name = horse_name[:TRUNCATED_NAME_LENGTH] + '…'
+            
             # Add horse name and position
             status = f"#{self.finish_order.index(i) + 1}" if i in self.finish_order else "Racing"
-            line = f"{horse['name']:10} {track_str} {status}"
+            # Use fixed-width formatting with truncated name for better mobile display
+            line = f"{horse_name:<{MAX_HORSE_NAME_LENGTH}} {track_str} {status}"
             lines.append(line)
         
-        return '\n'.join(lines)
+        # Wrap in code block for monospace formatting on mobile
+        return '```\n' + '\n'.join(lines) + '\n```'
     
     def get_ability_summary(self) -> str:
         """
