@@ -11,7 +11,8 @@ from modules.logger_utils import bot_logger as logger
 
 async def create_color_role(guild: discord.Guild, member: discord.Member, color: str, role_name: str = None):
     """
-    Creates a custom color role for a member at the lowest visible position.
+    Creates a custom color role for a member.
+    Places the role above the user's highest existing role so the color is visible.
     
     Args:
         guild: Discord guild
@@ -31,13 +32,16 @@ async def create_color_role(guild: discord.Guild, member: discord.Member, color:
         if not role_name:
             role_name = f"Color-{member.name}"
         
-        # Find the @everyone role position (always 0) and bot's lowest role
-        # We want to place color roles as low as possible while still being visible
-        everyone_role_position = 0
+        # Find the member's highest role position (excluding @everyone)
+        # Color roles need to be ABOVE the user's other roles to be visible
+        member_highest_role_position = 0
+        for role in member.roles:
+            if role.name != "@everyone":
+                member_highest_role_position = max(member_highest_role_position, role.position)
         
-        # Find the lowest non-@everyone role position
-        # This ensures color roles are above @everyone but below most other roles
-        lowest_role_position = 1  # Start at 1 (just above @everyone)
+        # Find bot's highest role position to ensure we don't exceed it
+        bot_member = guild.get_member(guild.me.id)
+        bot_top_position = guild.me.top_role.position if bot_member else len(guild.roles) - 1
         
         # Find existing color roles to group them together
         existing_color_roles = []
@@ -46,15 +50,23 @@ async def create_color_role(guild: discord.Guild, member: discord.Member, color:
                 existing_color_roles.append(role)
         
         # Determine target position for the new color role
-        # Strategy: Place at the lowest possible position that's still visible
-        # If other color roles exist, group with them; otherwise place just above @everyone
+        # Strategy: Place above the user's highest role, but below bot's top role
+        # If other color roles exist at similar positions, group with them
         if existing_color_roles:
-            # Find the lowest color role position
-            lowest_color_position = min(r.position for r in existing_color_roles)
-            target_position = lowest_color_position
+            # Find the highest color role position that's still above the user's roles
+            suitable_color_positions = [r.position for r in existing_color_roles if r.position > member_highest_role_position]
+            if suitable_color_positions:
+                # Use the lowest suitable existing color role position to group together
+                target_position = min(suitable_color_positions)
+            else:
+                # No suitable existing color roles, place just above user's highest role
+                target_position = min(member_highest_role_position + 1, bot_top_position - 1)
         else:
-            # No existing color roles - place just above @everyone (position 1)
-            target_position = 1
+            # No existing color roles - place just above user's highest role
+            target_position = min(member_highest_role_position + 1, bot_top_position - 1)
+        
+        # Ensure target position is at least 1 and doesn't exceed bot's position
+        target_position = max(1, min(target_position, bot_top_position - 1))
         
         # Create the role at a default position first
         role = await guild.create_role(
@@ -63,10 +75,10 @@ async def create_color_role(guild: discord.Guild, member: discord.Member, color:
             reason=f"Color role purchased by {member.name}"
         )
         
-        # Move role to the lowest visible position
+        # Move role to the target position (above user's roles)
         try:
             await role.edit(position=target_position)
-            logger.info(f"Created color role '{role_name}' ({color}) for {member.name} at lowest position {target_position}")
+            logger.info(f"Created color role '{role_name}' ({color}) for {member.name} at position {target_position} (above user's role at {member_highest_role_position})")
         except discord.Forbidden:
             logger.error(f"Missing permissions to move color role to position {target_position}")
             # Keep at default position
