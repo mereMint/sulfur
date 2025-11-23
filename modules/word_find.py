@@ -565,61 +565,6 @@ async def create_premium_game(db_helpers, user_id: int, language='de'):
         return None
 
 
-async def get_user_attempts_by_type(db_helpers, user_id: int, word_id: int, game_type: str):
-    """Get user's attempts for a specific game (daily or premium)."""
-    try:
-        if not db_helpers.db_pool:
-            return []
-        
-        conn = db_helpers.db_pool.get_connection()
-        if not conn:
-            return []
-        
-        cursor = conn.cursor(dictionary=True)
-        try:
-            cursor.execute("""
-                SELECT guess, similarity_score, attempt_number
-                FROM word_find_attempts
-                WHERE user_id = %s AND word_id = %s AND game_type = %s
-                ORDER BY attempt_number ASC
-            """, (user_id, word_id, game_type))
-            
-            return cursor.fetchall()
-        finally:
-            cursor.close()
-            conn.close()
-    except Exception as e:
-        logger.error(f"Error getting user attempts by type: {e}", exc_info=True)
-        return []
-
-
-async def record_attempt_with_type(db_helpers, user_id: int, word_id: int, guess: str, similarity: float, attempt_num: int, game_type: str):
-    """Record a guess attempt with game type."""
-    try:
-        if not db_helpers.db_pool:
-            return False
-        
-        conn = db_helpers.db_pool.get_connection()
-        if not conn:
-            return False
-        
-        cursor = conn.cursor()
-        try:
-            cursor.execute("""
-                INSERT INTO word_find_attempts (user_id, word_id, guess, similarity_score, attempt_number, game_type)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """, (user_id, word_id, guess, similarity, attempt_num, game_type))
-            
-            conn.commit()
-            return True
-        finally:
-            cursor.close()
-            conn.close()
-    except Exception as e:
-        logger.error(f"Error recording attempt with type: {e}", exc_info=True)
-        return False
-
-
 async def complete_premium_game(db_helpers, game_id: int, won: bool):
     """Mark a premium game as completed."""
     try:
