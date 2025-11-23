@@ -2512,7 +2512,7 @@ async def summary(interaction: discord.Interaction, user: discord.Member = None)
 
 @tree.command(name="profile", description="Zeigt dein Profil oder das eines anderen Benutzers an.")
 @app_commands.describe(user="Der Benutzer, dessen Profil du sehen möchtest (optional).")
-async def profile(interaction: discord.Interaction, user: discord.Member = None):
+async def profile(interaction: discord.Interaction, user: discord.User = None):
     """Displays a user's profile with various stats."""
     target_user = user or interaction.user
     
@@ -2560,8 +2560,10 @@ async def profile(interaction: discord.Interaction, user: discord.Member = None)
     equipped_color = await db_helpers.get_user_equipped_color(target_user.id)
     color_display = equipped_color if equipped_color else "Keine Farbe ausgerüstet"
     
-    # Check if user is boosting the server
-    is_boosting = target_user.premium_since is not None
+    # Check if user is boosting the server (only available in guilds)
+    is_boosting = False
+    if hasattr(target_user, 'premium_since') and target_user.premium_since is not None:
+        is_boosting = True
     boost_status = "💎 Boostet den Server!" if is_boosting else "Kein Boost"
     
     embed.add_field(name="🎨 Farbe", value=f"`{color_display}`", inline=True)
@@ -3405,6 +3407,9 @@ class RPGCombatView(discord.ui.View):
                 await interaction.followup.send(f"❌ Fehler: {result['error']}")
                 return
             
+            # Update monster health to track current state
+            self.monster['health'] = result['monster_health']
+            
             self.turn_count += 1
             
             # Create result embed
@@ -3479,6 +3484,10 @@ class RPGCombatView(discord.ui.View):
             if 'error' in result:
                 await interaction.followup.send(f"❌ Fehler: {result['error']}")
                 return
+            
+            # Update monster health to track current state
+            if 'monster_health' in result:
+                self.monster['health'] = result['monster_health']
             
             embed = discord.Embed(
                 title="🏃 Fluchtversuch",
@@ -3592,6 +3601,67 @@ class RPGShopView(discord.ui.View):
         except Exception as e:
             logger.error(f"Error purchasing item: {e}", exc_info=True)
             await interaction.followup.send("❌ Fehler beim Kauf.", ephemeral=True)
+    
+    @discord.ui.button(label="🔙 Zurück", style=discord.ButtonStyle.secondary, row=1)
+    async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Return to main RPG menu."""
+        await interaction.response.defer()
+        
+        try:
+            # Get fresh player data
+            player = await rpg_system.get_player_profile(db_helpers, self.user_id)
+            if not player:
+                await interaction.followup.send("❌ Fehler beim Laden deines Profils.", ephemeral=True)
+                return
+            
+            # Create main RPG menu embed
+            embed = discord.Embed(
+                title=f"⚔️ RPG Profil - {interaction.user.display_name}",
+                description=f"**Level {player['level']}** | Welt: {rpg_system.WORLDS[player['world']]['name']}",
+                color=discord.Color.purple()
+            )
+            embed.set_thumbnail(url=interaction.user.display_avatar.url)
+            
+            # Stats
+            embed.add_field(
+                name="📊 Attribute",
+                value=f"❤️ HP: {player['health']}/{player['max_health']}\n"
+                      f"⚔️ Stärke: {player['strength']}\n"
+                      f"🎯 Geschick: {player['dexterity']}\n"
+                      f"🛡️ Verteidigung: {player['defense']}\n"
+                      f"⚡ Geschwindigkeit: {player['speed']}",
+                inline=True
+            )
+            
+            # Progression
+            xp_needed = rpg_system.calculate_xp_for_level(player['level'] + 1)
+            xp_progress = player['xp']
+            progress_pct = (xp_progress / xp_needed) * 100 if xp_needed > 0 else 100
+            
+            embed.add_field(
+                name="📈 Fortschritt",
+                value=f"XP: {xp_progress}/{xp_needed}\n"
+                      f"Fortschritt: {progress_pct:.1f}%\n"
+                      f"💎 Skillpunkte: {player['skill_points']}\n"
+                      f"💰 Gold: {player['gold']}",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="🎮 Verfügbare Aktionen",
+                value="Wähle eine Aktion aus den Buttons unten!",
+                inline=False
+            )
+            
+            embed.set_footer(text="Nutze die Buttons um dein Abenteuer zu beginnen!")
+            
+            # Return to main menu view
+            view = RPGMenuView(self.user_id, player)
+            await interaction.edit_original_response(embed=embed, view=view)
+            
+        except Exception as e:
+            logger.error(f"Error returning to RPG menu: {e}", exc_info=True)
+            await interaction.followup.send("❌ Fehler beim Zurückkehren.", ephemeral=True)
 
 
 class RPGTempleView(discord.ui.View):
@@ -3668,6 +3738,67 @@ class RPGTempleView(discord.ui.View):
         except Exception as e:
             logger.error(f"Error applying blessing: {e}", exc_info=True)
             await interaction.followup.send("❌ Fehler beim Segen.", ephemeral=True)
+    
+    @discord.ui.button(label="🔙 Zurück", style=discord.ButtonStyle.secondary, row=1)
+    async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Return to main RPG menu."""
+        await interaction.response.defer()
+        
+        try:
+            # Get fresh player data
+            player = await rpg_system.get_player_profile(db_helpers, self.user_id)
+            if not player:
+                await interaction.followup.send("❌ Fehler beim Laden deines Profils.", ephemeral=True)
+                return
+            
+            # Create main RPG menu embed
+            embed = discord.Embed(
+                title=f"⚔️ RPG Profil - {interaction.user.display_name}",
+                description=f"**Level {player['level']}** | Welt: {rpg_system.WORLDS[player['world']]['name']}",
+                color=discord.Color.purple()
+            )
+            embed.set_thumbnail(url=interaction.user.display_avatar.url)
+            
+            # Stats
+            embed.add_field(
+                name="📊 Attribute",
+                value=f"❤️ HP: {player['health']}/{player['max_health']}\n"
+                      f"⚔️ Stärke: {player['strength']}\n"
+                      f"🎯 Geschick: {player['dexterity']}\n"
+                      f"🛡️ Verteidigung: {player['defense']}\n"
+                      f"⚡ Geschwindigkeit: {player['speed']}",
+                inline=True
+            )
+            
+            # Progression
+            xp_needed = rpg_system.calculate_xp_for_level(player['level'] + 1)
+            xp_progress = player['xp']
+            progress_pct = (xp_progress / xp_needed) * 100 if xp_needed > 0 else 100
+            
+            embed.add_field(
+                name="📈 Fortschritt",
+                value=f"XP: {xp_progress}/{xp_needed}\n"
+                      f"Fortschritt: {progress_pct:.1f}%\n"
+                      f"💎 Skillpunkte: {player['skill_points']}\n"
+                      f"💰 Gold: {player['gold']}",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="🎮 Verfügbare Aktionen",
+                value="Wähle eine Aktion aus den Buttons unten!",
+                inline=False
+            )
+            
+            embed.set_footer(text="Nutze die Buttons um dein Abenteuer zu beginnen!")
+            
+            # Return to main menu view
+            view = RPGMenuView(self.user_id, player)
+            await interaction.edit_original_response(embed=embed, view=view)
+            
+        except Exception as e:
+            logger.error(f"Error returning to RPG menu: {e}", exc_info=True)
+            await interaction.followup.send("❌ Fehler beim Zurückkehren.", ephemeral=True)
 
 
 class RPGInventoryView(discord.ui.View):
@@ -3755,6 +3886,67 @@ class RPGInventoryView(discord.ui.View):
         except Exception as e:
             logger.error(f"Error equipping skill: {e}", exc_info=True)
             await interaction.followup.send("❌ Fehler beim Ausrüsten.", ephemeral=True)
+    
+    @discord.ui.button(label="🔙 Zurück", style=discord.ButtonStyle.secondary, row=2)
+    async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Return to main RPG menu."""
+        await interaction.response.defer()
+        
+        try:
+            # Get fresh player data
+            player = await rpg_system.get_player_profile(db_helpers, self.user_id)
+            if not player:
+                await interaction.followup.send("❌ Fehler beim Laden deines Profils.", ephemeral=True)
+                return
+            
+            # Create main RPG menu embed
+            embed = discord.Embed(
+                title=f"⚔️ RPG Profil - {interaction.user.display_name}",
+                description=f"**Level {player['level']}** | Welt: {rpg_system.WORLDS[player['world']]['name']}",
+                color=discord.Color.purple()
+            )
+            embed.set_thumbnail(url=interaction.user.display_avatar.url)
+            
+            # Stats
+            embed.add_field(
+                name="📊 Attribute",
+                value=f"❤️ HP: {player['health']}/{player['max_health']}\n"
+                      f"⚔️ Stärke: {player['strength']}\n"
+                      f"🎯 Geschick: {player['dexterity']}\n"
+                      f"🛡️ Verteidigung: {player['defense']}\n"
+                      f"⚡ Geschwindigkeit: {player['speed']}",
+                inline=True
+            )
+            
+            # Progression
+            xp_needed = rpg_system.calculate_xp_for_level(player['level'] + 1)
+            xp_progress = player['xp']
+            progress_pct = (xp_progress / xp_needed) * 100 if xp_needed > 0 else 100
+            
+            embed.add_field(
+                name="📈 Fortschritt",
+                value=f"XP: {xp_progress}/{xp_needed}\n"
+                      f"Fortschritt: {progress_pct:.1f}%\n"
+                      f"💎 Skillpunkte: {player['skill_points']}\n"
+                      f"💰 Gold: {player['gold']}",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="🎮 Verfügbare Aktionen",
+                value="Wähle eine Aktion aus den Buttons unten!",
+                inline=False
+            )
+            
+            embed.set_footer(text="Nutze die Buttons um dein Abenteuer zu beginnen!")
+            
+            # Return to main menu view
+            view = RPGMenuView(self.user_id, player)
+            await interaction.edit_original_response(embed=embed, view=view)
+            
+        except Exception as e:
+            logger.error(f"Error returning to RPG menu: {e}", exc_info=True)
+            await interaction.followup.send("❌ Fehler beim Zurückkehren.", ephemeral=True)
 
 
 # --- Leaderboard Helper Constants and Functions ---

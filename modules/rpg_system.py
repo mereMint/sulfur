@@ -382,7 +382,7 @@ async def start_adventure(db_helpers, user_id: int):
         if not player:
             return None, "Profil konnte nicht geladen werden."
         
-        # Check cooldown (5 minutes between adventures)
+        # Check cooldown (2 minutes between adventures)
         if player['last_adventure']:
             last_adv = player['last_adventure']
             if isinstance(last_adv, str):
@@ -391,8 +391,8 @@ async def start_adventure(db_helpers, user_id: int):
                 last_adv = last_adv.replace(tzinfo=timezone.utc)
             
             cooldown = datetime.now(timezone.utc) - last_adv
-            if cooldown.total_seconds() < 300:  # 5 minutes
-                remaining = 300 - int(cooldown.total_seconds())
+            if cooldown.total_seconds() < 120:  # 2 minutes
+                remaining = 120 - int(cooldown.total_seconds())
                 return None, f"Du musst noch {remaining} Sekunden warten!"
         
         # Check if player has enough health
