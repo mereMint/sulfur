@@ -941,31 +941,32 @@ def rpg_stats():
         conn = db_helpers.db_pool.get_connection()
         cursor = conn.cursor()
         
-        # Get total players
-        cursor.execute("SELECT COUNT(*) FROM rpg_players")
-        total_players = cursor.fetchone()[0]
-        
-        # Get total monsters
-        cursor.execute("SELECT COUNT(*) FROM rpg_monsters")
-        total_monsters = cursor.fetchone()[0]
-        
-        # Get total items
-        cursor.execute("SELECT COUNT(*) FROM rpg_items")
-        total_items = cursor.fetchone()[0]
-        
-        # Get total gold in circulation
-        cursor.execute("SELECT SUM(gold) FROM rpg_players")
-        total_gold = cursor.fetchone()[0] or 0
-        
-        cursor.close()
-        conn.close()
-        
-        return jsonify({
-            'total_players': total_players,
-            'total_monsters': total_monsters,
-            'total_items': total_items,
-            'total_gold': int(total_gold)
-        })
+        try:
+            # Get total players
+            cursor.execute("SELECT COUNT(*) FROM rpg_players")
+            total_players = cursor.fetchone()[0]
+            
+            # Get total monsters
+            cursor.execute("SELECT COUNT(*) FROM rpg_monsters")
+            total_monsters = cursor.fetchone()[0]
+            
+            # Get total items
+            cursor.execute("SELECT COUNT(*) FROM rpg_items")
+            total_items = cursor.fetchone()[0]
+            
+            # Get total gold in circulation
+            cursor.execute("SELECT SUM(gold) FROM rpg_players")
+            total_gold = cursor.fetchone()[0] or 0
+            
+            return jsonify({
+                'total_players': total_players,
+                'total_monsters': total_monsters,
+                'total_items': total_items,
+                'total_gold': int(total_gold)
+            })
+        finally:
+            cursor.close()
+            conn.close()
     except Exception as e:
         logger.error(f"Error getting RPG stats: {e}")
         return jsonify({'error': str(e)}), 500

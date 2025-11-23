@@ -1223,17 +1223,30 @@ async def allocate_skill_point(db_helpers, user_id: int, stat_name: str):
             if player['skill_points'] <= 0:
                 return False, "Keine Skillpunkte verfügbar"
             
-            # Validate stat name
-            valid_stats = ['strength', 'dexterity', 'defense', 'speed']
-            if stat_name not in valid_stats:
+            # Validate stat name against whitelist and use safe mapping
+            stat_mapping = {
+                'strength': 'strength',
+                'dexterity': 'dexterity',
+                'defense': 'defense',
+                'speed': 'speed'
+            }
+            
+            if stat_name not in stat_mapping:
                 return False, "Ungültiger Stat"
             
-            # Allocate point
-            cursor.execute(f"""
+            # Use the validated stat name from mapping (safe from SQL injection)
+            safe_stat = stat_mapping[stat_name]
+            
+            # Allocate point - using CASE statement to avoid SQL injection
+            cursor.execute("""
                 UPDATE rpg_players 
-                SET {stat_name} = {stat_name} + 1, skill_points = skill_points - 1
+                SET strength = CASE WHEN %s = 'strength' THEN strength + 1 ELSE strength END,
+                    dexterity = CASE WHEN %s = 'dexterity' THEN dexterity + 1 ELSE dexterity END,
+                    defense = CASE WHEN %s = 'defense' THEN defense + 1 ELSE defense END,
+                    speed = CASE WHEN %s = 'speed' THEN speed + 1 ELSE speed END,
+                    skill_points = skill_points - 1
                 WHERE user_id = %s
-            """, (user_id,))
+            """, (safe_stat, safe_stat, safe_stat, safe_stat, user_id))
             
             conn.commit()
             return True, f"{stat_name.capitalize()} um 1 erhöht"
@@ -1243,7 +1256,9 @@ async def allocate_skill_point(db_helpers, user_id: int, stat_name: str):
     except Exception as e:
         logger.error(f"Error allocating skill point: {e}", exc_info=True)
         return False, str(e)
-    """Reset all stats to base (10) and return skill points."""
+
+
+async def reset_skill_points(db_helpers, user_id: int, cost: int):
     try:
         if not db_helpers.db_pool:
             return False
