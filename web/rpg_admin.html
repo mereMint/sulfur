@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RPG Admin - Sulfur Bot</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.0/font/bootstrap-icons.css">
+    <style>
+        :root {
+            --bg-primary: #1a1a2e;
+            --bg-secondary: #16213e;
+            --bg-tertiary: #0f3460;
+            --text-primary: #e94560;
+            --text-secondary: #f1f1f1;
+            --border-color: #533483;
+        }
+        
+        body {
+            background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+            color: var(--text-secondary);
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .navbar {
+            background: rgba(22, 33, 62, 0.95) !important;
+            backdrop-filter: blur(10px);
+            border-bottom: 2px solid var(--border-color);
+        }
+        
+        .card {
+            background: rgba(15, 52, 96, 0.6);
+            border: 1px solid var(--border-color);
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(233, 69, 96, 0.3);
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #e94560 0%, #533483 100%);
+            border: none;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 20px rgba(233, 69, 96, 0.5);
+        }
+        
+        .form-control, .form-select {
+            background: rgba(26, 26, 46, 0.8);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+        }
+        
+        .form-control:focus, .form-select:focus {
+            background: rgba(26, 26, 46, 0.9);
+            border-color: var(--text-primary);
+            color: var(--text-secondary);
+            box-shadow: 0 0 10px rgba(233, 69, 96, 0.3);
+        }
+        
+        .table {
+            color: var(--text-secondary);
+        }
+        
+        .table-dark {
+            background: rgba(15, 52, 96, 0.6);
+        }
+        
+        .badge {
+            padding: 0.5em 1em;
+            border-radius: 10px;
+        }
+        
+        .rarity-common { background: #95a5a6; }
+        .rarity-uncommon { background: #27ae60; }
+        .rarity-rare { background: #3498db; }
+        .rarity-epic { background: #9b59b6; }
+        .rarity-legendary { background: #f39c12; }
+        
+        .stat-card {
+            background: linear-gradient(135deg, rgba(83, 52, 131, 0.3) 0%, rgba(233, 69, 96, 0.3) 100%);
+            border: 2px solid var(--border-color);
+            border-radius: 10px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        
+        .stat-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: var(--text-primary);
+        }
+        
+        .section-title {
+            color: var(--text-primary);
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark sticky-top">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <i class="bi bi-robot"></i> Sulfur Bot - RPG Admin
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/config">Config</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/database">Database</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/rpg_admin">RPG Admin</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <!-- RPG Statistics -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="stat-card text-center">
+                    <i class="bi bi-people-fill" style="font-size: 2rem; color: var(--text-primary);"></i>
+                    <div class="stat-value" id="total-players">0</div>
+                    <div>Total Players</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card text-center">
+                    <i class="bi bi-shield-fill-exclamation" style="font-size: 2rem; color: var(--text-primary);"></i>
+                    <div class="stat-value" id="total-monsters">0</div>
+                    <div>Monsters</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card text-center">
+                    <i class="bi bi-box-seam" style="font-size: 2rem; color: var(--text-primary);"></i>
+                    <div class="stat-value" id="total-items">0</div>
+                    <div>Items</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card text-center">
+                    <i class="bi bi-coin" style="font-size: 2rem; color: var(--text-primary);"></i>
+                    <div class="stat-value" id="total-gold">0</div>
+                    <div>Total Gold</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <ul class="nav nav-tabs mb-4" id="rpgTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="items-tab" data-bs-toggle="tab" data-bs-target="#items" type="button" role="tab">
+                    <i class="bi bi-box"></i> Items & Weapons
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="monsters-tab" data-bs-toggle="tab" data-bs-target="#monsters" type="button" role="tab">
+                    <i class="bi bi-bug-fill"></i> Monsters
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="settings-tab" data-bs-toggle="tab" data-bs-target="#settings" type="button" role="tab">
+                    <i class="bi bi-gear-fill"></i> Settings
+                </button>
+            </li>
+        </ul>
+
+        <!-- Tab Content -->
+        <div class="tab-content" id="rpgTabContent">
+            <!-- Items Tab -->
+            <div class="tab-pane fade show active" id="items" role="tabpanel">
+                <div class="row">
+                    <div class="col-md-5">
+                        <div class="card p-4">
+                            <h3 class="section-title"><i class="bi bi-plus-circle"></i> Create Item</h3>
+                            <form id="createItemForm">
+                                <div class="mb-3">
+                                    <label for="itemName" class="form-label">Name</label>
+                                    <input type="text" class="form-control" id="itemName" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="itemType" class="form-label">Type</label>
+                                    <select class="form-select" id="itemType" required>
+                                        <option value="weapon">Weapon</option>
+                                        <option value="skill">Skill</option>
+                                        <option value="consumable">Consumable</option>
+                                        <option value="loot">Loot</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="itemRarity" class="form-label">Rarity</label>
+                                    <select class="form-select" id="itemRarity" required>
+                                        <option value="common">Common</option>
+                                        <option value="uncommon">Uncommon</option>
+                                        <option value="rare">Rare</option>
+                                        <option value="epic">Epic</option>
+                                        <option value="legendary">Legendary</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="itemDescription" class="form-label">Description</label>
+                                    <textarea class="form-control" id="itemDescription" rows="2" required></textarea>
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label for="itemDamage" class="form-label">Damage</label>
+                                        <input type="number" class="form-control" id="itemDamage" value="0" min="0">
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label for="itemPrice" class="form-label">Price</label>
+                                        <input type="number" class="form-control" id="itemPrice" value="100" min="0" required>
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label for="itemLevel" class="form-label">Required Level</label>
+                                        <input type="number" class="form-control" id="itemLevel" value="1" min="1" required>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label for="itemDamageType" class="form-label">Damage Type</label>
+                                        <select class="form-select" id="itemDamageType">
+                                            <option value="">None</option>
+                                            <option value="physical">Physical</option>
+                                            <option value="fire">Fire</option>
+                                            <option value="ice">Ice</option>
+                                            <option value="lightning">Lightning</option>
+                                            <option value="poison">Poison</option>
+                                            <option value="light">Light</option>
+                                            <option value="dark">Dark</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="itemEffects" class="form-label">Effects (JSON)</label>
+                                    <textarea class="form-control" id="itemEffects" rows="2" placeholder='{"heal": 50}'></textarea>
+                                    <small class="text-muted">Optional: JSON object with effects</small>
+                                </div>
+                                <button type="submit" class="btn btn-primary w-100">
+                                    <i class="bi bi-plus-circle"></i> Create Item
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                    <div class="col-md-7">
+                        <div class="card p-4">
+                            <h3 class="section-title"><i class="bi bi-list"></i> All Items</h3>
+                            <div class="table-responsive">
+                                <table class="table table-dark table-hover" id="itemsTable">
+                                    <thead>
+                                        <tr>
+                                            <th>Name</th>
+                                            <th>Type</th>
+                                            <th>Rarity</th>
+                                            <th>Damage</th>
+                                            <th>Price</th>
+                                            <th>Level</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="itemsTableBody">
+                                        <!-- Populated by JS -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Monsters Tab -->
+            <div class="tab-pane fade" id="monsters" role="tabpanel">
+                <div class="row">
+                    <div class="col-md-5">
+                        <div class="card p-4">
+                            <h3 class="section-title"><i class="bi bi-plus-circle"></i> Create Monster</h3>
+                            <form id="createMonsterForm">
+                                <div class="mb-3">
+                                    <label for="monsterName" class="form-label">Name</label>
+                                    <input type="text" class="form-control" id="monsterName" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="monsterWorld" class="form-label">World</label>
+                                    <select class="form-select" id="monsterWorld" required>
+                                        <option value="overworld">Overworld</option>
+                                        <option value="underworld">Underworld</option>
+                                    </select>
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label for="monsterLevel" class="form-label">Level</label>
+                                        <input type="number" class="form-control" id="monsterLevel" value="1" min="1" required>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label for="monsterHealth" class="form-label">Health</label>
+                                        <input type="number" class="form-control" id="monsterHealth" value="50" min="1" required>
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-4 mb-3">
+                                        <label for="monsterStrength" class="form-label">Strength</label>
+                                        <input type="number" class="form-control" id="monsterStrength" value="5" min="1" required>
+                                    </div>
+                                    <div class="col-md-4 mb-3">
+                                        <label for="monsterDefense" class="form-label">Defense</label>
+                                        <input type="number" class="form-control" id="monsterDefense" value="5" min="1" required>
+                                    </div>
+                                    <div class="col-md-4 mb-3">
+                                        <label for="monsterSpeed" class="form-label">Speed</label>
+                                        <input type="number" class="form-control" id="monsterSpeed" value="5" min="1" required>
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label for="monsterXP" class="form-label">XP Reward</label>
+                                        <input type="number" class="form-control" id="monsterXP" value="10" min="0" required>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label for="monsterGold" class="form-label">Gold Reward</label>
+                                        <input type="number" class="form-control" id="monsterGold" value="10" min="0" required>
+                                    </div>
+                                </div>
+                                <button type="submit" class="btn btn-primary w-100">
+                                    <i class="bi bi-plus-circle"></i> Create Monster
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                    <div class="col-md-7">
+                        <div class="card p-4">
+                            <h3 class="section-title"><i class="bi bi-list"></i> All Monsters</h3>
+                            <div class="table-responsive">
+                                <table class="table table-dark table-hover" id="monstersTable">
+                                    <thead>
+                                        <tr>
+                                            <th>Name</th>
+                                            <th>World</th>
+                                            <th>Level</th>
+                                            <th>HP</th>
+                                            <th>Stats</th>
+                                            <th>Rewards</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="monstersTableBody">
+                                        <!-- Populated by JS -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings Tab -->
+            <div class="tab-pane fade" id="settings" role="tabpanel">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="card p-4">
+                            <h3 class="section-title"><i class="bi bi-gear"></i> RPG Settings</h3>
+                            <form id="settingsForm">
+                                <div class="mb-3">
+                                    <label for="adventureCooldown" class="form-label">Adventure Cooldown (seconds)</label>
+                                    <input type="number" class="form-control" id="adventureCooldown" value="120" min="0">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="baseStatValue" class="form-label">Base Stat Value</label>
+                                    <input type="number" class="form-control" id="baseStatValue" value="10" min="1">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="respecCost" class="form-label">Respec Cost Per Point</label>
+                                    <input type="number" class="form-control" id="respecCost" value="50" min="0">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="levelRewardMultiplier" class="form-label">Level Reward Multiplier</label>
+                                    <input type="number" class="form-control" id="levelRewardMultiplier" value="0.1" step="0.01" min="0">
+                                </div>
+                                <button type="submit" class="btn btn-primary w-100">
+                                    <i class="bi bi-save"></i> Save Settings
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card p-4">
+                            <h3 class="section-title"><i class="bi bi-tools"></i> Maintenance</h3>
+                            <div class="d-grid gap-3">
+                                <button class="btn btn-primary" onclick="initializeDefaults()">
+                                    <i class="bi bi-arrow-clockwise"></i> Reinitialize Default Monsters
+                                </button>
+                                <button class="btn btn-primary" onclick="initializeShopItems()">
+                                    <i class="bi bi-shop"></i> Reinitialize Shop Items
+                                </button>
+                                <button class="btn btn-warning" onclick="refreshStats()">
+                                    <i class="bi bi-arrow-repeat"></i> Refresh Statistics
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Load statistics on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadStats();
+            loadItems();
+            loadMonsters();
+        });
+
+        async function loadStats() {
+            try {
+                const response = await fetch('/api/rpg/stats');
+                const data = await response.json();
+                
+                document.getElementById('total-players').textContent = data.total_players || 0;
+                document.getElementById('total-monsters').textContent = data.total_monsters || 0;
+                document.getElementById('total-items').textContent = data.total_items || 0;
+                document.getElementById('total-gold').textContent = (data.total_gold || 0).toLocaleString();
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+
+        async function loadItems() {
+            try {
+                const response = await fetch('/api/rpg/items');
+                const items = await response.json();
+                const tbody = document.getElementById('itemsTableBody');
+                
+                tbody.innerHTML = items.map(item => `
+                    <tr>
+                        <td>${item.name}</td>
+                        <td><span class="badge bg-secondary">${item.type}</span></td>
+                        <td><span class="badge rarity-${item.rarity}">${item.rarity}</span></td>
+                        <td>${item.damage || 0}</td>
+                        <td>${item.price}</td>
+                        <td>${item.required_level}</td>
+                        <td>
+                            <button class="btn btn-sm btn-danger" onclick="deleteItem(${item.id})">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (error) {
+                console.error('Error loading items:', error);
+            }
+        }
+
+        async function loadMonsters() {
+            try {
+                const response = await fetch('/api/rpg/monsters');
+                const monsters = await response.json();
+                const tbody = document.getElementById('monstersTableBody');
+                
+                tbody.innerHTML = monsters.map(monster => `
+                    <tr>
+                        <td>${monster.name}</td>
+                        <td><span class="badge bg-info">${monster.world}</span></td>
+                        <td>${monster.level}</td>
+                        <td>${monster.health}</td>
+                        <td><small>STR:${monster.strength} DEF:${monster.defense} SPD:${monster.speed}</small></td>
+                        <td><small>XP:${monster.xp_reward} Gold:${monster.gold_reward}</small></td>
+                        <td>
+                            <button class="btn btn-sm btn-danger" onclick="deleteMonster(${monster.id})">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (error) {
+                console.error('Error loading monsters:', error);
+            }
+        }
+
+        // Form submissions
+        document.getElementById('createItemForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const itemData = {
+                name: document.getElementById('itemName').value,
+                type: document.getElementById('itemType').value,
+                rarity: document.getElementById('itemRarity').value,
+                description: document.getElementById('itemDescription').value,
+                damage: parseInt(document.getElementById('itemDamage').value) || 0,
+                price: parseInt(document.getElementById('itemPrice').value),
+                required_level: parseInt(document.getElementById('itemLevel').value),
+                damage_type: document.getElementById('itemDamageType').value || null,
+                effects: document.getElementById('itemEffects').value || null
+            };
+            
+            try {
+                const response = await fetch('/api/rpg/items', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(itemData)
+                });
+                
+                if (response.ok) {
+                    alert('Item created successfully!');
+                    this.reset();
+                    loadItems();
+                    loadStats();
+                } else {
+                    alert('Error creating item');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error creating item');
+            }
+        });
+
+        document.getElementById('createMonsterForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const monsterData = {
+                name: document.getElementById('monsterName').value,
+                world: document.getElementById('monsterWorld').value,
+                level: parseInt(document.getElementById('monsterLevel').value),
+                health: parseInt(document.getElementById('monsterHealth').value),
+                strength: parseInt(document.getElementById('monsterStrength').value),
+                defense: parseInt(document.getElementById('monsterDefense').value),
+                speed: parseInt(document.getElementById('monsterSpeed').value),
+                xp_reward: parseInt(document.getElementById('monsterXP').value),
+                gold_reward: parseInt(document.getElementById('monsterGold').value)
+            };
+            
+            try {
+                const response = await fetch('/api/rpg/monsters', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(monsterData)
+                });
+                
+                if (response.ok) {
+                    alert('Monster created successfully!');
+                    this.reset();
+                    loadMonsters();
+                    loadStats();
+                } else {
+                    alert('Error creating monster');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error creating monster');
+            }
+        });
+
+        async function deleteItem(id) {
+            if (!confirm('Are you sure you want to delete this item?')) return;
+            
+            try {
+                const response = await fetch(`/api/rpg/items/${id}`, {method: 'DELETE'});
+                if (response.ok) {
+                    alert('Item deleted successfully!');
+                    loadItems();
+                    loadStats();
+                } else {
+                    alert('Error deleting item');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error deleting item');
+            }
+        }
+
+        async function deleteMonster(id) {
+            if (!confirm('Are you sure you want to delete this monster?')) return;
+            
+            try {
+                const response = await fetch(`/api/rpg/monsters/${id}`, {method: 'DELETE'});
+                if (response.ok) {
+                    alert('Monster deleted successfully!');
+                    loadMonsters();
+                    loadStats();
+                } else {
+                    alert('Error deleting monster');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error deleting monster');
+            }
+        }
+
+        async function initializeDefaults() {
+            if (!confirm('This will reset all monsters to defaults. Continue?')) return;
+            
+            try {
+                const response = await fetch('/api/rpg/init_monsters', {method: 'POST'});
+                if (response.ok) {
+                    alert('Monsters reinitialized successfully!');
+                    loadMonsters();
+                    loadStats();
+                } else {
+                    alert('Error reinitializing monsters');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error reinitializing monsters');
+            }
+        }
+
+        async function initializeShopItems() {
+            if (!confirm('This will reset all shop items to defaults. Continue?')) return;
+            
+            try {
+                const response = await fetch('/api/rpg/init_items', {method: 'POST'});
+                if (response.ok) {
+                    alert('Shop items reinitialized successfully!');
+                    loadItems();
+                    loadStats();
+                } else {
+                    alert('Error reinitializing items');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error reinitializing items');
+            }
+        }
+
+        function refreshStats() {
+            loadStats();
+            loadItems();
+            loadMonsters();
+        }
+    </script>
+</body>
+</html>

@@ -923,6 +923,249 @@ def api_recent_logs():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
+# --- RPG Admin Routes ---
+
+@app.route('/rpg_admin', methods=['GET'])
+def rpg_admin():
+    """RPG Admin page for managing monsters, items, and settings."""
+    return render_template('rpg_admin.html')
+
+
+@app.route('/api/rpg/stats', methods=['GET'])
+def rpg_stats():
+    """Get RPG statistics."""
+    try:
+        if not db_helpers.db_pool:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        conn = db_helpers.db_pool.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # Get total players
+            cursor.execute("SELECT COUNT(*) FROM rpg_players")
+            total_players = cursor.fetchone()[0]
+            
+            # Get total monsters
+            cursor.execute("SELECT COUNT(*) FROM rpg_monsters")
+            total_monsters = cursor.fetchone()[0]
+            
+            # Get total items
+            cursor.execute("SELECT COUNT(*) FROM rpg_items")
+            total_items = cursor.fetchone()[0]
+            
+            # Get total gold in circulation
+            cursor.execute("SELECT SUM(gold) FROM rpg_players")
+            total_gold = cursor.fetchone()[0] or 0
+            
+            return jsonify({
+                'total_players': total_players,
+                'total_monsters': total_monsters,
+                'total_items': total_items,
+                'total_gold': int(total_gold)
+            })
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting RPG stats: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/rpg/items', methods=['GET', 'POST'])
+def rpg_items():
+    """Get all items or create a new item."""
+    try:
+        if not db_helpers.db_pool:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        conn = db_helpers.db_pool.get_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        if request.method == 'GET':
+            # Get all items
+            cursor.execute("""
+                SELECT id, name, type, rarity, description, damage, damage_type, 
+                       price, required_level, durability, effects
+                FROM rpg_items
+                ORDER BY required_level ASC, name ASC
+            """)
+            items = cursor.fetchall()
+            cursor.close()
+            conn.close()
+            return jsonify(items)
+        
+        elif request.method == 'POST':
+            # Create new item
+            data = request.json
+            
+            cursor.execute("""
+                INSERT INTO rpg_items 
+                (name, type, rarity, description, damage, damage_type, price, required_level, effects)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                data['name'],
+                data['type'],
+                data['rarity'],
+                data['description'],
+                data.get('damage', 0),
+                data.get('damage_type'),
+                data['price'],
+                data['required_level'],
+                data.get('effects')
+            ))
+            
+            conn.commit()
+            item_id = cursor.lastrowid
+            cursor.close()
+            conn.close()
+            
+            return jsonify({'success': True, 'id': item_id}), 201
+            
+    except Exception as e:
+        logger.error(f"Error with RPG items: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/rpg/items/<int:item_id>', methods=['DELETE'])
+def delete_rpg_item(item_id):
+    """Delete an item."""
+    try:
+        if not db_helpers.db_pool:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        conn = db_helpers.db_pool.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("DELETE FROM rpg_items WHERE id = %s", (item_id,))
+        conn.commit()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Error deleting RPG item: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/rpg/monsters', methods=['GET', 'POST'])
+def rpg_monsters():
+    """Get all monsters or create a new monster."""
+    try:
+        if not db_helpers.db_pool:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        conn = db_helpers.db_pool.get_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        if request.method == 'GET':
+            # Get all monsters
+            cursor.execute("""
+                SELECT id, name, world, level, health, strength, defense, speed, 
+                       xp_reward, gold_reward, loot_table, spawn_rate
+                FROM rpg_monsters
+                ORDER BY world ASC, level ASC, name ASC
+            """)
+            monsters = cursor.fetchall()
+            cursor.close()
+            conn.close()
+            return jsonify(monsters)
+        
+        elif request.method == 'POST':
+            # Create new monster
+            data = request.json
+            
+            cursor.execute("""
+                INSERT INTO rpg_monsters 
+                (name, world, level, health, strength, defense, speed, xp_reward, gold_reward)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                data['name'],
+                data['world'],
+                data['level'],
+                data['health'],
+                data['strength'],
+                data['defense'],
+                data['speed'],
+                data['xp_reward'],
+                data['gold_reward']
+            ))
+            
+            conn.commit()
+            monster_id = cursor.lastrowid
+            cursor.close()
+            conn.close()
+            
+            return jsonify({'success': True, 'id': monster_id}), 201
+            
+    except Exception as e:
+        logger.error(f"Error with RPG monsters: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/rpg/monsters/<int:monster_id>', methods=['DELETE'])
+def delete_rpg_monster(monster_id):
+    """Delete a monster."""
+    try:
+        if not db_helpers.db_pool:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        conn = db_helpers.db_pool.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("DELETE FROM rpg_monsters WHERE id = %s", (monster_id,))
+        conn.commit()
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Error deleting RPG monster: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/rpg/init_monsters', methods=['POST'])
+def init_rpg_monsters():
+    """Reinitialize default monsters."""
+    try:
+        # Import RPG system to access default monsters
+        from modules import rpg_system
+        import asyncio
+        
+        # Run async function
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(rpg_system.initialize_default_monsters(db_helpers))
+        loop.close()
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Error reinitializing monsters: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/rpg/init_items', methods=['POST'])
+def init_rpg_items():
+    """Reinitialize default shop items."""
+    try:
+        # Import RPG system to access default items
+        from modules import rpg_system
+        import asyncio
+        
+        # Run async function
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(rpg_system.initialize_shop_items(db_helpers))
+        loop.close()
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Error reinitializing items: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     # Start the log following thread
     log_thread = threading.Thread(target=follow_log_file, daemon=True)

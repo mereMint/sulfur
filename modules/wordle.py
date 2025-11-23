@@ -224,21 +224,16 @@ async def get_or_create_daily_word(db_helpers, language='de'):
                 logger.debug(f"Found existing Wordle word for {today} ({language}): {result['word']}")
                 return result
             
-            # Create new daily word using word service (external API or fallback)
-            logger.info(f"Fetching new daily word for Wordle ({language})")
-            try:
-                words = await word_service.get_random_words(1, language=language, min_length=5, max_length=5)
-                if words and len(words) > 0:
-                    word = words[0]
-                else:
-                    # Fallback to hardcoded list if service fails
-                    logger.warning("Word service failed, using hardcoded list for Wordle")
-                    word_list = get_wordle_words_list(language)
-                    word = random.choice(word_list)
-            except Exception as e:
-                logger.error(f"Error fetching word from service: {e}")
-                word_list = get_wordle_words_list(language)
-                word = random.choice(word_list)
+            # Create new daily word from curated word list
+            # Use curated list instead of API to ensure words are valid and in the validation set
+            logger.info(f"Generating new daily word for Wordle ({language})")
+            word_list = get_wordle_words_list(language)
+            if not word_list:
+                logger.error(f"No words available for language {language}")
+                return None
+            
+            # Select a random word from the curated list
+            word = random.choice(word_list)
             
             cursor.execute("""
                 INSERT INTO wordle_daily (word, language, date)

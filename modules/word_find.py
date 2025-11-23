@@ -260,34 +260,25 @@ async def get_or_create_daily_word(db_helpers, language='de'):
             logger.debug(f"Found existing Word Find word for {today} ({language}): {result['word']}")
             return result
         
-        # Create new daily word using word service
+        # Create new daily word from curated word list
         # Choose difficulty based on day of week (harder on weekends)
         weekday = datetime.now(timezone.utc).weekday()
         if weekday >= 5:  # Saturday, Sunday
             difficulty = 'hard'
-            min_len, max_len = 10, 15
         elif weekday >= 3:  # Thursday, Friday
             difficulty = 'medium'
-            min_len, max_len = 7, 10
         else:
             difficulty = 'easy'
-            min_len, max_len = 4, 7
         
-        # Fetch word from service
-        logger.info(f"Fetching new daily word for Word Find ({language}, {difficulty})")
-        try:
-            words = await word_service.get_random_words(1, language=language, min_length=min_len, max_length=max_len)
-            if words and len(words) > 0:
-                word = words[0]
-            else:
-                # Fallback to hardcoded list if service fails
-                logger.warning("Word service failed, using hardcoded list for Word Find")
-                word_lists = get_word_lists(language)
-                word = random.choice(word_lists[difficulty])
-        except Exception as e:
-            logger.error(f"Error fetching word from service: {e}")
-            word_lists = get_word_lists(language)
-            word = random.choice(word_lists[difficulty])
+        # Use curated list to ensure consistency
+        logger.info(f"Generating new daily word for Word Find ({language}, {difficulty})")
+        word_lists = get_word_lists(language)
+        if difficulty not in word_lists or not word_lists[difficulty]:
+            logger.error(f"No words available for difficulty {difficulty} in language {language}")
+            return None
+        
+        # Select a random word from the curated list
+        word = random.choice(word_lists[difficulty])
         
         cursor.execute("""
             INSERT INTO word_find_daily (word, difficulty, language, date)
@@ -474,7 +465,7 @@ async def get_user_stats(db_helpers, user_id: int):
         return None
 
 
-async def create_premium_game(db_helpers, user_id: int):
+async def create_premium_game(db_helpers, user_id: int, language='de'):
     """Create a new premium game for a user."""
     try:
         if not db_helpers.db_pool:
@@ -486,9 +477,14 @@ async def create_premium_game(db_helpers, user_id: int):
         
         cursor = conn.cursor(dictionary=True)
         try:
-            # Choose random difficulty and word
+            # Choose random difficulty and word from language-specific lists
             difficulty = random.choice(['easy', 'medium', 'hard'])
-            word = random.choice(WORD_LISTS[difficulty])
+            word_lists = get_word_lists(language)
+            if difficulty not in word_lists or not word_lists[difficulty]:
+                logger.error(f"No words available for difficulty {difficulty} in language {language}")
+                return None
+            
+            word = random.choice(word_lists[difficulty])
             
             cursor.execute("""
                 INSERT INTO word_find_premium_games (user_id, word, difficulty)

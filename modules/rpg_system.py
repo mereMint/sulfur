@@ -335,9 +335,17 @@ async def get_random_monster(db_helpers, player_level: int, world: str):
         return None
 
 
-def calculate_damage(attacker_str: int, defender_def: int, attacker_dex: int) -> dict:
+def calculate_damage(attacker_str: int, defender_def: int, attacker_dex: int, is_ai: bool = False, player_health_pct: float = 1.0) -> dict:
     """
     Calculate damage with dodge/miss/crit mechanics.
+    Enhanced AI makes smarter decisions based on situation.
+    
+    Args:
+        attacker_str: Attacker's strength
+        defender_def: Defender's defense
+        attacker_dex: Attacker's dexterity
+        is_ai: Whether this is an AI attacker (for smarter behavior)
+        player_health_pct: Player's current health percentage (for AI decision-making)
     
     Returns:
         dict with 'damage', 'hit', 'crit', 'dodged' keys
@@ -351,6 +359,11 @@ def calculate_damage(attacker_str: int, defender_def: int, attacker_dex: int) ->
     
     # Base hit chance: 85% + (dex / 100)
     hit_chance = 0.85 + (attacker_dex / 100.0)
+    
+    # AI gets bonus accuracy when player is low health (aggressive finish)
+    if is_ai and player_health_pct < 0.3:
+        hit_chance += 0.1
+    
     hit_chance = min(0.95, hit_chance)  # Cap at 95%
     
     # Check if attack hits
@@ -370,6 +383,11 @@ def calculate_damage(attacker_str: int, defender_def: int, attacker_dex: int) ->
     
     # Critical hit chance: 10% + (dex / 200)
     crit_chance = 0.10 + (attacker_dex / 200.0)
+    
+    # AI has higher crit chance when player is low health
+    if is_ai and player_health_pct < 0.3:
+        crit_chance += 0.15
+    
     crit_chance = min(0.30, crit_chance)  # Cap at 30%
     
     if random.random() < crit_chance:
@@ -380,15 +398,20 @@ def calculate_damage(attacker_str: int, defender_def: int, attacker_dex: int) ->
     return result
 
 
-async def start_adventure(db_helpers, user_id: int):
-    """Start an adventure encounter (combat or non-combat)."""
+async def start_adventure(db_helpers, user_id: int, continue_chain: bool = False):
+    """
+    Start an adventure encounter (combat or non-combat).
+    
+    Args:
+        continue_chain: If True, allows continuing an adventure chain
+    """
     try:
         player = await get_player_profile(db_helpers, user_id)
         if not player:
             return None, "Profil konnte nicht geladen werden.", None
         
-        # Check cooldown (2 minutes between adventures)
-        if player['last_adventure']:
+        # Check cooldown only if not continuing a chain
+        if not continue_chain and player['last_adventure']:
             last_adv = player['last_adventure']
             if isinstance(last_adv, str):
                 last_adv = datetime.fromisoformat(last_adv.replace('Z', '+00:00'))
@@ -404,15 +427,16 @@ async def start_adventure(db_helpers, user_id: int):
         if player['health'] < player['max_health'] * 0.2:  # Less than 20% health
             return None, "Du bist zu schwach! Heile dich zuerst.", None
         
-        # Update last adventure time
-        conn = db_helpers.db_pool.get_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE rpg_players SET last_adventure = NOW() WHERE user_id = %s
-        """, (user_id,))
-        conn.commit()
-        cursor.close()
-        conn.close()
+        # Update last adventure time only if starting a new chain
+        if not continue_chain:
+            conn = db_helpers.db_pool.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE rpg_players SET last_adventure = NOW() WHERE user_id = %s
+            """, (user_id,))
+            conn.commit()
+            cursor.close()
+            conn.close()
         
         # 70% chance for combat, 30% for non-combat event
         encounter_type = 'combat' if random.random() < 0.7 else 'event'
@@ -422,10 +446,14 @@ async def start_adventure(db_helpers, user_id: int):
             monster = await get_random_monster(db_helpers, player['level'], player['world'])
             if not monster:
                 return None, "Kein Monster gefunden.", None
+            
+            # Track that this is part of an adventure (for chain support)
+            monster['can_continue'] = random.random() < 0.4  # 40% chance to continue adventure
             return monster, None, 'combat'
         else:
             # Generate non-combat event
             event = generate_adventure_event(player)
+            event['can_continue'] = random.random() < 0.3  # 30% chance to continue after event
             return event, None, 'event'
             
     except Exception as e:
@@ -446,7 +474,7 @@ def generate_adventure_event(player: dict) -> dict:
         {
             'type': 'merchant',
             'title': '🎒 Reisender Händler',
-            'description': 'Ein freundlicher Händler bietet dir einen Handel an.',
+            'description': 'Ein freundlicher Händler bietet dir einen Handel an. Er gibt dir etwas Gold für deine Hilfe.',
             'gold_reward': random.randint(30, 100),
             'xp_reward': random.randint(10, 30),
         },
@@ -460,7 +488,7 @@ def generate_adventure_event(player: dict) -> dict:
         {
             'type': 'puzzle',
             'title': '🧩 Altes Rätsel',
-            'description': 'Du stolperst über eine alte Steintafel mit einem Rätsel.',
+            'description': 'Du stolperst über eine alte Steintafel mit einem Rätsel. Nach einigem Nachdenken löst du es!',
             'gold_reward': random.randint(75, 150),
             'xp_reward': random.randint(30, 60),
         },
@@ -470,6 +498,41 @@ def generate_adventure_event(player: dict) -> dict:
             'description': 'Ein Reisender braucht Hilfe und belohnt dich dafür.',
             'gold_reward': random.randint(40, 120),
             'xp_reward': random.randint(25, 55),
+        },
+        {
+            'type': 'fountain',
+            'title': '⛲ Magischer Brunnen',
+            'description': 'Du findest einen magischen Brunnen. Das Wasser stärkt dich!',
+            'heal_amount': random.randint(30, 70),
+            'xp_reward': random.randint(20, 45),
+        },
+        {
+            'type': 'cave',
+            'title': '🕳️ Verborgene Höhle',
+            'description': 'Du entdeckst eine versteckte Höhle mit wertvollen Kristallen!',
+            'gold_reward': random.randint(100, 250),
+            'xp_reward': random.randint(35, 70),
+        },
+        {
+            'type': 'ruins',
+            'title': '🏛️ Alte Ruinen',
+            'description': 'In den Ruinen einer vergessenen Zivilisation findest du Artefakte.',
+            'gold_reward': random.randint(80, 180),
+            'xp_reward': random.randint(40, 65),
+        },
+        {
+            'type': 'training',
+            'title': '⚔️ Kampftraining',
+            'description': 'Ein erfahrener Krieger bietet dir Training an. Du lernst viel!',
+            'xp_reward': random.randint(60, 100),
+        },
+        {
+            'type': 'blessing',
+            'title': '🌟 Göttlicher Segen',
+            'description': 'Ein Gott gewährt dir seinen Segen! Du fühlst dich gestärkt.',
+            'heal_amount': random.randint(50, 100),
+            'gold_reward': random.randint(50, 150),
+            'xp_reward': random.randint(45, 80),
         },
     ]
     
@@ -526,6 +589,37 @@ async def claim_adventure_event(db_helpers, user_id: int, event: dict):
     except Exception as e:
         logger.error(f"Error claiming adventure event: {e}", exc_info=True)
         return False, str(e)
+
+
+async def get_combat_timeline(player: dict, monster: dict) -> list:
+    """
+    Calculate combat turn order based on speed.
+    Returns a list of combatants in order from fastest to slowest.
+    
+    Returns:
+        List of dicts with 'name', 'speed', 'type' (player/monster), 'emoji'
+    """
+    timeline = [
+        {
+            'name': 'You',
+            'speed': player['speed'],
+            'type': 'player',
+            'emoji': '🛡️',
+            'health_pct': (player['health'] / player['max_health']) * 100
+        },
+        {
+            'name': monster['name'],
+            'speed': monster['speed'],
+            'type': 'monster',
+            'emoji': '👹',
+            'health_pct': (monster['health'] / monster.get('max_health', monster['health'])) * 100
+        }
+    ]
+    
+    # Sort by speed (highest first)
+    timeline.sort(key=lambda x: x['speed'], reverse=True)
+    
+    return timeline
 
 
 async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: str):
@@ -622,10 +716,15 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
         
         # Monster's turn (if still alive and player didn't run)
         if not result['combat_over']:
+            # Calculate player health percentage for AI decision-making
+            player_health_pct = player['health'] / player['max_health']
+            
             dmg_result = calculate_damage(
                 monster['strength'],
                 player['defense'],
-                monster['speed']
+                monster['speed'],
+                is_ai=True,
+                player_health_pct=player_health_pct
             )
             
             if dmg_result['dodged']:
@@ -679,25 +778,48 @@ DEFAULT_SHOP_ITEMS = [
     # Common Weapons
     {'name': 'Rostiges Schwert', 'type': 'weapon', 'rarity': 'common', 'description': 'Ein altes, rostiges Schwert', 'damage': 15, 'damage_type': 'physical', 'price': 50, 'required_level': 1},
     {'name': 'Holzstab', 'type': 'weapon', 'rarity': 'common', 'description': 'Ein einfacher Holzstab', 'damage': 12, 'damage_type': 'physical', 'price': 40, 'required_level': 1},
+    {'name': 'Kurzschwert', 'type': 'weapon', 'rarity': 'common', 'description': 'Ein kleines, aber scharfes Schwert', 'damage': 18, 'damage_type': 'physical', 'price': 60, 'required_level': 1},
     
     # Uncommon Weapons
     {'name': 'Stahlschwert', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Ein gut geschmiedetes Stahlschwert', 'damage': 25, 'damage_type': 'physical', 'price': 200, 'required_level': 3},
     {'name': 'Kampfaxt', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Eine schwere Kampfaxt', 'damage': 30, 'damage_type': 'physical', 'price': 250, 'required_level': 4},
+    {'name': 'Langbogen', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Ein präziser Langbogen', 'damage': 22, 'damage_type': 'physical', 'price': 180, 'required_level': 3},
     
     # Rare Weapons
     {'name': 'Flammenschwert', 'type': 'weapon', 'rarity': 'rare', 'description': 'Ein mit Flammen verzaubertes Schwert', 'damage': 40, 'damage_type': 'fire', 'price': 500, 'required_level': 6},
     {'name': 'Frosthammer', 'type': 'weapon', 'rarity': 'rare', 'description': 'Ein eiskalter Kriegshammer', 'damage': 45, 'damage_type': 'ice', 'price': 550, 'required_level': 7},
+    {'name': 'Giftdolch', 'type': 'weapon', 'rarity': 'rare', 'description': 'Ein mit Gift beschichteter Dolch', 'damage': 35, 'damage_type': 'poison', 'price': 450, 'required_level': 5},
     
     # Epic Weapons
     {'name': 'Blitzklinge', 'type': 'weapon', 'rarity': 'epic', 'description': 'Eine mit Blitzen geladene Klinge', 'damage': 60, 'damage_type': 'lightning', 'price': 1000, 'required_level': 10},
+    {'name': 'Heilige Lanze', 'type': 'weapon', 'rarity': 'epic', 'description': 'Eine von Licht durchdrungene Lanze', 'damage': 55, 'damage_type': 'light', 'price': 950, 'required_level': 9},
     
-    # Common Skills
+    # Healing Skills
+    {'name': 'Kleine Heilung', 'type': 'skill', 'rarity': 'common', 'description': 'Heilt 30 HP', 'price': 100, 'required_level': 2, 'effects': json.dumps({'heal': 30})},
+    {'name': 'Mittlere Heilung', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Heilt 60 HP', 'price': 250, 'required_level': 5, 'effects': json.dumps({'heal': 60})},
+    {'name': 'Große Heilung', 'type': 'skill', 'rarity': 'rare', 'description': 'Heilt 100 HP', 'price': 500, 'required_level': 8, 'effects': json.dumps({'heal': 100})},
+    {'name': 'Regeneration', 'type': 'skill', 'rarity': 'rare', 'description': 'Heilt über 3 Runden', 'price': 450, 'required_level': 7, 'effects': json.dumps({'regen': 3})},
+    
+    # Attack Skills
     {'name': 'Feuerball', 'type': 'skill', 'rarity': 'common', 'description': 'Wirft einen Feuerball', 'damage': 20, 'damage_type': 'fire', 'price': 100, 'required_level': 2, 'effects': json.dumps({'burn': 0.3})},
-    {'name': 'Heilung', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Heilt den Spieler', 'price': 150, 'required_level': 3, 'effects': json.dumps({'heal': 30})},
-    
-    # Uncommon Skills
     {'name': 'Blitzstoß', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Schleudert einen Blitz', 'damage': 35, 'damage_type': 'lightning', 'price': 300, 'required_level': 5, 'effects': json.dumps({'static': 0.4})},
-    {'name': 'Schildwall', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Erhöht die Verteidigung', 'price': 250, 'required_level': 4, 'effects': json.dumps({'shield': 1})},
+    {'name': 'Eissturm', 'type': 'skill', 'rarity': 'rare', 'description': 'Entfesselt einen Eissturm', 'damage': 50, 'damage_type': 'ice', 'price': 550, 'required_level': 8, 'effects': json.dumps({'freeze': 0.5})},
+    {'name': 'Feuersturm', 'type': 'skill', 'rarity': 'epic', 'description': 'Ein verheerender Feuersturm', 'damage': 70, 'damage_type': 'fire', 'price': 1000, 'required_level': 10, 'effects': json.dumps({'burn': 0.6})},
+    
+    # Defensive Skills
+    {'name': 'Schildwall', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Erhöht die Verteidigung für 2 Runden', 'price': 250, 'required_level': 4, 'effects': json.dumps({'shield': 2})},
+    {'name': 'Ausweichen', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Erhöht Ausweichen-Chance für 2 Runden', 'price': 200, 'required_level': 3, 'effects': json.dumps({'dodge_boost': 2})},
+    {'name': 'Eisenhaut', 'type': 'skill', 'rarity': 'rare', 'description': 'Drastisch erhöhte Verteidigung für 3 Runden', 'price': 500, 'required_level': 7, 'effects': json.dumps({'ironSkin': 3})},
+    
+    # Buff Skills
+    {'name': 'Geschwindigkeitsschub', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Erhöht Geschwindigkeit für 3 Runden', 'price': 220, 'required_level': 4, 'effects': json.dumps({'speed_boost': 3})},
+    {'name': 'Berserker-Wut', 'type': 'skill', 'rarity': 'rare', 'description': 'Erhöht Angriff, senkt Verteidigung', 'price': 400, 'required_level': 6, 'effects': json.dumps({'rage': 1})},
+    {'name': 'Konzentration', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Erhöht kritische Trefferchance', 'price': 280, 'required_level': 5, 'effects': json.dumps({'crit_boost': 3})},
+    
+    # Debuff Skills
+    {'name': 'Gift werfen', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Vergiftet den Gegner', 'damage': 15, 'damage_type': 'poison', 'price': 180, 'required_level': 3, 'effects': json.dumps({'poison': 0.5})},
+    {'name': 'Blenden', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Verringert Genauigkeit des Gegners', 'price': 150, 'required_level': 3, 'effects': json.dumps({'darkness': 0.6})},
+    {'name': 'Verlangsamen', 'type': 'skill', 'rarity': 'common', 'description': 'Reduziert Gegner-Geschwindigkeit', 'price': 120, 'required_level': 2, 'effects': json.dumps({'slow': 0.4})},
 ]
 
 
@@ -820,8 +942,68 @@ async def purchase_item(db_helpers, user_id: int, item_id: int):
         return False, "Fehler beim Kauf"
 
 
+async def sell_item(db_helpers, user_id: int, item_id: int, quantity: int = 1):
+    """Sell an item from inventory for 50% of its shop price."""
+    try:
+        if not db_helpers.db_pool:
+            return False, "Datenbank nicht verfügbar"
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return False, "Datenbankverbindung fehlgeschlagen"
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            # Check if player has item in inventory
+            cursor.execute("""
+                SELECT i.quantity, it.name, it.price
+                FROM rpg_inventory i
+                JOIN rpg_items it ON i.item_id = it.id
+                WHERE i.user_id = %s AND i.item_id = %s
+            """, (user_id, item_id))
+            
+            inventory_item = cursor.fetchone()
+            
+            if not inventory_item:
+                return False, "Item nicht im Inventar"
+            
+            if inventory_item['quantity'] < quantity:
+                return False, f"Nicht genug Items (hast {inventory_item['quantity']})"
+            
+            # Calculate sell price (50% of shop price)
+            sell_price = int(inventory_item['price'] * 0.5 * quantity)
+            
+            # Remove from inventory
+            new_quantity = inventory_item['quantity'] - quantity
+            if new_quantity > 0:
+                cursor.execute("""
+                    UPDATE rpg_inventory
+                    SET quantity = %s
+                    WHERE user_id = %s AND item_id = %s
+                """, (new_quantity, user_id, item_id))
+            else:
+                cursor.execute("""
+                    DELETE FROM rpg_inventory
+                    WHERE user_id = %s AND item_id = %s
+                """, (user_id, item_id))
+            
+            # Add gold
+            cursor.execute("""
+                UPDATE rpg_players SET gold = gold + %s WHERE user_id = %s
+            """, (sell_price, user_id))
+            
+            conn.commit()
+            return True, f"Verkauft {quantity}x {inventory_item['name']} für {sell_price} Gold"
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error selling item: {e}", exc_info=True)
+        return False, "Fehler beim Verkauf"
+
+
 async def get_player_inventory(db_helpers, user_id: int):
-    """Get player's inventory."""
+    """Get player's inventory with item details."""
     try:
         if not db_helpers.db_pool:
             return []
@@ -833,7 +1015,8 @@ async def get_player_inventory(db_helpers, user_id: int):
         cursor = conn.cursor(dictionary=True)
         try:
             cursor.execute("""
-                SELECT i.*, it.name, it.type, it.rarity, it.damage, it.description
+                SELECT i.*, it.name, it.type, it.rarity, it.damage, it.description, it.price, 
+                       it.durability as max_durability, it.effects
                 FROM rpg_inventory i
                 JOIN rpg_items it ON i.item_id = it.id
                 WHERE i.user_id = %s
@@ -1017,8 +1200,65 @@ async def apply_blessing(db_helpers, user_id: int, blessing_type: str, cost: int
         return False
 
 
+async def allocate_skill_point(db_helpers, user_id: int, stat_name: str):
+    """Allocate a skill point to a specific stat at the temple."""
+    try:
+        if not db_helpers.db_pool:
+            return False, "Datenbank nicht verfügbar"
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return False, "Datenbankverbindung fehlgeschlagen"
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            # Get player
+            cursor.execute("SELECT * FROM rpg_players WHERE user_id = %s", (user_id,))
+            player = cursor.fetchone()
+            
+            if not player:
+                return False, "Spieler nicht gefunden"
+            
+            # Check if player has skill points
+            if player['skill_points'] <= 0:
+                return False, "Keine Skillpunkte verfügbar"
+            
+            # Validate stat name against whitelist and use safe mapping
+            stat_mapping = {
+                'strength': 'strength',
+                'dexterity': 'dexterity',
+                'defense': 'defense',
+                'speed': 'speed'
+            }
+            
+            if stat_name not in stat_mapping:
+                return False, "Ungültiger Stat"
+            
+            # Use the validated stat name from mapping (safe from SQL injection)
+            safe_stat = stat_mapping[stat_name]
+            
+            # Allocate point - using CASE statement to avoid SQL injection
+            cursor.execute("""
+                UPDATE rpg_players 
+                SET strength = CASE WHEN %s = 'strength' THEN strength + 1 ELSE strength END,
+                    dexterity = CASE WHEN %s = 'dexterity' THEN dexterity + 1 ELSE dexterity END,
+                    defense = CASE WHEN %s = 'defense' THEN defense + 1 ELSE defense END,
+                    speed = CASE WHEN %s = 'speed' THEN speed + 1 ELSE speed END,
+                    skill_points = skill_points - 1
+                WHERE user_id = %s
+            """, (safe_stat, safe_stat, safe_stat, safe_stat, user_id))
+            
+            conn.commit()
+            return True, f"{stat_name.capitalize()} um 1 erhöht"
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error allocating skill point: {e}", exc_info=True)
+        return False, str(e)
+
+
 async def reset_skill_points(db_helpers, user_id: int, cost: int):
-    """Reset all stats to base (10) and return skill points."""
     try:
         if not db_helpers.db_pool:
             return False
