@@ -174,45 +174,61 @@ SKILL_TREE = {
         'emoji': '⚔️',
         'description': 'Meister des Nahkampfs und der Verteidigung',
         'skills': {
-            'heavy_strike': {
-                'name': 'Schwerer Schlag',
-                'type': 'passive',
-                'description': '+10% Schaden mit Waffen',
+            'strength_training': {
+                'name': 'Krafttraining',
+                'type': 'stat',
+                'description': '+5 Stärke',
                 'cost': 1,
                 'requires': None,
-                'effect': {'damage_bonus': 0.10}
+                'effect': {'strength': 5}
             },
-            'iron_skin': {
-                'name': 'Eisenhaut',
-                'type': 'passive',
+            'defense_training': {
+                'name': 'Verteidigungstraining',
+                'type': 'stat',
                 'description': '+5 Verteidigung',
                 'cost': 1,
                 'requires': None,
-                'effect': {'defense_bonus': 5}
+                'effect': {'defense': 5}
             },
-            'berserker': {
-                'name': 'Berserker',
-                'type': 'passive',
-                'description': '+20% Schaden, -10% Verteidigung',
+            'power_strike': {
+                'name': 'Machtschlag',
+                'type': 'skill',
+                'description': 'Fügt 150% Waffenschaden zu',
                 'cost': 2,
-                'requires': 'heavy_strike',
-                'effect': {'damage_bonus': 0.20, 'defense_penalty': 0.10}
+                'requires': 'strength_training',
+                'effect': {'damage_multiplier': 1.5, 'cooldown': 2}
             },
-            'shield_master': {
-                'name': 'Schildmeister',
-                'type': 'passive',
-                'description': '+15 Verteidigung, +10% HP',
+            'shield_bash': {
+                'name': 'Schildstoß',
+                'type': 'skill',
+                'description': 'Betäubt den Gegner für 1 Runde und fügt Schaden zu',
                 'cost': 2,
-                'requires': 'iron_skin',
-                'effect': {'defense_bonus': 15, 'health_bonus': 0.10}
+                'requires': 'defense_training',
+                'effect': {'damage': 30, 'stun_duration': 1, 'cooldown': 3}
             },
-            'battle_cry': {
-                'name': 'Schlachtruf',
-                'type': 'active',
-                'description': 'Erhöht Angriff für 3 Runden',
+            'fortified_stance': {
+                'name': 'Verstärkte Haltung',
+                'type': 'stat',
+                'description': '+10 Verteidigung, +20 Max HP',
                 'cost': 2,
-                'requires': 'berserker',
-                'effect': {'attack_buff': 0.30, 'duration': 3}
+                'requires': 'defense_training',
+                'effect': {'defense': 10, 'max_health': 20}
+            },
+            'battle_rage': {
+                'name': 'Kampfwut',
+                'type': 'skill',
+                'description': 'Erhöht Stärke um 15 für 3 Runden',
+                'cost': 3,
+                'requires': 'power_strike',
+                'effect': {'strength_buff': 15, 'duration': 3, 'cooldown': 4}
+            },
+            'whirlwind': {
+                'name': 'Wirbelwind',
+                'type': 'skill',
+                'description': 'Angriff der 200% Schaden verursacht',
+                'cost': 3,
+                'requires': 'power_strike',
+                'effect': {'damage_multiplier': 2.0, 'cooldown': 3}
             }
         }
     },
@@ -223,45 +239,61 @@ SKILL_TREE = {
         'emoji': '🗡️',
         'description': 'Meister der Geschicklichkeit und kritischen Treffer',
         'skills': {
-            'swift_strikes': {
-                'name': 'Schnelle Schläge',
-                'type': 'passive',
+            'agility_training': {
+                'name': 'Beweglichkeitstraining',
+                'type': 'stat',
                 'description': '+5 Geschwindigkeit',
                 'cost': 1,
                 'requires': None,
-                'effect': {'speed_bonus': 5}
+                'effect': {'speed': 5}
             },
-            'keen_eye': {
-                'name': 'Scharfes Auge',
-                'type': 'passive',
-                'description': '+10% Kritische Trefferchance',
+            'dexterity_training': {
+                'name': 'Geschicklichkeitstraining',
+                'type': 'stat',
+                'description': '+5 Geschicklichkeit',
                 'cost': 1,
                 'requires': None,
-                'effect': {'crit_chance_bonus': 0.10}
+                'effect': {'dexterity': 5}
             },
-            'assassin': {
-                'name': 'Assassine',
-                'type': 'passive',
-                'description': '+25% Kritischer Schaden',
+            'rapid_strike': {
+                'name': 'Schneller Schlag',
+                'type': 'skill',
+                'description': 'Zwei schnelle Angriffe mit je 75% Schaden',
                 'cost': 2,
-                'requires': 'keen_eye',
-                'effect': {'crit_damage_bonus': 0.25}
+                'requires': 'agility_training',
+                'effect': {'hits': 2, 'damage_multiplier': 0.75, 'cooldown': 2}
             },
-            'shadow_step': {
-                'name': 'Schattenschritt',
-                'type': 'passive',
-                'description': '+15% Ausweichen',
+            'evasion': {
+                'name': 'Ausweichen',
+                'type': 'skill',
+                'description': 'Weicht dem nächsten Angriff aus',
                 'cost': 2,
-                'requires': 'swift_strikes',
-                'effect': {'dodge_bonus': 0.15}
+                'requires': 'agility_training',
+                'effect': {'dodge_next': True, 'cooldown': 3}
+            },
+            'precision_strike': {
+                'name': 'Präzisionsschlag',
+                'type': 'stat',
+                'description': '+8 Geschicklichkeit',
+                'cost': 2,
+                'requires': 'dexterity_training',
+                'effect': {'dexterity': 8}
             },
             'backstab': {
                 'name': 'Meucheln',
-                'type': 'active',
-                'description': 'Garantierter kritischer Treffer',
+                'type': 'skill',
+                'description': 'Kritischer Angriff mit 250% Schaden',
                 'cost': 3,
-                'requires': 'assassin',
-                'effect': {'guaranteed_crit': True, 'crit_multiplier': 2.0}
+                'requires': 'rapid_strike',
+                'effect': {'damage_multiplier': 2.5, 'guaranteed_crit': True, 'cooldown': 4}
+            },
+            'shadow_dance': {
+                'name': 'Schattentanz',
+                'type': 'skill',
+                'description': 'Erhöht Geschwindigkeit um 20 für 2 Runden',
+                'cost': 3,
+                'requires': 'evasion',
+                'effect': {'speed_buff': 20, 'duration': 2, 'cooldown': 4}
             }
         }
     },
@@ -272,45 +304,61 @@ SKILL_TREE = {
         'emoji': '🔮',
         'description': 'Meister der arkanen Künste und Elemente',
         'skills': {
-            'arcane_power': {
-                'name': 'Arkane Kraft',
-                'type': 'passive',
-                'description': '+15% Skill-Schaden',
+            'intelligence_training': {
+                'name': 'Intelligenztraining',
+                'type': 'stat',
+                'description': '+5 Stärke (Magie nutzt Stärke für Schaden)',
                 'cost': 1,
                 'requires': None,
-                'effect': {'skill_damage_bonus': 0.15}
+                'effect': {'strength': 5}
             },
-            'mana_shield': {
-                'name': 'Manaschild',
-                'type': 'passive',
-                'description': '+10% Schadensreduzierung',
+            'vitality_training': {
+                'name': 'Vitalitätstraining',
+                'type': 'stat',
+                'description': '+15 Max HP',
                 'cost': 1,
                 'requires': None,
-                'effect': {'damage_reduction': 0.10}
+                'effect': {'max_health': 15}
             },
-            'elemental_master': {
-                'name': 'Elementarmeister',
-                'type': 'passive',
-                'description': '+30% Elementarschaden',
+            'fireball': {
+                'name': 'Feuerball',
+                'type': 'skill',
+                'description': 'Feuert einen Feuerball der 120% magischen Schaden verursacht',
                 'cost': 2,
-                'requires': 'arcane_power',
-                'effect': {'elemental_damage_bonus': 0.30}
+                'requires': 'intelligence_training',
+                'effect': {'damage_multiplier': 1.2, 'element': 'fire', 'cooldown': 2}
             },
-            'arcane_barrier': {
-                'name': 'Arkane Barriere',
-                'type': 'passive',
-                'description': '+20% Schadensreduzierung',
+            'frost_bolt': {
+                'name': 'Frostblitz',
+                'type': 'skill',
+                'description': 'Verursacht 100% Schaden und verlangsamt Gegner',
                 'cost': 2,
-                'requires': 'mana_shield',
-                'effect': {'damage_reduction': 0.20}
+                'requires': 'intelligence_training',
+                'effect': {'damage_multiplier': 1.0, 'slow_duration': 2, 'element': 'ice', 'cooldown': 2}
             },
-            'meteor': {
-                'name': 'Meteor',
-                'type': 'active',
-                'description': 'Gewaltiger Elementarschaden',
+            'arcane_intellect': {
+                'name': 'Arkane Intelligenz',
+                'type': 'stat',
+                'description': '+8 Stärke, +10 Max HP',
+                'cost': 2,
+                'requires': 'intelligence_training',
+                'effect': {'strength': 8, 'max_health': 10}
+            },
+            'chain_lightning': {
+                'name': 'Kettenblitz',
+                'type': 'skill',
+                'description': 'Blitz der 180% Schaden verursacht',
                 'cost': 3,
-                'requires': 'elemental_master',
-                'effect': {'base_damage': 80, 'element': 'fire'}
+                'requires': 'fireball',
+                'effect': {'damage_multiplier': 1.8, 'element': 'lightning', 'cooldown': 3}
+            },
+            'meteor_strike': {
+                'name': 'Meteorschlag',
+                'type': 'skill',
+                'description': 'Gewaltiger Meteor der 300% Schaden verursacht',
+                'cost': 3,
+                'requires': 'arcane_intellect',
+                'effect': {'damage_multiplier': 3.0, 'element': 'fire', 'cooldown': 5}
             }
         }
     }

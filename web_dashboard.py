@@ -1339,6 +1339,91 @@ def delete_skill(path_key, skill_key):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/rpg/player/reset', methods=['POST'])
+def reset_rpg_player():
+    """Reset a player's RPG data to fresh start."""
+    try:
+        data = request.json
+        
+        # Validate input
+        if not data or 'user_id' not in data:
+            return jsonify({
+                'success': False,
+                'message': 'user_id is required'
+            }), 400
+        
+        # Validate and convert user_id to integer
+        try:
+            user_id = int(data.get('user_id'))
+        except (ValueError, TypeError):
+            return jsonify({
+                'success': False,
+                'message': 'user_id must be a valid integer'
+            }), 400
+        
+        confirm = data.get('confirm', False)
+        
+        if not confirm:
+            return jsonify({
+                'success': False,
+                'message': 'Confirmation required. Set confirm=true to proceed with reset.'
+            }), 400
+        
+        if not db_helpers.db_pool:
+            return jsonify({
+                'success': False,
+                'message': 'Database pool not initialized'
+            }), 500
+        
+        conn = None
+        cursor = None
+        deleted_tables = []
+        
+        try:
+            conn = db_helpers.db_pool.get_connection()
+            cursor = conn.cursor()
+            
+            # Pre-defined queries for each table to prevent SQL injection
+            DELETE_QUERIES = {
+                'rpg_players': "DELETE FROM rpg_players WHERE user_id = %s",
+                'rpg_inventory': "DELETE FROM rpg_inventory WHERE user_id = %s",
+                'rpg_equipped': "DELETE FROM rpg_equipped WHERE user_id = %s",
+                'rpg_skill_tree': "DELETE FROM rpg_skill_tree WHERE user_id = %s"
+            }
+            
+            for table_name, delete_query in DELETE_QUERIES.items():
+                try:
+                    # Check if table exists
+                    cursor.execute("SHOW TABLES LIKE %s", (table_name,))
+                    if cursor.fetchone():
+                        # Delete user data using pre-defined query
+                        cursor.execute(delete_query, (user_id,))
+                        affected = cursor.rowcount
+                        if affected > 0:
+                            deleted_tables.append(f"{table_name} ({affected} rows)")
+                except Exception as e:
+                    logger.warning(f"Error clearing {table_name}: {e}")
+            
+            conn.commit()
+            
+            return jsonify({
+                'success': True,
+                'message': f'RPG data cleared for user {user_id}',
+                'tables_cleared': deleted_tables
+            })
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
+    except Exception as e:
+        logger.error(f"Error resetting RPG player: {e}")
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
+
+
 # ========== Economy Dashboard APIs ==========
 
 @app.route('/economy', methods=['GET'])
