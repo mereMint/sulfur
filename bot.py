@@ -3519,15 +3519,36 @@ class RPGCombatView(discord.ui.View):
             
             self.turn_count += 1
             
+            # Get player data for turn order calculation
+            player = await rpg_system.get_player_profile(db_helpers, self.user_id)
+            
+            # Create turn order timeline
+            player_speed = player['speed'] if player else 10
+            monster_speed = self.monster['speed']
+            
+            # Determine turn order based on speed
+            if player_speed >= monster_speed:
+                timeline = f"⚔️ **Du** ➜ 🐉 {self.monster['name']}"
+                turn_indicator = "🟢 Dein Zug"
+            else:
+                timeline = f"🐉 **{self.monster['name']}** ➜ ⚔️ Du"
+                turn_indicator = "🔴 Gegner startet"
+            
             # Create result embed
             embed = discord.Embed(
                 title=f"⚔️ Kampfrunde {self.turn_count}",
-                description="\n".join(result['messages']),
+                description=f"**{turn_indicator}**\n\n" + "\n".join(result['messages']),
                 color=discord.Color.gold() if result.get('player_won') else discord.Color.orange()
             )
             
+            # Add turn order timeline
+            embed.add_field(
+                name="📊 Kampf-Timeline",
+                value=f"```\n{timeline}\n```",
+                inline=False
+            )
+            
             # Add health bars
-            player = await rpg_system.get_player_profile(db_helpers, self.user_id)
             player_health_pct = (result['player_health'] / player['max_health']) * 100 if player else 0
             monster_health_pct = (result['monster_health'] / self.monster_max_health) * 100 if self.monster_max_health > 0 else 0
             
