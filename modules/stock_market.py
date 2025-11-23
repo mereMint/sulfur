@@ -115,20 +115,27 @@ async def initialize_stocks(db_helpers):
             
             conn.commit()
             
-            # Check if stocks are already initialized
-            cursor.execute("SELECT COUNT(*) FROM stocks")
-            result = cursor.fetchone()
-            
-            if result[0] == 0:
-                # Insert default stocks
-                for stock in DEFAULT_STOCKS:
-                    cursor.execute("""
-                        INSERT INTO stocks (symbol, name, category, current_price, previous_price, trend)
-                        VALUES (%s, %s, %s, %s, %s, 0)
-                    """, (stock['symbol'], stock['name'], stock['category'], stock['price'], stock['price']))
+            # Insert or update default stocks (allows adding new stocks without duplicating existing ones)
+            stocks_added = 0
+            stocks_updated = 0
+            for stock in DEFAULT_STOCKS:
+                cursor.execute("""
+                    INSERT INTO stocks (symbol, name, category, current_price, previous_price, trend)
+                    VALUES (%s, %s, %s, %s, %s, 0)
+                    ON DUPLICATE KEY UPDATE 
+                        name = VALUES(name),
+                        category = VALUES(category)
+                """, (stock['symbol'], stock['name'], stock['category'], stock['price'], stock['price']))
                 
-                conn.commit()
-                logger.info(f"Initialized stock market with {len(DEFAULT_STOCKS)} stocks")
+                if cursor.rowcount == 1:
+                    stocks_added += 1
+                elif cursor.rowcount == 2:  # Updated existing row
+                    stocks_updated += 1
+            
+            conn.commit()
+            
+            if stocks_added > 0 or stocks_updated > 0:
+                logger.info(f"Stock market initialized: {stocks_added} stocks added, {stocks_updated} stocks updated (total: {len(DEFAULT_STOCKS)} stocks)")
         finally:
             cursor.close()
             conn.close()
