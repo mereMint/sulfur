@@ -955,6 +955,44 @@ async def before_check_application_emojis():
     await client.wait_until_ready()
 
 
+async def flush_active_game_time(user_id: int):
+    """
+    Helper function to flush active game time for quest tracking.
+    This is called when a user checks their quests to ensure current game sessions are counted.
+    """
+    try:
+        if user_id not in game_start_times:
+            return 0
+        
+        game_name, start_time = game_start_times[user_id]
+        now = datetime.now(timezone.utc)
+        duration_seconds = (now - start_time).total_seconds()
+        
+        # Only count sessions longer than 30 seconds
+        if duration_seconds > 30:
+            duration_minutes = duration_seconds / 60.0
+            stat_period = now.strftime('%Y-%m')
+            
+            # Log the game session
+            await db_helpers.log_game_session(user_id, stat_period, game_name, duration_minutes)
+            
+            # Update quest progress
+            import math
+            quest_minutes = math.ceil(duration_minutes)
+            await quests.update_quest_progress(db_helpers, user_id, 'game_minutes', quest_minutes)
+            
+            # Reset the start time to now (so we don't double-count)
+            game_start_times[user_id] = (game_name, now)
+            
+            logger.debug(f"Flushed {duration_minutes:.1f} minutes of {game_name} for user {user_id}")
+            return quest_minutes
+        
+        return 0
+    except Exception as e:
+        logger.error(f"Error flushing active game time for user {user_id}: {e}", exc_info=True)
+        return 0
+
+
 @client.event
 async def on_presence_update(before, after):
     """Fires when a member's status, activity, etc. changes. Used for tracking."""
@@ -7480,6 +7518,9 @@ class QuestMenuView(discord.ui.View):
         await interaction.response.defer()
         
         try:
+            # Flush any active game time before showing quests
+            await flush_active_game_time(self.user_id)
+            
             # Generate quests for today if they don't exist
             quest_list = await quests.generate_daily_quests(db_helpers, self.user_id, self.config)
             
@@ -7526,6 +7567,9 @@ class QuestMenuView(discord.ui.View):
         await interaction.response.defer()
         
         try:
+            # Flush any active game time before claiming rewards
+            await flush_active_game_time(self.user_id)
+            
             # Get user's quests
             quest_list = await quests.get_user_quests(db_helpers, self.user_id, self.config)
             
@@ -10625,8 +10669,13 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
                 
                 # Edit the original message
                 if self.message:
-                    await self.message.edit(embed=embed, view=view)
-                    await interaction.followup.send("✅ Richtig geraten!", ephemeral=True)
+                    try:
+                        await self.message.edit(embed=embed, view=view)
+                        await interaction.followup.send("✅ Richtig geraten!", ephemeral=True)
+                    except (discord.errors.NotFound, discord.errors.HTTPException) as e:
+                        # Message might be deleted or no longer accessible, send new message
+                        logger.warning(f"Could not edit message in wordfind: {e}")
+                        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
                 else:
                     await interaction.followup.send(embed=embed, view=view, ephemeral=True)
             else:
@@ -10655,8 +10704,13 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
                     
                     # Edit the original message
                     if self.message:
-                        await self.message.edit(embed=embed, view=view)
-                        await interaction.followup.send("❌ Keine Versuche mehr!", ephemeral=True)
+                        try:
+                            await self.message.edit(embed=embed, view=view)
+                            await interaction.followup.send("❌ Keine Versuche mehr!", ephemeral=True)
+                        except (discord.errors.NotFound, discord.errors.HTTPException) as e:
+                            # Message might be deleted or no longer accessible, send new message
+                            logger.warning(f"Could not edit message in wordfind: {e}")
+                            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
                     else:
                         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
                 else:
@@ -10664,19 +10718,18 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
                     
                     # Edit the original message
                     if self.message:
-                        await self.message.edit(embed=embed, view=view)
-                        # Send confirmation with similarity score
-                        similarity_pct = f"{similarity:.1f}%"
-                        temp = "🔥 Sehr heiß!" if similarity >= 80 else "🌡️ Heiß!" if similarity >= 60 else "🌤️ Warm" if similarity >= 40 else "❄️ Kalt" if similarity >= 20 else "🧊 Sehr kalt"
-                        await interaction.followup.send(f"Versuch aufgezeichnet: **{guess}** - {similarity_pct} {temp}", ephemeral=True)
+                        try:
+                            await self.message.edit(embed=embed, view=view)
+                            # Send confirmation with similarity score
+                            similarity_pct = f"{similarity:.1f}%"
+                            temp = "🔥 Sehr heiß!" if similarity >= 80 else "🌡️ Heiß!" if similarity >= 60 else "🌤️ Warm" if similarity >= 40 else "❄️ Kalt" if similarity >= 20 else "🧊 Sehr kalt"
+                            await interaction.followup.send(f"Versuch aufgezeichnet: **{guess}** - {similarity_pct} {temp}", ephemeral=True)
+                        except (discord.errors.NotFound, discord.errors.HTTPException) as e:
+                            # Message might be deleted or no longer accessible, send new message
+                            logger.warning(f"Could not edit message in wordfind: {e}")
+                            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
                     else:
                         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-        except discord.errors.NotFound:
-            # Interaction expired
-            await interaction.followup.send(
-                "⏱️ Die Interaktion ist abgelaufen. Bitte starte ein neues Spiel mit /wordfind",
-                ephemeral=True
-            )
         except Exception as e:
             logger.error(f"Error in WordGuessModal.on_submit: {e}", exc_info=True)
             try:
