@@ -2975,10 +2975,31 @@ class ProfilePageView(discord.ui.View):
 @tree.command(name="rpg", description="Zeige dein RPG-Profil und Optionen")
 async def rpg_command(interaction: discord.Interaction):
     """Display RPG profile and options."""
-    await interaction.response.defer(ephemeral=True)
-    
     try:
+        await interaction.response.defer(ephemeral=True)
+        
         user_id = interaction.user.id
+        
+        # Check if user has RPG access
+        has_rpg_access = await db_helpers.has_feature_unlock(user_id, 'rpg_access')
+        
+        if not has_rpg_access:
+            # User doesn't have RPG access - show purchase prompt
+            embed = discord.Embed(
+                title="⚔️ RPG System - Zugriff erforderlich",
+                description="Du benötigst Zugriff auf das RPG-System, um diese Funktion zu nutzen!\n\n"
+                           "Das RPG-System bietet:\n"
+                           "🗡️ Epische Kämpfe gegen Monster\n"
+                           "📊 Charakterentwicklung mit Skills\n"
+                           "🎒 Inventar und Ausrüstung\n"
+                           "🏪 Shop mit Waffen und Items\n"
+                           "🌍 Verschiedene Welten zum Erkunden\n\n"
+                           "Kaufe den Zugang im Shop!",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
         player = await rpg_system.get_player_profile(db_helpers, user_id)
         
         if not player:
@@ -10378,8 +10399,8 @@ class WordFindView(discord.ui.View):
             await interaction.response.send_message("Das ist nicht dein Spiel!", ephemeral=True)
             return
         
-        # Create modal for input
-        modal = WordGuessModal(self.user_id, self.word_data, self.max_attempts, self.has_premium, self.game_type, self.theme_id)
+        # Create modal for input and pass the message to edit
+        modal = WordGuessModal(self.user_id, self.word_data, self.max_attempts, self.has_premium, self.game_type, self.theme_id, interaction.message)
         await interaction.response.send_modal(modal)
     
     @discord.ui.button(label="Aufgeben", style=discord.ButtonStyle.danger, emoji="❌")
@@ -10500,7 +10521,7 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
         required=True
     )
     
-    def __init__(self, user_id: int, word_data: dict, max_attempts: int, has_premium: bool, game_type: str = 'daily', theme_id=None):
+    def __init__(self, user_id: int, word_data: dict, max_attempts: int, has_premium: bool, game_type: str = 'daily', theme_id=None, message: discord.Message = None):
         super().__init__()
         self.user_id = user_id
         self.word_data = word_data
@@ -10508,124 +10529,163 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
         self.has_premium = has_premium
         self.game_type = game_type
         self.theme_id = theme_id
+        self.message = message  # Store the original message to edit
     
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer()
-        
-        guess = self.guess_input.value.lower().strip()
-        correct_word = self.word_data['word'].lower()
-        word_id = self.word_data['id']
-        
-        # Get user's language preference
-        user_lang = self.word_data.get('language', 'de')
-        
-        # Validate that the guess is a real word from the word pool
-        if not word_find.is_valid_guess(guess, user_lang):
-            await interaction.followup.send(
-                "❌ Dieses Wort ist nicht im Wortpool! Bitte gib ein gültiges Wort ein.",
-                ephemeral=True
-            )
-            return
-        
-        # Get current attempts based on game type
-        attempts = await word_find.get_user_attempts(db_helpers, self.user_id, word_id, self.game_type)
-        
-        attempt_num = len(attempts) + 1
-        
-        # Check if already guessed this word
-        if any(a['guess'].lower() == guess for a in attempts):
-            await interaction.followup.send("Du hast dieses Wort bereits geraten!", ephemeral=True)
-            return
-        
-        # Check if max attempts reached
-        if attempt_num > self.max_attempts:
-            await interaction.followup.send("Du hast alle Versuche aufgebraucht!", ephemeral=True)
-            return
-        
-        # Calculate similarity
-        similarity = word_find.calculate_word_similarity(guess, correct_word)
-        
-        # Record attempt with game type
-        await word_find.record_attempt(db_helpers, self.user_id, word_id, guess, similarity, attempt_num, self.game_type)
-        
-        # Check if correct
-        if guess == correct_word:
-            # Win!
-            # Calculate rewards based on attempts (fewer attempts = better rewards)
-            base_xp = 40
-            base_money = 20
-            bonus_multiplier = max(1.0, (self.max_attempts - attempt_num + 1) / self.max_attempts)
-            xp_reward = int(base_xp * bonus_multiplier)
-            money_reward = int(base_money * bonus_multiplier)
+        """Handle word guess submission."""
+        try:
+            await interaction.response.defer(ephemeral=True)
             
-            # Give XP reward
-            await db_helpers.add_xp(self.user_id, interaction.user.display_name, xp_reward)
+            guess = self.guess_input.value.lower().strip()
+            correct_word = self.word_data['word'].lower()
+            word_id = self.word_data['id']
             
-            # Give money reward
-            await db_helpers.add_balance(self.user_id, interaction.user.display_name, money_reward, config)
+            # Get user's language preference
+            user_lang = self.word_data.get('language', 'de')
             
-            embed = discord.Embed(
-                title="🎉 Glückwunsch!",
-                description=f"Du hast das Wort **{correct_word.upper()}** in {attempt_num} Versuchen erraten!\n\n"
-                           f"**Belohnungen:**\n"
-                           f"🎯 +{xp_reward} XP\n"
-                           f"💰 +{money_reward} {config['modules']['economy']['currency_symbol']}",
-                color=discord.Color.gold()
-            )
-            
-            # Update stats
-            await word_find.update_user_stats(db_helpers, self.user_id, True, attempt_num, self.game_type)
-            
-            # Update quest progress for daily word find
-            if self.game_type == 'daily':
-                await quests.update_quest_progress(db_helpers, self.user_id, 'daily_word_find', 1)
-            
-            # Mark premium game as completed if applicable
-            if self.game_type == 'premium':
-                await word_find.complete_premium_game(db_helpers, word_id, True)
-            
-            # Get updated stats and attempts for sharing
-            user_stats = await word_find.get_user_stats(db_helpers, self.user_id)
-            all_attempts = await word_find.get_user_attempts(db_helpers, self.user_id, word_id, self.game_type)
-            
-            if user_stats:
-                embed.add_field(
-                    name="📊 Deine Statistiken",
-                    value=f"Spiele: `{user_stats['total_games']}` | Gewonnen: `{user_stats['total_wins']}`\n"
-                          f"Streak: `{user_stats['current_streak']}` 🔥 | Best: `{user_stats['best_streak']}`",
-                    inline=False
+            # Validate that the guess is a real word from the word pool
+            if not word_find.is_valid_guess(guess, user_lang):
+                await interaction.followup.send(
+                    "❌ Dieses Wort ist nicht im Wortpool! Bitte gib ein gültiges Wort ein.",
+                    ephemeral=True
                 )
+                return
             
-            # Show completed view with share button (and new game button for premium users)
-            view = WordFindCompletedView(self.user_id, all_attempts, True, self.has_premium, self.game_type)
-            await interaction.edit_original_response(embed=embed, view=view)
-        else:
-            # Update display with new attempt
+            # Get current attempts based on game type
             attempts = await word_find.get_user_attempts(db_helpers, self.user_id, word_id, self.game_type)
             
-            user_stats = await word_find.get_user_stats(db_helpers, self.user_id)
+            attempt_num = len(attempts) + 1
             
-            embed = word_find.create_game_embed(self.word_data, attempts, self.max_attempts, user_stats, self.game_type, self.theme_id)
+            # Check if already guessed this word
+            if any(a['guess'].lower() == guess for a in attempts):
+                await interaction.followup.send("Du hast dieses Wort bereits geraten!", ephemeral=True)
+                return
             
             # Check if max attempts reached
-            if attempt_num >= self.max_attempts:
-                embed.title = "❌ Keine Versuche mehr!"
-                embed.description = f"Das gesuchte Wort war: **{correct_word.upper()}**"
-                embed.color = discord.Color.red()
+            if attempt_num > self.max_attempts:
+                await interaction.followup.send("Du hast alle Versuche aufgebraucht!", ephemeral=True)
+                return
+            
+            # Calculate similarity
+            similarity = word_find.calculate_word_similarity(guess, correct_word)
+            
+            # Record attempt with game type
+            await word_find.record_attempt(db_helpers, self.user_id, word_id, guess, similarity, attempt_num, self.game_type)
+            
+            # Check if correct
+            if guess == correct_word:
+                # Win!
+                # Calculate rewards based on attempts (fewer attempts = better rewards)
+                base_xp = 40
+                base_money = 20
+                bonus_multiplier = max(1.0, (self.max_attempts - attempt_num + 1) / self.max_attempts)
+                xp_reward = int(base_xp * bonus_multiplier)
+                money_reward = int(base_money * bonus_multiplier)
                 
-                # Update stats (loss)
-                await word_find.update_user_stats(db_helpers, self.user_id, False, attempt_num, self.game_type)
+                # Give XP reward
+                await db_helpers.add_xp(self.user_id, interaction.user.display_name, xp_reward)
+                
+                # Give money reward
+                await db_helpers.add_balance(self.user_id, interaction.user.display_name, money_reward, config)
+                
+                embed = discord.Embed(
+                    title="🎉 Glückwunsch!",
+                    description=f"Du hast das Wort **{correct_word.upper()}** in {attempt_num} Versuchen erraten!\n\n"
+                               f"**Belohnungen:**\n"
+                               f"🎯 +{xp_reward} XP\n"
+                               f"💰 +{money_reward} {config['modules']['economy']['currency_symbol']}",
+                    color=discord.Color.gold()
+                )
+                
+                # Update stats
+                await word_find.update_user_stats(db_helpers, self.user_id, True, attempt_num, self.game_type)
+                
+                # Update quest progress for daily word find
+                if self.game_type == 'daily':
+                    await quests.update_quest_progress(db_helpers, self.user_id, 'daily_word_find', 1)
                 
                 # Mark premium game as completed if applicable
                 if self.game_type == 'premium':
-                    await word_find.complete_premium_game(db_helpers, word_id, False)
+                    await word_find.complete_premium_game(db_helpers, word_id, True)
+                
+                # Get updated stats and attempts for sharing
+                user_stats = await word_find.get_user_stats(db_helpers, self.user_id)
+                all_attempts = await word_find.get_user_attempts(db_helpers, self.user_id, word_id, self.game_type)
+                
+                if user_stats:
+                    embed.add_field(
+                        name="📊 Deine Statistiken",
+                        value=f"Spiele: `{user_stats['total_games']}` | Gewonnen: `{user_stats['total_wins']}`\n"
+                              f"Streak: `{user_stats['current_streak']}` 🔥 | Best: `{user_stats['best_streak']}`",
+                        inline=False
+                    )
                 
                 # Show completed view with share button (and new game button for premium users)
-                view = WordFindCompletedView(self.user_id, attempts, False, self.has_premium, self.game_type)
-                await interaction.edit_original_response(embed=embed, view=view)
+                view = WordFindCompletedView(self.user_id, all_attempts, True, self.has_premium, self.game_type)
+                
+                # Edit the original message
+                if self.message:
+                    await self.message.edit(embed=embed, view=view)
+                    await interaction.followup.send("✅ Richtig geraten!", ephemeral=True)
+                else:
+                    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
             else:
-                view = WordFindView(self.user_id, self.word_data, self.max_attempts, self.has_premium, self.game_type, self.theme_id)
-                await interaction.edit_original_response(embed=embed, view=view)
+                # Wrong guess - update display with new attempt
+                attempts = await word_find.get_user_attempts(db_helpers, self.user_id, word_id, self.game_type)
+                
+                user_stats = await word_find.get_user_stats(db_helpers, self.user_id)
+                
+                embed = word_find.create_game_embed(self.word_data, attempts, self.max_attempts, user_stats, self.game_type, self.theme_id)
+                
+                # Check if max attempts reached
+                if attempt_num >= self.max_attempts:
+                    embed.title = "❌ Keine Versuche mehr!"
+                    embed.description = f"Das gesuchte Wort war: **{correct_word.upper()}**"
+                    embed.color = discord.Color.red()
+                    
+                    # Update stats (loss)
+                    await word_find.update_user_stats(db_helpers, self.user_id, False, attempt_num, self.game_type)
+                    
+                    # Mark premium game as completed if applicable
+                    if self.game_type == 'premium':
+                        await word_find.complete_premium_game(db_helpers, word_id, False)
+                    
+                    # Show completed view with share button (and new game button for premium users)
+                    view = WordFindCompletedView(self.user_id, attempts, False, self.has_premium, self.game_type)
+                    
+                    # Edit the original message
+                    if self.message:
+                        await self.message.edit(embed=embed, view=view)
+                        await interaction.followup.send("❌ Keine Versuche mehr!", ephemeral=True)
+                    else:
+                        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+                else:
+                    view = WordFindView(self.user_id, self.word_data, self.max_attempts, self.has_premium, self.game_type, self.theme_id)
+                    
+                    # Edit the original message
+                    if self.message:
+                        await self.message.edit(embed=embed, view=view)
+                        # Send confirmation with similarity score
+                        similarity_pct = f"{similarity:.1f}%"
+                        temp = "🔥 Sehr heiß!" if similarity >= 80 else "🌡️ Heiß!" if similarity >= 60 else "🌤️ Warm" if similarity >= 40 else "❄️ Kalt" if similarity >= 20 else "🧊 Sehr kalt"
+                        await interaction.followup.send(f"Versuch aufgezeichnet: **{guess}** - {similarity_pct} {temp}", ephemeral=True)
+                    else:
+                        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        except discord.errors.NotFound:
+            # Interaction expired
+            await interaction.followup.send(
+                "⏱️ Die Interaktion ist abgelaufen. Bitte starte ein neues Spiel mit /wordfind",
+                ephemeral=True
+            )
+        except Exception as e:
+            logger.error(f"Error in WordGuessModal.on_submit: {e}", exc_info=True)
+            try:
+                await interaction.followup.send(
+                    "❌ Ein Fehler ist aufgetreten. Bitte versuche es erneut.",
+                    ephemeral=True
+                )
+            except:
+                pass
 
 
 # --- Wordle Command and Views ---
