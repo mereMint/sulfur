@@ -335,9 +335,17 @@ async def get_random_monster(db_helpers, player_level: int, world: str):
         return None
 
 
-def calculate_damage(attacker_str: int, defender_def: int, attacker_dex: int) -> dict:
+def calculate_damage(attacker_str: int, defender_def: int, attacker_dex: int, is_ai: bool = False, player_health_pct: float = 1.0) -> dict:
     """
     Calculate damage with dodge/miss/crit mechanics.
+    Enhanced AI makes smarter decisions based on situation.
+    
+    Args:
+        attacker_str: Attacker's strength
+        defender_def: Defender's defense
+        attacker_dex: Attacker's dexterity
+        is_ai: Whether this is an AI attacker (for smarter behavior)
+        player_health_pct: Player's current health percentage (for AI decision-making)
     
     Returns:
         dict with 'damage', 'hit', 'crit', 'dodged' keys
@@ -351,6 +359,11 @@ def calculate_damage(attacker_str: int, defender_def: int, attacker_dex: int) ->
     
     # Base hit chance: 85% + (dex / 100)
     hit_chance = 0.85 + (attacker_dex / 100.0)
+    
+    # AI gets bonus accuracy when player is low health (aggressive finish)
+    if is_ai and player_health_pct < 0.3:
+        hit_chance += 0.1
+    
     hit_chance = min(0.95, hit_chance)  # Cap at 95%
     
     # Check if attack hits
@@ -370,6 +383,11 @@ def calculate_damage(attacker_str: int, defender_def: int, attacker_dex: int) ->
     
     # Critical hit chance: 10% + (dex / 200)
     crit_chance = 0.10 + (attacker_dex / 200.0)
+    
+    # AI has higher crit chance when player is low health
+    if is_ai and player_health_pct < 0.3:
+        crit_chance += 0.15
+    
     crit_chance = min(0.30, crit_chance)  # Cap at 30%
     
     if random.random() < crit_chance:
@@ -380,15 +398,20 @@ def calculate_damage(attacker_str: int, defender_def: int, attacker_dex: int) ->
     return result
 
 
-async def start_adventure(db_helpers, user_id: int):
-    """Start an adventure encounter (combat or non-combat)."""
+async def start_adventure(db_helpers, user_id: int, continue_chain: bool = False):
+    """
+    Start an adventure encounter (combat or non-combat).
+    
+    Args:
+        continue_chain: If True, allows continuing an adventure chain
+    """
     try:
         player = await get_player_profile(db_helpers, user_id)
         if not player:
             return None, "Profil konnte nicht geladen werden.", None
         
-        # Check cooldown (2 minutes between adventures)
-        if player['last_adventure']:
+        # Check cooldown only if not continuing a chain
+        if not continue_chain and player['last_adventure']:
             last_adv = player['last_adventure']
             if isinstance(last_adv, str):
                 last_adv = datetime.fromisoformat(last_adv.replace('Z', '+00:00'))
@@ -404,15 +427,16 @@ async def start_adventure(db_helpers, user_id: int):
         if player['health'] < player['max_health'] * 0.2:  # Less than 20% health
             return None, "Du bist zu schwach! Heile dich zuerst.", None
         
-        # Update last adventure time
-        conn = db_helpers.db_pool.get_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE rpg_players SET last_adventure = NOW() WHERE user_id = %s
-        """, (user_id,))
-        conn.commit()
-        cursor.close()
-        conn.close()
+        # Update last adventure time only if starting a new chain
+        if not continue_chain:
+            conn = db_helpers.db_pool.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE rpg_players SET last_adventure = NOW() WHERE user_id = %s
+            """, (user_id,))
+            conn.commit()
+            cursor.close()
+            conn.close()
         
         # 70% chance for combat, 30% for non-combat event
         encounter_type = 'combat' if random.random() < 0.7 else 'event'
@@ -422,10 +446,14 @@ async def start_adventure(db_helpers, user_id: int):
             monster = await get_random_monster(db_helpers, player['level'], player['world'])
             if not monster:
                 return None, "Kein Monster gefunden.", None
+            
+            # Track that this is part of an adventure (for chain support)
+            monster['can_continue'] = random.random() < 0.4  # 40% chance to continue adventure
             return monster, None, 'combat'
         else:
             # Generate non-combat event
             event = generate_adventure_event(player)
+            event['can_continue'] = random.random() < 0.3  # 30% chance to continue after event
             return event, None, 'event'
             
     except Exception as e:
@@ -563,6 +591,37 @@ async def claim_adventure_event(db_helpers, user_id: int, event: dict):
         return False, str(e)
 
 
+async def get_combat_timeline(player: dict, monster: dict) -> list:
+    """
+    Calculate combat turn order based on speed.
+    Returns a list of combatants in order from fastest to slowest.
+    
+    Returns:
+        List of dicts with 'name', 'speed', 'type' (player/monster), 'emoji'
+    """
+    timeline = [
+        {
+            'name': 'You',
+            'speed': player['speed'],
+            'type': 'player',
+            'emoji': '🛡️',
+            'health_pct': (player['health'] / player['max_health']) * 100
+        },
+        {
+            'name': monster['name'],
+            'speed': monster['speed'],
+            'type': 'monster',
+            'emoji': '👹',
+            'health_pct': (monster['health'] / monster.get('max_health', monster['health'])) * 100
+        }
+    ]
+    
+    # Sort by speed (highest first)
+    timeline.sort(key=lambda x: x['speed'], reverse=True)
+    
+    return timeline
+
+
 async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: str):
     """
     Process a single combat turn.
@@ -657,10 +716,15 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
         
         # Monster's turn (if still alive and player didn't run)
         if not result['combat_over']:
+            # Calculate player health percentage for AI decision-making
+            player_health_pct = player['health'] / player['max_health']
+            
             dmg_result = calculate_damage(
                 monster['strength'],
                 player['defense'],
-                monster['speed']
+                monster['speed'],
+                is_ai=True,
+                player_health_pct=player_health_pct
             )
             
             if dmg_result['dodged']:
