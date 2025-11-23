@@ -352,6 +352,16 @@
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link {% if request.path == '/economy' %}active{% endif %}" href="/economy">
+                            <i class="bi bi-cash-coin"></i> Economy
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.path == '/games' %}active{% endif %}" href="/games">
+                            <i class="bi bi-controller"></i> Games
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link {% if request.path == '/database' %}active{% endif %}" href="/database">
                             <i class="bi bi-database"></i> Database
                         </a>

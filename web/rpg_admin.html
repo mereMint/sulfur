@@ -143,6 +143,11 @@
         </button>
     </li>
     <li class="nav-item" role="presentation">
+        <button class="nav-link" id="skills-tab" data-bs-toggle="tab" data-bs-target="#skills" type="button" role="tab">
+            <i class="bi bi-tree-fill"></i> Skill Tree
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
         <button class="nav-link" id="settings-tab" data-bs-toggle="tab" data-bs-target="#settings" type="button" role="tab">
             <i class="bi bi-gear-fill"></i> Settings
         </button>
@@ -335,6 +340,40 @@
         </div>
     </div>
 
+    <!-- Skill Tree Tab -->
+    <div class="tab-pane fade" id="skills" role="tabpanel">
+        <div class="row">
+            <div class="col-12 mb-4">
+                <div class="card p-4">
+                    <h3 class="section-title"><i class="bi bi-tree-fill"></i> Skill Tree Paths</h3>
+                    <p class="text-muted">View and manage all skill tree paths and their skills</p>
+                    
+                    <div class="row mt-4" id="skillTreeContainer">
+                        <!-- Skill trees will be loaded here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Skill Details Modal -->
+        <div class="modal fade" id="skillModal" tabindex="-1" aria-labelledby="skillModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content" style="background: var(--bg-card); border: 1px solid var(--border-color);">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="skillModalLabel">Skill Details</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body" id="skillModalBody">
+                        <!-- Skill details will be loaded here -->
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Settings Tab -->
     <div class="tab-pane fade" id="settings" role="tabpanel">
         <div class="row">
@@ -392,6 +431,7 @@
         loadStats();
         loadItems();
         loadMonsters();
+        loadSkillTree();
     });
 
     async function loadStats() {
@@ -610,5 +650,142 @@
         loadItems();
         loadMonsters();
     }
+
+    async function loadSkillTree() {
+        try {
+            const response = await fetch('/api/rpg/skill_tree');
+            const skillTree = await response.json();
+            const container = document.getElementById('skillTreeContainer');
+            
+            let html = '';
+            
+            // Create a card for each path
+            Object.entries(skillTree).forEach(([pathKey, pathData]) => {
+                html += `
+                <div class="col-md-4 mb-4">
+                    <div class="card h-100">
+                        <div class="card-header text-center">
+                            <h4>${pathData.emoji} ${pathData.name}</h4>
+                            <p class="text-muted small mb-0">${pathData.description}</p>
+                        </div>
+                        <div class="card-body">
+                            <div class="skill-list">
+                `;
+                
+                // Display skills in order (considering requirements)
+                const sortedSkills = topologicalSortSkills(pathData.skills);
+                
+                sortedSkills.forEach(skillKey => {
+                    const skill = pathData.skills[skillKey];
+                    const typeIcon = skill.type === 'active' ? '⚡' : '📊';
+                    const requiresText = skill.requires ? `<small class="text-warning">Requires: ${pathData.skills[skill.requires]?.name || skill.requires}</small>` : '';
+                    
+                    html += `
+                    <div class="skill-item mb-3 p-3" style="background: rgba(83, 52, 131, 0.2); border-radius: 8px; border-left: 3px solid var(--accent-primary); cursor: pointer;" 
+                         onclick="showSkillDetails('${pathKey}', '${skillKey}')">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <strong>${typeIcon} ${skill.name}</strong>
+                                <div class="text-muted small">${skill.description}</div>
+                                ${requiresText}
+                            </div>
+                            <span class="badge bg-primary">${skill.cost} SP</span>
+                        </div>
+                    </div>
+                    `;
+                });
+                
+                html += `
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                `;
+            });
+            
+            container.innerHTML = html;
+        } catch (error) {
+            console.error('Error loading skill tree:', error);
+            document.getElementById('skillTreeContainer').innerHTML = 
+                '<div class="col-12"><div class="alert alert-danger">Error loading skill tree</div></div>';
+        }
+    }
+
+    function topologicalSortSkills(skills) {
+        // Simple topological sort for skills based on requirements
+        const sorted = [];
+        const visited = new Set();
+        
+        function visit(skillKey) {
+            if (visited.has(skillKey)) return;
+            visited.add(skillKey);
+            
+            const skill = skills[skillKey];
+            if (skill.requires && skills[skill.requires]) {
+                visit(skill.requires);
+            }
+            
+            sorted.push(skillKey);
+        }
+        
+        Object.keys(skills).forEach(skillKey => visit(skillKey));
+        return sorted;
+    }
+
+    function showSkillDetails(pathKey, skillKey) {
+        fetch('/api/rpg/skill_tree')
+            .then(response => response.json())
+            .then(skillTree => {
+                const pathData = skillTree[pathKey];
+                const skill = pathData.skills[skillKey];
+                
+                let effectsHtml = '<ul class="list-unstyled">';
+                if (skill.effect) {
+                    Object.entries(skill.effect).forEach(([key, value]) => {
+                        const displayValue = typeof value === 'number' && value < 1 && value > 0 
+                            ? `${(value * 100).toFixed(0)}%` 
+                            : value;
+                        effectsHtml += `<li><strong>${key}:</strong> ${displayValue}</li>`;
+                    });
+                }
+                effectsHtml += '</ul>';
+                
+                const requiresHtml = skill.requires 
+                    ? `<p><strong>Requires:</strong> ${pathData.skills[skill.requires]?.name || skill.requires}</p>`
+                    : '<p><em>No prerequisites</em></p>';
+                
+                const modalBody = document.getElementById('skillModalBody');
+                modalBody.innerHTML = `
+                    <div class="mb-3">
+                        <h4>${pathData.emoji} ${skill.name}</h4>
+                        <span class="badge bg-${skill.type === 'active' ? 'success' : 'info'}">${skill.type.toUpperCase()}</span>
+                        <span class="badge bg-primary ms-2">Cost: ${skill.cost} SP</span>
+                    </div>
+                    <div class="mb-3">
+                        <h6>Description</h6>
+                        <p>${skill.description}</p>
+                    </div>
+                    <div class="mb-3">
+                        <h6>Path</h6>
+                        <p>${pathData.emoji} ${pathData.name} - ${pathData.description}</p>
+                    </div>
+                    <div class="mb-3">
+                        <h6>Requirements</h6>
+                        ${requiresHtml}
+                    </div>
+                    <div class="mb-3">
+                        <h6>Effects</h6>
+                        ${effectsHtml}
+                    </div>
+                `;
+                
+                const modal = new bootstrap.Modal(document.getElementById('skillModal'));
+                modal.show();
+            })
+            .catch(error => {
+                console.error('Error loading skill details:', error);
+            });
+    }
+
 </script>
 {% endblock %}

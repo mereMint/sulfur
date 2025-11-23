@@ -1352,6 +1352,262 @@ def delete_skill(path_key, skill_key):
         return jsonify({'error': str(e)}), 500
 
 
+# ========== Economy Dashboard APIs ==========
+
+@app.route('/economy', methods=['GET'])
+def economy_dashboard():
+    """Renders the economy dashboard page."""
+    return render_template('economy.html')
+
+
+@app.route('/api/economy/stats', methods=['GET'])
+def economy_stats():
+    """Get overall economy statistics."""
+    try:
+        if not db_helpers.db_pool:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        conn = db_helpers.db_pool.get_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        try:
+            # Total coins in circulation
+            cursor.execute("SELECT COALESCE(SUM(coins), 0) as total_coins FROM user_stats")
+            total_coins = cursor.fetchone()['total_coins']
+            
+            # Total users with coins
+            cursor.execute("SELECT COUNT(*) as total_users FROM user_stats WHERE coins > 0")
+            total_users = cursor.fetchone()['total_users']
+            
+            # Average coins per user
+            avg_coins = total_coins / total_users if total_users > 0 else 0
+            
+            # Richest users
+            cursor.execute("""
+                SELECT user_id, display_name, username, coins 
+                FROM user_stats 
+                WHERE coins > 0 
+                ORDER BY coins DESC 
+                LIMIT 10
+            """)
+            richest_users = cursor.fetchall()
+            
+            # Recent transactions
+            cursor.execute("""
+                SELECT t.*, u.display_name, u.username 
+                FROM transactions t
+                LEFT JOIN user_stats u ON t.user_id = u.user_id
+                ORDER BY t.timestamp DESC 
+                LIMIT 20
+            """)
+            recent_transactions = cursor.fetchall()
+            
+            # Transaction volume by type
+            cursor.execute("""
+                SELECT transaction_type, COUNT(*) as count, SUM(amount) as total_amount
+                FROM transactions
+                WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                GROUP BY transaction_type
+                ORDER BY total_amount DESC
+            """)
+            transaction_types = cursor.fetchall()
+            
+            return jsonify({
+                'total_coins': int(total_coins),
+                'total_users': total_users,
+                'avg_coins': round(avg_coins, 2),
+                'richest_users': richest_users,
+                'recent_transactions': recent_transactions,
+                'transaction_types': transaction_types
+            })
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting economy stats: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/economy/stocks', methods=['GET'])
+def economy_stocks():
+    """Get stock market data."""
+    try:
+        if not db_helpers.db_pool:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        conn = db_helpers.db_pool.get_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        try:
+            # Get all stocks
+            cursor.execute("""
+                SELECT * FROM stocks
+                ORDER BY symbol ASC
+            """)
+            stocks = cursor.fetchall()
+            
+            # Get top stock holders
+            cursor.execute("""
+                SELECT so.symbol, so.user_id, so.quantity, 
+                       u.display_name, u.username, s.current_price
+                FROM stocks_owned so
+                JOIN user_stats u ON so.user_id = u.user_id
+                JOIN stocks s ON so.symbol = s.symbol
+                WHERE so.quantity > 0
+                ORDER BY (so.quantity * s.current_price) DESC
+                LIMIT 20
+            """)
+            top_holders = cursor.fetchall()
+            
+            return jsonify({
+                'stocks': stocks,
+                'top_holders': top_holders
+            })
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting stock data: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ========== Games Dashboard APIs ==========
+
+@app.route('/games', methods=['GET'])
+def games_dashboard():
+    """Renders the games dashboard page."""
+    return render_template('games.html')
+
+
+@app.route('/api/games/stats', methods=['GET'])
+def games_stats():
+    """Get overall games statistics."""
+    try:
+        if not db_helpers.db_pool:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        conn = db_helpers.db_pool.get_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        stats = {}
+        
+        try:
+            # Werwolf stats
+            cursor.execute("SELECT COUNT(*) as total_games FROM werwolf_games")
+            werwolf_games = cursor.fetchone()['total_games']
+            
+            cursor.execute("""
+                SELECT COUNT(DISTINCT user_id) as total_players 
+                FROM werwolf_user_stats
+            """)
+            werwolf_players = cursor.fetchone()['total_players']
+            
+            stats['werwolf'] = {
+                'total_games': werwolf_games,
+                'total_players': werwolf_players
+            }
+            
+            # Detective stats
+            cursor.execute("SELECT COUNT(*) as total_games FROM detective_games")
+            detective_games = cursor.fetchone()['total_games']
+            
+            cursor.execute("""
+                SELECT COUNT(DISTINCT user_id) as total_players 
+                FROM detective_user_stats
+            """)
+            detective_players = cursor.fetchone()['total_players']
+            
+            stats['detective'] = {
+                'total_games': detective_games,
+                'total_players': detective_players
+            }
+            
+            # Wordle stats  
+            cursor.execute("""
+                SELECT COUNT(*) as total_games FROM wordle_games WHERE completed = TRUE
+            """)
+            wordle_games = cursor.fetchone()['total_games']
+            
+            cursor.execute("""
+                SELECT COUNT(DISTINCT user_id) as total_players 
+                FROM wordle_games
+            """)
+            wordle_players = cursor.fetchone()['total_players']
+            
+            stats['wordle'] = {
+                'total_games': wordle_games,
+                'total_players': wordle_players
+            }
+            
+            # Casino games
+            cursor.execute("SELECT COUNT(*) as total_games FROM blackjack_games")
+            blackjack_games = cursor.fetchone()['total_games']
+            
+            cursor.execute("SELECT COUNT(*) as total_games FROM roulette_games")
+            roulette_games = cursor.fetchone()['total_games']
+            
+            cursor.execute("SELECT COUNT(*) as total_games FROM mines_games")
+            mines_games = cursor.fetchone()['total_games']
+            
+            stats['casino'] = {
+                'blackjack_games': blackjack_games,
+                'roulette_games': roulette_games,
+                'mines_games': mines_games
+            }
+            
+            return jsonify(stats)
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting games stats: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/games/<game_type>/leaderboard', methods=['GET'])
+def game_leaderboard(game_type):
+    """Get leaderboard for a specific game."""
+    try:
+        if not db_helpers.db_pool:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        conn = db_helpers.db_pool.get_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        try:
+            if game_type == 'detective':
+                cursor.execute("""
+                    SELECT u.display_name, u.username, d.user_id,
+                           d.cases_solved, d.total_cases, d.accuracy,
+                           d.streak, d.best_streak
+                    FROM detective_user_stats d
+                    JOIN user_stats u ON d.user_id = u.user_id
+                    ORDER BY d.cases_solved DESC, d.accuracy DESC
+                    LIMIT 50
+                """)
+            elif game_type == 'wordle':
+                cursor.execute("""
+                    SELECT user_id, COUNT(*) as games_won,
+                           AVG(attempts) as avg_attempts
+                    FROM wordle_games
+                    WHERE completed = TRUE AND won = TRUE
+                    GROUP BY user_id
+                    ORDER BY games_won DESC, avg_attempts ASC
+                    LIMIT 50
+                """)
+            else:
+                return jsonify({'error': 'Invalid game type'}), 400
+            
+            leaderboard = cursor.fetchall()
+            return jsonify({'leaderboard': leaderboard})
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting game leaderboard: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     # Start the log following thread
     log_thread = threading.Thread(target=follow_log_file, daemon=True)
