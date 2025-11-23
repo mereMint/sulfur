@@ -167,22 +167,43 @@ def get_wordle_words_list(language='de'):
     """
     Get Wordle word list for selecting daily solution words.
     
-    This uses the curated word list (not the expanded validation list)
-    to ensure daily words are common and appropriate.
+    This uses both curated word lists AND word_service fallback lists
+    to provide a larger pool of potential words.
     """
     if language == 'en':
-        word_list = WORDLE_WORDS_EN
+        word_list = WORDLE_WORDS_EN.copy()
     else:
-        word_list = WORDLE_WORDS_DE
+        word_list = WORDLE_WORDS_DE.copy()
+    
+    # Enhance with additional words from word_service
+    try:
+        if language == 'en':
+            additional_words = word_service.get_fallback_english_words(
+                count=1000,
+                min_length=WORDLE_WORD_LENGTH,
+                max_length=WORDLE_WORD_LENGTH
+            )
+        else:
+            additional_words = word_service.get_fallback_german_words(
+                count=1000,
+                min_length=WORDLE_WORD_LENGTH,
+                max_length=WORDLE_WORD_LENGTH
+            )
+        
+        # Combine and deduplicate
+        word_list = list(set(word_list + additional_words))
+        logger.info(f"Enhanced Wordle word list for {language}: {len(word_list)} words available")
+    except Exception as e:
+        logger.warning(f"Could not enhance word list with word_service: {e}")
     
     # Ensure we have valid words
     if not word_list or len(word_list) == 0:
         logger.error(f"No Wordle words available for language {language}")
-        # Return a minimal fallback
+        # Return a minimal fallback from word_service
         if language == 'en':
-            return ['about', 'house', 'world', 'music', 'happy']
+            return word_service.get_fallback_english_words(count=100, min_length=5, max_length=5)
         else:
-            return ['haus', 'welt', 'musik', 'freund', 'leben']
+            return word_service.get_fallback_german_words(count=100, min_length=5, max_length=5)
     
     return word_list
 
