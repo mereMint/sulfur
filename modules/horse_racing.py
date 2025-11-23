@@ -72,7 +72,7 @@ ABILITIES = {
         'bonus_move': 2,
         'requires_leading': True  # Only triggers when in lead
     }
-]
+}
 
 # Race track settings
 RACE_LENGTH = 20  # Length of the race track
