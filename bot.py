@@ -9960,10 +9960,7 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
         word_id = self.word_data['id']
         
         # Get current attempts based on game type
-        if self.game_type == 'daily':
-            attempts = await word_find.get_user_attempts(db_helpers, self.user_id, word_id)
-        else:
-            attempts = await word_find.get_user_attempts_by_type(db_helpers, self.user_id, word_id, 'premium')
+        attempts = await word_find.get_user_attempts(db_helpers, self.user_id, word_id, self.game_type)
         
         attempt_num = len(attempts) + 1
         
@@ -9981,10 +9978,7 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
         similarity = word_find.calculate_word_similarity(guess, correct_word)
         
         # Record attempt with game type
-        if self.game_type == 'daily':
-            await word_find.record_attempt(db_helpers, self.user_id, word_id, guess, similarity, attempt_num)
-        else:
-            await word_find.record_attempt_with_type(db_helpers, self.user_id, word_id, guess, similarity, attempt_num, 'premium')
+        await word_find.record_attempt(db_helpers, self.user_id, word_id, guess, similarity, attempt_num, self.game_type)
         
         # Check if correct
         if guess == correct_word:
@@ -10024,10 +10018,7 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
             
             # Get updated stats and attempts for sharing
             user_stats = await word_find.get_user_stats(db_helpers, self.user_id)
-            if self.game_type == 'daily':
-                all_attempts = await word_find.get_user_attempts(db_helpers, self.user_id, word_id)
-            else:
-                all_attempts = await word_find.get_user_attempts_by_type(db_helpers, self.user_id, word_id, 'premium')
+            all_attempts = await word_find.get_user_attempts(db_helpers, self.user_id, word_id, self.game_type)
             
             if user_stats:
                 embed.add_field(
@@ -10042,10 +10033,7 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
             await interaction.edit_original_response(embed=embed, view=view)
         else:
             # Update display with new attempt
-            if self.game_type == 'daily':
-                attempts = await word_find.get_user_attempts(db_helpers, self.user_id, word_id)
-            else:
-                attempts = await word_find.get_user_attempts_by_type(db_helpers, self.user_id, word_id, 'premium')
+            attempts = await word_find.get_user_attempts(db_helpers, self.user_id, word_id, self.game_type)
             
             user_stats = await word_find.get_user_stats(db_helpers, self.user_id)
             
@@ -10466,7 +10454,7 @@ async def word_find_command(interaction: discord.Interaction):
         has_premium = await db_helpers.has_feature_unlock(user_id, 'unlimited_word_find')
         
         # Get user's attempts for today (always 20 max for both free and premium)
-        attempts = await word_find.get_user_attempts(db_helpers, user_id, word_data['id'])
+        attempts = await word_find.get_user_attempts(db_helpers, user_id, word_data['id'], 'daily')
         max_attempts = 20
         
         # Check if already completed today (guessed correctly)

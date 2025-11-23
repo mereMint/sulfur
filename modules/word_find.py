@@ -366,7 +366,7 @@ async def get_or_create_daily_word(db_helpers, language='de'):
 
 
 
-async def get_user_attempts(db_helpers, user_id: int, word_id: int):
+async def get_user_attempts(db_helpers, user_id: int, word_id: int, game_type: str = 'daily'):
     """Get user's attempts for today's word."""
     try:
         if not db_helpers.db_pool:
@@ -381,9 +381,9 @@ async def get_user_attempts(db_helpers, user_id: int, word_id: int):
             cursor.execute("""
                 SELECT guess, similarity_score, attempt_number
                 FROM word_find_attempts
-                WHERE user_id = %s AND word_id = %s
+                WHERE user_id = %s AND word_id = %s AND game_type = %s
                 ORDER BY attempt_number ASC
-            """, (user_id, word_id))
+            """, (user_id, word_id, game_type))
             
             return cursor.fetchall()
         finally:
@@ -394,7 +394,7 @@ async def get_user_attempts(db_helpers, user_id: int, word_id: int):
         return []
 
 
-async def record_attempt(db_helpers, user_id: int, word_id: int, guess: str, similarity: float, attempt_num: int):
+async def record_attempt(db_helpers, user_id: int, word_id: int, guess: str, similarity: float, attempt_num: int, game_type: str = 'daily'):
     """Record a guess attempt."""
     try:
         if not db_helpers.db_pool:
@@ -407,9 +407,9 @@ async def record_attempt(db_helpers, user_id: int, word_id: int, guess: str, sim
         cursor = conn.cursor()
         try:
             cursor.execute("""
-                INSERT INTO word_find_attempts (user_id, word_id, guess, similarity_score, attempt_number)
-                VALUES (%s, %s, %s, %s, %s)
-            """, (user_id, word_id, guess, similarity, attempt_num))
+                INSERT INTO word_find_attempts (user_id, word_id, guess, similarity_score, attempt_number, game_type)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (user_id, word_id, guess, similarity, attempt_num, game_type))
             
             conn.commit()
             return True
