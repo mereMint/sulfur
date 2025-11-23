@@ -119,14 +119,26 @@ logger.info(f"Loaded {len(WORDLE_WORDS_DE)} German words and {len(WORDLE_WORDS_E
 WORDLE_WORDS_DE_SET = set(WORDLE_WORDS_DE)
 WORDLE_WORDS_EN_SET = set(WORDLE_WORDS_EN)
 
+# Constants for word validation expansion
+VALIDATION_WORD_COUNT = 10000  # Max words to fetch from fallback lists
+WORDLE_WORD_LENGTH = 5  # Standard Wordle word length
+
 # Create expanded validation sets by importing additional words from word_service
 # This allows more valid guesses while keeping curated solution words
 try:
     from modules.word_service import get_fallback_german_words, get_fallback_english_words
     
     # Get comprehensive word lists for validation (5-letter words only)
-    expanded_de_words = get_fallback_german_words(count=10000, min_length=5, max_length=5)
-    expanded_en_words = get_fallback_english_words(count=10000, min_length=5, max_length=5)
+    expanded_de_words = get_fallback_german_words(
+        count=VALIDATION_WORD_COUNT, 
+        min_length=WORDLE_WORD_LENGTH, 
+        max_length=WORDLE_WORD_LENGTH
+    )
+    expanded_en_words = get_fallback_english_words(
+        count=VALIDATION_WORD_COUNT, 
+        min_length=WORDLE_WORD_LENGTH, 
+        max_length=WORDLE_WORD_LENGTH
+    )
     
     # Combine curated words with expanded validation words
     WORDLE_VALID_GUESSES_DE = WORDLE_WORDS_DE_SET | set(expanded_de_words)
