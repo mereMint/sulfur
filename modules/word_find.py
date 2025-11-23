@@ -73,8 +73,28 @@ logger.info(f"Loaded Word Find word lists: DE={len(WORD_LISTS_DE.get('easy', [])
 def get_word_lists(language='de'):
     """Get Word Find word lists for specified language."""
     if language == 'en':
-        return WORD_LISTS_EN
-    return WORD_LISTS_DE
+        word_lists = WORD_LISTS_EN
+    else:
+        word_lists = WORD_LISTS_DE
+    
+    # Ensure we have valid words for all difficulties
+    if not word_lists or not all(k in word_lists and len(word_lists[k]) > 0 for k in ['easy', 'medium', 'hard']):
+        logger.error(f"Invalid or empty word lists for language {language}")
+        # Return minimal fallback
+        if language == 'en':
+            return {
+                'easy': ['house', 'tree', 'book', 'chair', 'table'],
+                'medium': ['computer', 'internet', 'keyboard', 'monitor'],
+                'hard': ['programming', 'technology', 'innovation']
+            }
+        else:
+            return {
+                'easy': ['haus', 'baum', 'buch', 'stuhl', 'tisch'],
+                'medium': ['computer', 'internet', 'tastatur', 'monitor'],
+                'hard': ['programmieren', 'technologie', 'innovation']
+            }
+    
+    return word_lists
 
 
 async def initialize_word_find_table(db_helpers):
