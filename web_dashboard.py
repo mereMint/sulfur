@@ -1344,7 +1344,22 @@ def reset_rpg_player():
     """Reset a player's RPG data to fresh start."""
     try:
         data = request.json
-        user_id = int(data.get('user_id'))
+        
+        # Validate input
+        if not data or 'user_id' not in data:
+            return jsonify({
+                'success': False,
+                'message': 'user_id is required'
+            }), 400
+        
+        try:
+            user_id = int(data.get('user_id'))
+        except (ValueError, TypeError):
+            return jsonify({
+                'success': False,
+                'message': 'user_id must be a valid integer'
+            }), 400
+        
         confirm = data.get('confirm', False)
         
         if not confirm:
@@ -1367,21 +1382,22 @@ def reset_rpg_player():
             conn = db_helpers.db_pool.get_connection()
             cursor = conn.cursor()
             
-            # Whitelist of valid RPG tables to prevent SQL injection
-            VALID_RPG_TABLES = {
-                'rpg_players': 'user_id',
-                'rpg_inventory': 'user_id',
-                'rpg_equipped': 'user_id',
-                'rpg_skill_tree': 'user_id'
+            # Pre-defined queries for each table to avoid SQL injection
+            # Uses whitelist validation but with separate query strings
+            DELETE_QUERIES = {
+                'rpg_players': "DELETE FROM rpg_players WHERE user_id = %s",
+                'rpg_inventory': "DELETE FROM rpg_inventory WHERE user_id = %s",
+                'rpg_equipped': "DELETE FROM rpg_equipped WHERE user_id = %s",
+                'rpg_skill_tree': "DELETE FROM rpg_skill_tree WHERE user_id = %s"
             }
             
-            for table_name, id_column in VALID_RPG_TABLES.items():
+            for table_name, delete_query in DELETE_QUERIES.items():
                 try:
                     # Check if table exists
                     cursor.execute("SHOW TABLES LIKE %s", (table_name,))
                     if cursor.fetchone():
-                        # Delete user data from table using parameterized query
-                        cursor.execute(f"DELETE FROM {table_name} WHERE {id_column} = %s", (user_id,))
+                        # Delete user data from table using pre-defined query
+                        cursor.execute(delete_query, (user_id,))
                         affected = cursor.rowcount
                         if affected > 0:
                             deleted_tables.append(f"{table_name} ({affected} rows)")

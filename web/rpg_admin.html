@@ -708,9 +708,8 @@
             return;
         }
         
-        // Double confirmation - escape userId for display
-        const escapedUserId = String(userId).replace(/[<>"'&]/g, '');
-        if (!window.confirm(`Are you absolutely sure you want to reset all RPG data for user ${escapedUserId}? This cannot be undone!`)) {
+        // Double confirmation - userId is already validated as numeric so it's safe to use
+        if (!window.confirm('Are you absolutely sure you want to reset all RPG data for user ' + userId + '? This cannot be undone!')) {
             return;
         }
         
@@ -729,7 +728,7 @@
             const result = await response.json();
             
             if (response.ok && result.success) {
-                alert(`Success! RPG data reset for user ${escapedUserId}\n\nTables cleared:\n${result.tables_cleared.join('\n')}`);
+                alert('Success! RPG data reset for user ' + userId + '\n\nTables cleared:\n' + result.tables_cleared.join('\n'));
                 document.getElementById('resetPlayerForm').reset();
                 loadStats(); // Refresh stats
             } else {
