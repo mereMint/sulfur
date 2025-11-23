@@ -1179,6 +1179,61 @@ def get_skill_tree():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/rpg/skill_tree/save', methods=['POST'])
+def save_skill_tree():
+    """Save the complete skill tree configuration to a JSON file."""
+    try:
+        from modules import rpg_system
+        import json
+        
+        data = request.json
+        
+        # Validate the structure
+        if not isinstance(data, dict):
+            return jsonify({'error': 'Invalid skill tree structure'}), 400
+        
+        # Update in-memory skill tree
+        rpg_system.SKILL_TREE.clear()
+        rpg_system.SKILL_TREE.update(data)
+        
+        # Save to a config file for persistence
+        config_path = 'config/skill_tree_config.json'
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2)
+        
+        logger.info(f"Skill tree configuration saved to {config_path}")
+        return jsonify({'success': True, 'message': 'Skill tree saved successfully'})
+    except Exception as e:
+        logger.error(f"Error saving skill tree: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/rpg/skill_tree/load', methods=['POST'])
+def load_skill_tree():
+    """Load skill tree configuration from file."""
+    try:
+        from modules import rpg_system
+        import json
+        
+        config_path = 'config/skill_tree_config.json'
+        
+        if not os.path.exists(config_path):
+            return jsonify({'error': 'No saved skill tree configuration found'}), 404
+        
+        with open(config_path, 'r', encoding='utf-8') as f:
+            saved_tree = json.load(f)
+        
+        # Update in-memory skill tree
+        rpg_system.SKILL_TREE.clear()
+        rpg_system.SKILL_TREE.update(saved_tree)
+        
+        logger.info("Skill tree configuration loaded from file")
+        return jsonify({'success': True, 'message': 'Skill tree loaded successfully', 'data': saved_tree})
+    except Exception as e:
+        logger.error(f"Error loading skill tree: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/rpg/skill_tree/<path_key>', methods=['PUT'])
 def update_skill_tree_path(path_key):
     """Update a skill tree path configuration."""
@@ -1190,8 +1245,7 @@ def update_skill_tree_path(path_key):
         
         data = request.json
         
-        # Update the skill tree in memory (note: this doesn't persist across restarts)
-        # To persist changes, you would need to save to a config file
+        # Update the skill tree in memory
         if 'name' in data:
             rpg_system.SKILL_TREE[path_key]['name'] = data['name']
         if 'description' in data:
@@ -1199,7 +1253,7 @@ def update_skill_tree_path(path_key):
         if 'emoji' in data:
             rpg_system.SKILL_TREE[path_key]['emoji'] = data['emoji']
         
-        return jsonify({'success': True, 'message': 'Skill tree path updated (in-memory only)'})
+        return jsonify({'success': True, 'message': 'Skill tree path updated'})
     except Exception as e:
         logger.error(f"Error updating skill tree path: {e}")
         return jsonify({'error': str(e)}), 500
@@ -1229,10 +1283,72 @@ def update_skill(path_key, skill_key):
             skill['cost'] = int(data['cost'])
         if 'type' in data:
             skill['type'] = data['type']
+        if 'requires' in data:
+            skill['requires'] = data['requires']
+        if 'effect' in data:
+            skill['effect'] = data['effect']
         
-        return jsonify({'success': True, 'message': 'Skill updated (in-memory only)'})
+        return jsonify({'success': True, 'message': 'Skill updated'})
     except Exception as e:
         logger.error(f"Error updating skill: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/rpg/skill_tree/<path_key>/skills', methods=['POST'])
+def add_skill_to_path(path_key):
+    """Add a new skill to a path."""
+    try:
+        from modules import rpg_system
+        
+        if path_key not in rpg_system.SKILL_TREE:
+            return jsonify({'error': 'Invalid path'}), 404
+        
+        data = request.json
+        
+        # Validate required fields
+        if 'skill_key' not in data or 'name' not in data or 'description' not in data:
+            return jsonify({'error': 'Missing required fields'}), 400
+        
+        skill_key = data['skill_key']
+        
+        # Check if skill already exists
+        if skill_key in rpg_system.SKILL_TREE[path_key]['skills']:
+            return jsonify({'error': 'Skill already exists'}), 400
+        
+        # Create new skill
+        rpg_system.SKILL_TREE[path_key]['skills'][skill_key] = {
+            'name': data['name'],
+            'type': data.get('type', 'passive'),
+            'description': data['description'],
+            'cost': int(data.get('cost', 1)),
+            'requires': data.get('requires'),
+            'effect': data.get('effect', {})
+        }
+        
+        return jsonify({'success': True, 'message': f'Skill {skill_key} added to {path_key}'})
+    except Exception as e:
+        logger.error(f"Error adding skill: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/rpg/skill_tree/<path_key>/<skill_key>', methods=['DELETE'])
+def delete_skill(path_key, skill_key):
+    """Delete a skill from a path."""
+    try:
+        from modules import rpg_system
+        
+        if path_key not in rpg_system.SKILL_TREE:
+            return jsonify({'error': 'Invalid path'}), 404
+        
+        if skill_key not in rpg_system.SKILL_TREE[path_key]['skills']:
+            return jsonify({'error': 'Skill not found'}), 404
+        
+        # Delete the skill
+        del rpg_system.SKILL_TREE[path_key]['skills'][skill_key]
+        
+        return jsonify({'success': True, 'message': f'Skill {skill_key} deleted'})
+    except Exception as e:
+        logger.error(f"Error deleting skill: {e}")
         return jsonify({'error': str(e)}), 500
 
 

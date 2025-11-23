@@ -4169,6 +4169,43 @@ class RPGTempleView(discord.ui.View):
             logger.error(f"Error resetting skill points: {e}", exc_info=True)
             await interaction.followup.send("❌ Fehler beim Zurücksetzen.", ephemeral=True)
     
+    @discord.ui.button(label="🌳 Skill-Baum", style=discord.ButtonStyle.primary, row=1)
+    async def skill_tree_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Open skill tree from temple."""
+        await interaction.response.defer()
+        
+        try:
+            # Get unlocked skills
+            unlocked_skills = await rpg_system.get_unlocked_skills(db_helpers, self.user_id)
+            
+            embed = discord.Embed(
+                title="🌳 Skill-Baum im Tempel",
+                description=f"**Skillpunkte verfügbar: {self.player['skill_points']}**\n\n"
+                           f"Wähle einen Pfad, um Skills freizuschalten!\n"
+                           f"💡 Du erhältst Skillpunkte beim Level-Aufstieg.",
+                color=discord.Color.purple()
+            )
+            
+            # Show available paths
+            for path_key, path_data in rpg_system.SKILL_TREE.items():
+                unlocked_count = len(unlocked_skills.get(path_key, []))
+                total_count = len(path_data['skills'])
+                
+                path_text = f"{path_data['emoji']} **{path_data['name']}**\n"
+                path_text += f"{path_data['description']}\n"
+                path_text += f"Fortschritt: {unlocked_count}/{total_count} Skills"
+                
+                embed.add_field(name="\u200b", value=path_text, inline=False)
+            
+            embed.set_footer(text="🔍 Nutze die Suchfunktion um schnell Skills zu finden!")
+            
+            view = RPGTempleSkillTreeView(self.user_id, self.player['skill_points'], unlocked_skills)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            
+        except Exception as e:
+            logger.error(f"Error opening skill tree from temple: {e}", exc_info=True)
+            await interaction.followup.send("❌ Fehler beim Öffnen des Skill-Baums.", ephemeral=True)
+    
     @discord.ui.button(label="🔙 Zurück", style=discord.ButtonStyle.secondary, row=1)
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Return to main RPG menu."""
@@ -4377,6 +4414,273 @@ class RPGInventoryView(discord.ui.View):
         except Exception as e:
             logger.error(f"Error returning to RPG menu: {e}", exc_info=True)
             await interaction.followup.send("❌ Fehler beim Zurückkehren.", ephemeral=True)
+
+
+class RPGTempleSkillTreeView(discord.ui.View):
+    """Skill tree view from the temple with search functionality."""
+    
+    def __init__(self, user_id: int, skill_points: int, unlocked_skills: dict):
+        super().__init__(timeout=300)
+        self.user_id = user_id
+        self.skill_points = skill_points
+        self.unlocked_skills = unlocked_skills
+        
+        # Add select menu for skill paths
+        path_options = []
+        for path_key, path_data in rpg_system.SKILL_TREE.items():
+            unlocked_count = len(unlocked_skills.get(path_key, []))
+            total_count = len(path_data['skills'])
+            
+            path_options.append(discord.SelectOption(
+                label=path_data['name'],
+                description=f"{path_data['description'][:50]}... ({unlocked_count}/{total_count})",
+                value=path_key,
+                emoji=path_data['emoji']
+            ))
+        
+        if path_options:
+            path_select = discord.ui.Select(
+                placeholder="Wähle einen Pfad...",
+                options=path_options,
+                row=0
+            )
+            path_select.callback = self.view_path
+            self.add_item(path_select)
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Dies ist nicht dein Skill-Baum!", ephemeral=True)
+            return False
+        return True
+    
+    async def view_path(self, interaction: discord.Interaction):
+        """View skills in a specific path."""
+        await interaction.response.defer()
+        
+        try:
+            path_key = interaction.data['values'][0]
+            path_data = rpg_system.SKILL_TREE[path_key]
+            
+            embed = discord.Embed(
+                title=f"{path_data['emoji']} {path_data['name']}",
+                description=f"{path_data['description']}\n\n**Skillpunkte verfügbar: {self.skill_points}**",
+                color=discord.Color.purple()
+            )
+            
+            # Show all skills in path
+            unlocked_in_path = self.unlocked_skills.get(path_key, [])
+            
+            for skill_key, skill_data in path_data['skills'].items():
+                is_unlocked = skill_key in unlocked_in_path
+                can_unlock = skill_data['requires'] is None or skill_data['requires'] in unlocked_in_path
+                
+                status = "✅" if is_unlocked else ("🔓" if can_unlock and self.skill_points >= skill_data['cost'] else "🔒")
+                
+                skill_text = f"{status} **{skill_data['name']}** ({skill_data['type']})\n"
+                skill_text += f"📝 {skill_data['description']}\n"
+                skill_text += f"💎 Kosten: {skill_data['cost']} Skillpunkte"
+                
+                if skill_data['requires']:
+                    required_skill = path_data['skills'][skill_data['requires']]
+                    skill_text += f"\n🔗 Benötigt: {required_skill['name']}"
+                
+                embed.add_field(name="\u200b", value=skill_text, inline=False)
+            
+            embed.set_footer(text="Wähle einen Skill zum Freischalten!")
+            
+            # Create view for unlocking skills
+            view = RPGSkillUnlockView(self.user_id, path_key, self.skill_points, unlocked_in_path)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            
+        except Exception as e:
+            logger.error(f"Error viewing skill path: {e}", exc_info=True)
+            await interaction.followup.send("❌ Fehler beim Anzeigen des Pfads.", ephemeral=True)
+    
+    @discord.ui.button(label="🔍 Skill suchen", style=discord.ButtonStyle.primary, row=1)
+    async def search_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Open skill search modal."""
+        modal = SkillSearchModal(self.user_id, self.skill_points, self.unlocked_skills)
+        await interaction.response.send_modal(modal)
+    
+    @discord.ui.button(label="🔄 Skill-Baum zurücksetzen", style=discord.ButtonStyle.danger, row=1)
+    async def reset_tree_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Reset the entire skill tree."""
+        await interaction.response.defer()
+        
+        try:
+            # Calculate refund
+            total_spent = 0
+            for path_key, skills in self.unlocked_skills.items():
+                for skill_key in skills:
+                    if path_key in rpg_system.SKILL_TREE and skill_key in rpg_system.SKILL_TREE[path_key]['skills']:
+                        total_spent += rpg_system.SKILL_TREE[path_key]['skills'][skill_key]['cost']
+            
+            if total_spent == 0:
+                await interaction.followup.send("❌ Du hast noch keine Skills freigeschaltet!", ephemeral=True)
+                return
+            
+            # Cost for reset
+            reset_cost = total_spent * 50  # 50 gold per skill point
+            
+            # Get player to check gold
+            player = await rpg_system.get_player_profile(db_helpers, self.user_id)
+            if not player or player['gold'] < reset_cost:
+                await interaction.followup.send(
+                    f"❌ Nicht genug Gold! Du brauchst {reset_cost} Gold um {total_spent} Skillpunkte zurückzusetzen.",
+                    ephemeral=True
+                )
+                return
+            
+            # Reset skill tree
+            success, message = await rpg_system.reset_skill_tree(db_helpers, self.user_id, reset_cost)
+            
+            if success:
+                embed = discord.Embed(
+                    title="🔄 Skill-Baum zurückgesetzt!",
+                    description=f"{message}\n\nKosten: {reset_cost} Gold",
+                    color=discord.Color.blue()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+            else:
+                await interaction.followup.send(f"❌ {message}", ephemeral=True)
+                
+        except Exception as e:
+            logger.error(f"Error resetting skill tree: {e}", exc_info=True)
+            await interaction.followup.send("❌ Fehler beim Zurücksetzen.", ephemeral=True)
+
+
+class SkillSearchModal(discord.ui.Modal, title="Skill suchen"):
+    """Modal for searching skills by name."""
+    
+    search_input = discord.ui.TextInput(
+        label="Skill-Name",
+        placeholder="Gib den Namen des Skills ein...",
+        min_length=2,
+        max_length=50,
+        required=True
+    )
+    
+    def __init__(self, user_id: int, skill_points: int, unlocked_skills: dict):
+        super().__init__()
+        self.user_id = user_id
+        self.skill_points = skill_points
+        self.unlocked_skills = unlocked_skills
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        
+        try:
+            search_term = self.search_input.value.lower().strip()
+            
+            # Search through all skills
+            found_skills = []
+            for path_key, path_data in rpg_system.SKILL_TREE.items():
+                for skill_key, skill_data in path_data['skills'].items():
+                    if search_term in skill_data['name'].lower() or search_term in skill_data['description'].lower():
+                        is_unlocked = skill_key in self.unlocked_skills.get(path_key, [])
+                        can_unlock = skill_data['requires'] is None or skill_data['requires'] in self.unlocked_skills.get(path_key, [])
+                        
+                        found_skills.append({
+                            'path_key': path_key,
+                            'path_name': path_data['name'],
+                            'path_emoji': path_data['emoji'],
+                            'skill_key': skill_key,
+                            'skill_data': skill_data,
+                            'is_unlocked': is_unlocked,
+                            'can_unlock': can_unlock
+                        })
+            
+            if not found_skills:
+                await interaction.followup.send(
+                    f"❌ Keine Skills mit '{search_term}' gefunden.",
+                    ephemeral=True
+                )
+                return
+            
+            # Create result embed
+            embed = discord.Embed(
+                title=f"🔍 Suchergebnisse: '{search_term}'",
+                description=f"Gefunden: {len(found_skills)} Skill(s)\n**Verfügbare Skillpunkte: {self.skill_points}**",
+                color=discord.Color.blue()
+            )
+            
+            for skill in found_skills[:10]:  # Limit to 10 results
+                status = "✅" if skill['is_unlocked'] else ("🔓" if skill['can_unlock'] and self.skill_points >= skill['skill_data']['cost'] else "🔒")
+                
+                skill_text = f"{status} **{skill['skill_data']['name']}** ({skill['skill_data']['type']})\n"
+                skill_text += f"📝 {skill['skill_data']['description']}\n"
+                skill_text += f"💎 Kosten: {skill['skill_data']['cost']} Skillpunkte\n"
+                skill_text += f"🌳 Pfad: {skill['path_emoji']} {skill['path_name']}"
+                
+                if skill['skill_data']['requires']:
+                    req_skill = rpg_system.SKILL_TREE[skill['path_key']]['skills'][skill['skill_data']['requires']]
+                    skill_text += f"\n🔗 Benötigt: {req_skill['name']}"
+                
+                embed.add_field(name="\u200b", value=skill_text, inline=False)
+            
+            if len(found_skills) > 10:
+                embed.set_footer(text=f"Zeige 10 von {len(found_skills)} Ergebnissen")
+            
+            # Create view with unlock options
+            view = SkillSearchResultView(self.user_id, found_skills, self.skill_points, self.unlocked_skills)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            
+        except Exception as e:
+            logger.error(f"Error searching skills: {e}", exc_info=True)
+            await interaction.followup.send("❌ Fehler bei der Suche.", ephemeral=True)
+
+
+class SkillSearchResultView(discord.ui.View):
+    """View for skill search results with unlock options."""
+    
+    def __init__(self, user_id: int, found_skills: list, skill_points: int, unlocked_skills: dict):
+        super().__init__(timeout=300)
+        self.user_id = user_id
+        self.found_skills = found_skills
+        self.skill_points = skill_points
+        
+        # Add select menu for unlockable skills from search results
+        skill_options = []
+        for skill in found_skills[:25]:  # Discord limit
+            if not skill['is_unlocked'] and skill['can_unlock'] and skill_points >= skill['skill_data']['cost']:
+                skill_options.append(discord.SelectOption(
+                    label=skill['skill_data']['name'],
+                    description=f"{skill['path_name']} - {skill['skill_data']['cost']} SP",
+                    value=f"{skill['path_key']}:{skill['skill_key']}",
+                    emoji=skill['path_emoji']
+                ))
+        
+        if skill_options:
+            skill_select = discord.ui.Select(
+                placeholder="Skill freischalten...",
+                options=skill_options,
+                row=0
+            )
+            skill_select.callback = self.unlock_skill
+            self.add_item(skill_select)
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Dies ist nicht deine Suche!", ephemeral=True)
+            return False
+        return True
+    
+    async def unlock_skill(self, interaction: discord.Interaction):
+        """Unlock a skill from search results."""
+        await interaction.response.defer()
+        
+        try:
+            path_key, skill_key = interaction.data['values'][0].split(':')
+            success, message = await rpg_system.unlock_skill(db_helpers, self.user_id, path_key, skill_key)
+            
+            if success:
+                await interaction.followup.send(f"✅ {message}", ephemeral=True)
+            else:
+                await interaction.followup.send(f"❌ {message}", ephemeral=True)
+                
+        except Exception as e:
+            logger.error(f"Error unlocking skill from search: {e}", exc_info=True)
+            await interaction.followup.send("❌ Fehler beim Freischalten.", ephemeral=True)
 
 
 class RPGSkillTreeView(discord.ui.View):
