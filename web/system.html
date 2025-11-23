@@ -255,8 +255,12 @@
             const processMemory = data.process.memory_mb;
             const systemMemoryPercent = data.system.memory_percent;
             
+            // Calculate memory bar width based on percentage of reasonable max (1GB = 1024MB)
+            const maxMemoryForBar = 1024; // MB - adjust based on expected usage
+            const memoryBarPercent = Math.min((processMemory / maxMemoryForBar) * 100, 100);
+            
             document.getElementById('process-memory-bar').style.width = 
-                `${Math.min(processMemory / 10, 100)}%`;
+                `${memoryBarPercent}%`;
             document.getElementById('process-memory-bar').textContent = 
                 `${processMemory} MB`;
             document.getElementById('process-memory-bar').className = 

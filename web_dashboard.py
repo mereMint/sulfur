@@ -5,6 +5,7 @@ import subprocess
 import threading
 import time
 import logging
+import asyncio
 from flask import Flask, render_template, jsonify, request, flash, redirect, url_for
 from flask_socketio import SocketIO, emit
 
@@ -19,6 +20,25 @@ if not logger.handlers:
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter('[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s'))
     logger.addHandler(handler)
+
+
+# --- Helper function for async operations ---
+def run_async(coro):
+    """
+    Helper to run async functions in sync Flask routes.
+    Uses asyncio.run() which properly manages event loop lifecycle.
+    """
+    try:
+        return asyncio.run(coro)
+    except RuntimeError:
+        # Fallback for environments where asyncio.run() isn't available
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
+
 
 # --- Configuration ---
 
@@ -292,18 +312,12 @@ def ai_usage_viewer():
 def ai_dashboard():
     """Renders the AI usage dashboard with statistics and charts."""
     from modules.db_helpers import get_ai_usage_stats
-    import asyncio
     
     try:
         # Get stats for different time periods
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        stats_7days = loop.run_until_complete(get_ai_usage_stats(7))
-        stats_30days = loop.run_until_complete(get_ai_usage_stats(30))
-        stats_all = loop.run_until_complete(get_ai_usage_stats(365))
-        
-        loop.close()
+        stats_7days = run_async(get_ai_usage_stats(7))
+        stats_30days = run_async(get_ai_usage_stats(30))
+        stats_all = run_async(get_ai_usage_stats(365))
         
         # Calculate totals
         total_calls = sum(stat['total_calls'] for stat in stats_all)
@@ -395,13 +409,9 @@ def api_ai_usage():
         
         # Import here to avoid circular import
         from modules.db_helpers import get_ai_usage_stats
-        import asyncio
         
         # Run async function in sync context
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        stats = loop.run_until_complete(get_ai_usage_stats(days))
-        loop.close()
+        stats = run_async(get_ai_usage_stats(days))
         
         # Group by model and feature for better display
         by_model = {}
@@ -537,7 +547,6 @@ def api_update_setting():
 def api_wrapped_stats():
     """API endpoint to get wrapped registration statistics."""
     try:
-        import asyncio
         from modules.db_helpers import get_wrapped_registrations, get_user_wrapped_stats
         from datetime import datetime
         
@@ -554,10 +563,7 @@ def api_wrapped_stats():
             return registrations
         
         # Run async function
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        registrations = loop.run_until_complete(fetch_stats())
-        loop.close()
+        registrations = run_async(fetch_stats())
         
         return jsonify({'registrations': registrations})
     except Exception as e:
@@ -568,17 +574,13 @@ def api_wrapped_stats():
 def api_level_leaderboard():
     """API endpoint to get level leaderboard."""
     try:
-        import asyncio
         from modules.db_helpers import get_level_leaderboard
         
         async def fetch_leaderboard():
             leaderboard, error = await get_level_leaderboard()
             return leaderboard if not error else []
         
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        leaderboard = loop.run_until_complete(fetch_leaderboard())
-        loop.close()
+        leaderboard = run_async(fetch_leaderboard())
         
         return jsonify({'leaderboard': leaderboard})
     except Exception as e:
@@ -589,17 +591,13 @@ def api_level_leaderboard():
 def api_ww_leaderboard():
     """API endpoint to get Werwolf leaderboard."""
     try:
-        import asyncio
         from modules.db_helpers import get_leaderboard
         
         async def fetch_leaderboard():
             leaderboard, error = await get_leaderboard()
             return leaderboard if not error else []
         
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        leaderboard = loop.run_until_complete(fetch_leaderboard())
-        loop.close()
+        leaderboard = run_async(fetch_leaderboard())
         
         return jsonify({'leaderboard': leaderboard})
     except Exception as e:
@@ -661,7 +659,6 @@ def admin_save_history():
 def admin_clear_history():
     """Clear chat history for a channel."""
     try:
-        import asyncio
         from modules.db_helpers import clear_channel_history
         
         data = request.json
@@ -673,10 +670,7 @@ def admin_clear_history():
                 return {'success': False, 'message': f'Error: {error}'}
             return {'success': True, 'message': f'Deleted {deleted_count} messages'}
         
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(clear_history())
-        loop.close()
+        result = run_async(clear_history())
         
         return jsonify(result)
     except Exception as e:
@@ -686,7 +680,6 @@ def admin_clear_history():
 def admin_delete_memory():
     """Delete bot memory for a user."""
     try:
-        import asyncio
         from modules.db_helpers import update_relationship_summary
         
         data = request.json
@@ -696,10 +689,7 @@ def admin_delete_memory():
             await update_relationship_summary(user_id, None)
             return {'success': True, 'message': f'Memory deleted for user {user_id}'}
         
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(delete_user_memory())
-        loop.close()
+        result = run_async(delete_user_memory())
         
         return jsonify(result)
     except Exception as e:
@@ -756,7 +746,6 @@ def admin_preview_wrapped():
 def admin_delete_user_data():
     """Delete all data for a specific user from the database."""
     try:
-        import asyncio
         
         data = request.json
         user_id = int(data.get('user_id'))
@@ -1132,7 +1121,6 @@ def init_rpg_monsters():
     try:
         # Import RPG system to access default monsters
         from modules import rpg_system
-        import asyncio
         
         # Run async function
         loop = asyncio.new_event_loop()
@@ -1152,7 +1140,6 @@ def init_rpg_items():
     try:
         # Import RPG system to access default items
         from modules import rpg_system
-        import asyncio
         
         # Run async function
         loop = asyncio.new_event_loop()
@@ -1739,12 +1726,9 @@ def api_quotas():
         
         # Get AI usage for current month
         from modules.db_helpers import get_ai_usage_stats
-        import asyncio
         
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        stats_30days = loop.run_until_complete(get_ai_usage_stats(30))
-        loop.close()
+        # Use asyncio.run() for better event loop management
+        stats_30days = asyncio.run(get_ai_usage_stats(30))
         
         # Calculate totals
         total_calls = sum(stat['total_calls'] for stat in stats_30days)
@@ -1752,9 +1736,11 @@ def api_quotas():
         total_output_tokens = sum(stat['total_output_tokens'] for stat in stats_30days)
         total_cost = sum(stat['total_cost'] for stat in stats_30days)
         
-        # Estimated limits (these are example values)
-        gemini_limit = 1500  # requests per minute
-        openai_limit = 10000  # requests per day
+        # API limits from config or defaults
+        # Note: These are general estimates - check your API provider's documentation for exact limits
+        provider = config.get('api', {}).get('provider', 'unknown')
+        gemini_limit = config.get('api', {}).get('gemini', {}).get('rate_limit_rpm', 1500)
+        openai_limit = config.get('api', {}).get('openai', {}).get('rate_limit_rpd', 10000)
         
         return jsonify({
             'current_usage': {
@@ -1764,9 +1750,10 @@ def api_quotas():
             },
             'limits': {
                 'gemini_rpm': gemini_limit,
-                'openai_rpd': openai_limit
+                'openai_rpd': openai_limit,
+                'note': 'Limits are estimates. Verify with your API provider.'
             },
-            'provider': config.get('api', {}).get('provider', 'unknown')
+            'provider': provider
         })
     except Exception as e:
         logger.error(f"Error getting API quotas: {e}")
