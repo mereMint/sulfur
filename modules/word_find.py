@@ -97,6 +97,70 @@ def get_word_lists(language='de'):
     return word_lists
 
 
+def get_valid_word_pool(language='de'):
+    """
+    Get a comprehensive set of valid words for guess validation.
+    Combines all difficulty levels into a single set for validation.
+    
+    Args:
+        language: 'de' or 'en'
+    
+    Returns:
+        Set of valid words (lowercase)
+    """
+    word_lists = get_word_lists(language)
+    
+    # Combine all difficulty levels
+    all_words = []
+    for difficulty in ['easy', 'medium', 'hard']:
+        all_words.extend(word_lists.get(difficulty, []))
+    
+    # Convert to lowercase set for fast lookup
+    valid_words = set(word.lower() for word in all_words)
+    
+    # Try to enhance with word_service fallback words for more validation options
+    try:
+        if language == 'en':
+            additional_words = word_service.get_fallback_english_words(
+                count=2000,  # Get a large pool for validation
+                min_length=3,
+                max_length=20
+            )
+        else:
+            additional_words = word_service.get_fallback_german_words(
+                count=2000,
+                min_length=3,
+                max_length=20
+            )
+        
+        valid_words.update(word.lower() for word in additional_words)
+        logger.debug(f"Enhanced Word Find validation pool for {language}: {len(valid_words)} words")
+    except Exception as e:
+        logger.warning(f"Could not enhance word pool with word_service: {e}")
+    
+    return valid_words
+
+
+def is_valid_guess(guess: str, language='de') -> bool:
+    """
+    Check if a guess is a valid word in the word pool.
+    
+    Args:
+        guess: The word to validate
+        language: 'de' or 'en'
+    
+    Returns:
+        True if valid, False otherwise
+    """
+    if not guess or len(guess) < 2:
+        return False
+    
+    guess_lower = guess.lower().strip()
+    valid_pool = get_valid_word_pool(language)
+    
+    return guess_lower in valid_pool
+
+
 async def initialize_word_find_table(db_helpers):
     """Initialize the word find game table in the database."""
     try:

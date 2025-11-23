@@ -209,6 +209,8 @@ async def purchase_feature(db_helpers, member: discord.Member, feature: str, pri
         'detective': 'Detective Game',
         'trolly': 'Trolly Problem',
         'unlimited_word_find': 'Unlimited Word Find',
+        'unlimited_wordle': 'Unlimited Wordle',
+        'rpg_access': 'RPG System Access',
         'werwolf_special_roles': 'Werwolf Special Roles',
         'custom_status': 'Custom Status'
     }
@@ -247,6 +249,8 @@ def create_shop_embed(config: dict):
         'detective': 'Detective Game',
         'trolly': 'Trolly Problem',
         'unlimited_word_find': 'Unlimited Word Find',
+        'unlimited_wordle': 'Unlimited Wordle',
+        'rpg_access': 'RPG System Access',
         'werwolf_special_roles': 'Werwolf Special Roles',
         'custom_status': 'Custom Status'
     }

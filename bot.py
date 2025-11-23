@@ -2584,6 +2584,8 @@ async def profile(interaction: discord.Interaction, user: discord.User = None):
         'detective': '🔍 Detective Game',
         'trolly': '🚃 Trolly Problem',
         'unlimited_word_find': '📝 Unlimited Word Find',
+        'unlimited_wordle': '🎯 Unlimited Wordle',
+        'rpg_access': '⚔️ RPG System Access',
         'werwolf_special_roles': '🐺 Werwolf Special Roles',
         'custom_status': '💬 Custom Status',
         'werwolf_role_seherin': '🔮 Werwolf: Seherin',
@@ -4207,7 +4209,7 @@ class RPGInventoryView(discord.ui.View):
             weapon_options.append(discord.SelectOption(
                 label=item['name'],
                 description=f"Schaden: {item.get('damage', 0)}",
-                value=str(item['id'])
+                value=str(item['item_id'])  # Use item_id, not id
             ))
         
         if weapon_options:
@@ -4225,7 +4227,7 @@ class RPGInventoryView(discord.ui.View):
             skill_options.append(discord.SelectOption(
                 label=item['name'],
                 description=f"Typ: Skill",
-                value=str(item['id'])
+                value=str(item['item_id'])  # Use item_id, not id
             ))
         
         if skill_options:
@@ -5544,12 +5546,16 @@ class FeatureSelectView(discord.ui.View):
                 'description': 'Moralische Dilemmata'
             },
             'unlimited_word_find': {
-                'name': 'Unlimited Word Find',
+                'name': '📝 Unlimited Word Find',
                 'description': 'Unbegrenztes Word Find Spiel'
             },
             'unlimited_wordle': {
-                'name': 'Unlimited Wordle',
+                'name': '🎯 Unlimited Wordle',
                 'description': 'Unbegrenztes Wordle Spiel'
+            },
+            'rpg_access': {
+                'name': '⚔️ RPG System Access',
+                'description': 'Zugriff auf das vollständige RPG-System mit Abenteuern, Kämpfen und Items'
             }
         }
         
@@ -9968,6 +9974,17 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
         guess = self.guess_input.value.lower().strip()
         correct_word = self.word_data['word'].lower()
         word_id = self.word_data['id']
+        
+        # Get user's language preference
+        user_lang = self.word_data.get('language', 'de')
+        
+        # Validate that the guess is a real word from the word pool
+        if not word_find.is_valid_guess(guess, user_lang):
+            await interaction.followup.send(
+                "❌ Dieses Wort ist nicht im Wortpool! Bitte gib ein gültiges Wort ein.",
+                ephemeral=True
+            )
+            return
         
         # Get current attempts based on game type
         attempts = await word_find.get_user_attempts(db_helpers, self.user_id, word_id, self.game_type)
