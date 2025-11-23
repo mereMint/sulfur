@@ -3,6 +3,8 @@
 -- This migration is BACKWARDS COMPATIBLE - existing data is preserved
 
 -- Add language column to word_find_daily if it doesn't exist
+-- Note: Column is added AFTER 'difficulty' for logical grouping.
+-- This requires the 'difficulty' column to exist (which it should from table creation).
 SET @db_name = DATABASE();
 SET @table_name = 'word_find_daily';
 SET @column_name = 'language';
