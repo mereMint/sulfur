@@ -10624,7 +10624,15 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
             similarity = word_find.calculate_word_similarity(guess, correct_word)
             
             # Record attempt with game type
-            await word_find.record_attempt(db_helpers, self.user_id, word_id, guess, similarity, attempt_num, self.game_type)
+            record_success = await word_find.record_attempt(db_helpers, self.user_id, word_id, guess, similarity, attempt_num, self.game_type)
+            
+            if not record_success:
+                await interaction.followup.send(
+                    "❌ Fehler beim Speichern des Versuchs. Bitte kontaktiere einen Administrator.\n"
+                    "Hinweis: Möglicherweise fehlen Datenbank-Migrationen.",
+                    ephemeral=True
+                )
+                return
             
             # Check if correct
             if guess == correct_word:
