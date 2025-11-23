@@ -78,11 +78,20 @@ def test_game_tracking_flush():
         if not result:
             all_passed = False
     
-    # Additional check: Count how many times flush is called
-    flush_count = bot_code.count("await flush_active_game_time(")
-    print(f"\nFlush function called {flush_count} times in code")
-    if flush_count < 2:
-        print("  ⚠️  Warning: Expected at least 2 calls (daily quests + claim rewards)")
+    # Additional check: Verify flush is called in quest-related functions
+    # Look for the function calls in the relevant button handlers
+    daily_quest_section = bot_code[bot_code.find("async def daily_quests_button"):bot_code.find("async def daily_quests_button") + 1500] if "async def daily_quests_button" in bot_code else ""
+    claim_rewards_section = bot_code[bot_code.find("async def claim_rewards_button"):bot_code.find("async def claim_rewards_button") + 1500] if "async def claim_rewards_button" in bot_code else ""
+    
+    flush_in_daily = "flush_active_game_time" in daily_quest_section
+    flush_in_claim = "flush_active_game_time" in claim_rewards_section
+    
+    print(f"\n✓ Flush called in daily_quests_button: {flush_in_daily}")
+    print(f"✓ Flush called in claim_rewards_button: {flush_in_claim}")
+    
+    if not (flush_in_daily and flush_in_claim):
+        print("  ⚠️  Warning: Flush function should be called in both quest button handlers")
+        all_passed = False
     
     print("=" * 60)
     if all_passed:

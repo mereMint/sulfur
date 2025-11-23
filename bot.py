@@ -961,6 +961,12 @@ async def flush_active_game_time(user_id: int):
     Helper function to flush active game time for quest tracking.
     This is called when a user checks their quests to ensure current game sessions are counted.
     
+    Args:
+        user_id: The Discord user ID to flush game time for
+    
+    Returns:
+        int: Number of quest minutes logged (rounded up), or 0 if no active session or session < 30s
+    
     Note: The timer is reset after flushing to prevent double-counting when the game stops
     or when flush is called again. The time between flushes continues to be tracked normally.
     """
