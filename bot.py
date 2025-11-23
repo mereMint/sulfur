@@ -3280,15 +3280,22 @@ async def adventure_command(interaction: discord.Interaction):
         user_id = interaction.user.id
         
         # Start adventure
-        monster, error = await rpg_system.start_adventure(db_helpers, user_id)
+        result, error, encounter_type = await rpg_system.start_adventure(db_helpers, user_id)
         
         if error:
             await interaction.followup.send(f"❌ {error}")
             return
         
-        if not monster:
+        if not result:
             await interaction.followup.send("❌ Kein Monster gefunden.")
             return
+        
+        # For now, only handle combat encounters (monster)
+        if encounter_type != 'combat':
+            await interaction.followup.send("❌ Nur Kampf-Begegnungen werden derzeit unterstützt.")
+            return
+        
+        monster = result
         
         # Initialize default monsters if needed
         await rpg_system.initialize_default_monsters(db_helpers)
