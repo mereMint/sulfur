@@ -669,16 +669,19 @@ def create_game_embed(word_data: dict, attempts: list, max_attempts: int, user_s
     embed = discord.Embed(
         title=title,
         description=f"Errate das Wort! Du hast {max_attempts} Versuche.\n"
-                   f"Schwierigkeit: **{difficulty.upper()}**",
+                   f"Schwierigkeit: **{difficulty.upper()}**\n"
+                   f"Versuche: **{len(attempts)}/{max_attempts}**",
         color=color
     )
     
-    # Show attempts with proximity scores
+    # Show ALL attempts in order with proximity scores
     if attempts:
         attempts_text = ""
-        sorted_attempts = sorted(attempts, key=lambda x: x['similarity_score'], reverse=True)
+        # Sort by attempt number to show chronological order
+        sorted_attempts = sorted(attempts, key=lambda x: x['attempt_number'])
         
-        for i, attempt in enumerate(sorted_attempts[:10], 1):  # Show top 10
+        # Show all attempts (not just top 10)
+        for attempt in sorted_attempts:
             score = attempt['similarity_score']
             guess = attempt['guess']
             
@@ -698,16 +701,58 @@ def create_game_embed(word_data: dict, attempts: list, max_attempts: int, user_s
             else:
                 temp = "🧊 Sehr kalt"
             
-            attempts_text += f"`#{attempt['attempt_number']:02d}` **{guess}** - {score:.1f}% {temp}\n{bar}\n\n"
+            attempts_text += f"`#{attempt['attempt_number']:02d}` **{guess}** - {score:.1f}% {temp}\n{bar}\n"
         
-        embed.add_field(
-            name=f"📝 Deine Versuche ({len(attempts)}/{max_attempts})",
-            value=attempts_text if attempts_text else "Noch keine Versuche",
-            inline=False
-        )
+        # Split into multiple fields if too long (Discord has a 1024 char limit per field)
+        if len(attempts_text) > 1000:
+            # Split attempts into chunks
+            attempt_chunks = []
+            current_chunk = ""
+            for attempt in sorted_attempts:
+                score = attempt['similarity_score']
+                guess = attempt['guess']
+                bar_length = int(score / 10)
+                bar = "🟩" * bar_length + "⬜" * (10 - bar_length)
+                
+                if score >= 80:
+                    temp = "🔥 Sehr heiß!"
+                elif score >= 60:
+                    temp = "🌡️ Heiß!"
+                elif score >= 40:
+                    temp = "🌤️ Warm"
+                elif score >= 20:
+                    temp = "❄️ Kalt"
+                else:
+                    temp = "🧊 Sehr kalt"
+                
+                line = f"`#{attempt['attempt_number']:02d}` **{guess}** - {score:.1f}% {temp}\n{bar}\n"
+                
+                if len(current_chunk) + len(line) > 1000:
+                    attempt_chunks.append(current_chunk)
+                    current_chunk = line
+                else:
+                    current_chunk += line
+            
+            if current_chunk:
+                attempt_chunks.append(current_chunk)
+            
+            # Add multiple fields
+            for idx, chunk in enumerate(attempt_chunks):
+                field_name = f"📝 Deine Versuche (Teil {idx + 1}/{len(attempt_chunks)})" if len(attempt_chunks) > 1 else f"📝 Deine Versuche"
+                embed.add_field(
+                    name=field_name,
+                    value=chunk,
+                    inline=False
+                )
+        else:
+            embed.add_field(
+                name=f"📝 Deine Versuche",
+                value=attempts_text if attempts_text else "Noch keine Versuche",
+                inline=False
+            )
     else:
         embed.add_field(
-            name=f"📝 Versuche ({len(attempts)}/{max_attempts})",
+            name=f"📝 Versuche",
             value="Noch keine Versuche. Rate ein Wort!",
             inline=False
         )

@@ -3489,6 +3489,127 @@ async def rpg_admin_command(
     await interaction.response.send_modal(modal)
 
 
+class RPGContinueAdventureView(discord.ui.View):
+    """View shown after winning a combat to allow continuing the adventure."""
+    
+    def __init__(self, user_id: int):
+        super().__init__(timeout=180)  # 3 minute timeout
+        self.user_id = user_id
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Dies ist nicht dein Abenteuer!", ephemeral=True)
+            return False
+        return True
+    
+    @discord.ui.button(label="⚔️ Weiter abenteuern", style=discord.ButtonStyle.success, emoji="🎮")
+    async def continue_adventure_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Continue adventuring immediately after winning."""
+        await interaction.response.defer()
+        
+        try:
+            # Start another adventure with continue_chain=True to skip cooldown
+            result, error, encounter_type = await rpg_system.start_adventure(db_helpers, self.user_id, continue_chain=True)
+            
+            if error:
+                await interaction.followup.send(f"❌ {error}", ephemeral=True)
+                return
+            
+            if encounter_type == 'combat':
+                # Create combat embed
+                embed = discord.Embed(
+                    title=f"⚔️ Wilder {result['name']} erscheint!",
+                    description=f"Ein **Level {result['level']}** Monster blockiert deinen Weg!",
+                    color=discord.Color.red()
+                )
+                
+                embed.add_field(
+                    name="👹 Monster Stats",
+                    value=f"❤️ HP: {result['health']}\n"
+                          f"⚔️ Angriff: {result['strength']}\n"
+                          f"🛡️ Verteidigung: {result['defense']}\n"
+                          f"⚡ Geschwindigkeit: {result['speed']}",
+                    inline=True
+                )
+                
+                # Show monster abilities if any
+                if result.get('abilities') and len(result['abilities']) > 0:
+                    abilities_text = ""
+                    for ability_key in result['abilities'][:3]:  # Show up to 3 abilities
+                        if ability_key in rpg_system.MONSTER_ABILITIES:
+                            ability = rpg_system.MONSTER_ABILITIES[ability_key]
+                            abilities_text += f"{ability['emoji']} **{ability['name']}**: {ability['description']}\n"
+                    
+                    if abilities_text:
+                        embed.add_field(
+                            name="✨ Spezialfähigkeiten",
+                            value=abilities_text,
+                            inline=False
+                        )
+                
+                embed.add_field(
+                    name="🎁 Belohnungen",
+                    value=f"💰 {result['gold_reward']} Gold\n⭐ {result['xp_reward']} XP",
+                    inline=True
+                )
+                
+                embed.set_footer(text="🎮 Rogue-like Adventure: Besiege Monster hintereinander für maximale Belohnungen!")
+                
+                # Create combat view
+                view = RPGCombatView(self.user_id, result)
+                await interaction.edit_original_response(embed=embed, view=view)
+                
+            elif encounter_type == 'event':
+                # Create event embed
+                embed = discord.Embed(
+                    title=result['title'],
+                    description=result['description'],
+                    color=discord.Color.blue()
+                )
+                
+                # Show rewards
+                rewards_text = ""
+                if 'gold_reward' in result:
+                    rewards_text += f"💰 {result['gold_reward']} Gold\n"
+                if 'xp_reward' in result:
+                    rewards_text += f"⭐ {result['xp_reward']} XP\n"
+                if 'heal_amount' in result and result['heal_amount'] > 0:
+                    rewards_text += f"❤️ {result['heal_amount']} HP wiederhergestellt\n"
+                
+                if rewards_text:
+                    embed.add_field(name="🎁 Belohnungen", value=rewards_text, inline=False)
+                
+                embed.set_footer(text="🎮 Rogue-like Adventure: Sammle Belohnungen und setze dein Abenteuer fort!")
+                
+                # Create event view
+                view = RPGEventView(self.user_id, result)
+                await interaction.edit_original_response(embed=embed, view=view)
+            
+        except Exception as e:
+            logger.error(f"Error continuing adventure: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Fehler beim Fortsetzen des Abenteuers: {e}", ephemeral=True)
+    
+    @discord.ui.button(label="🏠 Zurück zum Dorf", style=discord.ButtonStyle.secondary)
+    async def return_to_village_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Return to the village (stop adventuring)."""
+        await interaction.response.defer()
+        
+        embed = discord.Embed(
+            title="🏠 Zurück im Dorf",
+            description="Du kehrst siegreich ins Dorf zurück und ruhst dich aus.",
+            color=discord.Color.blue()
+        )
+        
+        embed.set_footer(text="Nutze /rpg um dein Profil anzuzeigen oder /adventure um wieder loszuziehen!")
+        
+        # Disable all buttons
+        for item in self.children:
+            item.disabled = True
+        
+        await interaction.edit_original_response(embed=embed, view=None)
+        self.stop()
+
+
 class RPGCombatView(discord.ui.View):
     """Interactive combat view for RPG battles."""
     
@@ -3593,13 +3714,18 @@ class RPGCombatView(discord.ui.View):
                                 value=f"Du bist jetzt **Level {rewards['new_level']}**!",
                                 inline=False
                             )
+                    
+                    # Show continue adventuring button for rogue-like experience
+                    continue_view = RPGContinueAdventureView(self.user_id)
+                    await interaction.edit_original_response(embed=embed, view=continue_view)
                 else:
                     embed.color = discord.Color.dark_red()
                     embed.set_footer(text="Du wurdest mit halber HP ins Dorf zurückgebracht.")
+                    await interaction.edit_original_response(embed=embed, view=None)
                 
                 self.stop()
-            
-            await interaction.edit_original_response(embed=embed, view=self if not result['combat_over'] else None)
+            else:
+                await interaction.edit_original_response(embed=embed, view=self)
             
         except Exception as e:
             logger.error(f"Error in combat: {e}", exc_info=True)
@@ -3722,12 +3848,14 @@ class RPGEventView(discord.ui.View):
                         inline=False
                     )
                 
-                # Disable button
+                # Disable claim button and show continue button
                 for item in self.children:
                     item.disabled = True
-                self.stop()
                 
-                await interaction.edit_original_response(embed=embed, view=None)
+                # Show continue adventuring button
+                continue_view = RPGContinueAdventureView(self.user_id)
+                await interaction.edit_original_response(embed=embed, view=continue_view)
+                self.stop()
             else:
                 await interaction.followup.send(f"❌ {message}", ephemeral=True)
                 
