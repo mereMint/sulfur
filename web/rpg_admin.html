@@ -760,7 +760,9 @@
                 
                 sortedSkills.forEach(skillKey => {
                     const skill = pathData.skills[skillKey];
-                    const typeIcon = skill.type === 'active' ? '⚡' : '📊';
+                    // Icon based on skill type: skill (active ability), stat (stat increase), or passive
+                    const typeIcon = skill.type === 'skill' ? '⚡' : skill.type === 'stat' ? '📈' : '📊';
+                    const typeLabel = skill.type === 'skill' ? 'Skill' : skill.type === 'stat' ? 'Stat' : 'Passive';
                     const requiresText = skill.requires ? `<small class="text-warning">Requires: ${pathData.skills[skill.requires]?.name || skill.requires}</small>` : '';
                     
                     html += `
@@ -769,6 +771,7 @@
                         <div class="d-flex justify-content-between align-items-start">
                             <div>
                                 <strong>${typeIcon} ${skill.name}</strong>
+                                <div><span class="badge bg-info small">${typeLabel}</span></div>
                                 <div class="text-muted small">${skill.description}</div>
                                 ${requiresText}
                             </div>
