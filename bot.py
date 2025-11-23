@@ -3123,9 +3123,6 @@ class RPGMenuView(discord.ui.View):
             
         except Exception as e:
             logger.error(f"Error in adventure button: {e}", exc_info=True)
-            
-        except Exception as e:
-            logger.error(f"Error in adventure button: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Ein Fehler ist aufgetreten: {e}", ephemeral=True)
     
     @discord.ui.button(label="🏪 Shop", style=discord.ButtonStyle.success, row=0)
@@ -3937,21 +3934,20 @@ class RPGTempleView(discord.ui.View):
         await interaction.response.defer()
         
         try:
-            # Calculate total stats invested (beyond base 10 for each stat)
-            base_stats = 10
+            # Calculate total stats invested (beyond base for each stat)
             total_invested = (
-                (self.player['strength'] - base_stats) +
-                (self.player['dexterity'] - base_stats) +
-                (self.player['defense'] - base_stats) +
-                (self.player['speed'] - base_stats)
+                (self.player['strength'] - rpg_system.BASE_STAT_VALUE) +
+                (self.player['dexterity'] - rpg_system.BASE_STAT_VALUE) +
+                (self.player['defense'] - rpg_system.BASE_STAT_VALUE) +
+                (self.player['speed'] - rpg_system.BASE_STAT_VALUE)
             )
             
             if total_invested <= 0:
                 await interaction.followup.send("❌ Du hast keine Skillpunkte ausgegeben!", ephemeral=True)
                 return
             
-            # Cost for respec (50 gold per point)
-            respec_cost = total_invested * 50
+            # Cost for respec (using game constant)
+            respec_cost = total_invested * rpg_system.RESPEC_COST_PER_POINT
             
             if self.player['gold'] < respec_cost:
                 await interaction.followup.send(
@@ -3966,7 +3962,7 @@ class RPGTempleView(discord.ui.View):
             if success:
                 embed = discord.Embed(
                     title="💎 Skillpunkte zurückgesetzt!",
-                    description=f"Alle Attribute wurden auf 10 zurückgesetzt.\n"
+                    description=f"Alle Attribute wurden auf {rpg_system.BASE_STAT_VALUE} zurückgesetzt.\n"
                                 f"Du hast {total_invested} Skillpunkte zurückerhalten!\n"
                                 f"Kosten: {respec_cost} Gold",
                     color=discord.Color.blue()

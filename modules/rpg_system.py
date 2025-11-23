@@ -40,6 +40,11 @@ WORLDS = {
     'underworld': {'name': 'Unterwelt', 'min_level': 10, 'max_level': 50}
 }
 
+# Game Balance Constants
+BASE_STAT_VALUE = 10  # Base value for all stats (strength, dexterity, defense, speed)
+LEVEL_REWARD_MULTIPLIER = 0.1  # Multiplier for scaling rewards based on player level
+RESPEC_COST_PER_POINT = 50  # Gold cost per skill point when resetting stats
+
 
 async def initialize_rpg_tables(db_helpers):
     """Initialize RPG system tables."""
@@ -472,7 +477,7 @@ def generate_adventure_event(player: dict) -> dict:
     event = random.choice(events).copy()
     
     # Scale rewards based on player level
-    level_multiplier = 1 + (player['level'] * 0.1)
+    level_multiplier = 1 + (player['level'] * LEVEL_REWARD_MULTIPLIER)
     if 'gold_reward' in event:
         event['gold_reward'] = int(event['gold_reward'] * level_multiplier)
     if 'xp_reward' in event:
@@ -1039,22 +1044,21 @@ async def reset_skill_points(db_helpers, user_id: int, cost: int):
                 return False
             
             # Calculate points to return
-            base_stat = 10
             points_to_return = (
-                (player['strength'] - base_stat) +
-                (player['dexterity'] - base_stat) +
-                (player['defense'] - base_stat) +
-                (player['speed'] - base_stat)
+                (player['strength'] - BASE_STAT_VALUE) +
+                (player['dexterity'] - BASE_STAT_VALUE) +
+                (player['defense'] - BASE_STAT_VALUE) +
+                (player['speed'] - BASE_STAT_VALUE)
             )
             
-            # Reset stats to 10 and add skill points
+            # Reset stats to base and add skill points
             cursor.execute("""
                 UPDATE rpg_players 
-                SET strength = 10, dexterity = 10, defense = 10, speed = 10,
+                SET strength = %s, dexterity = %s, defense = %s, speed = %s,
                     skill_points = skill_points + %s,
                     gold = gold - %s
                 WHERE user_id = %s
-            """, (points_to_return, cost, user_id))
+            """, (BASE_STAT_VALUE, BASE_STAT_VALUE, BASE_STAT_VALUE, BASE_STAT_VALUE, points_to_return, cost, user_id))
             
             conn.commit()
             return True
