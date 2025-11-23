@@ -1013,15 +1013,20 @@ async def on_presence_update(before, after):
             if user_id in game_start_times and game_start_times[user_id][0] == before_game.name:
                 _, start_time = game_start_times.pop(user_id)
                 duration_seconds = (now - start_time).total_seconds()
-                # Only log sessions longer than a minute to filter out quick restarts/alt-tabs
-                if duration_seconds > 60:
+                # Only log sessions longer than 30 seconds to filter out very quick restarts/alt-tabs
+                # Reduced from 60 seconds to be more forgiving for quest tracking
+                if duration_seconds > 30:
                     duration_minutes = duration_seconds / 60.0
                     stat_period = now.strftime('%Y-%m')
                     await db_helpers.log_game_session(user_id, stat_period, before_game.name, duration_minutes)
                     
                     # --- NEW: Track game minutes for quest progress ---
                     try:
-                        quest_completed, _ = await quests.update_quest_progress(db_helpers, user_id, 'game_minutes', int(duration_minutes))
+                        import math
+                        # Round up to ensure partial minutes count (e.g., 1.5 minutes counts as 2)
+                        # This is more player-friendly for quest tracking
+                        quest_minutes = math.ceil(duration_minutes)
+                        quest_completed, _ = await quests.update_quest_progress(db_helpers, user_id, 'game_minutes', quest_minutes)
                         # Quest completion notifications will be sent when user checks /quests or uses /questclaim
                     except Exception as e:
                         logger.error(f"Error updating game quest progress for user {user_id}: {e}", exc_info=True)
@@ -8528,12 +8533,16 @@ async def horserace(interaction: discord.Interaction, horses: int = 6):
         race = horse_racing.HorseRace(race_counter, horses)
         active_horse_races[channel_id] = race
         
+        # Add simulated bets to make the pool more interesting
+        race.add_simulated_bets()
+        
         # Create betting embed
         embed = discord.Embed(
             title="🐎 Pferderennen gestartet!",
             description=f"**Rennen #{race.race_id}**\n\n"
                        f"Platziere deine Wetten! Das Rennen startet in 60 Sekunden.\n"
-                       f"Verwende die Buttons unten, um auf ein Pferd zu wetten!",
+                       f"Verwende die Buttons unten, um auf ein Pferd zu wetten!\n\n"
+                       f"💡 **Tipp:** Die Quoten aktualisieren sich während der Wettphase!",
             color=discord.Color.gold()
         )
         
@@ -8556,8 +8565,40 @@ async def horserace(interaction: discord.Interaction, horses: int = 6):
         view = HorseRaceBettingView(race, config)
         message = await interaction.followup.send(embed=embed, view=view)
         
-        # Wait for betting period
-        await asyncio.sleep(60)
+        # Wait for betting period with odds updates every 10 seconds
+        for i in range(6):  # 6 iterations = 60 seconds
+            await asyncio.sleep(10)
+            
+            # Calculate remaining time
+            remaining_seconds = 60 - ((i + 1) * 10)
+            
+            # Don't update if time is up
+            if remaining_seconds <= 0:
+                break
+            
+            # Update odds display
+            embed.clear_fields()
+            for j, horse in enumerate(race.horses):
+                total_bet_on_horse = sum(
+                    bet['amount'] for bet in race.bets.values()
+                    if bet['horse_index'] == j
+                )
+                embed.add_field(
+                    name=f"{horse['emoji']} {horse['name']}",
+                    value=f"Quote: {race.get_odds(j):.2f}x\nWetten: {total_bet_on_horse} {currency}",
+                    inline=True
+                )
+            
+            embed.add_field(
+                name="💰 Wie wetten?",
+                value=f"Klicke auf einen Button und gib deinen Einsatz ein ({currency})\n⏰ Noch **{remaining_seconds} Sekunden**!",
+                inline=False
+            )
+            
+            try:
+                await message.edit(embed=embed, view=view)
+            except:
+                pass  # Message might have been deleted
         
         # Close betting
         race.is_betting_open = False
@@ -9865,8 +9906,11 @@ class WordFindCompletedView(discord.ui.View):
         
         await interaction.response.defer()
         
+        # Get user's language preference
+        user_lang = await db_helpers.get_user_language(self.user_id)
+        
         # Create new premium game
-        premium_game = await word_find.create_premium_game(db_helpers, self.user_id)
+        premium_game = await word_find.create_premium_game(db_helpers, self.user_id, user_lang)
         
         if not premium_game:
             await interaction.followup.send("❌ Fehler beim Erstellen eines neuen Spiels.", ephemeral=True)
@@ -9875,12 +9919,15 @@ class WordFindCompletedView(discord.ui.View):
         # Get user stats
         user_stats = await word_find.get_user_stats(db_helpers, self.user_id)
         
+        # Get user's theme
+        user_theme = await themes.get_user_theme(db_helpers, self.user_id)
+        
         # Create new game embed
-        embed = word_find.create_game_embed(premium_game, [], 20, user_stats, 'premium', None)  # No theme for now
+        embed = word_find.create_game_embed(premium_game, [], 20, user_stats, 'premium', user_theme)
         embed.set_footer(text="💎 Premium Spiel - Du hast 20 Versuche!")
         
         # Create view for new game
-        view = WordFindView(self.user_id, premium_game, 20, self.has_premium, 'premium', None)
+        view = WordFindView(self.user_id, premium_game, 20, self.has_premium, 'premium', user_theme)
         
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
@@ -10035,6 +10082,9 @@ async def wordle_command(interaction: discord.Interaction):
     try:
         user_id = interaction.user.id
         
+        # Check if user has premium access
+        has_premium = await db_helpers.has_feature_unlock(user_id, 'unlimited_wordle')
+        
         # Get user's language preference
         user_lang = await db_helpers.get_user_language(user_id)
         
@@ -10046,16 +10096,19 @@ async def wordle_command(interaction: discord.Interaction):
             return
         
         # Get user's attempts for today
-        attempts = await wordle.get_user_attempts(db_helpers, user_id, word_data['id'])
+        attempts = await wordle.get_user_attempts(db_helpers, user_id, word_data['id'], 'daily')
         max_attempts = 6
         
         # Check if already completed today (guessed correctly)
         if any(a['guess'].lower() == word_data['word'].lower() for a in attempts):
             user_stats = await wordle.get_user_stats(db_helpers, user_id)
             
+            # Get user's theme
+            user_theme = await themes.get_user_theme(db_helpers, user_id)
+            
             embed = discord.Embed(
                 title="✅ Bereits abgeschlossen!",
-                description="Du hast das heutige Wort bereits erraten!",
+                description=f"Du hast das heutige Wort **{word_data['word'].upper()}** bereits erraten!",
                 color=discord.Color.green()
             )
             
@@ -10073,8 +10126,15 @@ async def wordle_command(interaction: discord.Interaction):
                     inline=False
                 )
             
-            # Show share button
-            view = WordleCompletedView(user_id, attempts, True, word_data)
+            if has_premium:
+                embed.add_field(
+                    name="💎 Premium Vorteil",
+                    value="Als Premium-Nutzer kannst du zusätzliche Spiele spielen!",
+                    inline=False
+                )
+            
+            # Show share button and new game button for premium users
+            view = WordleCompletedView(user_id, attempts, True, word_data, has_premium, 'daily')
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
             return
         
@@ -10082,6 +10142,9 @@ async def wordle_command(interaction: discord.Interaction):
         if len(attempts) >= max_attempts:
             correct_word = word_data['word']
             user_stats = await wordle.get_user_stats(db_helpers, user_id)
+            
+            # Get user's theme
+            user_theme = await themes.get_user_theme(db_helpers, user_id)
             
             embed = discord.Embed(
                 title="❌ Keine Versuche mehr!",
@@ -10100,8 +10163,21 @@ async def wordle_command(interaction: discord.Interaction):
                     inline=False
                 )
             
-            # Show share button
-            view = WordleCompletedView(user_id, attempts, False, word_data)
+            if has_premium:
+                embed.add_field(
+                    name="💎 Premium Vorteil",
+                    value="Als Premium-Nutzer kannst du zusätzliche Spiele spielen!",
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="💡 Tipp",
+                    value=f"Kaufe **Unlimited Wordle** im Shop für zusätzliche Spiele!",
+                    inline=False
+                )
+            
+            # Show share button and new game button for premium users
+            view = WordleCompletedView(user_id, attempts, False, word_data, has_premium, 'daily')
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
             return
         
@@ -10112,10 +10188,13 @@ async def wordle_command(interaction: discord.Interaction):
         user_theme = await themes.get_user_theme(db_helpers, user_id)
         
         # Create game embed
-        embed = wordle.create_game_embed(word_data, attempts, user_stats, theme_id=user_theme)
+        embed = wordle.create_game_embed(word_data, attempts, user_stats, False, False, 'daily', user_theme)
+        
+        if has_premium:
+            embed.set_footer(text="💎 Premium: Nach dem Abschluss kannst du neue Spiele starten!")
         
         # Create view with guess button
-        view = WordleView(user_id, word_data, max_attempts, user_theme)
+        view = WordleView(user_id, word_data, max_attempts, user_theme, has_premium, 'daily')
         
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         
@@ -10130,12 +10209,14 @@ async def wordle_command(interaction: discord.Interaction):
 class WordleView(discord.ui.View):
     """UI view for Wordle game with guess input."""
     
-    def __init__(self, user_id: int, word_data: dict, max_attempts: int, theme_id=None):
+    def __init__(self, user_id: int, word_data: dict, max_attempts: int, theme_id=None, has_premium: bool = False, game_type: str = 'daily'):
         super().__init__(timeout=300)
         self.user_id = user_id
         self.word_data = word_data
         self.max_attempts = max_attempts
         self.theme_id = theme_id
+        self.has_premium = has_premium
+        self.game_type = game_type
     
     @discord.ui.button(label="Wort raten", style=discord.ButtonStyle.primary, emoji="🔍")
     async def guess_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -10145,21 +10226,27 @@ class WordleView(discord.ui.View):
             return
         
         # Create modal for input
-        modal = WordleGuessModal(self.user_id, self.word_data, self.max_attempts, self.theme_id)
+        modal = WordleGuessModal(self.user_id, self.word_data, self.max_attempts, self.theme_id, self.has_premium, self.game_type)
         await interaction.response.send_modal(modal)
 
 
 class WordleCompletedView(discord.ui.View):
-    """UI view for completed Wordle game with share option."""
+    """UI view for completed Wordle game with share and new game options."""
     
-    def __init__(self, user_id: int, attempts: list, won: bool, word_data: dict = None):
+    def __init__(self, user_id: int, attempts: list, won: bool, word_data: dict = None, has_premium: bool = False, game_type: str = 'daily'):
         super().__init__(timeout=300)
         self.user_id = user_id
         self.attempts = attempts
         self.won = won
         self.word_data = word_data
+        self.has_premium = has_premium
+        self.game_type = game_type
+        
+        # Only show new game button for premium users on daily games
+        if not has_premium or game_type != 'daily':
+            self.remove_item(self.new_game_button)
     
-    @discord.ui.button(label="Teilen", style=discord.ButtonStyle.success, emoji="📤")
+    @discord.ui.button(label="Teilen", style=discord.ButtonStyle.success, emoji="📤", row=0)
     async def share_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Handle share button click."""
         if interaction.user.id != self.user_id:
@@ -10179,6 +10266,40 @@ class WordleCompletedView(discord.ui.View):
             f"Teile dein Ergebnis:\n\n```\n{share_text}\n```",
             ephemeral=True
         )
+    
+    @discord.ui.button(label="Neues Spiel", style=discord.ButtonStyle.primary, emoji="🎮", row=0)
+    async def new_game_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Handle new game button click (premium only)."""
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht dein Spiel!", ephemeral=True)
+            return
+        
+        await interaction.response.defer()
+        
+        # Get user's language preference
+        user_lang = await db_helpers.get_user_language(self.user_id)
+        
+        # Create new premium game
+        premium_game = await wordle.create_premium_game(db_helpers, self.user_id, user_lang)
+        
+        if not premium_game:
+            await interaction.followup.send("❌ Fehler beim Erstellen eines neuen Spiels.", ephemeral=True)
+            return
+        
+        # Get user stats
+        user_stats = await wordle.get_user_stats(db_helpers, self.user_id)
+        
+        # Get user's theme
+        user_theme = await themes.get_user_theme(db_helpers, self.user_id)
+        
+        # Create new game embed
+        embed = wordle.create_game_embed(premium_game, [], user_stats, False, False, 'premium', user_theme)
+        embed.set_footer(text="💎 Premium Spiel - Du hast 6 Versuche!")
+        
+        # Create view for new game
+        view = WordleView(self.user_id, premium_game, 6, user_theme, True, 'premium')
+        
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 
 class WordleGuessModal(discord.ui.Modal, title="Rate das Wort"):
@@ -10192,12 +10313,14 @@ class WordleGuessModal(discord.ui.Modal, title="Rate das Wort"):
         required=True
     )
     
-    def __init__(self, user_id: int, word_data: dict, max_attempts: int, theme_id=None):
+    def __init__(self, user_id: int, word_data: dict, max_attempts: int, theme_id=None, has_premium: bool = False, game_type: str = 'daily'):
         super().__init__()
         self.user_id = user_id
         self.word_data = word_data
         self.max_attempts = max_attempts
         self.theme_id = theme_id
+        self.has_premium = has_premium
+        self.game_type = game_type
     
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer()
@@ -10219,8 +10342,8 @@ class WordleGuessModal(discord.ui.Modal, title="Rate das Wort"):
             await interaction.followup.send(error_msg, ephemeral=True)
             return
         
-        # Get current attempts
-        attempts = await wordle.get_user_attempts(db_helpers, self.user_id, word_id)
+        # Get current attempts based on game type
+        attempts = await wordle.get_user_attempts(db_helpers, self.user_id, word_id, self.game_type)
         attempt_num = len(attempts) + 1
         
         # Check if already guessed this word
@@ -10233,8 +10356,8 @@ class WordleGuessModal(discord.ui.Modal, title="Rate das Wort"):
             await interaction.followup.send("Du hast alle Versuche aufgebraucht!", ephemeral=True)
             return
         
-        # Record attempt
-        await wordle.record_attempt(db_helpers, self.user_id, word_id, guess, attempt_num)
+        # Record attempt with game type
+        await wordle.record_attempt(db_helpers, self.user_id, word_id, guess, attempt_num, self.game_type)
         
         # Check if correct
         if guess == correct_word:
@@ -10264,12 +10387,17 @@ class WordleGuessModal(discord.ui.Modal, title="Rate das Wort"):
             # Update stats
             await wordle.update_user_stats(db_helpers, self.user_id, True, attempt_num)
             
-            # Update quest progress
-            await quests.update_quest_progress(db_helpers, self.user_id, 'daily_wordle', 1)
+            # Update quest progress for daily games only
+            if self.game_type == 'daily':
+                await quests.update_quest_progress(db_helpers, self.user_id, 'daily_wordle', 1)
+            
+            # Mark premium game as completed if applicable
+            if self.game_type == 'premium':
+                await wordle.complete_premium_game(db_helpers, word_id, True)
             
             # Get updated stats and attempts for sharing
             user_stats = await wordle.get_user_stats(db_helpers, self.user_id)
-            all_attempts = await wordle.get_user_attempts(db_helpers, self.user_id, word_id)
+            all_attempts = await wordle.get_user_attempts(db_helpers, self.user_id, word_id, self.game_type)
             
             if user_stats:
                 total_games = user_stats.get('total_games', 0)
@@ -10285,29 +10413,33 @@ class WordleGuessModal(discord.ui.Modal, title="Rate das Wort"):
                     inline=False
                 )
             
-            # Show completed view with share button
-            view = WordleCompletedView(self.user_id, all_attempts, True, self.word_data)
+            # Show completed view with share button and new game for premium
+            view = WordleCompletedView(self.user_id, all_attempts, True, self.word_data, self.has_premium, self.game_type)
             await interaction.edit_original_response(embed=embed, view=view)
         else:
             # Update display with new attempt
-            attempts = await wordle.get_user_attempts(db_helpers, self.user_id, word_id)
+            attempts = await wordle.get_user_attempts(db_helpers, self.user_id, word_id, self.game_type)
             user_stats = await wordle.get_user_stats(db_helpers, self.user_id)
             
             # Check if max attempts reached
             if attempt_num >= self.max_attempts:
-                embed = wordle.create_game_embed(self.word_data, attempts, user_stats, is_game_over=True, won=False, theme_id=self.theme_id)
+                embed = wordle.create_game_embed(self.word_data, attempts, user_stats, is_game_over=True, won=False, game_type=self.game_type, theme_id=self.theme_id)
                 embed.title = "❌ Keine Versuche mehr!"
                 embed.description = f"Das gesuchte Wort war: **{correct_word.upper()}**"
                 
                 # Update stats (loss)
                 await wordle.update_user_stats(db_helpers, self.user_id, False, attempt_num)
                 
-                # Show completed view with share button
-                view = WordleCompletedView(self.user_id, attempts, False, self.word_data)
+                # Mark premium game as completed if applicable
+                if self.game_type == 'premium':
+                    await wordle.complete_premium_game(db_helpers, word_id, False)
+                
+                # Show completed view with share button and new game for premium
+                view = WordleCompletedView(self.user_id, attempts, False, self.word_data, self.has_premium, self.game_type)
                 await interaction.edit_original_response(embed=embed, view=view)
             else:
-                embed = wordle.create_game_embed(self.word_data, attempts, user_stats, theme_id=self.theme_id)
-                view = WordleView(self.user_id, self.word_data, self.max_attempts, self.theme_id)
+                embed = wordle.create_game_embed(self.word_data, attempts, user_stats, game_type=self.game_type, theme_id=self.theme_id)
+                view = WordleView(self.user_id, self.word_data, self.max_attempts, self.theme_id, self.has_premium, self.game_type)
                 await interaction.edit_original_response(embed=embed, view=view)
 
 
