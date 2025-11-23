@@ -127,9 +127,10 @@ async def initialize_stocks(db_helpers):
                         category = VALUES(category)
                 """, (stock['symbol'], stock['name'], stock['category'], stock['price'], stock['price']))
                 
+                # MySQL returns rowcount=1 for INSERT, rowcount=2 for UPDATE on DUPLICATE KEY
                 if cursor.rowcount == 1:
                     stocks_added += 1
-                elif cursor.rowcount == 2:  # Updated existing row
+                elif cursor.rowcount == 2:
                     stocks_updated += 1
             
             conn.commit()
