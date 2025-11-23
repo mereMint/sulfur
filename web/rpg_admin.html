@@ -697,13 +697,20 @@
             return;
         }
         
+        // Validate that userId is numeric to prevent injection
+        if (!/^\d+$/.test(userId)) {
+            alert('User ID must be a valid number');
+            return;
+        }
+        
         if (!confirm) {
             alert('Please confirm that you want to reset this player\'s data');
             return;
         }
         
-        // Double confirmation
-        if (!window.confirm(`Are you absolutely sure you want to reset all RPG data for user ${userId}? This cannot be undone!`)) {
+        // Double confirmation - escape userId for display
+        const escapedUserId = String(userId).replace(/[<>"'&]/g, '');
+        if (!window.confirm(`Are you absolutely sure you want to reset all RPG data for user ${escapedUserId}? This cannot be undone!`)) {
             return;
         }
         
@@ -714,7 +721,7 @@
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    user_id: userId,
+                    user_id: parseInt(userId, 10),
                     confirm: true
                 })
             });
@@ -722,7 +729,7 @@
             const result = await response.json();
             
             if (response.ok && result.success) {
-                alert(`Success! RPG data reset for user ${userId}\n\nTables cleared:\n${result.tables_cleared.join('\n')}`);
+                alert(`Success! RPG data reset for user ${escapedUserId}\n\nTables cleared:\n${result.tables_cleared.join('\n')}`);
                 document.getElementById('resetPlayerForm').reset();
                 loadStats(); // Refresh stats
             } else {

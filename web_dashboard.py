@@ -1367,26 +1367,26 @@ def reset_rpg_player():
             conn = db_helpers.db_pool.get_connection()
             cursor = conn.cursor()
             
-            # List of RPG tables to clear for this user
-            rpg_tables_to_clean = [
-                ('rpg_players', 'user_id'),
-                ('rpg_inventory', 'user_id'),
-                ('rpg_equipped', 'user_id'),
-                ('rpg_skill_tree', 'user_id'),
-            ]
+            # Whitelist of valid RPG tables to prevent SQL injection
+            VALID_RPG_TABLES = {
+                'rpg_players': 'user_id',
+                'rpg_inventory': 'user_id',
+                'rpg_equipped': 'user_id',
+                'rpg_skill_tree': 'user_id'
+            }
             
-            for table, id_column in rpg_tables_to_clean:
+            for table_name, id_column in VALID_RPG_TABLES.items():
                 try:
                     # Check if table exists
-                    cursor.execute(f"SHOW TABLES LIKE '{table}'")
+                    cursor.execute("SHOW TABLES LIKE %s", (table_name,))
                     if cursor.fetchone():
-                        # Delete user data from table
-                        cursor.execute(f"DELETE FROM {table} WHERE {id_column} = %s", (user_id,))
+                        # Delete user data from table using parameterized query
+                        cursor.execute(f"DELETE FROM {table_name} WHERE {id_column} = %s", (user_id,))
                         affected = cursor.rowcount
                         if affected > 0:
-                            deleted_tables.append(f"{table} ({affected} rows)")
+                            deleted_tables.append(f"{table_name} ({affected} rows)")
                 except Exception as e:
-                    logger.warning(f"Error clearing {table}: {e}")
+                    logger.warning(f"Error clearing {table_name}: {e}")
             
             conn.commit()
             
@@ -1400,9 +1400,17 @@ def reset_rpg_player():
                 cursor.close()
             if conn:
                 conn.close()
+    except ValueError as e:
+        return jsonify({
+            'success': False,
+            'message': f'Invalid user ID: {str(e)}'
+        }), 400
     except Exception as e:
         logger.error(f"Error resetting RPG player: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
 
 
 # ========== Economy Dashboard APIs ==========

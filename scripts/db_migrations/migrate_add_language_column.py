@@ -31,12 +31,12 @@ def main():
         cursor = cnx.cursor()
         
         # Check if user_customization table exists
-        cursor.execute(f"""
+        cursor.execute("""
             SELECT COUNT(*)
             FROM information_schema.tables 
-            WHERE table_schema = '{DB_NAME}' 
+            WHERE table_schema = %s
             AND table_name = 'user_customization'
-        """)
+        """, (DB_NAME,))
         
         table_exists = cursor.fetchone()[0] > 0
         
@@ -57,13 +57,13 @@ def main():
             print("✓ Table user_customization created successfully")
         else:
             # Check if language column exists
-            cursor.execute(f"""
+            cursor.execute("""
                 SELECT COUNT(*)
                 FROM information_schema.columns 
-                WHERE table_schema = '{DB_NAME}' 
+                WHERE table_schema = %s
                 AND table_name = 'user_customization'
                 AND column_name = 'language'
-            """)
+            """, (DB_NAME,))
             
             column_exists = cursor.fetchone()[0] > 0
             
