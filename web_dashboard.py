@@ -1166,6 +1166,76 @@ def init_rpg_items():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/rpg/skill_tree', methods=['GET'])
+def get_skill_tree():
+    """Get the complete skill tree configuration."""
+    try:
+        from modules import rpg_system
+        
+        # Return the skill tree structure
+        return jsonify(rpg_system.SKILL_TREE)
+    except Exception as e:
+        logger.error(f"Error getting skill tree: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/rpg/skill_tree/<path_key>', methods=['PUT'])
+def update_skill_tree_path(path_key):
+    """Update a skill tree path configuration."""
+    try:
+        from modules import rpg_system
+        
+        if path_key not in rpg_system.SKILL_TREE:
+            return jsonify({'error': 'Invalid path'}), 404
+        
+        data = request.json
+        
+        # Update the skill tree in memory (note: this doesn't persist across restarts)
+        # To persist changes, you would need to save to a config file
+        if 'name' in data:
+            rpg_system.SKILL_TREE[path_key]['name'] = data['name']
+        if 'description' in data:
+            rpg_system.SKILL_TREE[path_key]['description'] = data['description']
+        if 'emoji' in data:
+            rpg_system.SKILL_TREE[path_key]['emoji'] = data['emoji']
+        
+        return jsonify({'success': True, 'message': 'Skill tree path updated (in-memory only)'})
+    except Exception as e:
+        logger.error(f"Error updating skill tree path: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/rpg/skill_tree/<path_key>/<skill_key>', methods=['PUT'])
+def update_skill(path_key, skill_key):
+    """Update a specific skill in the skill tree."""
+    try:
+        from modules import rpg_system
+        
+        if path_key not in rpg_system.SKILL_TREE:
+            return jsonify({'error': 'Invalid path'}), 404
+        
+        if skill_key not in rpg_system.SKILL_TREE[path_key]['skills']:
+            return jsonify({'error': 'Invalid skill'}), 404
+        
+        data = request.json
+        skill = rpg_system.SKILL_TREE[path_key]['skills'][skill_key]
+        
+        # Update skill properties
+        if 'name' in data:
+            skill['name'] = data['name']
+        if 'description' in data:
+            skill['description'] = data['description']
+        if 'cost' in data:
+            skill['cost'] = int(data['cost'])
+        if 'type' in data:
+            skill['type'] = data['type']
+        
+        return jsonify({'success': True, 'message': 'Skill updated (in-memory only)'})
+    except Exception as e:
+        logger.error(f"Error updating skill: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     # Start the log following thread
     log_thread = threading.Thread(target=follow_log_file, daemon=True)
