@@ -362,6 +362,11 @@
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link {% if request.path == '/system' %}active{% endif %}" href="/system">
+                            <i class="bi bi-heart-pulse"></i> System
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link {% if request.path == '/database' %}active{% endif %}" href="/database">
                             <i class="bi bi-database"></i> Database
                         </a>

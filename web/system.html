@@ -1,0 +1,343 @@
+{% extends "layout.html" %}
+
+{% block title %}System Health - Sulfur Bot{% endblock %}
+
+{% block extra_styles %}
+<style>
+    .health-card {
+        background: linear-gradient(135deg, rgba(13, 202, 240, 0.2) 0%, rgba(83, 52, 131, 0.2) 100%);
+        border: 2px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+        transition: all 0.3s ease;
+    }
+    
+    .health-card.healthy {
+        border-color: var(--success);
+    }
+    
+    .health-card.warning {
+        border-color: var(--warning);
+    }
+    
+    .health-card.critical {
+        border-color: var(--danger);
+    }
+    
+    .metric-value {
+        font-size: 2rem;
+        font-weight: bold;
+    }
+    
+    .progress {
+        height: 25px;
+        font-size: 0.9rem;
+        font-weight: 600;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4 fade-in">
+    <div class="col-12">
+        <h2 class="gradient-text mb-4">
+            <i class="bi bi-heart-pulse"></i> System Health
+        </h2>
+    </div>
+</div>
+
+<!-- Bot Status -->
+<div class="row mb-4 fade-in">
+    <div class="col-12">
+        <div class="health-card" id="bot-status-card">
+            <div class="row align-items-center">
+                <div class="col-md-8">
+                    <h4><i class="bi bi-robot"></i> Bot Status</h4>
+                    <h3 class="metric-value" id="bot-status">Loading...</h3>
+                    <p class="text-muted mb-0">Uptime: <span id="bot-uptime">-</span></p>
+                </div>
+                <div class="col-md-4 text-end">
+                    <i class="bi bi-circle-fill" id="status-icon" style="font-size: 4rem; color: #888;"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- System Metrics -->
+<div class="row mb-4 fade-in">
+    <div class="col-md-6 mb-4">
+        <div class="card p-4">
+            <h5 class="mb-3"><i class="bi bi-memory"></i> Memory Usage</h5>
+            <div class="mb-3">
+                <label class="mb-2">Process Memory</label>
+                <div class="progress">
+                    <div class="progress-bar" role="progressbar" id="process-memory-bar" style="width: 0%">0 MB</div>
+                </div>
+            </div>
+            <div class="mb-3">
+                <label class="mb-2">System Memory</label>
+                <div class="progress">
+                    <div class="progress-bar" role="progressbar" id="system-memory-bar" style="width: 0%">0%</div>
+                </div>
+                <small class="text-muted" id="system-memory-text">0 GB / 0 GB</small>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6 mb-4">
+        <div class="card p-4">
+            <h5 class="mb-3"><i class="bi bi-cpu"></i> CPU Usage</h5>
+            <div class="mb-3">
+                <label class="mb-2">Process CPU</label>
+                <div class="progress">
+                    <div class="progress-bar bg-info" role="progressbar" id="process-cpu-bar" style="width: 0%">0%</div>
+                </div>
+            </div>
+            <div class="mb-3">
+                <label class="mb-2">System CPU</label>
+                <div class="progress">
+                    <div class="progress-bar bg-info" role="progressbar" id="system-cpu-bar" style="width: 0%">0%</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Storage & Database -->
+<div class="row mb-4 fade-in">
+    <div class="col-md-6 mb-4">
+        <div class="card p-4">
+            <h5 class="mb-3"><i class="bi bi-hdd"></i> Disk Usage</h5>
+            <div class="progress mb-2">
+                <div class="progress-bar bg-warning" role="progressbar" id="disk-bar" style="width: 0%">0%</div>
+            </div>
+            <small class="text-muted" id="disk-text">0 GB / 0 GB</small>
+        </div>
+    </div>
+    
+    <div class="col-md-6 mb-4">
+        <div class="card p-4">
+            <h5 class="mb-3"><i class="bi bi-database"></i> Database</h5>
+            <div class="d-flex align-items-center">
+                <i class="bi bi-circle-fill me-3" id="db-status-icon" style="font-size: 2rem; color: #888;"></i>
+                <div>
+                    <h5 class="mb-0" id="db-status">Checking...</h5>
+                    <small class="text-muted">Pool Size: <span id="db-pool-size">-</span></small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- API Quotas -->
+<div class="row mb-4 fade-in">
+    <div class="col-12">
+        <div class="card p-4">
+            <h5 class="mb-4"><i class="bi bi-graph-up-arrow"></i> AI API Usage (30 Days)</h5>
+            <div class="row">
+                <div class="col-md-3 mb-3">
+                    <div class="text-center p-3" style="background: rgba(83, 52, 131, 0.2); border-radius: 8px;">
+                        <h6 class="text-muted">Total Calls</h6>
+                        <h4 id="api-calls">0</h4>
+                    </div>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <div class="text-center p-3" style="background: rgba(83, 52, 131, 0.2); border-radius: 8px;">
+                        <h6 class="text-muted">Total Tokens</h6>
+                        <h4 id="api-tokens">0</h4>
+                    </div>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <div class="text-center p-3" style="background: rgba(83, 52, 131, 0.2); border-radius: 8px;">
+                        <h6 class="text-muted">Cost</h6>
+                        <h4 id="api-cost">$0.00</h4>
+                    </div>
+                </div>
+                <div class="col-md-3 mb-3">
+                    <div class="text-center p-3" style="background: rgba(83, 52, 131, 0.2); border-radius: 8px;">
+                        <h6 class="text-muted">Provider</h6>
+                        <h4 id="api-provider">-</h4>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Log Analytics -->
+<div class="row fade-in">
+    <div class="col-md-6 mb-4">
+        <div class="card p-4">
+            <h5 class="mb-3"><i class="bi bi-exclamation-triangle"></i> Recent Errors</h5>
+            <div class="d-flex justify-content-around">
+                <div class="text-center">
+                    <i class="bi bi-x-circle text-danger" style="font-size: 3rem;"></i>
+                    <h3 class="metric-value text-danger" id="error-count">0</h3>
+                    <p class="text-muted mb-0">Errors</p>
+                </div>
+                <div class="text-center">
+                    <i class="bi bi-exclamation-circle text-warning" style="font-size: 3rem;"></i>
+                    <h3 class="metric-value text-warning" id="warning-count">0</h3>
+                    <p class="text-muted mb-0">Warnings</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6 mb-4">
+        <div class="card p-4">
+            <h5 class="mb-3"><i class="bi bi-info-circle"></i> Quick Actions</h5>
+            <div class="d-grid gap-2">
+                <a href="/" class="btn btn-primary">
+                    <i class="bi bi-speedometer2"></i> View Dashboard
+                </a>
+                <a href="/database" class="btn btn-info">
+                    <i class="bi bi-database"></i> Database Viewer
+                </a>
+                <button class="btn btn-warning" onclick="location.reload()">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh Metrics
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        loadSystemHealth();
+        loadAPIQuotas();
+        
+        // Refresh every 10 seconds
+        setInterval(loadSystemHealth, 10000);
+        setInterval(loadAPIQuotas, 30000);
+    });
+    
+    async function loadSystemHealth() {
+        try {
+            const response = await fetch('/api/system/health');
+            const data = await response.json();
+            
+            if (data.error) {
+                console.error('Error loading system health:', data.error);
+                return;
+            }
+            
+            // Bot Status
+            const botStatus = data.bot_status;
+            document.getElementById('bot-status').textContent = botStatus;
+            
+            const statusCard = document.getElementById('bot-status-card');
+            const statusIcon = document.getElementById('status-icon');
+            statusCard.classList.remove('healthy', 'warning', 'critical');
+            
+            if (botStatus.toLowerCase() === 'running') {
+                statusCard.classList.add('healthy');
+                statusIcon.style.color = '#00d4aa';
+            } else if (botStatus.toLowerCase().includes('starting')) {
+                statusCard.classList.add('warning');
+                statusIcon.style.color = '#ffc107';
+            } else {
+                statusCard.classList.add('critical');
+                statusIcon.style.color = '#dc3545';
+            }
+            
+            // Uptime
+            const uptime = data.process.uptime_seconds;
+            const hours = Math.floor(uptime / 3600);
+            const minutes = Math.floor((uptime % 3600) / 60);
+            document.getElementById('bot-uptime').textContent = 
+                `${hours}h ${minutes}m`;
+            
+            // Memory
+            const processMemory = data.process.memory_mb;
+            const systemMemoryPercent = data.system.memory_percent;
+            
+            document.getElementById('process-memory-bar').style.width = 
+                `${Math.min(processMemory / 10, 100)}%`;
+            document.getElementById('process-memory-bar').textContent = 
+                `${processMemory} MB`;
+            document.getElementById('process-memory-bar').className = 
+                `progress-bar ${processMemory > 500 ? 'bg-danger' : processMemory > 300 ? 'bg-warning' : 'bg-success'}`;
+            
+            document.getElementById('system-memory-bar').style.width = 
+                `${systemMemoryPercent}%`;
+            document.getElementById('system-memory-bar').textContent = 
+                `${systemMemoryPercent.toFixed(1)}%`;
+            document.getElementById('system-memory-bar').className = 
+                `progress-bar ${systemMemoryPercent > 80 ? 'bg-danger' : systemMemoryPercent > 60 ? 'bg-warning' : 'bg-success'}`;
+            document.getElementById('system-memory-text').textContent = 
+                `${data.system.memory_used_gb} GB / ${data.system.memory_total_gb} GB`;
+            
+            // CPU
+            const processCPU = data.process.cpu_percent;
+            const systemCPU = data.system.cpu_percent;
+            
+            document.getElementById('process-cpu-bar').style.width = `${processCPU}%`;
+            document.getElementById('process-cpu-bar').textContent = `${processCPU}%`;
+            
+            document.getElementById('system-cpu-bar').style.width = `${systemCPU}%`;
+            document.getElementById('system-cpu-bar').textContent = `${systemCPU}%`;
+            
+            // Disk
+            const diskPercent = data.system.disk_percent;
+            document.getElementById('disk-bar').style.width = `${diskPercent}%`;
+            document.getElementById('disk-bar').textContent = `${diskPercent.toFixed(1)}%`;
+            document.getElementById('disk-bar').className = 
+                `progress-bar ${diskPercent > 90 ? 'bg-danger' : diskPercent > 75 ? 'bg-warning' : 'bg-success'}`;
+            document.getElementById('disk-text').textContent = 
+                `${data.system.disk_used_gb} GB / ${data.system.disk_total_gb} GB`;
+            
+            // Database
+            const dbHealthy = data.database.healthy;
+            const dbIcon = document.getElementById('db-status-icon');
+            const dbStatus = document.getElementById('db-status');
+            
+            if (dbHealthy) {
+                dbIcon.style.color = '#00d4aa';
+                dbStatus.textContent = 'Connected';
+                dbStatus.className = 'mb-0 text-success';
+            } else {
+                dbIcon.style.color = '#dc3545';
+                dbStatus.textContent = 'Disconnected';
+                dbStatus.className = 'mb-0 text-danger';
+            }
+            
+            document.getElementById('db-pool-size').textContent = data.database.pool_size;
+            
+            // Logs
+            document.getElementById('error-count').textContent = data.logs.error_count;
+            document.getElementById('warning-count').textContent = data.logs.warning_count;
+            
+        } catch (error) {
+            console.error('Error loading system health:', error);
+        }
+    }
+    
+    async function loadAPIQuotas() {
+        try {
+            const response = await fetch('/api/system/api_quotas');
+            const data = await response.json();
+            
+            if (data.error) {
+                console.error('Error loading API quotas:', data.error);
+                return;
+            }
+            
+            document.getElementById('api-calls').textContent = 
+                data.current_usage.total_calls_30d.toLocaleString();
+            document.getElementById('api-tokens').textContent = 
+                data.current_usage.total_tokens_30d.toLocaleString();
+            document.getElementById('api-cost').textContent = 
+                `$${data.current_usage.total_cost_30d.toFixed(2)}`;
+            document.getElementById('api-provider').textContent = 
+                data.provider.toUpperCase();
+            
+        } catch (error) {
+            console.error('Error loading API quotas:', error);
+        }
+    }
+</script>
+{% endblock %}

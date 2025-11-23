@@ -1608,6 +1608,171 @@ def game_leaderboard(game_type):
         return jsonify({'error': str(e)}), 500
 
 
+# ========== System Health APIs ==========
+
+@app.route('/system', methods=['GET'])
+def system_dashboard():
+    """Renders the system health dashboard page."""
+    return render_template('system.html')
+
+
+@app.route('/api/system/health', methods=['GET'])
+def system_health():
+    """Get system health metrics."""
+    try:
+        import psutil
+        import os
+        
+        # Get current process
+        process = psutil.Process(os.getpid())
+        
+        # Memory usage
+        memory_info = process.memory_info()
+        memory_mb = memory_info.rss / 1024 / 1024
+        
+        # CPU usage
+        cpu_percent = process.cpu_percent(interval=0.1)
+        
+        # System-wide stats
+        system_memory = psutil.virtual_memory()
+        system_cpu = psutil.cpu_percent(interval=0.1)
+        
+        # Disk usage
+        disk = psutil.disk_usage('/')
+        
+        # Database health
+        db_healthy = False
+        db_pool_size = 0
+        if db_helpers.db_pool:
+            try:
+                conn = db_helpers.db_pool.get_connection()
+                if conn:
+                    db_healthy = True
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT 1")
+                    cursor.close()
+                    conn.close()
+                    db_pool_size = db_helpers.db_pool.pool_size if hasattr(db_helpers.db_pool, 'pool_size') else 5
+            except Exception as e:
+                logger.warning(f"Database health check failed: {e}")
+        
+        # Check for errors in recent logs
+        error_count = 0
+        warning_count = 0
+        latest_log = get_latest_log_file()
+        if latest_log and os.path.exists(latest_log):
+            try:
+                with open(latest_log, 'r', encoding='utf-8', errors='ignore') as f:
+                    lines = f.readlines()
+                    recent_lines = lines[-1000:] if len(lines) > 1000 else lines
+                    for line in recent_lines:
+                        line_lower = line.lower()
+                        if 'error' in line_lower and not 'no error' in line_lower:
+                            error_count += 1
+                        elif 'warning' in line_lower:
+                            warning_count += 1
+            except Exception as e:
+                logger.error(f"Error reading log file: {e}")
+        
+        # Bot uptime (from status file)
+        uptime_seconds = 0
+        bot_status = 'Unknown'
+        try:
+            if os.path.exists('config/bot_status.json'):
+                with open('config/bot_status.json', 'r', encoding='utf-8-sig') as f:
+                    status_data = json.load(f)
+                    bot_status = status_data.get('status', 'Unknown')
+                    if 'timestamp' in status_data:
+                        from datetime import datetime
+                        status_time = datetime.fromisoformat(status_data['timestamp'].replace('Z', '+00:00'))
+                        now = datetime.now(status_time.tzinfo)
+                        uptime_seconds = (now - status_time).total_seconds()
+        except Exception as e:
+            logger.warning(f"Error reading bot status: {e}")
+        
+        return jsonify({
+            'process': {
+                'memory_mb': round(memory_mb, 2),
+                'cpu_percent': round(cpu_percent, 2),
+                'uptime_seconds': uptime_seconds
+            },
+            'system': {
+                'memory_percent': system_memory.percent,
+                'memory_used_gb': round(system_memory.used / 1024 / 1024 / 1024, 2),
+                'memory_total_gb': round(system_memory.total / 1024 / 1024 / 1024, 2),
+                'cpu_percent': round(system_cpu, 2),
+                'disk_percent': disk.percent,
+                'disk_used_gb': round(disk.used / 1024 / 1024 / 1024, 2),
+                'disk_total_gb': round(disk.total / 1024 / 1024 / 1024, 2)
+            },
+            'database': {
+                'healthy': db_healthy,
+                'pool_size': db_pool_size
+            },
+            'logs': {
+                'error_count': error_count,
+                'warning_count': warning_count
+            },
+            'bot_status': bot_status
+        })
+    except ImportError:
+        return jsonify({
+            'error': 'psutil not installed',
+            'message': 'Install psutil for system metrics: pip install psutil'
+        }), 500
+    except Exception as e:
+        logger.error(f"Error getting system health: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/system/api_quotas', methods=['GET'])
+def api_quotas():
+    """Get API usage quotas and limits."""
+    try:
+        # Load config for API limits
+        config = {}
+        try:
+            with open('config/config.json', 'r', encoding='utf-8') as f:
+                config = json.load(f)
+        except Exception as e:
+            logger.warning(f"Error loading config: {e}")
+        
+        # Get AI usage for current month
+        from modules.db_helpers import get_ai_usage_stats
+        import asyncio
+        
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        stats_30days = loop.run_until_complete(get_ai_usage_stats(30))
+        loop.close()
+        
+        # Calculate totals
+        total_calls = sum(stat['total_calls'] for stat in stats_30days)
+        total_input_tokens = sum(stat['total_input_tokens'] for stat in stats_30days)
+        total_output_tokens = sum(stat['total_output_tokens'] for stat in stats_30days)
+        total_cost = sum(stat['total_cost'] for stat in stats_30days)
+        
+        # Estimated limits (these are example values)
+        gemini_limit = 1500  # requests per minute
+        openai_limit = 10000  # requests per day
+        
+        return jsonify({
+            'current_usage': {
+                'total_calls_30d': total_calls,
+                'total_tokens_30d': total_input_tokens + total_output_tokens,
+                'total_cost_30d': round(total_cost, 2)
+            },
+            'limits': {
+                'gemini_rpm': gemini_limit,
+                'openai_rpd': openai_limit
+            },
+            'provider': config.get('api', {}).get('provider', 'unknown')
+        })
+    except Exception as e:
+        logger.error(f"Error getting API quotas: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     # Start the log following thread
     log_thread = threading.Thread(target=follow_log_file, daemon=True)

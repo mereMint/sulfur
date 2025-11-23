@@ -2,6 +2,57 @@
 {% block title %}Dashboard{% endblock %}
 
 {% block content %}
+<!-- Quick Stats Overview -->
+<div class="row mb-4 fade-in">
+    <div class="col-md-12 mb-3">
+        <h3 class="gradient-text"><i class="bi bi-speedometer2"></i> Dashboard Overview</h3>
+    </div>
+    <div class="col-lg-3 col-md-6 mb-3">
+        <div class="stat-card">
+            <div class="d-flex align-items-center justify-content-between">
+                <div>
+                    <h6 class="text-muted mb-1">Bot Status</h6>
+                    <div class="stat-value" id="quick-status">-</div>
+                </div>
+                <i class="bi bi-robot" style="font-size: 2.5rem; color: var(--accent-primary);"></i>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-3 col-md-6 mb-3">
+        <div class="stat-card">
+            <div class="d-flex align-items-center justify-content-between">
+                <div>
+                    <h6 class="text-muted mb-1">AI Calls (30d)</h6>
+                    <div class="stat-value" id="quick-ai-calls">0</div>
+                </div>
+                <i class="bi bi-cpu" style="font-size: 2.5rem; color: var(--accent-tertiary);"></i>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-3 col-md-6 mb-3">
+        <div class="stat-card">
+            <div class="d-flex align-items-center justify-content-between">
+                <div>
+                    <h6 class="text-muted mb-1">Total Wealth</h6>
+                    <div class="stat-value" id="quick-wealth">0 🪙</div>
+                </div>
+                <i class="bi bi-coin" style="font-size: 2.5rem; color: #FFD700;"></i>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-3 col-md-6 mb-3">
+        <div class="stat-card">
+            <div class="d-flex align-items-center justify-content-between">
+                <div>
+                    <h6 class="text-muted mb-1">Games Played</h6>
+                    <div class="stat-value" id="quick-games">0</div>
+                </div>
+                <i class="bi bi-controller" style="font-size: 2.5rem; color: var(--accent-secondary);"></i>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="row">
     <div class="col-md-8">
         <div class="card mb-4">
@@ -493,6 +544,9 @@
 
                     statusBadge.textContent = `Status: ${status}`;
                     statusBadge.className = `badge ${badgeClass}`;
+                    
+                    // Update quick status
+                    document.getElementById('quick-status').textContent = status;
 
                     // Update system info
                     if (data.pid) {
@@ -507,6 +561,49 @@
                     statusBadge.textContent = 'Status: Error';
                     statusBadge.className = 'badge bg-danger';
                 });
+        }
+        
+        // Load quick stats
+        function loadQuickStats() {
+            // AI Stats
+            fetch('/api/ai-usage?days=30')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        document.getElementById('quick-ai-calls').textContent = 
+                            data.summary.total_calls.toLocaleString();
+                    }
+                })
+                .catch(error => console.error('Error loading AI stats:', error));
+            
+            // Economy Stats
+            fetch('/api/economy/stats')
+                .then(response => response.json())
+                .then(data => {
+                    if (!data.error) {
+                        document.getElementById('quick-wealth').textContent = 
+                            data.total_coins.toLocaleString() + ' 🪙';
+                    }
+                })
+                .catch(error => console.error('Error loading economy stats:', error));
+            
+            // Games Stats
+            fetch('/api/games/stats')
+                .then(response => response.json())
+                .then(data => {
+                    let totalGames = 0;
+                    if (data.werwolf) totalGames += data.werwolf.total_games;
+                    if (data.detective) totalGames += data.detective.total_games;
+                    if (data.wordle) totalGames += data.wordle.total_games;
+                    if (data.casino) {
+                        totalGames += data.casino.blackjack_games;
+                        totalGames += data.casino.roulette_games;
+                        totalGames += data.casino.mines_games;
+                    }
+                    document.getElementById('quick-games').textContent = 
+                        totalGames.toLocaleString();
+                })
+                .catch(error => console.error('Error loading games stats:', error));
         }
 
         // Load current config
@@ -551,7 +648,9 @@
         setInterval(updateBotStatus, 5000);
         updateBotStatus();
         loadConfig();
+        loadQuickStats();
         setInterval(loadConfig, 10000); // Reload config every 10 seconds
+        setInterval(loadQuickStats, 30000); // Reload quick stats every 30 seconds
     });
 
     function clearConsole() {
