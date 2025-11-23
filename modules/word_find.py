@@ -132,6 +132,7 @@ async def initialize_word_find_table(db_helpers):
                     user_id BIGINT NOT NULL,
                     word VARCHAR(100) NOT NULL,
                     difficulty VARCHAR(20) NOT NULL,
+                    language VARCHAR(2) DEFAULT 'de',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     completed BOOLEAN DEFAULT FALSE,
                     won BOOLEAN DEFAULT FALSE,
@@ -381,7 +382,7 @@ async def get_user_attempts(db_helpers, user_id: int, word_id: int):
                 SELECT guess, similarity_score, attempt_number
                 FROM word_find_attempts
                 WHERE user_id = %s AND word_id = %s
-                ORDER BY similarity_score DESC
+                ORDER BY attempt_number ASC
             """, (user_id, word_id))
             
             return cursor.fetchall()
@@ -547,14 +548,15 @@ async def create_premium_game(db_helpers, user_id: int, language='de'):
             word = random.choice(word_lists[difficulty])
             
             cursor.execute("""
-                INSERT INTO word_find_premium_games (user_id, word, difficulty)
-                VALUES (%s, %s, %s)
-            """, (user_id, word, difficulty))
+                INSERT INTO word_find_premium_games (user_id, word, difficulty, language)
+                VALUES (%s, %s, %s, %s)
+            """, (user_id, word, difficulty, language))
             
             conn.commit()
             game_id = cursor.lastrowid
             
-            return {'id': game_id, 'word': word, 'difficulty': difficulty, 'type': 'premium'}
+            logger.info(f"Created premium Word Find game {game_id} for user {user_id}: {word} ({language}, {difficulty})")
+            return {'id': game_id, 'word': word, 'difficulty': difficulty, 'language': language, 'type': 'premium'}
         finally:
             cursor.close()
             conn.close()
@@ -579,7 +581,7 @@ async def get_user_attempts_by_type(db_helpers, user_id: int, word_id: int, game
                 SELECT guess, similarity_score, attempt_number
                 FROM word_find_attempts
                 WHERE user_id = %s AND word_id = %s AND game_type = %s
-                ORDER BY similarity_score DESC
+                ORDER BY attempt_number ASC
             """, (user_id, word_id, game_type))
             
             return cursor.fetchall()

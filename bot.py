@@ -9899,8 +9899,11 @@ class WordFindCompletedView(discord.ui.View):
         
         await interaction.response.defer()
         
+        # Get user's language preference
+        user_lang = await db_helpers.get_user_language(self.user_id)
+        
         # Create new premium game
-        premium_game = await word_find.create_premium_game(db_helpers, self.user_id)
+        premium_game = await word_find.create_premium_game(db_helpers, self.user_id, user_lang)
         
         if not premium_game:
             await interaction.followup.send("❌ Fehler beim Erstellen eines neuen Spiels.", ephemeral=True)
@@ -9909,12 +9912,15 @@ class WordFindCompletedView(discord.ui.View):
         # Get user stats
         user_stats = await word_find.get_user_stats(db_helpers, self.user_id)
         
+        # Get user's theme
+        user_theme = await themes.get_user_theme(db_helpers, self.user_id)
+        
         # Create new game embed
-        embed = word_find.create_game_embed(premium_game, [], 20, user_stats, 'premium', None)  # No theme for now
+        embed = word_find.create_game_embed(premium_game, [], 20, user_stats, 'premium', user_theme)
         embed.set_footer(text="💎 Premium Spiel - Du hast 20 Versuche!")
         
         # Create view for new game
-        view = WordFindView(self.user_id, premium_game, 20, self.has_premium, 'premium', None)
+        view = WordFindView(self.user_id, premium_game, 20, self.has_premium, 'premium', user_theme)
         
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
