@@ -2512,7 +2512,7 @@ async def summary(interaction: discord.Interaction, user: discord.Member = None)
 
 @tree.command(name="profile", description="Zeigt dein Profil oder das eines anderen Benutzers an.")
 @app_commands.describe(user="Der Benutzer, dessen Profil du sehen möchtest (optional).")
-async def profile(interaction: discord.Interaction, user: discord.Member = None):
+async def profile(interaction: discord.Interaction, user: discord.User = None):
     """Displays a user's profile with various stats."""
     target_user = user or interaction.user
     
@@ -2560,8 +2560,10 @@ async def profile(interaction: discord.Interaction, user: discord.Member = None)
     equipped_color = await db_helpers.get_user_equipped_color(target_user.id)
     color_display = equipped_color if equipped_color else "Keine Farbe ausgerüstet"
     
-    # Check if user is boosting the server
-    is_boosting = target_user.premium_since is not None
+    # Check if user is boosting the server (only available in guilds)
+    is_boosting = False
+    if hasattr(target_user, 'premium_since') and target_user.premium_since is not None:
+        is_boosting = True
     boost_status = "💎 Boostet den Server!" if is_boosting else "Kein Boost"
     
     embed.add_field(name="🎨 Farbe", value=f"`{color_display}`", inline=True)
@@ -3043,51 +3045,81 @@ class RPGMenuView(discord.ui.View):
     
     @discord.ui.button(label="🗡️ Abenteuer", style=discord.ButtonStyle.danger, row=0)
     async def adventure_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Start an adventure encounter."""
+        """Start an adventure encounter (combat or event)."""
         await interaction.response.defer()
         
         try:
             # Start adventure
-            monster, error = await rpg_system.start_adventure(db_helpers, self.user_id)
+            result, error, encounter_type = await rpg_system.start_adventure(db_helpers, self.user_id)
             
             if error:
                 await interaction.followup.send(f"❌ {error}", ephemeral=True)
                 return
             
-            if not monster:
-                await interaction.followup.send("❌ Kein Monster gefunden.", ephemeral=True)
+            if not result:
+                await interaction.followup.send("❌ Kein Abenteuer gefunden.", ephemeral=True)
                 return
             
-            # Create combat embed
-            embed = discord.Embed(
-                title=f"⚔️ Wilde Begegnung!",
-                description=f"Ein wilder **{monster['name']}** (Level {monster['level']}) erscheint!",
-                color=discord.Color.red()
-            )
-            
-            # Monster stats
-            embed.add_field(
-                name=f"🐉 {monster['name']}",
-                value=f"❤️ HP: {monster['health']}\n"
-                      f"⚔️ Angriff: {monster['strength']}\n"
-                      f"🛡️ Verteidigung: {monster['defense']}\n"
-                      f"⚡ Geschwindigkeit: {monster['speed']}",
-                inline=True
-            )
-            
-            # Rewards
-            embed.add_field(
-                name="🎁 Belohnungen",
-                value=f"💰 {monster['gold_reward']} Gold\n"
-                      f"⭐ {monster['xp_reward']} XP",
-                inline=True
-            )
-            
-            embed.set_footer(text="Wähle deine Aktion!")
-            
-            # Create combat view
-            view = RPGCombatView(self.user_id, monster)
-            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            # Handle based on encounter type
+            if encounter_type == 'combat':
+                monster = result
+                # Create combat embed
+                embed = discord.Embed(
+                    title=f"⚔️ Wilde Begegnung!",
+                    description=f"Ein wilder **{monster['name']}** (Level {monster['level']}) erscheint!",
+                    color=discord.Color.red()
+                )
+                
+                # Monster stats
+                embed.add_field(
+                    name=f"🐉 {monster['name']}",
+                    value=f"❤️ HP: {monster['health']}\n"
+                          f"⚔️ Angriff: {monster['strength']}\n"
+                          f"🛡️ Verteidigung: {monster['defense']}\n"
+                          f"⚡ Geschwindigkeit: {monster['speed']}",
+                    inline=True
+                )
+                
+                # Rewards
+                embed.add_field(
+                    name="🎁 Belohnungen",
+                    value=f"💰 {monster['gold_reward']} Gold\n"
+                          f"⭐ {monster['xp_reward']} XP",
+                    inline=True
+                )
+                
+                embed.set_footer(text="Wähle deine Aktion!")
+                
+                # Create combat view
+                view = RPGCombatView(self.user_id, monster)
+                await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+                
+            elif encounter_type == 'event':
+                event = result
+                # Create event embed
+                embed = discord.Embed(
+                    title=event['title'],
+                    description=event['description'],
+                    color=discord.Color.blue()
+                )
+                
+                # Show rewards
+                rewards = []
+                if 'gold_reward' in event:
+                    rewards.append(f"💰 {event['gold_reward']} Gold")
+                if 'xp_reward' in event:
+                    rewards.append(f"⭐ {event['xp_reward']} XP")
+                if 'heal_amount' in event and event['heal_amount'] > 0:
+                    rewards.append(f"❤️ +{event['heal_amount']} HP")
+                
+                if rewards:
+                    embed.add_field(name="🎁 Belohnungen", value="\n".join(rewards), inline=False)
+                
+                embed.set_footer(text="Klicke auf den Button um die Belohnungen zu erhalten!")
+                
+                # Create event view
+                view = RPGEventView(self.user_id, event)
+                await interaction.followup.send(embed=embed, view=view, ephemeral=True)
             
         except Exception as e:
             logger.error(f"Error in adventure button: {e}", exc_info=True)
@@ -3297,27 +3329,142 @@ async def adventure_command(interaction: discord.Interaction):
         await interaction.followup.send(f"❌ Ein Fehler ist aufgetreten: {e}")
 
 
+
+
+class RPGItemCreationModal(discord.ui.Modal, title="RPG Item Erstellen"):
+    """Modal for creating custom RPG items with better UX."""
+    
+    item_name = discord.ui.TextInput(
+        label="Item Name",
+        placeholder="z.B. Feuerschwert",
+        required=True,
+        max_length=100
+    )
+    
+    item_description = discord.ui.TextInput(
+        label="Beschreibung",
+        placeholder="Beschreibe das Item...",
+        style=discord.TextStyle.paragraph,
+        required=True,
+        max_length=500
+    )
+    
+    item_damage = discord.ui.TextInput(
+        label="Schaden (0 für nicht-Waffen)",
+        placeholder="z.B. 25",
+        required=False,
+        default="0"
+    )
+    
+    item_price = discord.ui.TextInput(
+        label="Preis (Gold)",
+        placeholder="z.B. 500",
+        required=True
+    )
+    
+    item_effects = discord.ui.TextInput(
+        label="Effekte (JSON Format, optional)",
+        placeholder='z.B. {"status": "burn", "duration": 3, "damage_bonus": 10}',
+        style=discord.TextStyle.paragraph,
+        required=False
+    )
+    
+    def __init__(self, item_type: str, rarity: str, required_level: int, creator_id: int):
+        super().__init__()
+        self.item_type = item_type
+        self.rarity = rarity
+        self.required_level = required_level
+        self.creator_id = creator_id
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        """Handle the modal submission."""
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            # Parse damage
+            damage = int(self.item_damage.value) if self.item_damage.value else 0
+            
+            # Parse price
+            price = int(self.item_price.value)
+            
+            # Parse effects (if provided)
+            effects = None
+            if self.item_effects.value:
+                try:
+                    effects = json.loads(self.item_effects.value)
+                except json.JSONDecodeError:
+                    await interaction.followup.send("❌ Ungültiges JSON Format für Effekte!", ephemeral=True)
+                    return
+            
+            # Create item with effects
+            success, item_id = await rpg_system.create_custom_item(
+                db_helpers,
+                name=self.item_name.value,
+                item_type=self.item_type,
+                rarity=self.rarity,
+                description=self.item_description.value,
+                damage=damage,
+                price=price,
+                required_level=self.required_level,
+                created_by=self.creator_id,
+                effects=effects
+            )
+            
+            if success:
+                rarity_color = rpg_system.RARITY_COLORS.get(self.rarity, discord.Color.light_grey())
+                embed = discord.Embed(
+                    title="✅ Item erfolgreich erstellt!",
+                    description=f"**{self.item_name.value}** wurde zum RPG System hinzugefügt!",
+                    color=rarity_color
+                )
+                embed.add_field(name="Typ", value=self.item_type, inline=True)
+                embed.add_field(name="Seltenheit", value=self.rarity.capitalize(), inline=True)
+                embed.add_field(name="Level", value=str(self.required_level), inline=True)
+                embed.add_field(name="Preis", value=f"{price} Gold", inline=True)
+                embed.add_field(name="Schaden", value=str(damage), inline=True)
+                embed.add_field(name="Item ID", value=str(item_id), inline=True)
+                embed.add_field(name="Beschreibung", value=self.item_description.value, inline=False)
+                
+                if effects:
+                    effects_str = json.dumps(effects, indent=2)
+                    embed.add_field(name="Effekte", value=f"```json\n{effects_str}\n```", inline=False)
+                
+                await interaction.followup.send(embed=embed)
+            else:
+                await interaction.followup.send(f"❌ Fehler beim Erstellen: {item_id}", ephemeral=True)
+                
+        except ValueError as e:
+            await interaction.followup.send(f"❌ Ungültige Eingabe: {e}", ephemeral=True)
+        except Exception as e:
+            logger.error(f"Error in item creation modal: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Ein Fehler ist aufgetreten: {e}", ephemeral=True)
+
+
 @tree.command(name="rpgadmin", description="Admin: Erstelle benutzerdefinierte Items und Loot")
 @app_commands.describe(
-    name="Name des Items",
-    item_type="Typ des Items (weapon, skill, consumable)",
-    rarity="Seltenheit (common, uncommon, rare, epic, legendary)",
-    damage="Schaden (für Waffen)",
-    price="Preis im Shop",
-    required_level="Benötigtes Level",
-    description="Beschreibung des Items"
+    item_type="Typ des Items",
+    rarity="Seltenheit",
+    required_level="Benötigtes Level (Standard: 1)"
 )
+@app_commands.choices(item_type=[
+    app_commands.Choice(name="Waffe", value="weapon"),
+    app_commands.Choice(name="Skill/Zauber", value="skill"),
+    app_commands.Choice(name="Verbrauchsgegenstand", value="consumable"),
+])
+@app_commands.choices(rarity=[
+    app_commands.Choice(name="Gewöhnlich", value="common"),
+    app_commands.Choice(name="Ungewöhnlich", value="uncommon"),
+    app_commands.Choice(name="Selten", value="rare"),
+    app_commands.Choice(name="Episch", value="epic"),
+    app_commands.Choice(name="Legendär", value="legendary"),
+])
 async def rpg_admin_command(
     interaction: discord.Interaction,
-    name: str,
-    item_type: str,
-    rarity: str,
-    price: int,
-    required_level: int,
-    description: str,
-    damage: int = 0
+    item_type: app_commands.Choice[str],
+    rarity: app_commands.Choice[str],
+    required_level: int = 1
 ):
-    """Admin command to create custom RPG items."""
+    """Admin command to create custom RPG items using a modal."""
     # Check if user is admin
     is_admin = interaction.user.guild_permissions.administrator or interaction.user.id == int(os.getenv("OWNER_ID", 0))
     
@@ -3325,55 +3472,14 @@ async def rpg_admin_command(
         await interaction.response.send_message("❌ Nur Admins können diesen Befehl verwenden!", ephemeral=True)
         return
     
-    await interaction.response.defer(ephemeral=True)
-    
-    try:
-        # Validate inputs
-        valid_types = ['weapon', 'skill', 'consumable']
-        if item_type not in valid_types:
-            await interaction.followup.send(f"❌ Ungültiger Typ! Verwende: {', '.join(valid_types)}")
-            return
-        
-        valid_rarities = ['common', 'uncommon', 'rare', 'epic', 'legendary']
-        if rarity not in valid_rarities:
-            await interaction.followup.send(f"❌ Ungültige Seltenheit! Verwende: {', '.join(valid_rarities)}")
-            return
-        
-        # Create item
-        success, item_id = await rpg_system.create_custom_item(
-            db_helpers,
-            name=name,
-            item_type=item_type,
-            rarity=rarity,
-            description=description,
-            damage=damage,
-            price=price,
-            required_level=required_level,
-            created_by=interaction.user.id
-        )
-        
-        if success:
-            rarity_color = rpg_system.RARITY_COLORS.get(rarity, discord.Color.light_grey())
-            embed = discord.Embed(
-                title="✅ Item erstellt!",
-                description=f"**{name}** wurde erfolgreich erstellt!",
-                color=rarity_color
-            )
-            embed.add_field(name="Typ", value=item_type, inline=True)
-            embed.add_field(name="Seltenheit", value=rarity.capitalize(), inline=True)
-            embed.add_field(name="Preis", value=f"{price} Gold", inline=True)
-            embed.add_field(name="Schaden", value=str(damage), inline=True)
-            embed.add_field(name="Level", value=str(required_level), inline=True)
-            embed.add_field(name="Item ID", value=str(item_id), inline=True)
-            embed.add_field(name="Beschreibung", value=description, inline=False)
-            
-            await interaction.followup.send(embed=embed)
-        else:
-            await interaction.followup.send(f"❌ Fehler beim Erstellen des Items: {item_id}")
-    
-    except Exception as e:
-        logger.error(f"Error in RPG admin command: {e}", exc_info=True)
-        await interaction.followup.send(f"❌ Ein Fehler ist aufgetreten: {e}")
+    # Show modal for item details
+    modal = RPGItemCreationModal(
+        item_type=item_type.value,
+        rarity=rarity.value,
+        required_level=required_level,
+        creator_id=interaction.user.id
+    )
+    await interaction.response.send_modal(modal)
 
 
 class RPGCombatView(discord.ui.View):
@@ -3405,17 +3511,41 @@ class RPGCombatView(discord.ui.View):
                 await interaction.followup.send(f"❌ Fehler: {result['error']}")
                 return
             
+            # Update monster health to track current state
+            self.monster['health'] = result['monster_health']
+            
             self.turn_count += 1
+            
+            # Get player data for turn order calculation
+            player = await rpg_system.get_player_profile(db_helpers, self.user_id)
+            
+            # Create turn order timeline
+            player_speed = player['speed'] if player else 10
+            monster_speed = self.monster['speed']
+            
+            # Determine turn order based on speed
+            if player_speed >= monster_speed:
+                timeline = f"⚔️ **Du** ➜ 🐉 {self.monster['name']}"
+                turn_indicator = "🟢 Dein Zug"
+            else:
+                timeline = f"🐉 **{self.monster['name']}** ➜ ⚔️ Du"
+                turn_indicator = "🔴 Gegner startet"
             
             # Create result embed
             embed = discord.Embed(
                 title=f"⚔️ Kampfrunde {self.turn_count}",
-                description="\n".join(result['messages']),
+                description=f"**{turn_indicator}**\n\n" + "\n".join(result['messages']),
                 color=discord.Color.gold() if result.get('player_won') else discord.Color.orange()
             )
             
+            # Add turn order timeline
+            embed.add_field(
+                name="📊 Kampf-Timeline",
+                value=f"```\n{timeline}\n```",
+                inline=False
+            )
+            
             # Add health bars
-            player = await rpg_system.get_player_profile(db_helpers, self.user_id)
             player_health_pct = (result['player_health'] / player['max_health']) * 100 if player else 0
             monster_health_pct = (result['monster_health'] / self.monster_max_health) * 100 if self.monster_max_health > 0 else 0
             
@@ -3480,6 +3610,10 @@ class RPGCombatView(discord.ui.View):
                 await interaction.followup.send(f"❌ Fehler: {result['error']}")
                 return
             
+            # Update monster health to track current state
+            if 'monster_health' in result:
+                self.monster['health'] = result['monster_health']
+            
             embed = discord.Embed(
                 title="🏃 Fluchtversuch",
                 description="\n".join(result['messages']),
@@ -3529,6 +3663,70 @@ class RPGCombatView(discord.ui.View):
             bar = "🟥" * filled + "⬜" * empty
         
         return bar
+
+
+class RPGEventView(discord.ui.View):
+    """View for non-combat adventure events."""
+    
+    def __init__(self, user_id: int, event: dict):
+        super().__init__(timeout=300)
+        self.user_id = user_id
+        self.event = event
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Dies ist nicht dein Abenteuer!", ephemeral=True)
+            return False
+        return True
+    
+    @discord.ui.button(label="✅ Belohnungen einsammeln", style=discord.ButtonStyle.success)
+    async def claim_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Claim event rewards."""
+        await interaction.response.defer()
+        
+        try:
+            # Claim rewards
+            success, message = await rpg_system.claim_adventure_event(db_helpers, self.user_id, self.event)
+            
+            if success:
+                embed = discord.Embed(
+                    title="✅ Belohnungen erhalten!",
+                    description=message,
+                    color=discord.Color.green()
+                )
+                
+                # Show what was claimed
+                rewards = []
+                if 'gold_reward' in self.event:
+                    rewards.append(f"💰 +{self.event['gold_reward']} Gold")
+                if 'xp_reward' in self.event:
+                    rewards.append(f"⭐ +{self.event['xp_reward']} XP")
+                if 'heal_amount' in self.event and self.event['heal_amount'] > 0:
+                    rewards.append(f"❤️ +{self.event['heal_amount']} HP geheilt")
+                
+                if rewards:
+                    embed.add_field(name="Erhalten:", value="\n".join(rewards), inline=False)
+                
+                # Check for level up
+                if self.event.get('leveled_up'):
+                    embed.add_field(
+                        name="🎊 Level Up!",
+                        value=f"Du bist jetzt **Level {self.event['new_level']}**!",
+                        inline=False
+                    )
+                
+                # Disable button
+                for item in self.children:
+                    item.disabled = True
+                self.stop()
+                
+                await interaction.edit_original_response(embed=embed, view=None)
+            else:
+                await interaction.followup.send(f"❌ {message}", ephemeral=True)
+                
+        except Exception as e:
+            logger.error(f"Error claiming event rewards: {e}", exc_info=True)
+            await interaction.followup.send("❌ Fehler beim Einsammeln der Belohnungen.", ephemeral=True)
 
 
 class RPGShopView(discord.ui.View):
@@ -3592,6 +3790,67 @@ class RPGShopView(discord.ui.View):
         except Exception as e:
             logger.error(f"Error purchasing item: {e}", exc_info=True)
             await interaction.followup.send("❌ Fehler beim Kauf.", ephemeral=True)
+    
+    @discord.ui.button(label="🔙 Zurück", style=discord.ButtonStyle.secondary, row=1)
+    async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Return to main RPG menu."""
+        await interaction.response.defer()
+        
+        try:
+            # Get fresh player data
+            player = await rpg_system.get_player_profile(db_helpers, self.user_id)
+            if not player:
+                await interaction.followup.send("❌ Fehler beim Laden deines Profils.", ephemeral=True)
+                return
+            
+            # Create main RPG menu embed
+            embed = discord.Embed(
+                title=f"⚔️ RPG Profil - {interaction.user.display_name}",
+                description=f"**Level {player['level']}** | Welt: {rpg_system.WORLDS[player['world']]['name']}",
+                color=discord.Color.purple()
+            )
+            embed.set_thumbnail(url=interaction.user.display_avatar.url)
+            
+            # Stats
+            embed.add_field(
+                name="📊 Attribute",
+                value=f"❤️ HP: {player['health']}/{player['max_health']}\n"
+                      f"⚔️ Stärke: {player['strength']}\n"
+                      f"🎯 Geschick: {player['dexterity']}\n"
+                      f"🛡️ Verteidigung: {player['defense']}\n"
+                      f"⚡ Geschwindigkeit: {player['speed']}",
+                inline=True
+            )
+            
+            # Progression
+            xp_needed = rpg_system.calculate_xp_for_level(player['level'] + 1)
+            xp_progress = player['xp']
+            progress_pct = (xp_progress / xp_needed) * 100 if xp_needed > 0 else 100
+            
+            embed.add_field(
+                name="📈 Fortschritt",
+                value=f"XP: {xp_progress}/{xp_needed}\n"
+                      f"Fortschritt: {progress_pct:.1f}%\n"
+                      f"💎 Skillpunkte: {player['skill_points']}\n"
+                      f"💰 Gold: {player['gold']}",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="🎮 Verfügbare Aktionen",
+                value="Wähle eine Aktion aus den Buttons unten!",
+                inline=False
+            )
+            
+            embed.set_footer(text="Nutze die Buttons um dein Abenteuer zu beginnen!")
+            
+            # Return to main menu view
+            view = RPGMenuView(self.user_id, player)
+            await interaction.edit_original_response(embed=embed, view=view)
+            
+        except Exception as e:
+            logger.error(f"Error returning to RPG menu: {e}", exc_info=True)
+            await interaction.followup.send("❌ Fehler beim Zurückkehren.", ephemeral=True)
 
 
 class RPGTempleView(discord.ui.View):
@@ -3641,7 +3900,7 @@ class RPGTempleView(discord.ui.View):
             logger.error(f"Error healing player: {e}", exc_info=True)
             await interaction.followup.send("❌ Fehler bei der Heilung.", ephemeral=True)
     
-    @discord.ui.button(label="🔮 XP Segen", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="🔮 XP Segen", style=discord.ButtonStyle.primary, row=0)
     async def xp_blessing_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Give XP blessing."""
         await interaction.response.defer()
@@ -3668,6 +3927,119 @@ class RPGTempleView(discord.ui.View):
         except Exception as e:
             logger.error(f"Error applying blessing: {e}", exc_info=True)
             await interaction.followup.send("❌ Fehler beim Segen.", ephemeral=True)
+    
+    @discord.ui.button(label="💎 Skillpunkte zurücksetzen", style=discord.ButtonStyle.primary, row=0)
+    async def respec_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Reset skill points and redistribute stats."""
+        await interaction.response.defer()
+        
+        try:
+            # Calculate total stats invested (beyond base for each stat)
+            total_invested = (
+                (self.player['strength'] - rpg_system.BASE_STAT_VALUE) +
+                (self.player['dexterity'] - rpg_system.BASE_STAT_VALUE) +
+                (self.player['defense'] - rpg_system.BASE_STAT_VALUE) +
+                (self.player['speed'] - rpg_system.BASE_STAT_VALUE)
+            )
+            
+            if total_invested <= 0:
+                await interaction.followup.send("❌ Du hast keine Skillpunkte ausgegeben!", ephemeral=True)
+                return
+            
+            # Cost for respec (using game constant)
+            respec_cost = total_invested * rpg_system.RESPEC_COST_PER_POINT
+            
+            if self.player['gold'] < respec_cost:
+                await interaction.followup.send(
+                    f"❌ Nicht genug Gold! Du brauchst {respec_cost} Gold für {total_invested} Skillpunkte.",
+                    ephemeral=True
+                )
+                return
+            
+            # Reset stats to base and return skill points
+            success = await rpg_system.reset_skill_points(db_helpers, self.user_id, respec_cost)
+            
+            if success:
+                embed = discord.Embed(
+                    title="💎 Skillpunkte zurückgesetzt!",
+                    description=f"Alle Attribute wurden auf {rpg_system.BASE_STAT_VALUE} zurückgesetzt.\n"
+                                f"Du hast {total_invested} Skillpunkte zurückerhalten!\n"
+                                f"Kosten: {respec_cost} Gold",
+                    color=discord.Color.blue()
+                )
+                embed.add_field(
+                    name="ℹ️ Info",
+                    value="Öffne dein RPG-Profil mit `/rpg` und nutze die Stats-Buttons um deine Punkte neu zu verteilen!",
+                    inline=False
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Zurücksetzen fehlgeschlagen.", ephemeral=True)
+                
+        except Exception as e:
+            logger.error(f"Error resetting skill points: {e}", exc_info=True)
+            await interaction.followup.send("❌ Fehler beim Zurücksetzen.", ephemeral=True)
+    
+    @discord.ui.button(label="🔙 Zurück", style=discord.ButtonStyle.secondary, row=1)
+    async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Return to main RPG menu."""
+        await interaction.response.defer()
+        
+        try:
+            # Get fresh player data
+            player = await rpg_system.get_player_profile(db_helpers, self.user_id)
+            if not player:
+                await interaction.followup.send("❌ Fehler beim Laden deines Profils.", ephemeral=True)
+                return
+            
+            # Create main RPG menu embed
+            embed = discord.Embed(
+                title=f"⚔️ RPG Profil - {interaction.user.display_name}",
+                description=f"**Level {player['level']}** | Welt: {rpg_system.WORLDS[player['world']]['name']}",
+                color=discord.Color.purple()
+            )
+            embed.set_thumbnail(url=interaction.user.display_avatar.url)
+            
+            # Stats
+            embed.add_field(
+                name="📊 Attribute",
+                value=f"❤️ HP: {player['health']}/{player['max_health']}\n"
+                      f"⚔️ Stärke: {player['strength']}\n"
+                      f"🎯 Geschick: {player['dexterity']}\n"
+                      f"🛡️ Verteidigung: {player['defense']}\n"
+                      f"⚡ Geschwindigkeit: {player['speed']}",
+                inline=True
+            )
+            
+            # Progression
+            xp_needed = rpg_system.calculate_xp_for_level(player['level'] + 1)
+            xp_progress = player['xp']
+            progress_pct = (xp_progress / xp_needed) * 100 if xp_needed > 0 else 100
+            
+            embed.add_field(
+                name="📈 Fortschritt",
+                value=f"XP: {xp_progress}/{xp_needed}\n"
+                      f"Fortschritt: {progress_pct:.1f}%\n"
+                      f"💎 Skillpunkte: {player['skill_points']}\n"
+                      f"💰 Gold: {player['gold']}",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="🎮 Verfügbare Aktionen",
+                value="Wähle eine Aktion aus den Buttons unten!",
+                inline=False
+            )
+            
+            embed.set_footer(text="Nutze die Buttons um dein Abenteuer zu beginnen!")
+            
+            # Return to main menu view
+            view = RPGMenuView(self.user_id, player)
+            await interaction.edit_original_response(embed=embed, view=view)
+            
+        except Exception as e:
+            logger.error(f"Error returning to RPG menu: {e}", exc_info=True)
+            await interaction.followup.send("❌ Fehler beim Zurückkehren.", ephemeral=True)
 
 
 class RPGInventoryView(discord.ui.View):
@@ -3755,6 +4127,67 @@ class RPGInventoryView(discord.ui.View):
         except Exception as e:
             logger.error(f"Error equipping skill: {e}", exc_info=True)
             await interaction.followup.send("❌ Fehler beim Ausrüsten.", ephemeral=True)
+    
+    @discord.ui.button(label="🔙 Zurück", style=discord.ButtonStyle.secondary, row=2)
+    async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Return to main RPG menu."""
+        await interaction.response.defer()
+        
+        try:
+            # Get fresh player data
+            player = await rpg_system.get_player_profile(db_helpers, self.user_id)
+            if not player:
+                await interaction.followup.send("❌ Fehler beim Laden deines Profils.", ephemeral=True)
+                return
+            
+            # Create main RPG menu embed
+            embed = discord.Embed(
+                title=f"⚔️ RPG Profil - {interaction.user.display_name}",
+                description=f"**Level {player['level']}** | Welt: {rpg_system.WORLDS[player['world']]['name']}",
+                color=discord.Color.purple()
+            )
+            embed.set_thumbnail(url=interaction.user.display_avatar.url)
+            
+            # Stats
+            embed.add_field(
+                name="📊 Attribute",
+                value=f"❤️ HP: {player['health']}/{player['max_health']}\n"
+                      f"⚔️ Stärke: {player['strength']}\n"
+                      f"🎯 Geschick: {player['dexterity']}\n"
+                      f"🛡️ Verteidigung: {player['defense']}\n"
+                      f"⚡ Geschwindigkeit: {player['speed']}",
+                inline=True
+            )
+            
+            # Progression
+            xp_needed = rpg_system.calculate_xp_for_level(player['level'] + 1)
+            xp_progress = player['xp']
+            progress_pct = (xp_progress / xp_needed) * 100 if xp_needed > 0 else 100
+            
+            embed.add_field(
+                name="📈 Fortschritt",
+                value=f"XP: {xp_progress}/{xp_needed}\n"
+                      f"Fortschritt: {progress_pct:.1f}%\n"
+                      f"💎 Skillpunkte: {player['skill_points']}\n"
+                      f"💰 Gold: {player['gold']}",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="🎮 Verfügbare Aktionen",
+                value="Wähle eine Aktion aus den Buttons unten!",
+                inline=False
+            )
+            
+            embed.set_footer(text="Nutze die Buttons um dein Abenteuer zu beginnen!")
+            
+            # Return to main menu view
+            view = RPGMenuView(self.user_id, player)
+            await interaction.edit_original_response(embed=embed, view=view)
+            
+        except Exception as e:
+            logger.error(f"Error returning to RPG menu: {e}", exc_info=True)
+            await interaction.followup.send("❌ Fehler beim Zurückkehren.", ephemeral=True)
 
 
 # --- Leaderboard Helper Constants and Functions ---

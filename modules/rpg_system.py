@@ -40,6 +40,11 @@ WORLDS = {
     'underworld': {'name': 'Unterwelt', 'min_level': 10, 'max_level': 50}
 }
 
+# Game Balance Constants
+BASE_STAT_VALUE = 10  # Base value for all stats (strength, dexterity, defense, speed)
+LEVEL_REWARD_MULTIPLIER = 0.1  # Multiplier for scaling rewards based on player level
+RESPEC_COST_PER_POINT = 50  # Gold cost per skill point when resetting stats
+
 
 async def initialize_rpg_tables(db_helpers):
     """Initialize RPG system tables."""
@@ -376,13 +381,13 @@ def calculate_damage(attacker_str: int, defender_def: int, attacker_dex: int) ->
 
 
 async def start_adventure(db_helpers, user_id: int):
-    """Start an adventure encounter."""
+    """Start an adventure encounter (combat or non-combat)."""
     try:
         player = await get_player_profile(db_helpers, user_id)
         if not player:
-            return None, "Profil konnte nicht geladen werden."
+            return None, "Profil konnte nicht geladen werden.", None
         
-        # Check cooldown (5 minutes between adventures)
+        # Check cooldown (2 minutes between adventures)
         if player['last_adventure']:
             last_adv = player['last_adventure']
             if isinstance(last_adv, str):
@@ -391,18 +396,13 @@ async def start_adventure(db_helpers, user_id: int):
                 last_adv = last_adv.replace(tzinfo=timezone.utc)
             
             cooldown = datetime.now(timezone.utc) - last_adv
-            if cooldown.total_seconds() < 300:  # 5 minutes
-                remaining = 300 - int(cooldown.total_seconds())
-                return None, f"Du musst noch {remaining} Sekunden warten!"
+            if cooldown.total_seconds() < 120:  # 2 minutes
+                remaining = 120 - int(cooldown.total_seconds())
+                return None, f"Du musst noch {remaining} Sekunden warten!", None
         
         # Check if player has enough health
         if player['health'] < player['max_health'] * 0.2:  # Less than 20% health
-            return None, "Du bist zu schwach! Heile dich zuerst."
-        
-        # Get a random monster
-        monster = await get_random_monster(db_helpers, player['level'], player['world'])
-        if not monster:
-            return None, "Kein Monster gefunden."
+            return None, "Du bist zu schwach! Heile dich zuerst.", None
         
         # Update last adventure time
         conn = db_helpers.db_pool.get_connection()
@@ -414,10 +414,118 @@ async def start_adventure(db_helpers, user_id: int):
         cursor.close()
         conn.close()
         
-        return monster, None
+        # 70% chance for combat, 30% for non-combat event
+        encounter_type = 'combat' if random.random() < 0.7 else 'event'
+        
+        if encounter_type == 'combat':
+            # Get a random monster
+            monster = await get_random_monster(db_helpers, player['level'], player['world'])
+            if not monster:
+                return None, "Kein Monster gefunden.", None
+            return monster, None, 'combat'
+        else:
+            # Generate non-combat event
+            event = generate_adventure_event(player)
+            return event, None, 'event'
+            
     except Exception as e:
         logger.error(f"Error starting adventure: {e}", exc_info=True)
-        return None, "Ein Fehler ist aufgetreten."
+        return None, "Ein Fehler ist aufgetreten.", None
+
+
+def generate_adventure_event(player: dict) -> dict:
+    """Generate a random non-combat adventure event."""
+    events = [
+        {
+            'type': 'treasure',
+            'title': '💎 Versteckte Schatzkiste!',
+            'description': 'Du entdeckst eine alte Schatzkiste am Wegrand!',
+            'gold_reward': random.randint(50, 200),
+            'xp_reward': random.randint(20, 50),
+        },
+        {
+            'type': 'merchant',
+            'title': '🎒 Reisender Händler',
+            'description': 'Ein freundlicher Händler bietet dir einen Handel an.',
+            'gold_reward': random.randint(30, 100),
+            'xp_reward': random.randint(10, 30),
+        },
+        {
+            'type': 'shrine',
+            'title': '✨ Mystischer Schrein',
+            'description': 'Du findest einen alten Schrein, der deine Wunden heilt.',
+            'heal_amount': random.randint(20, 50),
+            'xp_reward': random.randint(15, 40),
+        },
+        {
+            'type': 'puzzle',
+            'title': '🧩 Altes Rätsel',
+            'description': 'Du stolperst über eine alte Steintafel mit einem Rätsel.',
+            'gold_reward': random.randint(75, 150),
+            'xp_reward': random.randint(30, 60),
+        },
+        {
+            'type': 'npc',
+            'title': '👤 Hilfsbedürftiger Reisender',
+            'description': 'Ein Reisender braucht Hilfe und belohnt dich dafür.',
+            'gold_reward': random.randint(40, 120),
+            'xp_reward': random.randint(25, 55),
+        },
+    ]
+    
+    # Select random event
+    event = random.choice(events).copy()
+    
+    # Scale rewards based on player level
+    level_multiplier = 1 + (player['level'] * LEVEL_REWARD_MULTIPLIER)
+    if 'gold_reward' in event:
+        event['gold_reward'] = int(event['gold_reward'] * level_multiplier)
+    if 'xp_reward' in event:
+        event['xp_reward'] = int(event['xp_reward'] * level_multiplier)
+    if 'heal_amount' in event:
+        event['heal_amount'] = min(event['heal_amount'], player['max_health'] - player['health'])
+    
+    return event
+
+
+async def claim_adventure_event(db_helpers, user_id: int, event: dict):
+    """Claim rewards from a non-combat adventure event."""
+    try:
+        if not db_helpers.db_pool:
+            return False, "Datenbank nicht verfügbar"
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return False, "Datenbankverbindung fehlgeschlagen"
+        
+        cursor = conn.cursor()
+        try:
+            # Award gold
+            if 'gold_reward' in event:
+                cursor.execute("""
+                    UPDATE rpg_players SET gold = gold + %s WHERE user_id = %s
+                """, (event['gold_reward'], user_id))
+            
+            # Award XP
+            if 'xp_reward' in event:
+                xp_result = await gain_xp(db_helpers, user_id, event['xp_reward'])
+                event['leveled_up'] = xp_result and xp_result.get('leveled_up', False)
+                event['new_level'] = xp_result.get('new_level') if event.get('leveled_up') else None
+            
+            # Heal player
+            if 'heal_amount' in event and event['heal_amount'] > 0:
+                cursor.execute("""
+                    UPDATE rpg_players SET health = LEAST(health + %s, max_health) WHERE user_id = %s
+                """, (event['heal_amount'], user_id))
+            
+            conn.commit()
+            return True, "Belohnungen erhalten!"
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error claiming adventure event: {e}", exc_info=True)
+        return False, str(e)
 
 
 async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: str):
@@ -909,8 +1017,61 @@ async def apply_blessing(db_helpers, user_id: int, blessing_type: str, cost: int
         return False
 
 
+async def reset_skill_points(db_helpers, user_id: int, cost: int):
+    """Reset all stats to base (10) and return skill points."""
+    try:
+        if not db_helpers.db_pool:
+            return False
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return False
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            # Get current stats
+            cursor.execute("""
+                SELECT strength, dexterity, defense, speed, skill_points, gold
+                FROM rpg_players WHERE user_id = %s
+            """, (user_id,))
+            
+            player = cursor.fetchone()
+            if not player:
+                return False
+            
+            # Check if player has enough gold
+            if player['gold'] < cost:
+                return False
+            
+            # Calculate points to return
+            points_to_return = (
+                (player['strength'] - BASE_STAT_VALUE) +
+                (player['dexterity'] - BASE_STAT_VALUE) +
+                (player['defense'] - BASE_STAT_VALUE) +
+                (player['speed'] - BASE_STAT_VALUE)
+            )
+            
+            # Reset stats to base and add skill points
+            cursor.execute("""
+                UPDATE rpg_players 
+                SET strength = %s, dexterity = %s, defense = %s, speed = %s,
+                    skill_points = skill_points + %s,
+                    gold = gold - %s
+                WHERE user_id = %s
+            """, (BASE_STAT_VALUE, BASE_STAT_VALUE, BASE_STAT_VALUE, BASE_STAT_VALUE, points_to_return, cost, user_id))
+            
+            conn.commit()
+            return True
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error resetting skill points: {e}", exc_info=True)
+        return False
+
+
 async def create_custom_item(db_helpers, name: str, item_type: str, rarity: str, description: str, 
-                            damage: int = 0, price: int = 100, required_level: int = 1, created_by: int = None):
+                            damage: int = 0, price: int = 100, required_level: int = 1, created_by: int = None, effects: dict = None):
     """Create a custom item (admin function)."""
     try:
         if not db_helpers.db_pool:
@@ -922,11 +1083,14 @@ async def create_custom_item(db_helpers, name: str, item_type: str, rarity: str,
         
         cursor = conn.cursor()
         try:
+            # Convert effects dict to JSON string if provided
+            effects_json = json.dumps(effects) if effects else None
+            
             cursor.execute("""
                 INSERT INTO rpg_items 
-                (name, type, rarity, description, damage, price, required_level, created_by)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            """, (name, item_type, rarity, description, damage, price, required_level, created_by))
+                (name, type, rarity, description, damage, price, required_level, created_by, effects)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (name, item_type, rarity, description, damage, price, required_level, created_by, effects_json))
             
             conn.commit()
             item_id = cursor.lastrowid
