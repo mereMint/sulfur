@@ -648,6 +648,9 @@ async def complete_premium_game(db_helpers, game_id: int, won: bool):
 
 def create_game_embed(word_data: dict, attempts: list, max_attempts: int, user_stats: dict = None, game_type: str = 'daily', theme_id=None):
     """Create the game embed with current progress and theme support."""
+    # Extract difficulty first (needed for both color and description)
+    difficulty = word_data.get('difficulty', 'medium')
+    
     # Import themes here to avoid circular import
     try:
         from modules import themes
@@ -659,7 +662,6 @@ def create_game_embed(word_data: dict, attempts: list, max_attempts: int, user_s
             'medium': discord.Color.orange(),
             'hard': discord.Color.red()
         }
-        difficulty = word_data.get('difficulty', 'medium')
         color = difficulty_colors.get(difficulty, discord.Color.blue())
     
     title = "🔍 Word Find - Tägliches Wortratespiel" if game_type == 'daily' else "🔍 Word Find - Premium Spiel"

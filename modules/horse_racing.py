@@ -309,12 +309,19 @@ class HorseRace:
             # Add finish line
             track_str = ''.join(track) + '🏁'
             
+            # Truncate long horse names to fit on mobile (max 12 chars)
+            horse_name = horse['name']
+            if len(horse_name) > 12:
+                horse_name = horse_name[:11] + '…'
+            
             # Add horse name and position
             status = f"#{self.finish_order.index(i) + 1}" if i in self.finish_order else "Racing"
-            line = f"{horse['name']:10} {track_str} {status}"
+            # Use fixed-width formatting with truncated name for better mobile display
+            line = f"{horse_name:<12} {track_str} {status}"
             lines.append(line)
         
-        return '\n'.join(lines)
+        # Wrap in code block for monospace formatting on mobile
+        return '```\n' + '\n'.join(lines) + '\n```'
     
     def get_ability_summary(self) -> str:
         """
