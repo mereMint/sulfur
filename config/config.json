@@ -143,7 +143,8 @@
           "detective": 1000,
           "trolly": 250,
           "unlimited_word_find": 500,
-          "unlimited_wordle": 500
+          "unlimited_wordle": 500,
+          "rpg_access": 750
         },
         "bundles": {
           "word_games_bundle": {
