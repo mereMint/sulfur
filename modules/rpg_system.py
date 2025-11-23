@@ -603,15 +603,31 @@ async def start_adventure(db_helpers, user_id: int, continue_chain: bool = False
         # Check cooldown only if not continuing a chain
         if not continue_chain and player['last_adventure']:
             last_adv = player['last_adventure']
-            if isinstance(last_adv, str):
-                last_adv = datetime.fromisoformat(last_adv.replace('Z', '+00:00'))
-            elif last_adv.tzinfo is None:
-                last_adv = last_adv.replace(tzinfo=timezone.utc)
             
-            cooldown = datetime.now(timezone.utc) - last_adv
-            if cooldown.total_seconds() < 120:  # 2 minutes
-                remaining = 120 - int(cooldown.total_seconds())
-                return None, f"Du musst noch {remaining} Sekunden warten!", None
+            # Convert to datetime with UTC timezone if needed
+            if isinstance(last_adv, str):
+                # Parse ISO format string
+                last_adv = datetime.fromisoformat(last_adv.replace('Z', '+00:00'))
+            elif isinstance(last_adv, datetime):
+                # Ensure it has timezone info (assume UTC if not specified)
+                if last_adv.tzinfo is None:
+                    last_adv = last_adv.replace(tzinfo=timezone.utc)
+            else:
+                # Unknown type, log and skip cooldown check
+                logger.warning(f"Unknown last_adventure type: {type(last_adv)}")
+                last_adv = None
+            
+            if last_adv:
+                # Calculate cooldown - ensure both datetimes have timezone info
+                now = datetime.now(timezone.utc)
+                cooldown = now - last_adv
+                cooldown_seconds = cooldown.total_seconds()
+                
+                logger.debug(f"Adventure cooldown check: now={now}, last={last_adv}, diff={cooldown_seconds}s")
+                
+                if cooldown_seconds < 120:  # 2 minutes
+                    remaining = 120 - int(cooldown_seconds)
+                    return None, f"Du musst noch {remaining} Sekunden warten!", None
         
         # Check if player has enough health
         if player['health'] < player['max_health'] * 0.2:  # Less than 20% health
@@ -621,8 +637,9 @@ async def start_adventure(db_helpers, user_id: int, continue_chain: bool = False
         if not continue_chain:
             conn = db_helpers.db_pool.get_connection()
             cursor = conn.cursor()
+            # Use UTC_TIMESTAMP() to ensure consistent UTC time storage
             cursor.execute("""
-                UPDATE rpg_players SET last_adventure = NOW() WHERE user_id = %s
+                UPDATE rpg_players SET last_adventure = UTC_TIMESTAMP() WHERE user_id = %s
             """, (user_id,))
             conn.commit()
             cursor.close()
