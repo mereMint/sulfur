@@ -254,20 +254,68 @@ def levenshtein_distance(s1: str, s2: str) -> int:
     return previous_row[-1]
 
 
+def _generate_fallback_word(language='de', difficulty=None):
+    """
+    Generate a fallback word using date-based seed for consistency.
+    Used when database is unavailable.
+    
+    Args:
+        language: 'de' or 'en'
+        difficulty: 'easy', 'medium', or 'hard' (auto-determined if None)
+    
+    Returns:
+        dict with word data or None
+    """
+    # Determine difficulty if not provided
+    if difficulty is None:
+        weekday = datetime.now(timezone.utc).weekday()
+        if weekday >= 5:  # Saturday, Sunday
+            difficulty = 'hard'
+        elif weekday >= 3:  # Thursday, Friday
+            difficulty = 'medium'
+        else:
+            difficulty = 'easy'
+    
+    word_lists = get_word_lists(language)
+    if difficulty not in word_lists or not word_lists[difficulty]:
+        logger.error(f"No words available for difficulty {difficulty} in language {language}")
+        return None
+    
+    # Use date-based seed for consistent daily words without database
+    today = datetime.now(timezone.utc).date()
+    seed = int(today.strftime('%Y%m%d'))
+    random.seed(seed)
+    word = random.choice(word_lists[difficulty])
+    random.seed()  # Reset seed
+    
+    logger.info(f"Generated fallback Word Find word for {today} ({language}, {difficulty}): {word}")
+    return {'id': 0, 'word': word, 'difficulty': difficulty, 'language': language}
+
+
 async def get_or_create_daily_word(db_helpers, language='de'):
     """Get today's word or create a new one for the specified language."""
-    if not db_helpers.db_pool:
-        logger.error("Database pool not available for Word Find")
-        return None
+    # Fallback: if database is not available, generate word from list
+    if not db_helpers or not hasattr(db_helpers, 'db_pool') or not db_helpers.db_pool:
+        logger.warning("Database pool not available for Word Find - using fallback mode")
+        return _generate_fallback_word(language)
     
     conn = db_helpers.db_pool.get_connection()
     if not conn:
-        logger.error("Could not get database connection for Word Find")
-        return None
+        logger.warning("Could not get database connection for Word Find - using fallback mode")
+        return _generate_fallback_word(language)
     
     cursor = conn.cursor(dictionary=True)
     try:
         today = datetime.now(timezone.utc).date()
+        
+        # Choose difficulty based on day of week (harder on weekends)
+        weekday = today.weekday()
+        if weekday >= 5:  # Saturday, Sunday
+            difficulty = 'hard'
+        elif weekday >= 3:  # Thursday, Friday
+            difficulty = 'medium'
+        else:
+            difficulty = 'easy'
         
         # Check if today's word exists for this language
         cursor.execute("""
@@ -279,16 +327,6 @@ async def get_or_create_daily_word(db_helpers, language='de'):
         if result:
             logger.debug(f"Found existing Word Find word for {today} ({language}): {result['word']}")
             return result
-        
-        # Create new daily word from curated word list
-        # Choose difficulty based on day of week (harder on weekends)
-        weekday = datetime.now(timezone.utc).weekday()
-        if weekday >= 5:  # Saturday, Sunday
-            difficulty = 'hard'
-        elif weekday >= 3:  # Thursday, Friday
-            difficulty = 'medium'
-        else:
-            difficulty = 'easy'
         
         # Use curated list to ensure consistency
         logger.info(f"Generating new daily word for Word Find ({language}, {difficulty})")
@@ -316,7 +354,9 @@ async def get_or_create_daily_word(db_helpers, language='de'):
             conn.rollback()
         except (Exception, AttributeError):
             pass  # Connection may already be closed or invalid
-        return None
+        # Fallback to word list on database error
+        logger.warning("Using fallback word generation due to database error")
+        return _generate_fallback_word(language)
     finally:
         cursor.close()
         conn.close()

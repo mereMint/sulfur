@@ -14,13 +14,37 @@ from modules.logger_utils import bot_logger as logger
 HOUSE_EDGE = 0.10  # 10% house edge (configurable)
 
 # Horse data with names, emojis, and abilities
+# Includes horses inspired by Umamusume Pretty Derby (based on real racehorses)
 HORSES = [
+    # Original horses
     {'name': 'Thunder', 'emoji': '🐎', 'color': discord.Color.dark_gold()},
     {'name': 'Lightning', 'emoji': '⚡', 'color': discord.Color.gold()},
     {'name': 'Storm', 'emoji': '🌩️', 'color': discord.Color.blue()},
     {'name': 'Blaze', 'emoji': '🔥', 'color': discord.Color.red()},
     {'name': 'Shadow', 'emoji': '🌑', 'color': discord.Color.dark_grey()},
     {'name': 'Spirit', 'emoji': '✨', 'color': discord.Color.purple()},
+    
+    # Umamusume-inspired horses (based on real legendary racehorses)
+    {'name': 'Special Week', 'emoji': '🏆', 'color': discord.Color.from_rgb(255, 182, 193)},
+    {'name': 'Silence Suzuka', 'emoji': '🌸', 'color': discord.Color.from_rgb(255, 105, 180)},
+    {'name': 'Tokai Teio', 'emoji': '👑', 'color': discord.Color.from_rgb(138, 43, 226)},
+    {'name': 'Maruzensky', 'emoji': '🌟', 'color': discord.Color.from_rgb(0, 191, 255)},
+    {'name': 'Oguri Cap', 'emoji': '🎩', 'color': discord.Color.from_rgb(72, 61, 139)},
+    {'name': 'Gold Ship', 'emoji': '🚢', 'color': discord.Color.from_rgb(255, 215, 0)},
+    {'name': 'Vodka', 'emoji': '💎', 'color': discord.Color.from_rgb(148, 0, 211)},
+    {'name': 'Daiwa Scarlet', 'emoji': '🔴', 'color': discord.Color.from_rgb(220, 20, 60)},
+    {'name': 'Taiki Shuttle', 'emoji': '🚀', 'color': discord.Color.from_rgb(30, 144, 255)},
+    {'name': 'Mejiro McQueen', 'emoji': '🎭', 'color': discord.Color.from_rgb(75, 0, 130)},
+    {'name': 'Rice Shower', 'emoji': '🌾', 'color': discord.Color.from_rgb(144, 238, 144)},
+    {'name': 'El Condor Pasa', 'emoji': '🦅', 'color': discord.Color.from_rgb(184, 134, 11)},
+    {'name': 'Grass Wonder', 'emoji': '🍀', 'color': discord.Color.from_rgb(34, 139, 34)},
+    {'name': 'Haru Urara', 'emoji': '🌺', 'color': discord.Color.from_rgb(255, 20, 147)},
+    {'name': 'Super Creek', 'emoji': '💧', 'color': discord.Color.from_rgb(0, 206, 209)},
+    {'name': 'T.M. Opera O', 'emoji': '🎵', 'color': discord.Color.from_rgb(75, 0, 130)},
+    {'name': 'Narita Brian', 'emoji': '⭐', 'color': discord.Color.from_rgb(255, 140, 0)},
+    {'name': 'Symboli Rudolf', 'emoji': '🦌', 'color': discord.Color.from_rgb(139, 0, 0)},
+    {'name': 'Air Groove', 'emoji': '🎸', 'color': discord.Color.from_rgb(106, 90, 205)},
+    {'name': 'Agnes Tachyon', 'emoji': '⚗️', 'color': discord.Color.from_rgb(123, 104, 238)},
 ]
 
 # Special abilities that can trigger during race
@@ -93,8 +117,11 @@ class HorseRace:
             horses_count: Number of horses in the race (2-6)
         """
         self.race_id = race_id
-        self.horses_count = min(max(horses_count, 2), 6)
-        self.horses = HORSES[:self.horses_count]
+        # Ensure horses_count doesn't exceed available horses
+        max_horses = min(len(HORSES), 6)
+        self.horses_count = min(max(horses_count, 2), max_horses)
+        # Randomly select horses from the full pool
+        self.horses = random.sample(HORSES, self.horses_count)
         self.positions = [0] * self.horses_count  # Current positions
         self.finished = [False] * self.horses_count
         self.finish_order = []  # Order in which horses finish
