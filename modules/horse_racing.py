@@ -117,7 +117,9 @@ class HorseRace:
             horses_count: Number of horses in the race (2-6)
         """
         self.race_id = race_id
-        self.horses_count = min(max(horses_count, 2), 6)
+        # Ensure horses_count doesn't exceed available horses
+        max_horses = min(len(HORSES), 6)
+        self.horses_count = min(max(horses_count, 2), max_horses)
         # Randomly select horses from the full pool
         self.horses = random.sample(HORSES, self.horses_count)
         self.positions = [0] * self.horses_count  # Current positions

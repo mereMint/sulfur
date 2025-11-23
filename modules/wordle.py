@@ -209,37 +209,44 @@ async def initialize_wordle_table(db_helpers):
         logger.error(f"Error initializing Wordle tables: {e}", exc_info=True)
 
 
+def _generate_fallback_word(language='de'):
+    """
+    Generate a fallback word using date-based seed for consistency.
+    Used when database is unavailable.
+    
+    Args:
+        language: 'de' or 'en'
+    
+    Returns:
+        dict with word data or None
+    """
+    word_list = get_wordle_words_list(language)
+    if not word_list:
+        return None
+    
+    # Use date-based seed for consistent daily words without database
+    today = datetime.now(timezone.utc).date()
+    seed = int(today.strftime('%Y%m%d'))
+    random.seed(seed)
+    word = random.choice(word_list)
+    random.seed()  # Reset seed
+    
+    logger.info(f"Generated fallback Wordle word for {today} ({language}): {word}")
+    return {'id': 0, 'word': word, 'language': language}
+
+
 async def get_or_create_daily_word(db_helpers, language='de'):
     """Get or create today's Wordle word for the specified language."""
     try:
         # Fallback: if database is not available, generate word from list
         if not db_helpers or not hasattr(db_helpers, 'db_pool') or not db_helpers.db_pool:
             logger.warning("Database pool not available for Wordle - using fallback mode")
-            word_list = get_wordle_words_list(language)
-            if not word_list:
-                logger.error(f"No words available for language {language}")
-                return None
-            # Use date-based seed for consistent daily words without database
-            today = datetime.now(timezone.utc).date()
-            seed = int(today.strftime('%Y%m%d'))
-            random.seed(seed)
-            word = random.choice(word_list)
-            random.seed()  # Reset seed
-            logger.info(f"Generated fallback Wordle word for {today} ({language}): {word}")
-            return {'id': 0, 'word': word, 'language': language}
+            return _generate_fallback_word(language)
         
         conn = db_helpers.db_pool.get_connection()
         if not conn:
             logger.warning("Could not get database connection for Wordle - using fallback mode")
-            word_list = get_wordle_words_list(language)
-            if not word_list:
-                return None
-            today = datetime.now(timezone.utc).date()
-            seed = int(today.strftime('%Y%m%d'))
-            random.seed(seed)
-            word = random.choice(word_list)
-            random.seed()
-            return {'id': 0, 'word': word, 'language': language}
+            return _generate_fallback_word(language)
         
         cursor = conn.cursor(dictionary=True)
         try:
@@ -285,33 +292,14 @@ async def get_or_create_daily_word(db_helpers, language='de'):
                 pass  # Connection may already be closed or invalid
             # Fallback to word list on database error
             logger.warning("Using fallback word generation due to database error")
-            word_list = get_wordle_words_list(language)
-            if not word_list:
-                return None
-            today = datetime.now(timezone.utc).date()
-            seed = int(today.strftime('%Y%m%d'))
-            random.seed(seed)
-            word = random.choice(word_list)
-            random.seed()
-            return {'id': 0, 'word': word, 'language': language}
+            return _generate_fallback_word(language)
         finally:
             cursor.close()
             conn.close()
     except Exception as e:
         logger.error(f"Error getting/creating daily Wordle word: {e}", exc_info=True)
         # Final fallback
-        try:
-            word_list = get_wordle_words_list(language)
-            if word_list:
-                today = datetime.now(timezone.utc).date()
-                seed = int(today.strftime('%Y%m%d'))
-                random.seed(seed)
-                word = random.choice(word_list)
-                random.seed()
-                return {'id': 0, 'word': word, 'language': language}
-        except:
-            pass
-        return None
+        return _generate_fallback_word(language)
 
 
 async def get_user_attempts(db_helpers, user_id: int, word_id: int):
