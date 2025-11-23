@@ -488,7 +488,9 @@ async def get_random_monster(db_helpers, player_level: int, world: str):
             monster = cursor.fetchone()
             
             if monster:
-                # Add stat variations (±10-20% from base stats)
+                # Add stat variations (±15-20% from base stats)
+                # Note: Variation is asymmetric - monsters can be 15% weaker or 20% stronger
+                # This makes encounters slightly more challenging on average
                 variation_min = 0.85  # -15%
                 variation_max = 1.20  # +20%
                 

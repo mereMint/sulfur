@@ -25,26 +25,26 @@ HORSES = [
     {'name': 'Spirit', 'emoji': '✨', 'color': discord.Color.purple()},
     
     # Umamusume-inspired horses (based on real legendary racehorses)
-    {'name': 'Special Week', 'emoji': '🏆', 'color': discord.Color.from_rgb(255, 182, 193)},  # Pink
-    {'name': 'Silence Suzuka', 'emoji': '🌸', 'color': discord.Color.from_rgb(255, 105, 180)},  # Hot Pink
-    {'name': 'Tokai Teio', 'emoji': '👑', 'color': discord.Color.from_rgb(138, 43, 226)},  # Blue Violet
-    {'name': 'Maruzensky', 'emoji': '🌟', 'color': discord.Color.from_rgb(0, 191, 255)},  # Deep Sky Blue
-    {'name': 'Oguri Cap', 'emoji': '🎩', 'color': discord.Color.from_rgb(72, 61, 139)},  # Dark Slate Blue
-    {'name': 'Gold Ship', 'emoji': '🚢', 'color': discord.Color.from_rgb(255, 215, 0)},  # Gold
-    {'name': 'Vodka', 'emoji': '💎', 'color': discord.Color.from_rgb(148, 0, 211)},  # Dark Violet
-    {'name': 'Daiwa Scarlet', 'emoji': '🔴', 'color': discord.Color.from_rgb(220, 20, 60)},  # Crimson
-    {'name': 'Taiki Shuttle', 'emoji': '🚀', 'color': discord.Color.from_rgb(30, 144, 255)},  # Dodger Blue
-    {'name': 'Mejiro McQueen', 'emoji': '🎭', 'color': discord.Color.from_rgb(75, 0, 130)},  # Indigo
-    {'name': 'Rice Shower', 'emoji': '🌾', 'color': discord.Color.from_rgb(144, 238, 144)},  # Light Green
-    {'name': 'El Condor Pasa', 'emoji': '🦅', 'color': discord.Color.from_rgb(184, 134, 11)},  # Dark Goldenrod
-    {'name': 'Grass Wonder', 'emoji': '🍀', 'color': discord.Color.from_rgb(34, 139, 34)},  # Forest Green
-    {'name': 'Haru Urara', 'emoji': '🌺', 'color': discord.Color.from_rgb(255, 20, 147)},  # Deep Pink
-    {'name': 'Super Creek', 'emoji': '💧', 'color': discord.Color.from_rgb(0, 206, 209)},  # Dark Turquoise
-    {'name': 'T.M. Opera O', 'emoji': '🎵', 'color': discord.Color.from_rgb(75, 0, 130)},  # Indigo
-    {'name': 'Narita Brian', 'emoji': '⭐', 'color': discord.Color.from_rgb(255, 140, 0)},  # Dark Orange
-    {'name': 'Symboli Rudolf', 'emoji': '🦌', 'color': discord.Color.from_rgb(139, 0, 0)},  # Dark Red
-    {'name': 'Air Groove', 'emoji': '🎸', 'color': discord.Color.from_rgb(106, 90, 205)},  # Slate Blue
-    {'name': 'Agnes Tachyon', 'emoji': '⚗️', 'color': discord.Color.from_rgb(123, 104, 238)},  # Medium Slate Blue
+    {'name': 'Special Week', 'emoji': '🏆', 'color': discord.Color.from_rgb(255, 182, 193)},
+    {'name': 'Silence Suzuka', 'emoji': '🌸', 'color': discord.Color.from_rgb(255, 105, 180)},
+    {'name': 'Tokai Teio', 'emoji': '👑', 'color': discord.Color.from_rgb(138, 43, 226)},
+    {'name': 'Maruzensky', 'emoji': '🌟', 'color': discord.Color.from_rgb(0, 191, 255)},
+    {'name': 'Oguri Cap', 'emoji': '🎩', 'color': discord.Color.from_rgb(72, 61, 139)},
+    {'name': 'Gold Ship', 'emoji': '🚢', 'color': discord.Color.from_rgb(255, 215, 0)},
+    {'name': 'Vodka', 'emoji': '💎', 'color': discord.Color.from_rgb(148, 0, 211)},
+    {'name': 'Daiwa Scarlet', 'emoji': '🔴', 'color': discord.Color.from_rgb(220, 20, 60)},
+    {'name': 'Taiki Shuttle', 'emoji': '🚀', 'color': discord.Color.from_rgb(30, 144, 255)},
+    {'name': 'Mejiro McQueen', 'emoji': '🎭', 'color': discord.Color.from_rgb(75, 0, 130)},
+    {'name': 'Rice Shower', 'emoji': '🌾', 'color': discord.Color.from_rgb(144, 238, 144)},
+    {'name': 'El Condor Pasa', 'emoji': '🦅', 'color': discord.Color.from_rgb(184, 134, 11)},
+    {'name': 'Grass Wonder', 'emoji': '🍀', 'color': discord.Color.from_rgb(34, 139, 34)},
+    {'name': 'Haru Urara', 'emoji': '🌺', 'color': discord.Color.from_rgb(255, 20, 147)},
+    {'name': 'Super Creek', 'emoji': '💧', 'color': discord.Color.from_rgb(0, 206, 209)},
+    {'name': 'T.M. Opera O', 'emoji': '🎵', 'color': discord.Color.from_rgb(75, 0, 130)},
+    {'name': 'Narita Brian', 'emoji': '⭐', 'color': discord.Color.from_rgb(255, 140, 0)},
+    {'name': 'Symboli Rudolf', 'emoji': '🦌', 'color': discord.Color.from_rgb(139, 0, 0)},
+    {'name': 'Air Groove', 'emoji': '🎸', 'color': discord.Color.from_rgb(106, 90, 205)},
+    {'name': 'Agnes Tachyon', 'emoji': '⚗️', 'color': discord.Color.from_rgb(123, 104, 238)},
 ]
 
 # Special abilities that can trigger during race
