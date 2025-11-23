@@ -1013,15 +1013,20 @@ async def on_presence_update(before, after):
             if user_id in game_start_times and game_start_times[user_id][0] == before_game.name:
                 _, start_time = game_start_times.pop(user_id)
                 duration_seconds = (now - start_time).total_seconds()
-                # Only log sessions longer than a minute to filter out quick restarts/alt-tabs
-                if duration_seconds > 60:
+                # Only log sessions longer than 30 seconds to filter out very quick restarts/alt-tabs
+                # Reduced from 60 seconds to be more forgiving for quest tracking
+                if duration_seconds > 30:
                     duration_minutes = duration_seconds / 60.0
                     stat_period = now.strftime('%Y-%m')
                     await db_helpers.log_game_session(user_id, stat_period, before_game.name, duration_minutes)
                     
                     # --- NEW: Track game minutes for quest progress ---
                     try:
-                        quest_completed, _ = await quests.update_quest_progress(db_helpers, user_id, 'game_minutes', int(duration_minutes))
+                        import math
+                        # Round up to ensure partial minutes count (e.g., 1.5 minutes counts as 2)
+                        # This is more player-friendly for quest tracking
+                        quest_minutes = math.ceil(duration_minutes)
+                        quest_completed, _ = await quests.update_quest_progress(db_helpers, user_id, 'game_minutes', quest_minutes)
                         # Quest completion notifications will be sent when user checks /quests or uses /questclaim
                     except Exception as e:
                         logger.error(f"Error updating game quest progress for user {user_id}: {e}", exc_info=True)
