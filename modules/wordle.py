@@ -130,8 +130,20 @@ def get_wordle_words(language='de'):
 def get_wordle_words_list(language='de'):
     """Get Wordle word list for specified language (for selecting words)."""
     if language == 'en':
-        return WORDLE_WORDS_EN
-    return WORDLE_WORDS_DE
+        word_list = WORDLE_WORDS_EN
+    else:
+        word_list = WORDLE_WORDS_DE
+    
+    # Ensure we have valid words
+    if not word_list or len(word_list) == 0:
+        logger.error(f"No Wordle words available for language {language}")
+        # Return a minimal fallback
+        if language == 'en':
+            return ['about', 'house', 'world', 'music', 'happy']
+        else:
+            return ['haus', 'welt', 'musik', 'freund', 'leben']
+    
+    return word_list
 
 
 async def initialize_wordle_table(db_helpers):
