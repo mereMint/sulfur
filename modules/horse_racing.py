@@ -11,7 +11,11 @@ from modules.logger_utils import bot_logger as logger
 
 
 # Configuration
-HOUSE_EDGE = 0.10  # 10% house edge (configurable)
+HOUSE_EDGE = 0.05  # 5% house edge (reduced for better payouts)
+SIMULATED_BETS_MIN = 5  # Minimum number of simulated bets
+SIMULATED_BETS_MAX = 15  # Maximum number of simulated bets
+SIMULATED_BET_MIN = 10  # Minimum simulated bet amount
+SIMULATED_BET_MAX = 100  # Maximum simulated bet amount
 
 # Horse data with names, emojis, and abilities
 # Includes horses inspired by Umamusume Pretty Derby (based on real racehorses)
@@ -130,6 +134,7 @@ class HorseRace:
         self.finished = [False] * self.horses_count
         self.finish_order = []  # Order in which horses finish
         self.bets = {}  # {user_id: {'horse_index': int, 'amount': int}}
+        self.simulated_bets = []  # List of simulated bets for better odds
         self.is_racing = False
         self.is_betting_open = True
         self.created_at = datetime.now(timezone.utc)
@@ -169,9 +174,27 @@ class HorseRace:
         horse_name = self.horses[horse_index]['name']
         return True, f"Wette platziert: {amount} 🪙 auf {horse_name}!"
     
+    def add_simulated_bets(self):
+        """
+        Add simulated bets to make the race more exciting and improve payouts.
+        This simulates other players betting on horses.
+        """
+        num_bets = random.randint(SIMULATED_BETS_MIN, SIMULATED_BETS_MAX)
+        
+        for _ in range(num_bets):
+            horse_index = random.randint(0, self.horses_count - 1)
+            amount = random.randint(SIMULATED_BET_MIN, SIMULATED_BET_MAX)
+            
+            self.simulated_bets.append({
+                'horse_index': horse_index,
+                'amount': amount
+            })
+        
+        logger.info(f"Added {num_bets} simulated bets to race {self.race_id}")
+    
     def get_odds(self, horse_index: int) -> float:
         """
-        Calculate odds for a horse based on current bets.
+        Calculate odds for a horse based on current bets (including simulated bets).
         
         Args:
             horse_index: Index of the horse
@@ -179,24 +202,29 @@ class HorseRace:
         Returns:
             Odds multiplier (e.g., 2.5 means 2.5x payout)
         """
-        # Count total bet on this horse
+        # Count total bet on this horse (player bets + simulated bets)
         horse_total = sum(
             bet['amount'] for bet in self.bets.values() 
             if bet['horse_index'] == horse_index
         )
+        horse_total += sum(
+            bet['amount'] for bet in self.simulated_bets
+            if bet['horse_index'] == horse_index
+        )
         
-        # Total pool
+        # Total pool (player bets + simulated bets)
         total_pool = sum(bet['amount'] for bet in self.bets.values())
+        total_pool += sum(bet['amount'] for bet in self.simulated_bets)
         
         if total_pool == 0 or horse_total == 0:
-            return 2.0  # Default odds
+            return 2.5  # Default odds when no bets
         
         # Odds inversely proportional to bet amount
         # More popular horses have lower odds
         odds = (total_pool / horse_total) * (1 - HOUSE_EDGE)
         
-        # Clamp odds between 1.1x and 10x
-        return max(1.1, min(10.0, odds))
+        # Clamp odds between 1.2x and 15x (increased from 10x for better payouts)
+        return max(1.2, min(15.0, odds))
     
     async def simulate_race(self):
         """

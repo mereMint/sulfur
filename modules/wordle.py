@@ -235,6 +235,20 @@ async def initialize_wordle_table(db_helpers):
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
+            # Table for premium games (separate from daily)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS wordle_premium_games (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    word VARCHAR(5) NOT NULL,
+                    language VARCHAR(2) DEFAULT 'de',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed BOOLEAN DEFAULT FALSE,
+                    won BOOLEAN DEFAULT FALSE,
+                    INDEX idx_user_created (user_id, created_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """)
+            
             # Table for user attempts
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS wordle_attempts (
@@ -243,8 +257,10 @@ async def initialize_wordle_table(db_helpers):
                     word_id INT NOT NULL,
                     guess VARCHAR(5) NOT NULL,
                     attempt_number INT NOT NULL,
+                    game_type ENUM('daily', 'premium') DEFAULT 'daily',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    INDEX idx_user_word (user_id, word_id)
+                    INDEX idx_user_word (user_id, word_id),
+                    INDEX idx_user_word_type (user_id, word_id, game_type)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
@@ -364,8 +380,8 @@ async def get_or_create_daily_word(db_helpers, language='de'):
         return _generate_fallback_word(language)
 
 
-async def get_user_attempts(db_helpers, user_id: int, word_id: int):
-    """Get user's attempts for today's word."""
+async def get_user_attempts(db_helpers, user_id: int, word_id: int, game_type: str = 'daily'):
+    """Get user's attempts for a word (daily or premium)."""
     try:
         if not db_helpers.db_pool:
             return []
@@ -379,9 +395,9 @@ async def get_user_attempts(db_helpers, user_id: int, word_id: int):
             cursor.execute("""
                 SELECT guess, attempt_number
                 FROM wordle_attempts
-                WHERE user_id = %s AND word_id = %s
+                WHERE user_id = %s AND word_id = %s AND game_type = %s
                 ORDER BY attempt_number ASC
-            """, (user_id, word_id))
+            """, (user_id, word_id, game_type))
             
             return cursor.fetchall()
         finally:
@@ -392,7 +408,7 @@ async def get_user_attempts(db_helpers, user_id: int, word_id: int):
         return []
 
 
-async def record_attempt(db_helpers, user_id: int, word_id: int, guess: str, attempt_num: int):
+async def record_attempt(db_helpers, user_id: int, word_id: int, guess: str, attempt_num: int, game_type: str = 'daily'):
     """Record a Wordle guess attempt."""
     try:
         if not db_helpers.db_pool:
@@ -402,6 +418,87 @@ async def record_attempt(db_helpers, user_id: int, word_id: int, guess: str, att
         if not conn:
             return False
         
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO wordle_attempts (user_id, word_id, guess, attempt_number, game_type)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (user_id, word_id, guess, attempt_num, game_type))
+            
+            conn.commit()
+            return True
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error recording Wordle attempt: {e}", exc_info=True)
+        return False
+
+
+async def create_premium_game(db_helpers, user_id: int, language='de'):
+    """Create a new premium wordle game for a user."""
+    try:
+        if not db_helpers.db_pool:
+            return None
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return None
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            # Select random word from word list
+            word_list = get_wordle_words_list(language)
+            if not word_list:
+                logger.error(f"No words available for language {language}")
+                return None
+            
+            word = random.choice(word_list)
+            
+            cursor.execute("""
+                INSERT INTO wordle_premium_games (user_id, word, language)
+                VALUES (%s, %s, %s)
+            """, (user_id, word, language))
+            
+            conn.commit()
+            game_id = cursor.lastrowid
+            
+            logger.info(f"Created premium Wordle game {game_id} for user {user_id}: {word}")
+            return {'id': game_id, 'word': word, 'language': language, 'type': 'premium'}
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error creating premium Wordle game: {e}", exc_info=True)
+        return None
+
+
+async def complete_premium_game(db_helpers, game_id: int, won: bool):
+    """Mark a premium wordle game as completed."""
+    try:
+        if not db_helpers.db_pool:
+            return False
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return False
+        
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                UPDATE wordle_premium_games
+                SET completed = TRUE, won = %s
+                WHERE id = %s
+            """, (won, game_id))
+            
+            conn.commit()
+            return True
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error completing premium Wordle game: {e}", exc_info=True)
+        return False
         cursor = conn.cursor()
         try:
             cursor.execute("""
@@ -548,7 +645,7 @@ def check_guess(guess: str, correct_word: str):
     return result
 
 
-def create_game_embed(word_data: dict, attempts: list, user_stats: dict = None, is_game_over: bool = False, won: bool = False, theme_id=None):
+def create_game_embed(word_data: dict, attempts: list, user_stats: dict = None, is_game_over: bool = False, won: bool = False, game_type: str = 'daily', theme_id=None):
     """Create the game embed with current progress and theme support."""
     # Import themes here to avoid circular import
     try:
@@ -557,8 +654,10 @@ def create_game_embed(word_data: dict, attempts: list, user_stats: dict = None, 
     except (ImportError, ModuleNotFoundError, AttributeError) as e:
         color = discord.Color.green() if won else (discord.Color.red() if is_game_over else discord.Color.blue())
     
+    title = "🎮 Wordle - Tägliches Wortratespiel" if game_type == 'daily' else "🎮 Wordle - Premium Spiel"
+    
     embed = discord.Embed(
-        title="🎮 Wordle - Tägliches Wortratespiel",
+        title=title,
         description="Errate das 5-Buchstaben Wort in 6 Versuchen!",
         color=color
     )
