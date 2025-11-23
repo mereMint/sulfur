@@ -3634,7 +3634,12 @@ class RPGCombatView(discord.ui.View):
     @discord.ui.button(label="⚔️ Angreifen", style=discord.ButtonStyle.danger)
     async def attack_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Attack the monster."""
-        await interaction.response.defer()
+        try:
+            await interaction.response.defer()
+        except discord.errors.NotFound:
+            # Interaction has expired (likely old message)
+            logger.warning("Attack button interaction expired")
+            return
         
         try:
             # Process combat turn
@@ -3739,7 +3744,12 @@ class RPGCombatView(discord.ui.View):
     @discord.ui.button(label="🏃 Fliehen", style=discord.ButtonStyle.secondary)
     async def run_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Try to run from combat."""
-        await interaction.response.defer()
+        try:
+            await interaction.response.defer()
+        except discord.errors.NotFound:
+            # Interaction has expired (likely old message)
+            logger.warning("Run button interaction expired")
+            return
         
         try:
             result = await rpg_system.process_combat_turn(db_helpers, self.user_id, self.monster, 'run')

@@ -639,11 +639,13 @@ def create_game_embed(word_data: dict, attempts: list, max_attempts: int, user_s
     
     title = "🔍 Word Find - Tägliches Wortratespiel" if game_type == 'daily' else "🔍 Word Find - Premium Spiel"
     
+    remaining_attempts = max_attempts - len(attempts)
+    
     embed = discord.Embed(
         title=title,
         description=f"Errate das Wort! Du hast {max_attempts} Versuche.\n"
                    f"Schwierigkeit: **{difficulty.upper()}**\n"
-                   f"Versuche: **{len(attempts)}/{max_attempts}**",
+                   f"Versuche: **{len(attempts)}/{max_attempts}** | Übrig: **{remaining_attempts}** 🎯",
         color=color
     )
     

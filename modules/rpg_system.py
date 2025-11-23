@@ -1326,12 +1326,21 @@ async def equip_item(db_helpers, user_id: int, item_id: int, item_type: str):
                 result = cursor.fetchone()
                 
                 if not result or result[0] is None:
+                    # Slot 1 is empty, equip there
                     cursor.execute("""
                         INSERT INTO rpg_equipped (user_id, skill1_id)
                         VALUES (%s, %s)
                         ON DUPLICATE KEY UPDATE skill1_id = %s
                     """, (user_id, item_id, item_id))
+                elif result[1] is None:
+                    # Slot 1 is filled but slot 2 is empty, equip to slot 2
+                    cursor.execute("""
+                        INSERT INTO rpg_equipped (user_id, skill2_id)
+                        VALUES (%s, %s)
+                        ON DUPLICATE KEY UPDATE skill2_id = %s
+                    """, (user_id, item_id, item_id))
                 else:
+                    # Both slots are full, replace slot 2
                     cursor.execute("""
                         UPDATE rpg_equipped SET skill2_id = %s WHERE user_id = %s
                     """, (item_id, user_id))
