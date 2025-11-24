@@ -145,42 +145,14 @@ FROM detective_cases;
 -- ============================================================================
 -- Word Find Tables
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS word_find_daily (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    puzzle_date DATE NOT NULL UNIQUE,
-    grid JSON NOT NULL,
-    words JSON NOT NULL,
-    difficulty INT DEFAULT 1 NOT NULL,
-    language VARCHAR(2) DEFAULT 'de' NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_date (puzzle_date),
-    INDEX idx_language (language)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS word_find_user_progress (
-    user_id BIGINT NOT NULL,
-    puzzle_date DATE NOT NULL,
-    words_found JSON NULL,
-    completed BOOLEAN DEFAULT FALSE NOT NULL,
-    completion_time INT NULL,
-    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    completed_at TIMESTAMP NULL,
-    PRIMARY KEY (user_id, puzzle_date),
-    INDEX idx_user_id (user_id),
-    INDEX idx_completed (completed)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS word_find_user_stats (
-    user_id BIGINT PRIMARY KEY,
-    total_completed INT DEFAULT 0 NOT NULL,
-    current_streak INT DEFAULT 0 NOT NULL,
-    longest_streak INT DEFAULT 0 NOT NULL,
-    average_time INT NULL,
-    best_time INT NULL,
-    last_played_at TIMESTAMP NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- Note: Word Find tables are created by the bot initialization code
+-- and migrations 007 and 009. We don't recreate them here to avoid
+-- schema conflicts. The actual tables are:
+-- - word_find_daily (word, difficulty, language, date)
+-- - word_find_premium_games (user_id, word, difficulty, language, ...)
+-- - word_find_attempts (user_id, word_id, guess, similarity_score, attempt_number, game_type)
+-- - word_find_stats (user_id, total_games, daily_games, premium_games, ...)
+-- These are handled in modules/word_find.py and migrations 007 & 009.
 
 -- ============================================================================
 -- Gambling Stats Table (if not exists)
