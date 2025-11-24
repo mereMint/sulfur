@@ -505,7 +505,7 @@ async def save_race_result(db_helpers, race: HorseRace, payouts: dict):
             winner_name = race.horses[winner_index]['name']
             total_pool = sum(bet['amount'] for bet in race.bets.values())
             
-            # Insert race history
+            # Insert race history (legacy table)
             cursor.execute("""
                 INSERT INTO horse_racing_history 
                 (winner_horse_index, winner_name, total_bets, total_pool, num_bettors)
@@ -513,6 +513,16 @@ async def save_race_result(db_helpers, race: HorseRace, payouts: dict):
             """, (winner_index, winner_name, len(race.bets), total_pool, len(race.bets)))
             
             race_id = cursor.lastrowid
+            
+            # --- NEW: Also insert into horse_racing_games for dashboard tracking ---
+            try:
+                cursor.execute("""
+                    INSERT INTO horse_racing_games 
+                    (race_id, winner_horse_index, winner_name, total_bets, total_pool, num_bettors)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """, (race_id, winner_index, winner_name, len(race.bets), total_pool, len(race.bets)))
+            except Exception as e:
+                logger.warning(f"Could not insert into horse_racing_games: {e}")
             
             # Insert individual bets
             for user_id, bet in race.bets.items():
@@ -540,6 +550,49 @@ async def save_race_result(db_helpers, race: HorseRace, payouts: dict):
                         best_payout = GREATEST(best_payout, %s)
                 """, (user_id, 1 if won else 0, bet['amount'], payout, payout,
                       1 if won else 0, bet['amount'], payout, payout))
+                
+                # --- NEW: Update gambling_stats and user_stats for the user ---
+                try:
+                    # Update gambling_stats
+                    cursor.execute("""
+                        INSERT INTO gambling_stats (user_id, game_type, total_games, total_wagered, total_won, total_lost, biggest_win, biggest_loss, last_played)
+                        VALUES (%s, 'horse_racing', 1, %s, %s, %s, %s, %s, NOW())
+                        ON DUPLICATE KEY UPDATE
+                            total_games = total_games + 1,
+                            total_wagered = total_wagered + %s,
+                            total_won = total_won + %s,
+                            total_lost = total_lost + %s,
+                            biggest_win = GREATEST(biggest_win, %s),
+                            biggest_loss = GREATEST(biggest_loss, %s),
+                            last_played = NOW()
+                    """, (user_id, bet['amount'], 
+                          payout if won else 0, 
+                          bet['amount'] if not won else 0,
+                          payout if won else 0,
+                          bet['amount'] if not won else 0,
+                          bet['amount'],
+                          payout if won else 0,
+                          bet['amount'] if not won else 0,
+                          payout if won else 0,
+                          bet['amount'] if not won else 0))
+                    
+                    # Update user_stats monthly tracking
+                    from datetime import datetime, timezone
+                    stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+                    cursor.execute("""
+                        INSERT INTO user_stats (user_id, display_name, stat_period, games_played, games_won, total_bet, total_won)
+                        VALUES (%s, 'Player', %s, 1, %s, %s, %s)
+                        ON DUPLICATE KEY UPDATE
+                            games_played = games_played + 1,
+                            games_won = games_won + %s,
+                            total_bet = total_bet + %s,
+                            total_won = total_won + %s,
+                            updated_at = CURRENT_TIMESTAMP
+                    """, (user_id, stat_period, 
+                          1 if won else 0, bet['amount'], payout,
+                          1 if won else 0, bet['amount'], payout))
+                except Exception as e:
+                    logger.warning(f"Could not update gambling/user stats for horse racing: {e}")
             
             conn.commit()
             logger.info(f"Saved race {race_id} results")

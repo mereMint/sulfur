@@ -266,7 +266,7 @@
                 let html = '';
                 data.recent_transactions.forEach(trans => {
                     const amountClass = trans.amount >= 0 ? 'transaction-positive' : 'transaction-negative';
-                    const timestamp = new Date(trans.timestamp).toLocaleString();
+                    const timestamp = new Date(trans.created_at).toLocaleString();
                     const amountSign = trans.amount >= 0 ? '+' : '';
                     html += `
                         <tr>
@@ -274,7 +274,7 @@
                             <td>${trans.display_name || trans.username || 'Unknown'}</td>
                             <td><span class="badge bg-info">${trans.transaction_type}</span></td>
                             <td class="${amountClass}"><strong>${amountSign}${trans.amount.toLocaleString()} 🪙</strong></td>
-                            <td><small>${trans.details || '-'}</small></td>
+                            <td><small>${trans.description || '-'}</small></td>
                         </tr>
                     `;
                 });
