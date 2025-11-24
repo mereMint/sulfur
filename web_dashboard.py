@@ -1160,9 +1160,8 @@ def rpg_monsters():
             data = request.json
             
             # Handle optional abilities and loot_table as JSON
-            import json as json_module
-            abilities_json = json_module.dumps(data.get('abilities', [])) if data.get('abilities') else None
-            loot_table_json = json_module.dumps(data.get('loot_table', {})) if data.get('loot_table') else None
+            abilities_json = json.dumps(data.get('abilities', []))
+            loot_table_json = json.dumps(data.get('loot_table', {}))
             
             cursor.execute("""
                 INSERT INTO rpg_monsters 
