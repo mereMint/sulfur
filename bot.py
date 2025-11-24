@@ -6990,6 +6990,9 @@ async def view_news(interaction: discord.Interaction, limit: int = 5):
             await interaction.followup.send("Noch keine Nachrichten verfügbar.", ephemeral=True)
             return
         
+        # Update quest progress for checking news
+        await quests.update_quest_progress(db_helpers, interaction.user.id, 'check_news', 1)
+        
         # Use pagination view for better user experience
         view = news.NewsPaginationView(articles, interaction.user.id)
         embed = view.get_current_embed()
@@ -7061,6 +7064,9 @@ class StockMarketMainView(discord.ui.View):
     @discord.ui.button(label="💼 Mein Portfolio", style=discord.ButtonStyle.success, row=0)
     async def portfolio_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
+        
+        # Update quest progress for checking portfolio
+        await quests.update_quest_progress(db_helpers, interaction.user.id, 'check_portfolio', 1)
         
         # Get user's portfolio
         portfolio = await stock_market.get_user_portfolio(db_helpers, self.user.id)
@@ -9136,6 +9142,9 @@ async def horserace(interaction: discord.Interaction, horses: int = 6):
     try:
         global race_counter
         
+        # Update quest progress for watching horses
+        await quests.update_quest_progress(db_helpers, interaction.user.id, 'watch_horses', 1)
+        
         # Check if user has casino access
         user_id = interaction.user.id
         has_casino = await db_helpers.has_feature_unlock(user_id, 'casino')
@@ -10633,6 +10642,10 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
                 )
                 return
             
+            # Update quest progress for attempting daily word find (on first attempt only)
+            if self.game_type == 'daily' and attempt_num == 1:
+                await quests.update_quest_progress(db_helpers, self.user_id, 'daily_word_attempt', 1)
+            
             # Check if correct
             if guess == correct_word:
                 # Win!
@@ -10661,9 +10674,8 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
                 # Update stats
                 await word_find.update_user_stats(db_helpers, self.user_id, True, attempt_num, self.game_type)
                 
-                # Update quest progress for daily word find
-                if self.game_type == 'daily':
-                    await quests.update_quest_progress(db_helpers, self.user_id, 'daily_word_find', 1)
+                # Update quest progress for daily word find (remove duplicate tracking)
+                # Quest tracking is now done on first attempt, not on completion
                 
                 # Mark premium game as completed if applicable
                 if self.game_type == 'premium':
