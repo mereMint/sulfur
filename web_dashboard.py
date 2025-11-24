@@ -1541,6 +1541,8 @@ def economy_stats():
 @app.route('/api/economy/stocks', methods=['GET'])
 def economy_stocks():
     """Get stock market data."""
+    from decimal import Decimal
+    
     try:
         if not db_helpers.db_pool:
             return jsonify({'error': 'Database not available'}), 500
@@ -1567,7 +1569,6 @@ def economy_stocks():
             for stock in stocks:
                 for key in ['current_price', 'previous_price', 'trend', 'change_percent']:
                     if stock.get(key) is not None:
-                        from decimal import Decimal
                         if isinstance(stock[key], Decimal):
                             stock[key] = float(stock[key])
             

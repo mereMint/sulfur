@@ -10674,8 +10674,7 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
                 # Update stats
                 await word_find.update_user_stats(db_helpers, self.user_id, True, attempt_num, self.game_type)
                 
-                # Update quest progress for daily word find (remove duplicate tracking)
-                # Quest tracking is now done on first attempt, not on completion
+                # Quest tracking is done on first attempt (not on completion) - see line 10638
                 
                 # Mark premium game as completed if applicable
                 if self.game_type == 'premium':
