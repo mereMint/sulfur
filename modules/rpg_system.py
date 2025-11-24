@@ -1435,13 +1435,13 @@ async def get_random_monster(db_helpers, player_level: int, world: str):
                     if new_cursor:
                         try:
                             new_cursor.close()
-                        except:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"Error closing cursor during cleanup: {e}")
                     if new_conn:
                         try:
                             new_conn.close()
-                        except:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"Error closing connection during cleanup: {e}")
                     return None
             
             if monster:
@@ -2451,13 +2451,13 @@ async def get_daily_shop_items(db_helpers, player_level: int):
                         if new_cursor:
                             try:
                                 new_cursor.close()
-                            except:
-                                pass
+                            except Exception as e:
+                                logger.debug(f"Error closing cursor during cleanup: {e}")
                         if new_conn:
                             try:
                                 new_conn.close()
-                            except:
-                                pass
+                            except Exception as e:
+                                logger.debug(f"Error closing connection during cleanup: {e}")
                         return []
                 
                 # Select items by rarity for balanced shop
