@@ -866,6 +866,7 @@ WORLDS = {
 
 # Game Balance Constants
 BASE_STAT_VALUE = 10  # Base value for all stats (strength, dexterity, defense, speed)
+DEFAULT_DEXTERITY = 10  # Default dexterity value when not specified
 LEVEL_REWARD_MULTIPLIER = 0.1  # Multiplier for scaling rewards based on player level
 RESPEC_COST_PER_POINT = 50  # Gold cost per skill point when resetting stats
 
@@ -1801,8 +1802,11 @@ def check_ai_condition(condition: str, monster: dict, player: dict, combat_state
     Returns:
         True if condition is met
     """
-    monster_health_pct = monster['health'] / monster.get('max_health', monster['health'])
-    player_health_pct = player['health'] / player['max_health']
+    # Prevent division by zero with safe defaults
+    monster_max_health = monster.get('max_health', monster['health']) or 1
+    player_max_health = player.get('max_health', 100) or 1
+    monster_health_pct = monster['health'] / monster_max_health
+    player_health_pct = player['health'] / player_max_health
     
     if condition == 'always':
         return True
@@ -1819,7 +1823,7 @@ def check_ai_condition(condition: str, monster: dict, player: dict, combat_state
     elif condition == 'player_faster':
         return player['speed'] > monster['speed']
     elif condition == 'player_high_accuracy':
-        return player.get('dexterity', 10) > monster.get('speed', 10)
+        return player.get('dexterity', DEFAULT_DEXTERITY) > monster.get('speed', 10)
     elif condition == 'player_high_stats':
         player_total = player['strength'] + player['defense'] + player['speed']
         monster_total = monster['strength'] + monster['defense'] + monster['speed']
@@ -2073,7 +2077,7 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
             'strength': player['strength'],
             'defense': player['defense'],
             'speed': player['speed'],
-            'dexterity': player.get('dexterity', 10)
+            'dexterity': player.get('dexterity', DEFAULT_DEXTERITY)
         }, combat_state.get('player_effects', {}))
         
         monster_stats = get_effective_stats({
@@ -2118,7 +2122,7 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
             # Restore half health
             conn = db_helpers.db_pool.get_connection()
             cursor = conn.cursor()
-            cursor.execute("UPDATE rpg_players SET health = max_health / 2 WHERE user_id = %s", (user_id,))
+            cursor.execute("UPDATE rpg_players SET health = FLOOR(max_health / 2) WHERE user_id = %s", (user_id,))
             conn.commit()
             cursor.close()
             conn.close()
@@ -2161,7 +2165,7 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
                 dmg_result = calculate_damage(
                     player_stats['strength'],
                     monster_stats['defense'],
-                    player_stats.get('dexterity', 10)
+                    player_stats.get('dexterity', DEFAULT_DEXTERITY)
                 )
                 
                 if dmg_result['dodged']:
@@ -2177,7 +2181,7 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
             
             elif action == 'defend':
                 # Defensive stance - reduce incoming damage
-                combat_state.setdefault('player_defending', True)
+                combat_state['player_defending'] = True
                 result['messages'].append("🛡️ Du nimmst eine defensive Haltung ein!")
             
             elif action == 'skill':
@@ -2202,7 +2206,7 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
                         dmg_result = calculate_damage(
                             skill_damage,
                             monster_stats['defense'],
-                            player_stats.get('dexterity', 10)
+                            player_stats.get('dexterity', DEFAULT_DEXTERITY)
                         )
                         
                         if dmg_result['crit']:
@@ -2237,7 +2241,7 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
                                     result['status_applied'].append(effect_key)
             
             elif action == 'run':
-                run_chance = 0.50 + (player_stats.get('dexterity', 10) / 200.0)
+                run_chance = 0.50 + (player_stats.get('dexterity', DEFAULT_DEXTERITY) / 200.0)
                 run_chance = min(0.90, run_chance)
                 
                 if random.random() < run_chance:
@@ -2445,7 +2449,7 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
                 
                 conn = db_helpers.db_pool.get_connection()
                 cursor = conn.cursor()
-                cursor.execute("UPDATE rpg_players SET health = max_health / 2 WHERE user_id = %s", (user_id,))
+                cursor.execute("UPDATE rpg_players SET health = FLOOR(max_health / 2) WHERE user_id = %s", (user_id,))
                 conn.commit()
                 cursor.close()
                 conn.close()
