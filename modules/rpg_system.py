@@ -866,6 +866,7 @@ WORLDS = {
 
 # Game Balance Constants
 BASE_STAT_VALUE = 10  # Base value for all stats (strength, dexterity, defense, speed)
+DEFAULT_DEXTERITY = 10  # Default dexterity value when not specified
 LEVEL_REWARD_MULTIPLIER = 0.1  # Multiplier for scaling rewards based on player level
 RESPEC_COST_PER_POINT = 50  # Gold cost per skill point when resetting stats
 
@@ -1788,13 +1789,255 @@ async def get_combat_timeline(player: dict, monster: dict) -> list:
     return timeline
 
 
-async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: str, skill_data: dict = None):
+def check_ai_condition(condition: str, monster: dict, player: dict, combat_state: dict) -> bool:
     """
-    Process a single combat turn.
+    Check if an AI condition is met for ability usage.
     
     Args:
-        action: 'attack', 'run', or 'skill'
+        condition: The AI condition string
+        monster: Monster dictionary
+        player: Player dictionary  
+        combat_state: Current combat state with status effects
+    
+    Returns:
+        True if condition is met
+    """
+    # Prevent division by zero with safe defaults
+    monster_max_health = monster.get('max_health', monster['health']) or 1
+    player_max_health = player.get('max_health', 100) or 1
+    monster_health_pct = monster['health'] / monster_max_health
+    player_health_pct = player['health'] / player_max_health
+    
+    if condition == 'always':
+        return True
+    elif condition == 'low_health':
+        return monster_health_pct < 0.5
+    elif condition == 'critical_health':
+        return monster_health_pct < 0.25
+    elif condition == 'low_health_or_start':
+        return monster_health_pct < 0.5 or combat_state.get('turn_count', 0) <= 1
+    elif condition == 'player_low_health':
+        return player_health_pct < 0.3
+    elif condition == 'player_high_damage':
+        return player['strength'] > monster['strength'] * 1.2
+    elif condition == 'player_faster':
+        return player['speed'] > monster['speed']
+    elif condition == 'player_high_accuracy':
+        return player.get('dexterity', DEFAULT_DEXTERITY) > monster.get('speed', 10)
+    elif condition == 'player_high_stats':
+        player_total = player['strength'] + player['defense'] + player['speed']
+        monster_total = monster['strength'] + monster['defense'] + monster['speed']
+        return player_total > monster_total * 1.1
+    elif condition == 'has_debuff':
+        # Check if monster has any negative status effects
+        monster_effects = combat_state.get('monster_effects', {})
+        debuff_types = ['burn', 'poison', 'darkness', 'slow', 'weakness', 'curse', 'bleed', 'doomed']
+        return any(effect in monster_effects for effect in debuff_types)
+    else:
+        return True
+
+
+def try_monster_ability(monster: dict, player: dict, combat_state: dict) -> Optional[dict]:
+    """
+    Try to use a monster ability based on AI conditions.
+    
+    Returns:
+        Ability data if triggered, None otherwise
+    """
+    abilities = monster.get('abilities', [])
+    if not abilities:
+        return None
+    
+    # Shuffle abilities to add variety
+    shuffled_abilities = list(abilities)
+    random.shuffle(shuffled_abilities)
+    
+    for ability_key in shuffled_abilities:
+        ability = MONSTER_ABILITIES.get(ability_key)
+        if not ability:
+            continue
+        
+        # Check AI condition
+        condition = ability.get('ai_condition', 'always')
+        if not check_ai_condition(condition, monster, player, combat_state):
+            continue
+        
+        # Check trigger chance
+        trigger_chance = ability.get('trigger_chance', 0.2)
+        if random.random() < trigger_chance:
+            return {'key': ability_key, **ability}
+    
+    return None
+
+
+def apply_status_effect(target_effects: dict, effect_key: str, stacks: int = 1) -> Tuple[bool, str]:
+    """
+    Apply a status effect to a target.
+    
+    Args:
+        target_effects: Dictionary of current status effects on target
+        effect_key: The status effect key
+        stacks: Number of stacks to apply
+    
+    Returns:
+        (success, message) tuple
+    """
+    effect = STATUS_EFFECTS.get(effect_key)
+    if not effect:
+        return False, ""
+    
+    if effect_key in target_effects:
+        # Already has effect - check if stackable
+        if effect.get('stackable', False):
+            current_stacks = target_effects[effect_key].get('stacks', 1)
+            max_stacks = effect.get('max_stacks', 3)
+            new_stacks = min(current_stacks + stacks, max_stacks)
+            if new_stacks > current_stacks:
+                target_effects[effect_key]['stacks'] = new_stacks
+                target_effects[effect_key]['duration'] = effect['duration']  # Refresh duration
+                return True, f"{effect['emoji']} {effect['name']} verstärkt! (x{new_stacks})"
+            else:
+                return False, ""  # Max stacks reached
+        else:
+            # Refresh duration for non-stackable
+            target_effects[effect_key]['duration'] = effect['duration']
+            return True, f"{effect['emoji']} {effect['name']} erneuert!"
+    else:
+        # Apply new effect
+        target_effects[effect_key] = {
+            'duration': effect['duration'],
+            'stacks': stacks
+        }
+        return True, f"{effect['emoji']} {effect['name']} angewendet!"
+
+
+def process_status_effects(target_effects: dict, target_health: int, max_health: int, target_name: str) -> Tuple[int, List[str]]:
+    """
+    Process status effects at the start of a turn.
+    
+    Args:
+        target_effects: Dictionary of status effects on target
+        target_health: Current health
+        max_health: Maximum health
+        target_name: Name for messages
+    
+    Returns:
+        (health_change, messages) tuple
+    """
+    messages = []
+    health_change = 0
+    effects_to_remove = []
+    
+    for effect_key, effect_data in target_effects.items():
+        effect = STATUS_EFFECTS.get(effect_key)
+        if not effect:
+            effects_to_remove.append(effect_key)
+            continue
+        
+        stacks = effect_data.get('stacks', 1)
+        
+        # Apply damage over time
+        if 'dmg_per_turn' in effect:
+            dot_damage = effect['dmg_per_turn'] * stacks
+            health_change -= dot_damage
+            messages.append(f"{effect['emoji']} {target_name} nimmt {dot_damage} {effect['name']}-Schaden!")
+        
+        # Apply healing over time
+        if 'heal_per_turn' in effect:
+            heal = min(effect['heal_per_turn'] * stacks, max_health - target_health)
+            if heal > 0:
+                health_change += heal
+                messages.append(f"{effect['emoji']} {target_name} heilt {heal} HP durch {effect['name']}!")
+        
+        # Decrement duration
+        effect_data['duration'] -= 1
+        if effect_data['duration'] <= 0:
+            effects_to_remove.append(effect_key)
+            messages.append(f"{effect['emoji']} {effect['name']} endet!")
+    
+    # Remove expired effects
+    for key in effects_to_remove:
+        target_effects.pop(key, None)
+    
+    return health_change, messages
+
+
+def is_immobilized(target_effects: dict) -> Tuple[bool, str]:
+    """
+    Check if target is immobilized by status effects.
+    
+    Returns:
+        (is_immobilized, reason_message) tuple
+    """
+    for effect_key, effect_data in target_effects.items():
+        effect = STATUS_EFFECTS.get(effect_key)
+        if effect and effect.get('immobilize', False):
+            return True, f"{effect['emoji']} {effect['name']} verhindert Aktionen!"
+    
+    # Check for static/paralysis
+    if 'static' in target_effects:
+        effect = STATUS_EFFECTS['static']
+        stacks = target_effects['static'].get('stacks', 1)
+        paralyze_chance = effect.get('paralyze_chance', 0.3) * stacks
+        if random.random() < paralyze_chance:
+            return True, f"⚡ Statisch paralysiert!"
+    
+    return False, ""
+
+
+def get_effective_stats(base_stats: dict, effects: dict) -> dict:
+    """
+    Calculate effective stats with status effect modifiers.
+    
+    Args:
+        base_stats: Base stats dictionary
+        effects: Active status effects
+    
+    Returns:
+        Modified stats dictionary
+    """
+    stats = base_stats.copy()
+    
+    for effect_key, effect_data in effects.items():
+        effect = STATUS_EFFECTS.get(effect_key)
+        if not effect:
+            continue
+        
+        stacks = effect_data.get('stacks', 1)
+        
+        # Attack modifiers
+        if 'atk_bonus' in effect:
+            bonus = effect['atk_bonus'] * stacks
+            stats['strength'] = int(stats.get('strength', 10) * (1 + bonus))
+        if 'atk_reduction' in effect:
+            reduction = effect['atk_reduction'] * stacks
+            stats['strength'] = max(1, int(stats.get('strength', 10) * (1 - reduction)))
+        
+        # Defense modifiers
+        if 'def_bonus' in effect:
+            bonus = effect['def_bonus'] * stacks
+            stats['defense'] = int(stats.get('defense', 10) * (1 + bonus))
+        if 'def_reduction' in effect:
+            reduction = effect['def_reduction'] * stacks
+            stats['defense'] = max(0, int(stats.get('defense', 10) * (1 - reduction)))
+        
+        # Speed modifiers
+        if 'speed_bonus' in effect:
+            stats['speed'] = stats.get('speed', 10) + int(effect['speed_bonus'] * stacks)
+        if 'speed_reduction' in effect:
+            stats['speed'] = max(1, stats.get('speed', 10) - int(effect['speed_reduction'] * stacks))
+    
+    return stats
+
+
+async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: str, skill_data: dict = None, combat_state: dict = None):
+    """
+    Process a single combat turn with strategic AI and status effects.
+    
+    Args:
+        action: 'attack', 'run', 'skill', or 'defend'
         skill_data: Skill item data when action is 'skill'
+        combat_state: Current combat state with status effects (optional)
     
     Returns:
         dict with combat results
@@ -1803,6 +2046,16 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
         player = await get_player_profile(db_helpers, user_id)
         if not player:
             return {'error': 'Profil konnte nicht geladen werden.'}
+        
+        # Initialize combat state if not provided
+        if combat_state is None:
+            combat_state = {
+                'player_effects': {},
+                'monster_effects': {},
+                'turn_count': 0
+            }
+        
+        combat_state['turn_count'] = combat_state.get('turn_count', 0) + 1
         
         result = {
             'player_action': action,
@@ -1813,123 +2066,404 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
             'combat_over': False,
             'player_won': False,
             'rewards': None,
-            'messages': []
+            'messages': [],
+            'combat_state': combat_state,  # Return updated combat state
+            'monster_ability_used': None,
+            'status_applied': []
         }
         
-        # Player's turn
-        if action == 'attack':
-            dmg_result = calculate_damage(
-                player['strength'],
-                monster['defense'],
-                player['dexterity']
-            )
-            
-            if dmg_result['dodged']:
-                result['messages'].append("❌ Dein Angriff wurde ausgewichen!")
-            elif dmg_result['crit']:
-                result['player_damage'] = dmg_result['damage']
-                result['messages'].append(f"💥 **KRITISCHER TREFFER!** Du fügst {dmg_result['damage']} Schaden zu!")
-            else:
-                result['player_damage'] = dmg_result['damage']
-                result['messages'].append(f"⚔️ Du fügst {dmg_result['damage']} Schaden zu!")
-            
-            monster['health'] -= result['player_damage']
+        # Get effective stats with status modifiers
+        player_stats = get_effective_stats({
+            'strength': player['strength'],
+            'defense': player['defense'],
+            'speed': player['speed'],
+            'dexterity': player.get('dexterity', DEFAULT_DEXTERITY)
+        }, combat_state.get('player_effects', {}))
         
-        elif action == 'skill':
-            # Handle skill usage
-            if not skill_data:
-                result['messages'].append("❌ Kein Skill ausgewählt!")
-            else:
-                skill_name = skill_data.get('name', 'Unknown Skill')
-                skill_damage = skill_data.get('damage', 0)
-                
-                # Parse effects if they exist
-                effects_json = skill_data.get('effects')
-                effects = {}
-                if effects_json:
-                    try:
-                        if isinstance(effects_json, str):
-                            effects = json.loads(effects_json)
-                        elif isinstance(effects_json, dict):
-                            effects = effects_json
-                    except:
-                        pass
-                
-                # Apply skill damage
-                if skill_damage > 0:
-                    # Skills have higher base damage but can still crit
-                    dmg_result = calculate_damage(
-                        skill_damage,
-                        monster['defense'],
-                        player['dexterity']
-                    )
-                    
-                    if dmg_result['crit']:
-                        result['player_damage'] = dmg_result['damage']
-                        result['messages'].append(f"✨💥 **{skill_name}** - KRITISCHER TREFFER! {dmg_result['damage']} Schaden!")
-                    else:
-                        result['player_damage'] = dmg_result['damage']
-                        result['messages'].append(f"✨ **{skill_name}** fügt {dmg_result['damage']} Schaden zu!")
-                    
-                    monster['health'] -= result['player_damage']
-                
-                # Apply healing effects
-                if effects.get('heal'):
-                    heal_amount = int(effects['heal'])
-                    new_health = min(player['max_health'], player['health'] + heal_amount)
-                    actual_heal = new_health - player['health']
-                    if actual_heal > 0:
-                        result['player_health'] = new_health
-                        result['messages'].append(f"💚 **{skill_name}** heilt dich um {actual_heal} HP!")
-                        
-                        # Update player health immediately
-                        conn = db_helpers.db_pool.get_connection()
-                        cursor = conn.cursor()
-                        try:
-                            cursor.execute("""
-                                UPDATE rpg_players SET health = %s WHERE user_id = %s
-                            """, (new_health, user_id))
-                            conn.commit()
-                        finally:
-                            cursor.close()
-                            conn.close()
-                
-                # Additional effect messages
-                if effects.get('burn') and skill_damage > 0:
-                    result['messages'].append("🔥 Der Gegner brennt!")
-                if effects.get('freeze') and skill_damage > 0:
-                    result['messages'].append("❄️ Der Gegner ist eingefroren!")
-                if effects.get('poison') and skill_damage > 0:
-                    result['messages'].append("🧪 Der Gegner ist vergiftet!")
-                if effects.get('static') and skill_damage > 0:
-                    result['messages'].append("⚡ Der Gegner ist gelähmt!")
+        monster_stats = get_effective_stats({
+            'strength': monster['strength'],
+            'defense': monster['defense'],
+            'speed': monster['speed']
+        }, combat_state.get('monster_effects', {}))
         
-        elif action == 'run':
-            # 50% chance to run, higher with more dex
-            run_chance = 0.50 + (player['dexterity'] / 200.0)
-            run_chance = min(0.90, run_chance)
-            
-            if random.random() < run_chance:
-                result['combat_over'] = True
-                result['messages'].append("🏃 Du bist erfolgreich geflohen!")
-                return result
-            else:
-                result['messages'].append("❌ Flucht gescheitert!")
+        # Determine turn order based on speed
+        player_goes_first = player_stats['speed'] >= monster_stats['speed']
         
-        # Check if monster is defeated
+        # Process status effects at turn start for both combatants
+        player_effect_change, player_effect_msgs = process_status_effects(
+            combat_state.get('player_effects', {}),
+            player['health'],
+            player['max_health'],
+            "Du"
+        )
+        monster_effect_change, monster_effect_msgs = process_status_effects(
+            combat_state.get('monster_effects', {}),
+            monster['health'],
+            monster.get('max_health', monster['health']),
+            monster['name']
+        )
+        
+        # Apply status effect damage/healing
+        if player_effect_change != 0:
+            player['health'] = max(0, min(player['max_health'], player['health'] + player_effect_change))
+            result['player_health'] = player['health']
+            result['messages'].extend(player_effect_msgs)
+        
+        if monster_effect_change != 0:
+            monster['health'] = max(0, monster['health'] + monster_effect_change)
+            result['monster_health'] = monster['health']
+            result['messages'].extend(monster_effect_msgs)
+        
+        # Check if someone died from status effects
+        if player['health'] <= 0:
+            result['combat_over'] = True
+            result['player_won'] = False
+            result['messages'].append("💀 **Du wurdest durch Statuseffekte besiegt!**")
+            # Restore half health
+            conn = db_helpers.db_pool.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("UPDATE rpg_players SET health = FLOOR(max_health / 2) WHERE user_id = %s", (user_id,))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return result
+        
         if monster['health'] <= 0:
             result['combat_over'] = True
             result['player_won'] = True
-            
-            # Award XP and gold
+            result['messages'].append(f"🎉 **{monster['name']} durch Statuseffekte besiegt!**")
+            # Award rewards
             xp_result = await gain_xp(db_helpers, user_id, monster['xp_reward'])
-            
-            # Award gold
             conn = db_helpers.db_pool.get_connection()
             cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE rpg_players SET gold = gold + %s WHERE user_id = %s
-            """, (monster['gold_reward'], user_id))
+            cursor.execute("UPDATE rpg_players SET gold = gold + %s WHERE user_id = %s", (monster['gold_reward'], user_id))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            result['rewards'] = {
+                'xp': monster['xp_reward'],
+                'gold': monster['gold_reward'],
+                'leveled_up': xp_result['leveled_up'] if xp_result else False,
+                'new_level': xp_result['new_level'] if xp_result and xp_result['leveled_up'] else None
+            }
+            return result
+        
+        # Check if player is immobilized
+        player_immobilized, immob_msg = is_immobilized(combat_state.get('player_effects', {}))
+        if player_immobilized and action != 'run':
+            result['messages'].append(f"⚠️ {immob_msg}")
+            action = 'skip'  # Force skip turn
+        
+        # Define player action function
+        def do_player_action():
+            nonlocal action
+            if action == 'skip':
+                result['messages'].append("⏭️ Du kannst dich nicht bewegen!")
+                return
+            
+            if action == 'attack':
+                dmg_result = calculate_damage(
+                    player_stats['strength'],
+                    monster_stats['defense'],
+                    player_stats.get('dexterity', DEFAULT_DEXTERITY)
+                )
+                
+                if dmg_result['dodged']:
+                    result['messages'].append("❌ Dein Angriff wurde ausgewichen!")
+                elif dmg_result['crit']:
+                    result['player_damage'] = dmg_result['damage']
+                    result['messages'].append(f"💥 **KRITISCHER TREFFER!** Du fügst {dmg_result['damage']} Schaden zu!")
+                else:
+                    result['player_damage'] = dmg_result['damage']
+                    result['messages'].append(f"⚔️ Du fügst {dmg_result['damage']} Schaden zu!")
+                
+                monster['health'] -= result['player_damage']
+            
+            elif action == 'defend':
+                # Defensive stance - reduce incoming damage
+                combat_state['player_defending'] = True
+                result['messages'].append("🛡️ Du nimmst eine defensive Haltung ein!")
+            
+            elif action == 'skill':
+                if not skill_data:
+                    result['messages'].append("❌ Kein Skill ausgewählt!")
+                else:
+                    skill_name = skill_data.get('name', 'Unknown Skill')
+                    skill_damage = skill_data.get('damage', 0)
+                    
+                    effects_json = skill_data.get('effects')
+                    effects = {}
+                    if effects_json:
+                        try:
+                            if isinstance(effects_json, str):
+                                effects = json.loads(effects_json)
+                            elif isinstance(effects_json, dict):
+                                effects = effects_json
+                        except Exception:
+                            pass
+                    
+                    if skill_damage > 0:
+                        dmg_result = calculate_damage(
+                            skill_damage,
+                            monster_stats['defense'],
+                            player_stats.get('dexterity', DEFAULT_DEXTERITY)
+                        )
+                        
+                        if dmg_result['crit']:
+                            result['player_damage'] = dmg_result['damage']
+                            result['messages'].append(f"✨💥 **{skill_name}** - KRITISCHER TREFFER! {dmg_result['damage']} Schaden!")
+                        else:
+                            result['player_damage'] = dmg_result['damage']
+                            result['messages'].append(f"✨ **{skill_name}** fügt {dmg_result['damage']} Schaden zu!")
+                        
+                        monster['health'] -= result['player_damage']
+                    
+                    # Apply healing
+                    if effects.get('heal'):
+                        heal_amount = int(effects['heal'])
+                        new_health = min(player['max_health'], player['health'] + heal_amount)
+                        actual_heal = new_health - player['health']
+                        if actual_heal > 0:
+                            player['health'] = new_health
+                            result['player_health'] = new_health
+                            result['messages'].append(f"💚 **{skill_name}** heilt dich um {actual_heal} HP!")
+                    
+                    # Apply status effects from skill
+                    status_effects_to_apply = ['burn', 'freeze', 'poison', 'static', 'darkness', 'slow', 'weakness', 'curse']
+                    for effect_key in status_effects_to_apply:
+                        if effects.get(effect_key):
+                            # Check if effect triggers (based on the effect value as probability)
+                            trigger_chance = float(effects[effect_key]) if isinstance(effects[effect_key], (int, float)) else 0.5
+                            if random.random() < trigger_chance:
+                                success, msg = apply_status_effect(combat_state.setdefault('monster_effects', {}), effect_key)
+                                if success and msg:
+                                    result['messages'].append(f"→ {msg}")
+                                    result['status_applied'].append(effect_key)
+            
+            elif action == 'run':
+                run_chance = 0.50 + (player_stats.get('dexterity', DEFAULT_DEXTERITY) / 200.0)
+                run_chance = min(0.90, run_chance)
+                
+                if random.random() < run_chance:
+                    result['combat_over'] = True
+                    result['messages'].append("🏃 Du bist erfolgreich geflohen!")
+                else:
+                    result['messages'].append("❌ Flucht gescheitert!")
+        
+        # Define monster action function
+        def do_monster_action():
+            if monster['health'] <= 0:
+                return
+            
+            # Check if monster is immobilized
+            monster_immobilized, monster_immob_msg = is_immobilized(combat_state.get('monster_effects', {}))
+            if monster_immobilized:
+                result['messages'].append(f"🎯 {monster['name']}: {monster_immob_msg}")
+                return
+            
+            # Try to use an ability
+            ability = try_monster_ability(monster, player, combat_state)
+            
+            if ability:
+                result['monster_ability_used'] = ability
+                ability_emoji = ability.get('emoji', '⚡')
+                ability_name = ability.get('name', 'Spezialfähigkeit')
+                
+                result['messages'].append(f"\n🔥 **{monster['name']} benutzt {ability_emoji} {ability_name}!**")
+                
+                effect_type = ability.get('effect_type')
+                
+                if effect_type == 'status':
+                    # Apply status effect to player
+                    status_effect = ability.get('status_effect')
+                    if status_effect:
+                        success, msg = apply_status_effect(combat_state.setdefault('player_effects', {}), status_effect)
+                        if success and msg:
+                            result['messages'].append(f"→ {msg}")
+                
+                elif effect_type == 'self_buff':
+                    # Apply buff to monster
+                    status_effect = ability.get('status_effect')
+                    if status_effect:
+                        success, msg = apply_status_effect(combat_state.setdefault('monster_effects', {}), status_effect)
+                        if success and msg:
+                            result['messages'].append(f"→ {monster['name']}: {msg}")
+                
+                elif effect_type == 'damage_boost':
+                    # Enhanced damage attack
+                    multiplier = ability.get('damage_multiplier', 2.0)
+                    boosted_strength = int(monster_stats['strength'] * multiplier)
+                    
+                    dmg_result = calculate_damage(
+                        boosted_strength,
+                        player_stats['defense'],
+                        monster_stats['speed'],
+                        is_ai=True,
+                        player_health_pct=player['health'] / player['max_health']
+                    )
+                    
+                    if not dmg_result['dodged']:
+                        damage = dmg_result['damage']
+                        result['monster_damage'] += damage
+                        crit_text = " 💀**KRITISCH!**" if dmg_result['crit'] else ""
+                        result['messages'].append(f"→ {ability_emoji} Fügt {damage} verstärkten Schaden zu!{crit_text}")
+                    else:
+                        result['messages'].append("→ Du weichst dem verstärkten Angriff aus!")
+                    return  # Ability replaces normal attack
+                
+                elif effect_type == 'lifesteal':
+                    # Damage + heal
+                    lifesteal_pct = ability.get('lifesteal_percent', 0.5)
+                    
+                    dmg_result = calculate_damage(
+                        monster_stats['strength'],
+                        player_stats['defense'],
+                        monster_stats['speed'],
+                        is_ai=True,
+                        player_health_pct=player['health'] / player['max_health']
+                    )
+                    
+                    if not dmg_result['dodged']:
+                        damage = dmg_result['damage']
+                        result['monster_damage'] += damage
+                        heal_amount = int(damage * lifesteal_pct)
+                        monster['health'] = min(monster.get('max_health', monster['health']), monster['health'] + heal_amount)
+                        result['messages'].append(f"→ {ability_emoji} Fügt {damage} Schaden zu und heilt {heal_amount} HP!")
+                    return  # Ability replaces normal attack
+                
+                elif effect_type == 'multi_hit':
+                    # Multiple attacks
+                    hit_count = ability.get('hit_count', 2)
+                    damage_per_hit = ability.get('damage_per_hit', 0.5)
+                    
+                    total_damage = 0
+                    hits = 0
+                    for _ in range(hit_count):
+                        dmg_result = calculate_damage(
+                            int(monster_stats['strength'] * damage_per_hit),
+                            player_stats['defense'],
+                            monster_stats['speed'],
+                            is_ai=True,
+                            player_health_pct=player['health'] / player['max_health']
+                        )
+                        if not dmg_result['dodged']:
+                            total_damage += dmg_result['damage']
+                            hits += 1
+                    
+                    if total_damage > 0:
+                        result['monster_damage'] += total_damage
+                        result['messages'].append(f"→ {ability_emoji} Trifft {hits}x für insgesamt {total_damage} Schaden!")
+                    return  # Ability replaces normal attack
+                
+                elif effect_type == 'cleanse':
+                    # Remove debuffs from monster
+                    monster_effects = combat_state.get('monster_effects', {})
+                    debuff_types = ['burn', 'poison', 'darkness', 'slow', 'weakness', 'curse', 'bleed']
+                    removed = []
+                    for debuff in debuff_types:
+                        if debuff in monster_effects:
+                            del monster_effects[debuff]
+                            removed.append(STATUS_EFFECTS[debuff]['emoji'])
+                    if removed:
+                        result['messages'].append(f"→ Entfernt: {' '.join(removed)}")
+                    return  # Don't also do normal attack
+            
+            # Normal attack (if no ability used or ability doesn't replace attack)
+            if not ability or ability.get('effect_type') not in ['damage_boost', 'lifesteal', 'multi_hit', 'cleanse']:
+                # Check if player is defending
+                defense_multiplier = 0.5 if combat_state.get('player_defending') else 1.0
+                
+                dmg_result = calculate_damage(
+                    monster_stats['strength'],
+                    int(player_stats['defense'] / defense_multiplier) if defense_multiplier < 1 else player_stats['defense'],
+                    monster_stats['speed'],
+                    is_ai=True,
+                    player_health_pct=player['health'] / player['max_health']
+                )
+                
+                if dmg_result['dodged']:
+                    result['messages'].append(f"✨ Du bist dem Angriff von {monster['name']} ausgewichen!")
+                else:
+                    damage = int(dmg_result['damage'] * defense_multiplier)
+                    result['monster_damage'] += damage
+                    if dmg_result['crit']:
+                        result['messages'].append(f"💀 **KRITISCHER TREFFER!** {monster['name']} fügt dir {damage} Schaden zu!")
+                    else:
+                        result['messages'].append(f"🗡️ {monster['name']} fügt dir {damage} Schaden zu!")
+                    
+                    if combat_state.get('player_defending'):
+                        result['messages'].append("🛡️ Deine Verteidigung reduziert den Schaden!")
+            
+            # Reset defending state
+            combat_state['player_defending'] = False
+        
+        # Execute turns based on speed order
+        if player_goes_first:
+            result['messages'].append("**⚡ Du bist schneller!**\n")
+            do_player_action()
+            
+            # Check if monster defeated after player action
+            if monster['health'] <= 0:
+                result['combat_over'] = True
+                result['player_won'] = True
+            elif not result['combat_over']:
+                result['messages'].append("")  # Add spacing
+                do_monster_action()
+        else:
+            result['messages'].append(f"**⚡ {monster['name']} ist schneller!**\n")
+            do_monster_action()
+            
+            # Apply monster damage before player action
+            if result['monster_damage'] > 0:
+                player['health'] = max(0, player['health'] - result['monster_damage'])
+                result['player_health'] = player['health']
+                
+                if player['health'] <= 0:
+                    result['combat_over'] = True
+                    result['player_won'] = False
+                    result['messages'].append("💀 **Du wurdest besiegt!**")
+            
+            if not result['combat_over']:
+                result['messages'].append("")  # Add spacing
+                do_player_action()
+        
+        # Final health updates
+        if not result['combat_over']:
+            # Update player health in DB
+            new_health = max(0, player['health'] - result['monster_damage']) if player_goes_first else player['health']
+            result['player_health'] = new_health
+            
+            conn = db_helpers.db_pool.get_connection()
+            cursor = conn.cursor()
+            try:
+                cursor.execute("UPDATE rpg_players SET health = %s WHERE user_id = %s", (new_health, user_id))
+                conn.commit()
+            finally:
+                cursor.close()
+                conn.close()
+            
+            if new_health <= 0:
+                result['combat_over'] = True
+                result['player_won'] = False
+                result['messages'].append("💀 **Du wurdest besiegt!** Du wirst zum Dorf zurückgebracht.")
+                
+                conn = db_helpers.db_pool.get_connection()
+                cursor = conn.cursor()
+                cursor.execute("UPDATE rpg_players SET health = FLOOR(max_health / 2) WHERE user_id = %s", (user_id,))
+                conn.commit()
+                cursor.close()
+                conn.close()
+        
+        # Check monster defeat and handle rewards
+        if monster['health'] <= 0 and not result.get('player_won'):
+            result['combat_over'] = True
+            result['player_won'] = True
+            
+            xp_result = await gain_xp(db_helpers, user_id, monster['xp_reward'])
+            
+            conn = db_helpers.db_pool.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("UPDATE rpg_players SET gold = gold + %s WHERE user_id = %s", (monster['gold_reward'], user_id))
             conn.commit()
             cursor.close()
             conn.close()
@@ -1941,67 +2475,12 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
                 'new_level': xp_result['new_level'] if xp_result and xp_result['leveled_up'] else None
             }
             
-            msg = f"🎉 **{monster['name']} besiegt!**\n"
+            msg = f"\n🎉 **{monster['name']} besiegt!**\n"
             msg += f"💰 +{monster['gold_reward']} Gold\n"
             msg += f"⭐ +{monster['xp_reward']} XP"
             if result['rewards']['leveled_up']:
                 msg += f"\n\n🎊 **LEVEL UP!** Du bist jetzt Level {result['rewards']['new_level']}!"
             result['messages'].append(msg)
-            
-            return result
-        
-        # Monster's turn (if still alive and player didn't run)
-        if not result['combat_over']:
-            # Calculate player health percentage for AI decision-making
-            player_health_pct = player['health'] / player['max_health']
-            
-            dmg_result = calculate_damage(
-                monster['strength'],
-                player['defense'],
-                monster['speed'],
-                is_ai=True,
-                player_health_pct=player_health_pct
-            )
-            
-            if dmg_result['dodged']:
-                result['messages'].append(f"✨ Du bist dem Angriff von {monster['name']} ausgewichen!")
-            elif dmg_result['crit']:
-                result['monster_damage'] = dmg_result['damage']
-                result['messages'].append(f"💀 **KRITISCHER TREFFER!** {monster['name']} fügt dir {dmg_result['damage']} Schaden zu!")
-            else:
-                result['monster_damage'] = dmg_result['damage']
-                result['messages'].append(f"🗡️ {monster['name']} fügt dir {dmg_result['damage']} Schaden zu!")
-            
-            # Update player health
-            new_health = max(0, player['health'] - result['monster_damage'])
-            result['player_health'] = new_health
-            
-            conn = db_helpers.db_pool.get_connection()
-            cursor = conn.cursor()
-            try:
-                cursor.execute("""
-                    UPDATE rpg_players SET health = %s WHERE user_id = %s
-                """, (new_health, user_id))
-                conn.commit()
-            finally:
-                cursor.close()
-                conn.close()
-            
-            # Check if player is defeated
-            if new_health <= 0:
-                result['combat_over'] = True
-                result['player_won'] = False
-                result['messages'].append("💀 **Du wurdest besiegt!** Du wirst zum Dorf zurückgebracht.")
-                
-                # Restore half health
-                conn = db_helpers.db_pool.get_connection()
-                cursor = conn.cursor()
-                cursor.execute("""
-                    UPDATE rpg_players SET health = max_health / 2 WHERE user_id = %s
-                """, (user_id,))
-                conn.commit()
-                cursor.close()
-                conn.close()
         
         result['monster_health'] = monster['health']
         return result
