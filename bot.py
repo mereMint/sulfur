@@ -3763,7 +3763,7 @@ class RPGContinueAdventureView(discord.ui.View):
 
 
 class RPGCombatView(discord.ui.View):
-    """Interactive combat view for RPG battles."""
+    """Interactive combat view for RPG battles with strategic combat."""
     
     def __init__(self, user_id: int, monster: dict, equipped_skills: list = None):
         super().__init__(timeout=300)  # 5 minute timeout
@@ -3772,6 +3772,14 @@ class RPGCombatView(discord.ui.View):
         self.monster_max_health = monster['health']  # Store original max health
         self.turn_count = 0
         self.equipped_skills = equipped_skills or []
+        
+        # Combat state for tracking status effects across turns
+        self.combat_state = {
+            'player_effects': {},
+            'monster_effects': {},
+            'turn_count': 0,
+            'player_defending': False
+        }
         
         # Add skill buttons dynamically
         self._add_skill_buttons()
@@ -3816,18 +3824,23 @@ class RPGCombatView(discord.ui.View):
             return
         
         try:
-            # Process combat turn with skill
+            # Process combat turn with skill and combat state
             result = await rpg_system.process_combat_turn(
                 db_helpers, 
                 self.user_id, 
                 self.monster, 
                 'skill',
-                skill_data=skill
+                skill_data=skill,
+                combat_state=self.combat_state
             )
             
             if 'error' in result:
                 await interaction.followup.send(f"❌ Fehler: {result['error']}")
                 return
+            
+            # Update combat state from result
+            if 'combat_state' in result:
+                self.combat_state = result['combat_state']
             
             # Update monster health
             self.monster['health'] = result['monster_health']
@@ -3836,29 +3849,11 @@ class RPGCombatView(discord.ui.View):
             # Get player data
             player = await rpg_system.get_player_profile(db_helpers, self.user_id)
             
-            # Determine turn order
-            player_speed = player['speed'] if player else 10
-            monster_speed = self.monster['speed']
-            
-            if player_speed >= monster_speed:
-                timeline = f"✨ **Du (Skill)** ➜ 🐉 {self.monster['name']}"
-                turn_indicator = "🟢 Dein Zug"
-            else:
-                timeline = f"🐉 **{self.monster['name']}** ➜ ✨ Du (Skill)"
-                turn_indicator = "🔴 Gegner startet"
-            
-            # Create result embed
+            # Create result embed with combat log
             embed = discord.Embed(
-                title=f"✨ Kampfrunde {self.turn_count} - {skill['name']}",
-                description=f"**{turn_indicator}**\n\n" + "\n".join(result['messages']),
+                title=f"⚔️ Kampfrunde {self.turn_count}",
+                description="\n".join(result['messages']),
                 color=discord.Color.purple() if result.get('player_won') else discord.Color.blue()
-            )
-            
-            # Add turn order timeline
-            embed.add_field(
-                name="📊 Kampf-Timeline",
-                value=f"```\n{timeline}\n```",
-                inline=False
             )
             
             # Add health bars
@@ -3870,15 +3865,24 @@ class RPGCombatView(discord.ui.View):
             
             embed.add_field(
                 name="❤️ Deine HP",
-                value=f"{player_bar} {result['player_health']}",
+                value=f"{player_bar} {result['player_health']}/{player['max_health']}",
                 inline=True
             )
             
             if not result['combat_over']:
                 embed.add_field(
                     name=f"🐉 {self.monster['name']} HP",
-                    value=f"{monster_bar} {result['monster_health']}",
+                    value=f"{monster_bar} {result['monster_health']}/{self.monster_max_health}",
                     inline=True
+                )
+            
+            # Show active status effects
+            status_text = self._get_status_effects_display()
+            if status_text:
+                embed.add_field(
+                    name="📊 Status",
+                    value=status_text,
+                    inline=False
                 )
             
             # Check if combat is over
@@ -3919,6 +3923,40 @@ class RPGCombatView(discord.ui.View):
             logger.error(f"Error using skill in combat: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Fehler: {e}")
     
+    def _get_status_effects_display(self) -> str:
+        """Get formatted display of active status effects."""
+        lines = []
+        
+        # Player effects
+        player_effects = self.combat_state.get('player_effects', {})
+        if player_effects:
+            player_status = []
+            for effect_key, data in player_effects.items():
+                effect = rpg_system.STATUS_EFFECTS.get(effect_key)
+                if effect:
+                    stacks = data.get('stacks', 1)
+                    duration = data.get('duration', 0)
+                    stack_text = f"x{stacks}" if stacks > 1 else ""
+                    player_status.append(f"{effect['emoji']}{stack_text}({duration})")
+            if player_status:
+                lines.append(f"👤 Du: {' '.join(player_status)}")
+        
+        # Monster effects
+        monster_effects = self.combat_state.get('monster_effects', {})
+        if monster_effects:
+            monster_status = []
+            for effect_key, data in monster_effects.items():
+                effect = rpg_system.STATUS_EFFECTS.get(effect_key)
+                if effect:
+                    stacks = data.get('stacks', 1)
+                    duration = data.get('duration', 0)
+                    stack_text = f"x{stacks}" if stacks > 1 else ""
+                    monster_status.append(f"{effect['emoji']}{stack_text}({duration})")
+            if monster_status:
+                lines.append(f"🐉 Gegner: {' '.join(monster_status)}")
+        
+        return "\n".join(lines) if lines else ""
+    
     @discord.ui.button(label="⚔️ Angreifen", style=discord.ButtonStyle.danger)
     async def attack_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Attack the monster."""
@@ -3930,45 +3968,36 @@ class RPGCombatView(discord.ui.View):
             return
         
         try:
-            # Process combat turn
-            result = await rpg_system.process_combat_turn(db_helpers, self.user_id, self.monster, 'attack')
+            # Process combat turn with combat state
+            result = await rpg_system.process_combat_turn(
+                db_helpers, 
+                self.user_id, 
+                self.monster, 
+                'attack',
+                combat_state=self.combat_state
+            )
             
             if 'error' in result:
                 await interaction.followup.send(f"❌ Fehler: {result['error']}")
                 return
+            
+            # Update combat state from result
+            if 'combat_state' in result:
+                self.combat_state = result['combat_state']
             
             # Update monster health to track current state
             self.monster['health'] = result['monster_health']
             
             self.turn_count += 1
             
-            # Get player data for turn order calculation
+            # Get player data for display
             player = await rpg_system.get_player_profile(db_helpers, self.user_id)
             
-            # Create turn order timeline
-            player_speed = player['speed'] if player else 10
-            monster_speed = self.monster['speed']
-            
-            # Determine turn order based on speed
-            if player_speed >= monster_speed:
-                timeline = f"⚔️ **Du** ➜ 🐉 {self.monster['name']}"
-                turn_indicator = "🟢 Dein Zug"
-            else:
-                timeline = f"🐉 **{self.monster['name']}** ➜ ⚔️ Du"
-                turn_indicator = "🔴 Gegner startet"
-            
-            # Create result embed
+            # Create result embed with combat log
             embed = discord.Embed(
                 title=f"⚔️ Kampfrunde {self.turn_count}",
-                description=f"**{turn_indicator}**\n\n" + "\n".join(result['messages']),
+                description="\n".join(result['messages']),
                 color=discord.Color.gold() if result.get('player_won') else discord.Color.orange()
-            )
-            
-            # Add turn order timeline
-            embed.add_field(
-                name="📊 Kampf-Timeline",
-                value=f"```\n{timeline}\n```",
-                inline=False
             )
             
             # Add health bars
@@ -3980,15 +4009,24 @@ class RPGCombatView(discord.ui.View):
             
             embed.add_field(
                 name="❤️ Deine HP",
-                value=f"{player_bar} {result['player_health']}",
+                value=f"{player_bar} {result['player_health']}/{player['max_health']}",
                 inline=True
             )
             
             if not result['combat_over']:
                 embed.add_field(
                     name=f"🐉 {self.monster['name']} HP",
-                    value=f"{monster_bar} {result['monster_health']}",
+                    value=f"{monster_bar} {result['monster_health']}/{self.monster_max_health}",
                     inline=True
+                )
+            
+            # Show active status effects
+            status_text = self._get_status_effects_display()
+            if status_text:
+                embed.add_field(
+                    name="📊 Status",
+                    value=status_text,
+                    inline=False
                 )
             
             # Check if combat is over
@@ -4040,11 +4078,21 @@ class RPGCombatView(discord.ui.View):
             return
         
         try:
-            result = await rpg_system.process_combat_turn(db_helpers, self.user_id, self.monster, 'run')
+            result = await rpg_system.process_combat_turn(
+                db_helpers, 
+                self.user_id, 
+                self.monster, 
+                'run',
+                combat_state=self.combat_state
+            )
             
             if 'error' in result:
                 await interaction.followup.send(f"❌ Fehler: {result['error']}")
                 return
+            
+            # Update combat state from result
+            if 'combat_state' in result:
+                self.combat_state = result['combat_state']
             
             # Update monster health to track current state
             if 'monster_health' in result:
@@ -4070,9 +4118,18 @@ class RPGCombatView(discord.ui.View):
                 
                 embed.add_field(
                     name="❤️ Deine HP",
-                    value=f"{health_bar} {result['player_health']}",
+                    value=f"{health_bar} {result['player_health']}/{player['max_health']}",
                     inline=False
                 )
+                
+                # Show active status effects
+                status_text = self._get_status_effects_display()
+                if status_text:
+                    embed.add_field(
+                        name="📊 Status",
+                        value=status_text,
+                        inline=False
+                    )
                 
                 if result['player_health'] <= 0:
                     for item in self.children:
@@ -4084,6 +4141,103 @@ class RPGCombatView(discord.ui.View):
             
         except Exception as e:
             logger.error(f"Error running from combat: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Fehler: {e}")
+    
+    @discord.ui.button(label="🛡️ Verteidigen", style=discord.ButtonStyle.primary)
+    async def defend_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Take a defensive stance to reduce incoming damage."""
+        try:
+            await interaction.response.defer()
+        except discord.errors.NotFound:
+            logger.warning("Defend button interaction expired")
+            return
+        
+        try:
+            result = await rpg_system.process_combat_turn(
+                db_helpers, 
+                self.user_id, 
+                self.monster, 
+                'defend',
+                combat_state=self.combat_state
+            )
+            
+            if 'error' in result:
+                await interaction.followup.send(f"❌ Fehler: {result['error']}")
+                return
+            
+            # Update combat state from result
+            if 'combat_state' in result:
+                self.combat_state = result['combat_state']
+            
+            # Update monster health to track current state
+            if 'monster_health' in result:
+                self.monster['health'] = result['monster_health']
+            
+            self.turn_count += 1
+            
+            player = await rpg_system.get_player_profile(db_helpers, self.user_id)
+            
+            embed = discord.Embed(
+                title=f"🛡️ Kampfrunde {self.turn_count} - Verteidigung",
+                description="\n".join(result['messages']),
+                color=discord.Color.blue()
+            )
+            
+            # Add health bars
+            player_health_pct = (result['player_health'] / player['max_health']) * 100 if player else 0
+            monster_health_pct = (result['monster_health'] / self.monster_max_health) * 100 if self.monster_max_health > 0 else 0
+            
+            player_bar = self._create_health_bar(player_health_pct)
+            monster_bar = self._create_health_bar(monster_health_pct)
+            
+            embed.add_field(
+                name="❤️ Deine HP",
+                value=f"{player_bar} {result['player_health']}/{player['max_health']}",
+                inline=True
+            )
+            
+            if not result['combat_over']:
+                embed.add_field(
+                    name=f"🐉 {self.monster['name']} HP",
+                    value=f"{monster_bar} {result['monster_health']}/{self.monster_max_health}",
+                    inline=True
+                )
+            
+            # Show active status effects
+            status_text = self._get_status_effects_display()
+            if status_text:
+                embed.add_field(
+                    name="📊 Status",
+                    value=status_text,
+                    inline=False
+                )
+            
+            if result['combat_over']:
+                for item in self.children:
+                    item.disabled = True
+                
+                if result['player_won']:
+                    embed.color = discord.Color.green()
+                    if result.get('rewards'):
+                        rewards = result['rewards']
+                        embed.add_field(
+                            name="🎉 Sieg!",
+                            value=f"**+{rewards['gold']} Gold**\n**+{rewards['xp']} XP**",
+                            inline=False
+                        )
+                    continue_view = RPGContinueAdventureView(self.user_id)
+                    await interaction.edit_original_response(embed=embed, view=continue_view)
+                else:
+                    embed.color = discord.Color.dark_red()
+                    embed.set_footer(text="Du wurdest mit halber HP ins Dorf zurückgebracht.")
+                    await interaction.edit_original_response(embed=embed, view=None)
+                
+                self.stop()
+            else:
+                await interaction.edit_original_response(embed=embed, view=self)
+            
+        except Exception as e:
+            logger.error(f"Error defending in combat: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Fehler: {e}")
     
     def _create_health_bar(self, percentage: float) -> str:
