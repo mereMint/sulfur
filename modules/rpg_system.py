@@ -12,6 +12,7 @@ import json
 from datetime import datetime, timezone
 from typing import Optional, Dict, List, Tuple
 from modules.logger_utils import bot_logger as logger
+from modules.rpg_items_data import EXTENDED_WEAPONS, EXTENDED_SKILLS
 
 
 # Status Effects - Applied during combat
