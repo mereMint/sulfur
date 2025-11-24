@@ -22,7 +22,9 @@ print("-" * 70)
 checks = {
     'Queries INFORMATION_SCHEMA.COLUMNS': 'FROM INFORMATION_SCHEMA.COLUMNS' in code,
     'Checks for puzzle_date column': "COLUMN_NAME = 'puzzle_date'" in code,
+    'Checks for game_type column': "COLUMN_NAME = 'game_type'" in code,
     'Drops word_find_daily if wrong schema': 'DROP TABLE IF EXISTS word_find_daily' in code and 'has_wrong_schema' in code,
+    'Drops word_find_attempts if missing game_type': 'DROP TABLE IF EXISTS word_find_attempts' in code and 'has_game_type' in code,
     'Drops word_find_user_progress': 'DROP TABLE IF EXISTS word_find_user_progress' in code,
     'Drops word_find_user_stats': 'DROP TABLE IF EXISTS word_find_user_stats' in code,
 }

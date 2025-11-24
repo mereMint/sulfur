@@ -137,10 +137,11 @@ DESCRIBE word_find_attempts;
 ✓ Verified migration 010 no longer creates conflicting tables
 ✓ Verified migration 011 correctly identifies and fixes wrong schemas
 ✓ Checked all CREATE TABLE statements match code expectations
+✓ Added automatic detection and fix for missing game_type column in word_find_attempts
 
 ## Impact
 
 - **Severity:** High - Game was completely broken for affected users
-- **Users Affected:** Anyone who applied migration 010
+- **Users Affected:** Anyone who applied migration 010 or had older table schemas
 - **Data Loss:** None - migration 011 drops empty/incorrect tables only
 - **Backward Compatibility:** Full - works with all previous migrations
