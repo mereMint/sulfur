@@ -1547,42 +1547,34 @@ def economy_stats():
         cursor = conn.cursor(dictionary=True)
         
         try:
-            # Get current stat period (YYYY-MM format)
-            from datetime import datetime
-            current_period = datetime.now().strftime('%Y-%m')
-            
-            # Total coins in circulation (using balance column for current period)
-            cursor.execute("SELECT COALESCE(SUM(balance), 0) as total_coins FROM user_stats WHERE stat_period = %s", (current_period,))
+            # Total coins in circulation (from players table which stores actual balances)
+            cursor.execute("SELECT COALESCE(SUM(balance), 0) as total_coins FROM players WHERE balance > 0")
             result = cursor.fetchone()
             total_coins = result.get('total_coins', 0) if result else 0
             
-            # Total users with coins (current period)
-            cursor.execute("SELECT COUNT(DISTINCT user_id) as total_users FROM user_stats WHERE stat_period = %s AND balance > 0", (current_period,))
+            # Total users with coins
+            cursor.execute("SELECT COUNT(*) as total_users FROM players WHERE balance > 0")
             result = cursor.fetchone()
             total_users = result.get('total_users', 0) if result else 0
             
             # Average coins per user
             avg_coins = total_coins / total_users if total_users > 0 else 0
             
-            # Richest users - current period only
+            # Richest users from players table
             cursor.execute("""
-                SELECT user_id, display_name, balance as coins 
-                FROM user_stats 
-                WHERE stat_period = %s AND balance > 0 
+                SELECT discord_id as user_id, display_name, balance as coins 
+                FROM players 
+                WHERE balance > 0 
                 ORDER BY balance DESC 
                 LIMIT 10
-            """, (current_period,))
+            """)
             richest_users = cursor.fetchall() or []
             
             # Recent transactions - use transaction_history table if it exists
             recent_transactions = safe_db_query(cursor, """
-                SELECT th.*, us.display_name, us.username 
+                SELECT th.*, p.display_name
                 FROM transaction_history th
-                LEFT JOIN (
-                    SELECT user_id, display_name, username, stat_period
-                    FROM user_stats
-                    WHERE stat_period = DATE_FORMAT(NOW(), '%Y-%m')
-                ) us ON th.user_id = us.user_id
+                LEFT JOIN players p ON th.user_id = p.discord_id
                 ORDER BY th.created_at DESC 
                 LIMIT 20
             """, default=[], fetch_all=True)
@@ -1923,8 +1915,8 @@ def games_stats():
                 'total_players': werwolf_players
             }
             
-            # Detective stats
-            detective_games = safe_query("SELECT COUNT(*) as total_games FROM detective_games")
+            # Detective stats - use detective_user_progress for games count
+            detective_games = safe_query("SELECT COUNT(*) as total_games FROM detective_user_progress")
             detective_players = safe_query("SELECT COUNT(DISTINCT user_id) as total_players FROM detective_user_stats")
             
             stats['detective'] = {
@@ -1970,9 +1962,9 @@ def games_stats():
                 'total_players': horseracing_players
             }
             
-            # Trolly Problem stats
-            trolly_games = safe_query("SELECT COUNT(*) as total_games FROM trolly_problem_choices")
-            trolly_players = safe_query("SELECT COUNT(DISTINCT user_id) as total_players FROM trolly_problem_choices")
+            # Trolly Problem stats - use trolly_responses instead of trolly_problem_choices
+            trolly_games = safe_query("SELECT COUNT(*) as total_games FROM trolly_responses")
+            trolly_players = safe_query("SELECT COUNT(DISTINCT user_id) as total_players FROM trolly_responses")
             
             stats['trolly'] = {
                 'total_games': trolly_games,
@@ -2253,14 +2245,15 @@ def api_quotas():
         # Get AI usage for current month
         from modules.db_helpers import get_ai_usage_stats
         
-        # Use asyncio.run() for better event loop management
-        stats_30days = asyncio.run(get_ai_usage_stats(30))
+        # Use run_async helper for better event loop management
+        stats_30days = run_async(get_ai_usage_stats(30)) or []
         
-        # Calculate totals
-        total_calls = sum(stat['total_calls'] for stat in stats_30days)
-        total_input_tokens = sum(stat['total_input_tokens'] for stat in stats_30days)
-        total_output_tokens = sum(stat['total_output_tokens'] for stat in stats_30days)
-        total_cost = sum(stat['total_cost'] for stat in stats_30days)
+        # Calculate totals (handle Decimal types)
+        from decimal import Decimal
+        total_calls = sum(int(stat.get('total_calls', 0) or 0) for stat in stats_30days)
+        total_input_tokens = sum(int(stat.get('total_input_tokens', 0) or 0) for stat in stats_30days)
+        total_output_tokens = sum(int(stat.get('total_output_tokens', 0) or 0) for stat in stats_30days)
+        total_cost = sum(float(stat.get('total_cost', 0) or 0) if not isinstance(stat.get('total_cost'), Decimal) else float(stat.get('total_cost', 0)) for stat in stats_30days)
         
         # API limits from config or defaults
         # Note: These are general estimates - check your API provider's documentation for exact limits

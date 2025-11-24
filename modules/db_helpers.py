@@ -515,6 +515,122 @@ def initialize_database():
             logger.info("Adding problem_id column to trolly_responses table")
             cursor.execute("ALTER TABLE trolly_responses ADD COLUMN problem_id INT NULL AFTER display_name")
             cursor.execute("ALTER TABLE trolly_responses ADD INDEX idx_problem_id (problem_id)")
+        
+        # --- NEW: Gambling Stats Table ---
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS gambling_stats (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                game_type VARCHAR(50) NOT NULL,
+                total_games INT NOT NULL DEFAULT 0,
+                total_wagered BIGINT NOT NULL DEFAULT 0,
+                total_won BIGINT NOT NULL DEFAULT 0,
+                total_lost BIGINT NOT NULL DEFAULT 0,
+                biggest_win BIGINT NOT NULL DEFAULT 0,
+                biggest_loss BIGINT NOT NULL DEFAULT 0,
+                last_played TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                UNIQUE KEY user_game (user_id, game_type),
+                INDEX idx_user_id (user_id),
+                INDEX idx_game_type (game_type)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """)
+        
+        # --- NEW: Game Tracking Tables for Casino Games ---
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS blackjack_games (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                bet_amount BIGINT NOT NULL,
+                result VARCHAR(20) NOT NULL,
+                payout BIGINT NOT NULL DEFAULT 0,
+                player_hand TEXT,
+                dealer_hand TEXT,
+                played_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_user_id (user_id),
+                INDEX idx_played_at (played_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS roulette_games (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                bet_amount BIGINT NOT NULL,
+                bet_type VARCHAR(50) NOT NULL,
+                bet_value VARCHAR(50),
+                result_number INT NOT NULL,
+                won BOOLEAN NOT NULL DEFAULT FALSE,
+                payout BIGINT NOT NULL DEFAULT 0,
+                played_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_user_id (user_id),
+                INDEX idx_played_at (played_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS mines_games (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                bet_amount BIGINT NOT NULL,
+                grid_size INT NOT NULL DEFAULT 5,
+                mine_count INT NOT NULL DEFAULT 5,
+                revealed_count INT NOT NULL DEFAULT 0,
+                result VARCHAR(20) NOT NULL,
+                multiplier DECIMAL(10, 2) NOT NULL DEFAULT 1.0,
+                payout BIGINT NOT NULL DEFAULT 0,
+                played_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_user_id (user_id),
+                INDEX idx_played_at (played_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tower_games (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                bet_amount BIGINT NOT NULL,
+                difficulty INT NOT NULL DEFAULT 1,
+                floors_climbed INT NOT NULL DEFAULT 0,
+                max_floors INT NOT NULL DEFAULT 10,
+                result VARCHAR(20) NOT NULL,
+                payout BIGINT NOT NULL DEFAULT 0,
+                played_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_user_id (user_id),
+                INDEX idx_played_at (played_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS russian_roulette_games (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                entry_fee BIGINT NOT NULL,
+                shots_survived INT NOT NULL DEFAULT 0,
+                survived BOOLEAN NOT NULL DEFAULT FALSE,
+                payout BIGINT NOT NULL DEFAULT 0,
+                played_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_user_id (user_id),
+                INDEX idx_played_at (played_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """)
+        
+        # --- NEW: Horse Racing Games Table (unified naming) ---
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS horse_racing_games (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                race_id INT NOT NULL,
+                winner_horse_index INT NOT NULL,
+                winner_name VARCHAR(50) NOT NULL,
+                total_bets INT DEFAULT 0,
+                total_pool BIGINT DEFAULT 0,
+                num_bettors INT DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_created (created_at),
+                INDEX idx_race_id (race_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """)
+        
+        cnx.commit()
 
         logger.info("Database tables checked/created successfully")
     except mysql.connector.Error as err:
@@ -2581,11 +2697,15 @@ async def update_gambling_stats(user_id, game_type, wagered, won_amount):
                 biggest_loss = GREATEST(biggest_loss, %s),
                 last_played = NOW()
             """,
-            (user_id, game_type, wagered, 
+            # INSERT params (7): user_id, game_type, wagered, won_amount, lost_amount, biggest_win, biggest_loss
+            # UPDATE params (5): wagered, won_amount, lost_amount, biggest_win, biggest_loss
+            (user_id, game_type, 
+             wagered,
              won_amount if profit > 0 else 0, 
              abs(profit) if profit < 0 else 0,
              profit if profit > 0 else 0,
              abs(profit) if profit < 0 else 0,
+             # UPDATE params below
              wagered, 
              won_amount if profit > 0 else 0,
              abs(profit) if profit < 0 else 0,
@@ -2630,6 +2750,221 @@ async def get_gambling_stats(user_id, game_type=None):
         
         results = cursor.fetchall()
         return results if results else None
+    finally:
+        cursor.close()
+        cnx.close()
+
+
+@db_operation("Log Blackjack Game")
+async def log_blackjack_game(user_id, bet_amount, result, payout, player_hand=None, dealer_hand=None):
+    """Logs a blackjack game to the database."""
+    if not db_pool:
+        return False
+    
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return False
+    
+    cursor = cnx.cursor()
+    try:
+        cursor.execute(
+            """
+            INSERT INTO blackjack_games (user_id, bet_amount, result, payout, player_hand, dealer_hand)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (user_id, bet_amount, result, payout, player_hand, dealer_hand)
+        )
+        cnx.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Error logging blackjack game: {e}")
+        return False
+    finally:
+        cursor.close()
+        cnx.close()
+
+
+@db_operation("Log Roulette Game")
+async def log_roulette_game(user_id, bet_amount, bet_type, bet_value, result_number, won, payout):
+    """Logs a roulette game to the database."""
+    if not db_pool:
+        return False
+    
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return False
+    
+    cursor = cnx.cursor()
+    try:
+        cursor.execute(
+            """
+            INSERT INTO roulette_games (user_id, bet_amount, bet_type, bet_value, result_number, won, payout)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """,
+            (user_id, bet_amount, bet_type, str(bet_value), result_number, won, payout)
+        )
+        cnx.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Error logging roulette game: {e}")
+        return False
+    finally:
+        cursor.close()
+        cnx.close()
+
+
+@db_operation("Log Mines Game")
+async def log_mines_game(user_id, bet_amount, grid_size, mine_count, revealed_count, result, multiplier, payout):
+    """Logs a mines game to the database."""
+    if not db_pool:
+        return False
+    
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return False
+    
+    cursor = cnx.cursor()
+    try:
+        cursor.execute(
+            """
+            INSERT INTO mines_games (user_id, bet_amount, grid_size, mine_count, revealed_count, result, multiplier, payout)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (user_id, bet_amount, grid_size, mine_count, revealed_count, result, multiplier, payout)
+        )
+        cnx.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Error logging mines game: {e}")
+        return False
+    finally:
+        cursor.close()
+        cnx.close()
+
+
+@db_operation("Log Tower Game")
+async def log_tower_game(user_id, bet_amount, difficulty, floors_climbed, max_floors, result, payout):
+    """Logs a tower of treasure game to the database."""
+    if not db_pool:
+        return False
+    
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return False
+    
+    cursor = cnx.cursor()
+    try:
+        cursor.execute(
+            """
+            INSERT INTO tower_games (user_id, bet_amount, difficulty, floors_climbed, max_floors, result, payout)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """,
+            (user_id, bet_amount, difficulty, floors_climbed, max_floors, result, payout)
+        )
+        cnx.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Error logging tower game: {e}")
+        return False
+    finally:
+        cursor.close()
+        cnx.close()
+
+
+@db_operation("Log Russian Roulette Game")
+async def log_russian_roulette_game(user_id, entry_fee, shots_survived, survived, payout):
+    """Logs a russian roulette game to the database."""
+    if not db_pool:
+        return False
+    
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return False
+    
+    cursor = cnx.cursor()
+    try:
+        cursor.execute(
+            """
+            INSERT INTO russian_roulette_games (user_id, entry_fee, shots_survived, survived, payout)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (user_id, entry_fee, shots_survived, survived, payout)
+        )
+        cnx.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Error logging russian roulette game: {e}")
+        return False
+    finally:
+        cursor.close()
+        cnx.close()
+
+
+@db_operation("Log Horse Racing Game")
+async def log_horse_racing_game(race_id, winner_horse_index, winner_name, total_bets, total_pool, num_bettors):
+    """Logs a horse racing game to the database."""
+    if not db_pool:
+        return False
+    
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return False
+    
+    cursor = cnx.cursor()
+    try:
+        cursor.execute(
+            """
+            INSERT INTO horse_racing_games (race_id, winner_horse_index, winner_name, total_bets, total_pool, num_bettors)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (race_id, winner_horse_index, winner_name, total_bets, total_pool, num_bettors)
+        )
+        cnx.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Error logging horse racing game: {e}")
+        return False
+    finally:
+        cursor.close()
+        cnx.close()
+
+
+@db_operation("Update User Game Stats")
+async def update_user_game_stats(user_id, display_name, won, bet_amount, won_amount):
+    """Updates the user_stats table with game data for the current month."""
+    if not db_pool:
+        return False
+    
+    from datetime import datetime, timezone
+    stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+    
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return False
+    
+    cursor = cnx.cursor()
+    try:
+        cursor.execute(
+            """
+            INSERT INTO user_stats (user_id, display_name, stat_period, games_played, games_won, total_bet, total_won)
+            VALUES (%s, %s, %s, 1, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                games_played = games_played + 1,
+                games_won = games_won + %s,
+                total_bet = total_bet + %s,
+                total_won = total_won + %s,
+                display_name = VALUES(display_name),
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (user_id, display_name, stat_period, 
+             1 if won else 0, bet_amount, won_amount,
+             1 if won else 0, bet_amount, won_amount)
+        )
+        cnx.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Error updating user game stats: {e}")
+        return False
     finally:
         cursor.close()
         cnx.close()

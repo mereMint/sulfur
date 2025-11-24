@@ -8212,6 +8212,38 @@ class BlackjackView(discord.ui.View):
         except Exception as e:
             logger.error(f"Failed to record gambling stock influence: {e}")
         
+        # --- NEW: Log game to database for tracking ---
+        try:
+            won = result in ['win', 'blackjack']
+            payout = int(self.game.bet * multiplier) if won else 0
+            
+            # Log to blackjack_games table
+            await db_helpers.log_blackjack_game(
+                self.user_id, 
+                self.game.bet, 
+                result, 
+                payout
+            )
+            
+            # Update gambling_stats
+            await db_helpers.update_gambling_stats(
+                self.user_id,
+                'blackjack',
+                self.game.bet,
+                payout
+            )
+            
+            # Update user_stats for monthly tracking
+            await db_helpers.update_user_game_stats(
+                self.user_id,
+                interaction.user.display_name,
+                won,
+                self.game.bet,
+                payout
+            )
+        except Exception as e:
+            logger.error(f"Failed to log blackjack game stats: {e}")
+        
         # Add result field with enhanced formatting
         result_text = ""
         if result == 'blackjack':
@@ -8404,6 +8436,36 @@ class MinesView(discord.ui.View):
             except Exception as e:
                 logger.error(f"Failed to record gambling stock influence: {e}")
             
+            # --- NEW: Log game to database for tracking ---
+            try:
+                await db_helpers.log_mines_game(
+                    self.user_id,
+                    self.game.bet,
+                    self.game.grid_size,
+                    self.game.mine_count,
+                    self.game.revealed_count,
+                    'cashout',
+                    multiplier,
+                    winnings
+                )
+                
+                await db_helpers.update_gambling_stats(
+                    self.user_id,
+                    'mines',
+                    self.game.bet,
+                    winnings
+                )
+                
+                await db_helpers.update_user_game_stats(
+                    self.user_id,
+                    interaction.user.display_name,
+                    profit > 0,
+                    self.game.bet,
+                    winnings
+                )
+            except Exception as e:
+                logger.error(f"Failed to log mines game stats: {e}")
+            
             currency = config['modules']['economy']['currency_symbol']
             embed = self.game.create_embed(theme_id=self.theme_id)
             embed.color = themes.get_theme_color(self.theme_id, 'success')
@@ -8478,6 +8540,36 @@ class MinesView(discord.ui.View):
                 await stock_market.record_gambling_activity(db_helpers, self.game.bet, False, 0)
             except Exception as e:
                 logger.error(f"Failed to record gambling stock influence: {e}")
+            
+            # --- NEW: Log game to database for tracking ---
+            try:
+                await db_helpers.log_mines_game(
+                    self.user_id,
+                    self.game.bet,
+                    self.game.grid_size,
+                    self.game.mine_count,
+                    self.game.revealed_count,
+                    'lost',
+                    0,
+                    0
+                )
+                
+                await db_helpers.update_gambling_stats(
+                    self.user_id,
+                    'mines',
+                    self.game.bet,
+                    0
+                )
+                
+                await db_helpers.update_user_game_stats(
+                    self.user_id,
+                    interaction.user.display_name,
+                    False,
+                    self.game.bet,
+                    0
+                )
+            except Exception as e:
+                logger.error(f"Failed to log mines game stats: {e}")
             
             embed.color = discord.Color.red()
             result_text = f"💥 **BOOM!** 💥\n"
@@ -8930,6 +9022,39 @@ class RouletteView(discord.ui.View):
             await stock_market.record_gambling_activity(db_helpers, total_bet_amount, won, total_winnings)
         except Exception as e:
             logger.error(f"Failed to record gambling stock influence: {e}")
+        
+        # --- NEW: Log roulette games to database for tracking ---
+        try:
+            for bet_type, bet_value in self.bets:
+                won, multiplier = RouletteGame.check_bet(result_number, bet_type, bet_value)
+                payout = self.bet_amount * multiplier if won else 0
+                
+                await db_helpers.log_roulette_game(
+                    self.user_id,
+                    self.bet_amount,
+                    bet_type,
+                    bet_value,
+                    result_number,
+                    won,
+                    payout
+                )
+            
+            await db_helpers.update_gambling_stats(
+                self.user_id,
+                'roulette',
+                total_bet_amount,
+                total_winnings
+            )
+            
+            await db_helpers.update_user_game_stats(
+                self.user_id,
+                interaction.user.display_name,
+                net_result > 0,
+                total_bet_amount,
+                total_winnings
+            )
+        except Exception as e:
+            logger.error(f"Failed to log roulette game stats: {e}")
         
         # Create result embed with enhanced visuals
         currency = config['modules']['economy']['currency_symbol']
@@ -10124,6 +10249,33 @@ class RussianRouletteView(discord.ui.View):
                 f"Died on shot {self.game.current_shot}"
             )
             
+            # --- NEW: Log game to database for tracking ---
+            try:
+                await db_helpers.log_russian_roulette_game(
+                    self.user_id,
+                    self.entry_fee,
+                    self.game.current_shot - 1,  # shots survived
+                    False,  # survived
+                    0  # payout
+                )
+                
+                await db_helpers.update_gambling_stats(
+                    self.user_id,
+                    'russian_roulette',
+                    self.entry_fee,
+                    0
+                )
+                
+                await db_helpers.update_user_game_stats(
+                    self.user_id,
+                    interaction.user.display_name,
+                    False,
+                    self.entry_fee,
+                    0
+                )
+            except Exception as e:
+                logger.error(f"Failed to log russian roulette game stats: {e}")
+            
             embed.add_field(
                 name="❌ Du bist tot!",
                 value=f"Verlust: **{self.entry_fee} {currency}**\nNeues Guthaben: {new_balance} {currency}",
@@ -10155,6 +10307,33 @@ class RussianRouletteView(discord.ui.View):
                 "Survived all 6 shots"
             )
             
+            # --- NEW: Log game to database for tracking ---
+            try:
+                await db_helpers.log_russian_roulette_game(
+                    self.user_id,
+                    self.entry_fee,
+                    6,  # shots survived
+                    True,  # survived
+                    reward  # payout
+                )
+                
+                await db_helpers.update_gambling_stats(
+                    self.user_id,
+                    'russian_roulette',
+                    self.entry_fee,
+                    reward
+                )
+                
+                await db_helpers.update_user_game_stats(
+                    self.user_id,
+                    interaction.user.display_name,
+                    True,
+                    self.entry_fee,
+                    reward
+                )
+            except Exception as e:
+                logger.error(f"Failed to log russian roulette game stats: {e}")
+            
             embed.add_field(
                 name="🎉 Du hast überlebt!",
                 value=f"Gewinn: **{reward} {currency}**\nNeues Guthaben: {new_balance} {currency}",
@@ -10185,6 +10364,33 @@ class RussianRouletteView(discord.ui.View):
                 new_balance,
                 f"Cashed out after {self.game.current_shot} shots"
             )
+            
+            # --- NEW: Log game to database for tracking ---
+            try:
+                await db_helpers.log_russian_roulette_game(
+                    self.user_id,
+                    self.entry_fee,
+                    self.game.current_shot,  # shots survived
+                    True,  # survived
+                    reward  # payout
+                )
+                
+                await db_helpers.update_gambling_stats(
+                    self.user_id,
+                    'russian_roulette',
+                    self.entry_fee,
+                    reward
+                )
+                
+                await db_helpers.update_user_game_stats(
+                    self.user_id,
+                    interaction.user.display_name,
+                    True,
+                    self.entry_fee,
+                    reward
+                )
+            except Exception as e:
+                logger.error(f"Failed to log russian roulette game stats: {e}")
             
             embed.add_field(
                 name="💰 Ausgezahlt!",
