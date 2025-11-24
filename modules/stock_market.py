@@ -202,7 +202,8 @@ async def update_stock_prices(db_helpers):
                 new_trend = (trend * 0.7) + (price_change_pct * 0.3)
                 
                 # Clamp trend to reasonable bounds to prevent DECIMAL(5,4) overflow
-                # Normal trends should be around ±0.5, so ±1.0 provides safety margin
+                # DECIMAL(5,4) allows values from -9.9999 to 9.9999
+                # Normal trends are around ±0.5, so ±1.0 provides safety margin
                 new_trend = max(-1.0, min(1.0, new_trend))
                 
                 # Decay game influence

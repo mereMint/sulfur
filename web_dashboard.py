@@ -1818,6 +1818,7 @@ def api_update_stock(symbol):
             if 'trend' in data:
                 updates.append("trend = %s")
                 # Clamp trend to ±1.0 to prevent DECIMAL(5,4) overflow
+                # DECIMAL(5,4) allows values from -9.9999 to 9.9999
                 trend_value = max(-1.0, min(1.0, float(data['trend'])))
                 params.append(trend_value)
             
