@@ -808,7 +808,7 @@ def admin_delete_user_data():
                 ('transactions', 'user_id'),
                 ('user_quests', 'user_id'),
                 ('user_items', 'user_id'),
-                ('stocks_owned', 'user_id'),
+                ('user_portfolios', 'user_id'),
                 ('blackjack_games', 'user_id'),
                 ('roulette_games', 'user_id'),
                 ('mines_games', 'user_id'),
@@ -1549,25 +1549,41 @@ def economy_stocks():
         cursor = conn.cursor(dictionary=True)
         
         try:
-            # Get all stocks
+            # Get all stocks with calculated change percentage
             stocks = safe_db_query(cursor, """
-                SELECT * FROM stocks
+                SELECT symbol, name, category, current_price, previous_price, trend,
+                       last_update, volume_today,
+                       CASE 
+                           WHEN previous_price > 0 
+                           THEN ((current_price - previous_price) / previous_price) * 100
+                           ELSE 0
+                       END as change_percent,
+                       volume_today as volume
+                FROM stocks
                 ORDER BY symbol ASC
             """, default=[], fetch_all=True)
             
+            # Convert Decimal to float for JSON serialization
+            for stock in stocks:
+                for key in ['current_price', 'previous_price', 'trend', 'change_percent']:
+                    if stock.get(key) is not None:
+                        from decimal import Decimal
+                        if isinstance(stock[key], Decimal):
+                            stock[key] = float(stock[key])
+            
             # Get top stock holders - join with current month's user_stats
             top_holders = safe_db_query(cursor, """
-                SELECT so.symbol, so.user_id, so.quantity, 
+                SELECT p.stock_symbol as symbol, p.user_id, p.shares as quantity, 
                        u.display_name, u.username, s.current_price
-                FROM stocks_owned so
+                FROM user_portfolios p
                 LEFT JOIN (
                     SELECT user_id, display_name, username, stat_period
                     FROM user_stats
                     WHERE stat_period = DATE_FORMAT(NOW(), '%Y-%m')
-                ) u ON so.user_id = u.user_id
-                JOIN stocks s ON so.symbol = s.symbol
-                WHERE so.quantity > 0
-                ORDER BY (so.quantity * s.current_price) DESC
+                ) u ON p.user_id = u.user_id
+                JOIN stocks s ON p.stock_symbol = s.symbol
+                WHERE p.shares > 0
+                ORDER BY (p.shares * s.current_price) DESC
                 LIMIT 20
             """, default=[], fetch_all=True)
             
@@ -1977,16 +1993,32 @@ def system_health():
         # Disk usage
         disk = psutil.disk_usage('/')
         
-        # Database health
+        # Database health and size
         db_healthy = False
         db_pool_size = 0
+        db_size_mb = 0
         if db_helpers.db_pool:
             try:
                 conn = db_helpers.db_pool.get_connection()
                 if conn:
                     db_healthy = True
-                    cursor = conn.cursor()
+                    cursor = conn.cursor(dictionary=True)
                     cursor.execute("SELECT 1")
+                    
+                    # Get database size
+                    try:
+                        cursor.execute("""
+                            SELECT 
+                                ROUND(SUM(data_length + index_length) / 1024 / 1024, 2) as size_mb
+                            FROM information_schema.tables
+                            WHERE table_schema = DATABASE()
+                        """)
+                        result = cursor.fetchone()
+                        if result and result.get('size_mb'):
+                            db_size_mb = float(result['size_mb'])
+                    except Exception as e:
+                        logger.warning(f"Could not get database size: {e}")
+                    
                     cursor.close()
                     conn.close()
                     db_pool_size = db_helpers.db_pool.pool_size if hasattr(db_helpers.db_pool, 'pool_size') else 5
@@ -2044,7 +2076,8 @@ def system_health():
             },
             'database': {
                 'healthy': db_healthy,
-                'pool_size': db_pool_size
+                'pool_size': db_pool_size,
+                'size_mb': db_size_mb
             },
             'logs': {
                 'error_count': error_count,
