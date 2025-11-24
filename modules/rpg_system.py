@@ -1281,13 +1281,11 @@ async def initialize_default_monsters(db_helpers):
             
             # Initialize if we have NO monsters or fewer than expected minimum (20)
             # This ensures initialization happens on first run or after database reset
-            if count == 0:
-                logger.warning("No monsters found in database! Initializing for the first time...")
-            elif count < 20:
-                logger.warning(f"Only {count} monsters found (expected at least 20). Re-initializing...")
-            
             if count < 20:
-                logger.info(f"Only {count} monsters found. Inserting default monsters...")
+                if count == 0:
+                    logger.warning("No monsters found in database! Initializing for the first time...")
+                else:
+                    logger.warning(f"Only {count} monsters found (expected at least 20). Re-initializing...")
                 
                 # Get monster data from the function defined in this file
                 all_monsters = get_base_monsters_data()
@@ -1403,30 +1401,47 @@ async def get_random_monster(db_helpers, player_level: int, world: str):
             # If still no monster, database is empty - try to initialize
             if not monster:
                 logger.error("No monsters in database at all! Attempting to initialize...")
+                new_conn = None
+                new_cursor = None
                 try:
                     cursor.close()
                     conn.close()
                     await initialize_default_monsters(db_helpers)
                     
                     # Try one more time
-                    conn = db_helpers.db_pool.get_connection()
-                    if not conn:
+                    new_conn = db_helpers.db_pool.get_connection()
+                    if not new_conn:
                         logger.error("Failed to get database connection after initialization")
                         return None
                     
-                    cursor = conn.cursor(dictionary=True)
-                    cursor.execute("""
+                    new_cursor = new_conn.cursor(dictionary=True)
+                    new_cursor.execute("""
                         SELECT * FROM rpg_monsters
                         ORDER BY RAND()
                         LIMIT 1
                     """)
-                    monster = cursor.fetchone()
+                    monster = new_cursor.fetchone()
+                    
+                    # Update conn and cursor references for cleanup in finally block
+                    conn = new_conn
+                    cursor = new_cursor
                     
                     if not monster:
                         logger.error("Failed to initialize monsters! Database may have issues.")
                         return None
                 except Exception as init_error:
                     logger.error(f"Error during monster initialization: {init_error}", exc_info=True)
+                    # Clean up the new connection if it was created
+                    if new_cursor:
+                        try:
+                            new_cursor.close()
+                        except:
+                            pass
+                    if new_conn:
+                        try:
+                            new_conn.close()
+                        except:
+                            pass
                     return None
             
             if monster:
@@ -2281,14 +2296,11 @@ async def initialize_shop_items(db_helpers):
             
             # Initialize if we have NO items or fewer than expected minimum (100)
             # This ensures initialization happens on first run or after database reset
-            if count == 0:
-                logger.warning("No items found in database! Initializing for the first time...")
-            elif count < 100:
-                logger.warning(f"Only {count} items found (expected at least 100). Re-initializing...")
-            
-            # Only initialize if we have fewer than 100 items (should have hundreds)
             if count < 100:
-                logger.info(f"Only {count} default items found. Generating and inserting new items...")
+                if count == 0:
+                    logger.warning("No items found in database! Initializing for the first time...")
+                else:
+                    logger.warning(f"Only {count} items found (expected at least 100). Re-initializing...")
                 
                 # Import generation function (lazy import to avoid circular dependencies)
                 from modules.rpg_items_data import get_all_items_for_seeding
@@ -2406,29 +2418,46 @@ async def get_daily_shop_items(db_helpers, player_level: int):
                 # If still no items, try to initialize items
                 if not all_items:
                     logger.error("No items in database! Attempting to initialize...")
+                    new_conn = None
+                    new_cursor = None
                     try:
                         cursor.close()
                         conn.close()
                         await initialize_shop_items(db_helpers)
                         
                         # Try again after initialization
-                        conn = db_helpers.db_pool.get_connection()
-                        if not conn:
+                        new_conn = db_helpers.db_pool.get_connection()
+                        if not new_conn:
                             logger.error("Failed to get database connection after initialization")
                             return []
                         
-                        cursor = conn.cursor(dictionary=True)
-                        cursor.execute("""
+                        new_cursor = new_conn.cursor(dictionary=True)
+                        new_cursor.execute("""
                             SELECT id, rarity FROM rpg_items
                             WHERE created_by IS NULL AND is_quest_item = FALSE
                         """)
-                        all_items = cursor.fetchall()
+                        all_items = new_cursor.fetchall()
+                        
+                        # Update conn and cursor references for cleanup in finally block
+                        conn = new_conn
+                        cursor = new_cursor
                         
                         if not all_items:
                             logger.error("Failed to initialize items! Database may have issues.")
                             return []
                     except Exception as init_error:
                         logger.error(f"Error during item initialization: {init_error}", exc_info=True)
+                        # Clean up the new connection if it was created
+                        if new_cursor:
+                            try:
+                                new_cursor.close()
+                            except:
+                                pass
+                        if new_conn:
+                            try:
+                                new_conn.close()
+                            except:
+                                pass
                         return []
                 
                 # Select items by rarity for balanced shop
