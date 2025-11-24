@@ -26,7 +26,7 @@ SET @has_wrong_schema = (
 SET @drop_query = IF(
     @has_wrong_schema > 0,
     'DROP TABLE IF EXISTS word_find_daily',
-    'SELECT 1'
+    'DO 0'
 );
 
 PREPARE stmt FROM @drop_query;
@@ -48,7 +48,7 @@ SET @has_user_stats = (
 SET @drop_user_stats = IF(
     @has_user_stats > 0,
     'DROP TABLE IF EXISTS word_find_user_stats',
-    'SELECT 1'
+    'DO 0'
 );
 
 PREPARE stmt FROM @drop_user_stats;
