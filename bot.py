@@ -3644,7 +3644,11 @@ class RPGContinueAdventureView(discord.ui.View):
     @discord.ui.button(label="⚔️ Weiter abenteuern", style=discord.ButtonStyle.success, emoji="🎮")
     async def continue_adventure_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Continue adventuring immediately after winning."""
-        await interaction.response.defer()
+        try:
+            await interaction.response.defer()
+        except discord.errors.NotFound:
+            logger.warning("Continue adventure button interaction expired")
+            return
         
         try:
             # Start another adventure with continue_chain=True to skip cooldown
@@ -3737,14 +3741,23 @@ class RPGContinueAdventureView(discord.ui.View):
                 view = RPGEventView(self.user_id, result)
                 await interaction.edit_original_response(embed=embed, view=view)
             
+            self.stop()
+            
         except Exception as e:
             logger.error(f"Error continuing adventure: {e}", exc_info=True)
-            await interaction.followup.send(f"❌ Fehler beim Fortsetzen des Abenteuers: {e}", ephemeral=True)
+            try:
+                await interaction.followup.send(f"❌ Fehler beim Fortsetzen des Abenteuers: {e}", ephemeral=True)
+            except Exception:
+                pass
     
     @discord.ui.button(label="🏠 Zurück zum Dorf", style=discord.ButtonStyle.secondary)
     async def return_to_village_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Return to the village (stop adventuring)."""
-        await interaction.response.defer()
+        try:
+            await interaction.response.defer()
+        except discord.errors.NotFound:
+            logger.warning("Return to village button interaction expired")
+            return
         
         embed = discord.Embed(
             title="🏠 Zurück im Dorf",
@@ -3758,7 +3771,11 @@ class RPGContinueAdventureView(discord.ui.View):
         for item in self.children:
             item.disabled = True
         
-        await interaction.edit_original_response(embed=embed, view=None)
+        try:
+            await interaction.edit_original_response(embed=embed, view=None)
+        except Exception as e:
+            logger.error(f"Error returning to village: {e}")
+        
         self.stop()
 
 
@@ -4262,6 +4279,7 @@ class RPGEventView(discord.ui.View):
         super().__init__(timeout=300)
         self.user_id = user_id
         self.event = event
+        self.claimed = False  # Track if rewards were already claimed
     
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
@@ -4272,13 +4290,27 @@ class RPGEventView(discord.ui.View):
     @discord.ui.button(label="✅ Belohnungen einsammeln", style=discord.ButtonStyle.success)
     async def claim_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Claim event rewards."""
-        await interaction.response.defer()
+        # Prevent double-claiming
+        if self.claimed:
+            try:
+                await interaction.response.send_message("❌ Du hast die Belohnungen bereits eingesammelt!", ephemeral=True)
+            except discord.errors.NotFound:
+                pass
+            return
+        
+        try:
+            await interaction.response.defer()
+        except discord.errors.NotFound:
+            # Interaction has expired
+            logger.warning("Claim button interaction expired")
+            return
         
         try:
             # Claim rewards
             success, message = await rpg_system.claim_adventure_event(db_helpers, self.user_id, self.event)
             
             if success:
+                self.claimed = True
                 embed = discord.Embed(
                     title="✅ Belohnungen erhalten!",
                     description=message,
@@ -4305,20 +4337,29 @@ class RPGEventView(discord.ui.View):
                         inline=False
                     )
                 
-                # Disable claim button and show continue button
+                # Disable claim button
                 for item in self.children:
                     item.disabled = True
                 
-                # Show continue adventuring button
-                continue_view = RPGContinueAdventureView(self.user_id)
-                await interaction.edit_original_response(embed=embed, view=continue_view)
+                # Check if event allows continuing adventure
+                if self.event.get('can_continue', False):
+                    embed.set_footer(text="🎮 Du kannst weiter abenteuern!")
+                    continue_view = RPGContinueAdventureView(self.user_id)
+                    await interaction.edit_original_response(embed=embed, view=continue_view)
+                else:
+                    embed.set_footer(text="Nutze /rpg um weiterzuspielen!")
+                    await interaction.edit_original_response(embed=embed, view=None)
+                
                 self.stop()
             else:
                 await interaction.followup.send(f"❌ {message}", ephemeral=True)
                 
         except Exception as e:
             logger.error(f"Error claiming event rewards: {e}", exc_info=True)
-            await interaction.followup.send("❌ Fehler beim Einsammeln der Belohnungen.", ephemeral=True)
+            try:
+                await interaction.followup.send("❌ Fehler beim Einsammeln der Belohnungen.", ephemeral=True)
+            except Exception:
+                pass
 
 
 class RPGShopView(discord.ui.View):
