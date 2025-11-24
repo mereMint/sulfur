@@ -1818,12 +1818,13 @@ async def get_combat_timeline(player: dict, monster: dict) -> list:
     return timeline
 
 
-async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: str):
+async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: str, skill_data: dict = None):
     """
     Process a single combat turn.
     
     Args:
-        action: 'attack', 'run', or item/skill usage
+        action: 'attack', 'run', or 'skill'
+        skill_data: Skill item data when action is 'skill'
     
     Returns:
         dict with combat results
@@ -1863,6 +1864,75 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
                 result['messages'].append(f"⚔️ Du fügst {dmg_result['damage']} Schaden zu!")
             
             monster['health'] -= result['player_damage']
+        
+        elif action == 'skill':
+            # Handle skill usage
+            if not skill_data:
+                result['messages'].append("❌ Kein Skill ausgewählt!")
+            else:
+                skill_name = skill_data.get('name', 'Unknown Skill')
+                skill_damage = skill_data.get('damage', 0)
+                
+                # Parse effects if they exist
+                effects_json = skill_data.get('effects')
+                effects = {}
+                if effects_json:
+                    try:
+                        if isinstance(effects_json, str):
+                            effects = json.loads(effects_json)
+                        elif isinstance(effects_json, dict):
+                            effects = effects_json
+                    except:
+                        pass
+                
+                # Apply skill damage
+                if skill_damage > 0:
+                    # Skills have higher base damage but can still crit
+                    dmg_result = calculate_damage(
+                        skill_damage,
+                        monster['defense'],
+                        player['dexterity']
+                    )
+                    
+                    if dmg_result['crit']:
+                        result['player_damage'] = dmg_result['damage']
+                        result['messages'].append(f"✨💥 **{skill_name}** - KRITISCHER TREFFER! {dmg_result['damage']} Schaden!")
+                    else:
+                        result['player_damage'] = dmg_result['damage']
+                        result['messages'].append(f"✨ **{skill_name}** fügt {dmg_result['damage']} Schaden zu!")
+                    
+                    monster['health'] -= result['player_damage']
+                
+                # Apply healing effects
+                if effects.get('heal'):
+                    heal_amount = int(effects['heal'])
+                    new_health = min(player['max_health'], player['health'] + heal_amount)
+                    actual_heal = new_health - player['health']
+                    if actual_heal > 0:
+                        result['player_health'] = new_health
+                        result['messages'].append(f"💚 **{skill_name}** heilt dich um {actual_heal} HP!")
+                        
+                        # Update player health immediately
+                        conn = db_helpers.db_pool.get_connection()
+                        cursor = conn.cursor()
+                        try:
+                            cursor.execute("""
+                                UPDATE rpg_players SET health = %s WHERE user_id = %s
+                            """, (new_health, user_id))
+                            conn.commit()
+                        finally:
+                            cursor.close()
+                            conn.close()
+                
+                # Additional effect messages
+                if effects.get('burn') and skill_damage > 0:
+                    result['messages'].append("🔥 Der Gegner brennt!")
+                if effects.get('freeze') and skill_damage > 0:
+                    result['messages'].append("❄️ Der Gegner ist eingefroren!")
+                if effects.get('poison') and skill_damage > 0:
+                    result['messages'].append("🧪 Der Gegner ist vergiftet!")
+                if effects.get('static') and skill_damage > 0:
+                    result['messages'].append("⚡ Der Gegner ist gelähmt!")
         
         elif action == 'run':
             # 50% chance to run, higher with more dex
@@ -1938,12 +2008,14 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
             
             conn = db_helpers.db_pool.get_connection()
             cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE rpg_players SET health = %s WHERE user_id = %s
-            """, (new_health, user_id))
-            conn.commit()
-            cursor.close()
-            conn.close()
+            try:
+                cursor.execute("""
+                    UPDATE rpg_players SET health = %s WHERE user_id = %s
+                """, (new_health, user_id))
+                conn.commit()
+            finally:
+                cursor.close()
+                conn.close()
             
             # Check if player is defeated
             if new_health <= 0:

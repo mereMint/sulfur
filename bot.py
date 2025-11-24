@@ -3166,8 +3166,21 @@ class RPGMenuView(discord.ui.View):
                 
                 embed.set_footer(text="Wähle deine Aktion!")
                 
-                # Create combat view
-                view = RPGCombatView(self.user_id, monster)
+                # Get equipped skills for combat
+                equipped = await rpg_system.get_equipped_items(db_helpers, self.user_id)
+                equipped_skills = []
+                if equipped:
+                    if equipped.get('skill1_id'):
+                        skill1 = await rpg_system.get_item_by_id(db_helpers, equipped['skill1_id'])
+                        if skill1:
+                            equipped_skills.append(skill1)
+                    if equipped.get('skill2_id'):
+                        skill2 = await rpg_system.get_item_by_id(db_helpers, equipped['skill2_id'])
+                        if skill2:
+                            equipped_skills.append(skill2)
+                
+                # Create combat view with equipped skills
+                view = RPGCombatView(self.user_id, monster, equipped_skills)
                 await interaction.followup.send(embed=embed, view=view, ephemeral=True)
                 
             elif encounter_type == 'event':
@@ -3440,8 +3453,21 @@ async def adventure_command(interaction: discord.Interaction):
         
         embed.set_footer(text="Wähle deine Aktion!")
         
-        # Create combat view
-        view = RPGCombatView(user_id, monster)
+        # Get equipped skills for combat
+        equipped = await rpg_system.get_equipped_items(db_helpers, user_id)
+        equipped_skills = []
+        if equipped:
+            if equipped.get('skill1_id'):
+                skill1 = await rpg_system.get_item_by_id(db_helpers, equipped['skill1_id'])
+                if skill1:
+                    equipped_skills.append(skill1)
+            if equipped.get('skill2_id'):
+                skill2 = await rpg_system.get_item_by_id(db_helpers, equipped['skill2_id'])
+                if skill2:
+                    equipped_skills.append(skill2)
+        
+        # Create combat view with equipped skills
+        view = RPGCombatView(user_id, monster, equipped_skills)
         await interaction.followup.send(embed=embed, view=view)
         
     except Exception as e:
@@ -3668,8 +3694,21 @@ class RPGContinueAdventureView(discord.ui.View):
                 
                 embed.set_footer(text="🎮 Rogue-like Adventure: Besiege Monster hintereinander für maximale Belohnungen!")
                 
-                # Create combat view
-                view = RPGCombatView(self.user_id, result)
+                # Get equipped skills for combat
+                equipped = await rpg_system.get_equipped_items(db_helpers, self.user_id)
+                equipped_skills = []
+                if equipped:
+                    if equipped.get('skill1_id'):
+                        skill1 = await rpg_system.get_item_by_id(db_helpers, equipped['skill1_id'])
+                        if skill1:
+                            equipped_skills.append(skill1)
+                    if equipped.get('skill2_id'):
+                        skill2 = await rpg_system.get_item_by_id(db_helpers, equipped['skill2_id'])
+                        if skill2:
+                            equipped_skills.append(skill2)
+                
+                # Create combat view with equipped skills
+                view = RPGCombatView(self.user_id, result, equipped_skills)
                 await interaction.edit_original_response(embed=embed, view=view)
                 
             elif encounter_type == 'event':
@@ -3726,18 +3765,159 @@ class RPGContinueAdventureView(discord.ui.View):
 class RPGCombatView(discord.ui.View):
     """Interactive combat view for RPG battles."""
     
-    def __init__(self, user_id: int, monster: dict):
+    def __init__(self, user_id: int, monster: dict, equipped_skills: list = None):
         super().__init__(timeout=300)  # 5 minute timeout
         self.user_id = user_id
         self.monster = monster
         self.monster_max_health = monster['health']  # Store original max health
         self.turn_count = 0
+        self.equipped_skills = equipped_skills or []
+        
+        # Add skill buttons dynamically
+        self._add_skill_buttons()
+    
+    def _add_skill_buttons(self):
+        """Add buttons for equipped skills."""
+        # Skill buttons should be added after Attack but before Run
+        # We'll add them in the button row
+        if self.equipped_skills:
+            for idx, skill in enumerate(self.equipped_skills):
+                if skill and idx < 2:  # Max 2 skills (skill1 and skill2)
+                    # Create skill button with callback factory to properly capture loop variables
+                    skill_button = discord.ui.Button(
+                        label=f"✨ {skill['name'][:20]}", 
+                        style=discord.ButtonStyle.primary,
+                        custom_id=f"skill_{idx}",
+                        row=1  # Put skills in second row
+                    )
+                    
+                    # Use factory function to create callback with properly captured variables
+                    skill_button.callback = self._create_skill_callback(skill, idx)
+                    self.add_item(skill_button)
+    
+    def _create_skill_callback(self, skill_data: dict, skill_idx: int):
+        """Factory function to create skill callback with captured variables."""
+        async def callback(interaction: discord.Interaction):
+            await self._use_skill(interaction, skill_data, skill_idx)
+        return callback
     
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
             await interaction.response.send_message("Dies ist nicht dein Kampf!", ephemeral=True)
             return False
         return True
+    
+    async def _use_skill(self, interaction: discord.Interaction, skill: dict, skill_idx: int):
+        """Use an equipped skill in combat."""
+        try:
+            await interaction.response.defer()
+        except discord.errors.NotFound:
+            logger.warning("Skill button interaction expired")
+            return
+        
+        try:
+            # Process combat turn with skill
+            result = await rpg_system.process_combat_turn(
+                db_helpers, 
+                self.user_id, 
+                self.monster, 
+                'skill',
+                skill_data=skill
+            )
+            
+            if 'error' in result:
+                await interaction.followup.send(f"❌ Fehler: {result['error']}")
+                return
+            
+            # Update monster health
+            self.monster['health'] = result['monster_health']
+            self.turn_count += 1
+            
+            # Get player data
+            player = await rpg_system.get_player_profile(db_helpers, self.user_id)
+            
+            # Determine turn order
+            player_speed = player['speed'] if player else 10
+            monster_speed = self.monster['speed']
+            
+            if player_speed >= monster_speed:
+                timeline = f"✨ **Du (Skill)** ➜ 🐉 {self.monster['name']}"
+                turn_indicator = "🟢 Dein Zug"
+            else:
+                timeline = f"🐉 **{self.monster['name']}** ➜ ✨ Du (Skill)"
+                turn_indicator = "🔴 Gegner startet"
+            
+            # Create result embed
+            embed = discord.Embed(
+                title=f"✨ Kampfrunde {self.turn_count} - {skill['name']}",
+                description=f"**{turn_indicator}**\n\n" + "\n".join(result['messages']),
+                color=discord.Color.purple() if result.get('player_won') else discord.Color.blue()
+            )
+            
+            # Add turn order timeline
+            embed.add_field(
+                name="📊 Kampf-Timeline",
+                value=f"```\n{timeline}\n```",
+                inline=False
+            )
+            
+            # Add health bars
+            player_health_pct = (result['player_health'] / player['max_health']) * 100 if player else 0
+            monster_health_pct = (result['monster_health'] / self.monster_max_health) * 100 if self.monster_max_health > 0 else 0
+            
+            player_bar = self._create_health_bar(player_health_pct)
+            monster_bar = self._create_health_bar(monster_health_pct)
+            
+            embed.add_field(
+                name="❤️ Deine HP",
+                value=f"{player_bar} {result['player_health']}",
+                inline=True
+            )
+            
+            if not result['combat_over']:
+                embed.add_field(
+                    name=f"🐉 {self.monster['name']} HP",
+                    value=f"{monster_bar} {result['monster_health']}",
+                    inline=True
+                )
+            
+            # Check if combat is over
+            if result['combat_over']:
+                # Disable all buttons
+                for item in self.children:
+                    item.disabled = True
+                
+                if result['player_won']:
+                    embed.color = discord.Color.green()
+                    if result.get('rewards'):
+                        rewards = result['rewards']
+                        embed.add_field(
+                            name="🎉 Sieg!",
+                            value=f"**+{rewards['gold']} Gold**\n**+{rewards['xp']} XP**",
+                            inline=False
+                        )
+                        if rewards.get('leveled_up'):
+                            embed.add_field(
+                                name="🎊 Level Up!",
+                                value=f"Du bist jetzt **Level {rewards['new_level']}**!",
+                                inline=False
+                            )
+                    
+                    # Show continue adventuring button
+                    continue_view = RPGContinueAdventureView(self.user_id)
+                    await interaction.edit_original_response(embed=embed, view=continue_view)
+                else:
+                    embed.color = discord.Color.dark_red()
+                    embed.set_footer(text="Du wurdest mit halber HP ins Dorf zurückgebracht.")
+                    await interaction.edit_original_response(embed=embed, view=None)
+                
+                self.stop()
+            else:
+                await interaction.edit_original_response(embed=embed, view=self)
+            
+        except Exception as e:
+            logger.error(f"Error using skill in combat: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Fehler: {e}")
     
     @discord.ui.button(label="⚔️ Angreifen", style=discord.ButtonStyle.danger)
     async def attack_button(self, interaction: discord.Interaction, button: discord.ui.Button):

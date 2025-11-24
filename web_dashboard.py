@@ -1470,35 +1470,32 @@ def economy_stats():
         cursor = conn.cursor(dictionary=True)
         
         try:
-            # Total coins in circulation (using balance column)
-            result = safe_db_query(cursor, "SELECT COALESCE(SUM(balance), 0) as total_coins FROM user_stats")
+            # Get current stat period (YYYY-MM format)
+            from datetime import datetime
+            current_period = datetime.now().strftime('%Y-%m')
+            
+            # Total coins in circulation (using balance column for current period)
+            cursor.execute("SELECT COALESCE(SUM(balance), 0) as total_coins FROM user_stats WHERE stat_period = %s", (current_period,))
+            result = cursor.fetchone()
             total_coins = result.get('total_coins', 0) if result else 0
             
-            # Total users with coins
-            result = safe_db_query(cursor, "SELECT COUNT(DISTINCT user_id) as total_users FROM user_stats WHERE balance > 0")
+            # Total users with coins (current period)
+            cursor.execute("SELECT COUNT(DISTINCT user_id) as total_users FROM user_stats WHERE stat_period = %s AND balance > 0", (current_period,))
+            result = cursor.fetchone()
             total_users = result.get('total_users', 0) if result else 0
             
             # Average coins per user
             avg_coins = total_coins / total_users if total_users > 0 else 0
             
-            # Richest users - check if display_name column exists
-            richest_users = safe_db_query(cursor, """
+            # Richest users - current period only
+            cursor.execute("""
                 SELECT user_id, display_name, balance as coins 
                 FROM user_stats 
-                WHERE balance > 0 
+                WHERE stat_period = %s AND balance > 0 
                 ORDER BY balance DESC 
                 LIMIT 10
-            """, default=[], fetch_all=True)
-            
-            # If display_name column doesn't exist, fall back to simpler query
-            if not richest_users:
-                richest_users = safe_db_query(cursor, """
-                    SELECT user_id, balance as coins 
-                    FROM user_stats 
-                    WHERE balance > 0 
-                    ORDER BY balance DESC 
-                    LIMIT 10
-                """, default=[], fetch_all=True)
+            """, (current_period,))
+            richest_users = cursor.fetchall() or []
             
             # Recent transactions - use transaction_history table if it exists
             recent_transactions = safe_db_query(cursor, """
