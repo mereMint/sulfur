@@ -355,6 +355,11 @@ def initialize_database():
             )
         """)
         
+        # Add language column if it doesn't exist (for tables created before this column was added)
+        cursor.execute("SHOW COLUMNS FROM user_customization LIKE 'language'")
+        if not cursor.fetchone():
+            cursor.execute("ALTER TABLE user_customization ADD COLUMN language VARCHAR(2) DEFAULT 'de'")
+        
         # --- NEW: Quest System Tables ---
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS daily_quests (
@@ -2770,12 +2775,6 @@ async def set_user_language(user_id, language):
     
     cursor = cnx.cursor()
     try:
-        # First ensure the language column exists
-        cursor.execute("""
-            ALTER TABLE user_customization 
-            ADD COLUMN IF NOT EXISTS language VARCHAR(2) DEFAULT 'de'
-        """)
-        
         cursor.execute(
             """
             INSERT INTO user_customization (user_id, language)
