@@ -2909,6 +2909,16 @@ async def purchase_item(db_helpers, user_id: int, item_id: int):
             if player['gold'] < item['price']:
                 return False, "Nicht genug Gold"
             
+            # Check if player already owns this item (prevent double-buying)
+            cursor.execute("""
+                SELECT quantity FROM rpg_inventory 
+                WHERE user_id = %s AND item_id = %s
+            """, (user_id, item_id))
+            existing = cursor.fetchone()
+            
+            if existing and existing['quantity'] > 0:
+                return False, "Du besitzt dieses Item bereits!"
+            
             # Add to inventory
             cursor.execute("""
                 INSERT INTO rpg_inventory (user_id, item_id, item_type, quantity)
@@ -2932,7 +2942,11 @@ async def purchase_item(db_helpers, user_id: int, item_id: int):
 
 
 async def sell_item(db_helpers, user_id: int, item_id: int, quantity: int = 1):
-    """Sell an item from inventory for 50% of its shop price."""
+    """Sell an item from inventory for 50% of its shop price.
+    
+    Can sell weapons, skills, materials, and other items.
+    Cannot sell quest items.
+    """
     try:
         if not db_helpers.db_pool:
             return False, "Datenbank nicht verfügbar"
@@ -2943,9 +2957,9 @@ async def sell_item(db_helpers, user_id: int, item_id: int, quantity: int = 1):
         
         cursor = conn.cursor(dictionary=True)
         try:
-            # Check if player has item in inventory
+            # Check if player has item in inventory and get item details
             cursor.execute("""
-                SELECT i.quantity, it.name, it.price
+                SELECT i.quantity, it.name, it.price, it.type, it.is_quest_item, it.is_sellable
                 FROM rpg_inventory i
                 JOIN rpg_items it ON i.item_id = it.id
                 WHERE i.user_id = %s AND i.item_id = %s
@@ -2956,8 +2970,28 @@ async def sell_item(db_helpers, user_id: int, item_id: int, quantity: int = 1):
             if not inventory_item:
                 return False, "Item nicht im Inventar"
             
+            # Check if item is a quest item (cannot sell)
+            if inventory_item.get('is_quest_item'):
+                return False, "Quest-Items können nicht verkauft werden!"
+            
+            # Check if item is explicitly not sellable
+            if inventory_item.get('is_sellable') is False:
+                return False, "Dieses Item kann nicht verkauft werden!"
+            
             if inventory_item['quantity'] < quantity:
                 return False, f"Nicht genug Items (hast {inventory_item['quantity']})"
+            
+            # Check if item is equipped (for weapons/skills)
+            cursor.execute("""
+                SELECT weapon_id, skill1_id, skill2_id FROM rpg_equipped WHERE user_id = %s
+            """, (user_id,))
+            equipped = cursor.fetchone()
+            
+            if equipped:
+                if equipped['weapon_id'] == item_id:
+                    return False, "Du kannst keine ausgerüstete Waffe verkaufen! Rüste zuerst eine andere Waffe aus."
+                if equipped['skill1_id'] == item_id or equipped['skill2_id'] == item_id:
+                    return False, "Du kannst keinen ausgerüsteten Skill verkaufen! Rüste zuerst einen anderen Skill aus."
             
             # Calculate sell price (50% of shop price)
             sell_price = int(inventory_item['price'] * 0.5 * quantity)
@@ -3101,20 +3135,22 @@ async def equip_item(db_helpers, user_id: int, item_id: int, item_type: str):
                     ON DUPLICATE KEY UPDATE weapon_id = %s
                 """, (user_id, item_id, item_id))
             elif item_type == 'skill':
-                # Try slot 1 first, then slot 2
+                # Ensure the row exists first
+                cursor.execute("""
+                    INSERT IGNORE INTO rpg_equipped (user_id) VALUES (%s)
+                """, (user_id,))
+                
+                # Now get current skill slots
                 cursor.execute("SELECT skill1_id, skill2_id FROM rpg_equipped WHERE user_id = %s", (user_id,))
                 result = cursor.fetchone()
                 
-                if not result or result[0] is None:
+                if result[0] is None:
                     # Slot 1 is empty, equip there
                     cursor.execute("""
-                        INSERT INTO rpg_equipped (user_id, skill1_id)
-                        VALUES (%s, %s)
-                        ON DUPLICATE KEY UPDATE skill1_id = %s
-                    """, (user_id, item_id, item_id))
+                        UPDATE rpg_equipped SET skill1_id = %s WHERE user_id = %s
+                    """, (item_id, user_id))
                 elif result[1] is None:
                     # Slot 1 is filled but slot 2 is empty, equip to slot 2
-                    # We know row exists at this point, so just UPDATE
                     cursor.execute("""
                         UPDATE rpg_equipped SET skill2_id = %s WHERE user_id = %s
                     """, (item_id, user_id))

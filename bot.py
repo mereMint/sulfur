@@ -4341,14 +4341,10 @@ class RPGEventView(discord.ui.View):
                 for item in self.children:
                     item.disabled = True
                 
-                # Check if event allows continuing adventure
-                if self.event.get('can_continue', False):
-                    embed.set_footer(text="🎮 Du kannst weiter abenteuern!")
-                    continue_view = RPGContinueAdventureView(self.user_id)
-                    await interaction.edit_original_response(embed=embed, view=continue_view)
-                else:
-                    embed.set_footer(text="Nutze /rpg um weiterzuspielen!")
-                    await interaction.edit_original_response(embed=embed, view=None)
+                # Always allow continuing adventure after claiming rewards
+                embed.set_footer(text="🎮 Du kannst weiter abenteuern!")
+                continue_view = RPGContinueAdventureView(self.user_id)
+                await interaction.edit_original_response(embed=embed, view=continue_view)
                 
                 self.stop()
             else:
