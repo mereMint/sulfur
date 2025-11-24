@@ -1279,7 +1279,13 @@ async def initialize_default_monsters(db_helpers):
             
             logger.info(f"Found {count} monsters in database")
             
-            # Only initialize if we have fewer than 20 monsters
+            # Initialize if we have NO monsters or fewer than expected minimum (20)
+            # This ensures initialization happens on first run or after database reset
+            if count == 0:
+                logger.warning("No monsters found in database! Initializing for the first time...")
+            elif count < 20:
+                logger.warning(f"Only {count} monsters found (expected at least 20). Re-initializing...")
+            
             if count < 20:
                 logger.info(f"Only {count} monsters found. Inserting default monsters...")
                 
@@ -1361,6 +1367,59 @@ async def get_random_monster(db_helpers, player_level: int, world: str):
             """, (world, min_level, max_level))
             
             monster = cursor.fetchone()
+            
+            # Fallback 1: Try wider level range in same world
+            if not monster:
+                logger.warning(f"No monster found for world={world}, level {min_level}-{max_level}. Trying wider range...")
+                cursor.execute("""
+                    SELECT * FROM rpg_monsters
+                    WHERE world = %s
+                    ORDER BY RAND()
+                    LIMIT 1
+                """, (world,))
+                monster = cursor.fetchone()
+            
+            # Fallback 2: Try any world with similar level
+            if not monster:
+                logger.warning(f"No monster found in world={world}. Trying any world with similar level...")
+                cursor.execute("""
+                    SELECT * FROM rpg_monsters
+                    WHERE level BETWEEN %s AND %s
+                    ORDER BY RAND()
+                    LIMIT 1
+                """, (min_level, max_level))
+                monster = cursor.fetchone()
+            
+            # Fallback 3: Get ANY monster
+            if not monster:
+                logger.error("No monsters found with level criteria. Getting ANY monster...")
+                cursor.execute("""
+                    SELECT * FROM rpg_monsters
+                    ORDER BY RAND()
+                    LIMIT 1
+                """)
+                monster = cursor.fetchone()
+            
+            # If still no monster, database is empty - try to initialize
+            if not monster:
+                logger.error("No monsters in database at all! Attempting to initialize...")
+                cursor.close()
+                conn.close()
+                await initialize_default_monsters(db_helpers)
+                
+                # Try one more time
+                conn = db_helpers.db_pool.get_connection()
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute("""
+                    SELECT * FROM rpg_monsters
+                    ORDER BY RAND()
+                    LIMIT 1
+                """)
+                monster = cursor.fetchone()
+                
+                if not monster:
+                    logger.error("Failed to initialize monsters! Database may have issues.")
+                    return None
             
             if monster:
                 # Add stat variations (±15-20% from base stats)
@@ -2212,6 +2271,13 @@ async def initialize_shop_items(db_helpers):
             
             logger.info(f"Found {count} default RPG items in database")
             
+            # Initialize if we have NO items or fewer than expected minimum (100)
+            # This ensures initialization happens on first run or after database reset
+            if count == 0:
+                logger.warning("No items found in database! Initializing for the first time...")
+            elif count < 100:
+                logger.warning(f"Only {count} items found (expected at least 100). Re-initializing...")
+            
             # Only initialize if we have fewer than 100 items (should have hundreds)
             if count < 100:
                 logger.info(f"Only {count} default items found. Generating and inserting new items...")
@@ -2320,8 +2386,34 @@ async def get_daily_shop_items(db_helpers, player_level: int):
                 
                 all_items = cursor.fetchall()
                 
+                # If no items found for player level, try without level restriction
                 if not all_items:
-                    return []
+                    logger.warning(f"No items found for player level {player_level}. Trying all items...")
+                    cursor.execute("""
+                        SELECT id, rarity FROM rpg_items
+                        WHERE created_by IS NULL AND is_quest_item = FALSE
+                    """)
+                    all_items = cursor.fetchall()
+                
+                # If still no items, try to initialize items
+                if not all_items:
+                    logger.error("No items in database! Attempting to initialize...")
+                    cursor.close()
+                    conn.close()
+                    await initialize_shop_items(db_helpers)
+                    
+                    # Try again after initialization
+                    conn = db_helpers.db_pool.get_connection()
+                    cursor = conn.cursor(dictionary=True)
+                    cursor.execute("""
+                        SELECT id, rarity FROM rpg_items
+                        WHERE created_by IS NULL AND is_quest_item = FALSE
+                    """)
+                    all_items = cursor.fetchall()
+                    
+                    if not all_items:
+                        logger.error("Failed to initialize items! Database may have issues.")
+                        return []
                 
                 # Select items by rarity for balanced shop
                 # 10 common, 6 uncommon, 4 rare, 2 epic, 1 legendary
