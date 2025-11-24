@@ -973,6 +973,17 @@ async def initialize_rpg_tables(db_helpers):
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
+            # Daily shop rotation - stores which items are available each day
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS rpg_daily_shop (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    shop_date DATE NOT NULL UNIQUE,
+                    item_ids JSON NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_date (shop_date)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """)
+            
             # Monsters
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS rpg_monsters (
@@ -2149,8 +2160,14 @@ async def initialize_shop_items(db_helpers):
         logger.error(f"Error initializing shop items: {e}", exc_info=True)
 
 
-async def get_shop_items(db_helpers, player_level: int):
-    """Get shop items available for player level."""
+async def get_daily_shop_items(db_helpers, player_level: int):
+    """
+    Get shop items for today's daily rotation.
+    Shop changes every 24 hours with a random selection of items.
+    
+    Returns:
+        List of items available in today's shop
+    """
     try:
         if not db_helpers.db_pool:
             return []
@@ -2161,19 +2178,108 @@ async def get_shop_items(db_helpers, player_level: int):
         
         cursor = conn.cursor(dictionary=True)
         try:
-            cursor.execute("""
-                SELECT * FROM rpg_items
-                WHERE required_level <= %s AND created_by IS NULL
-                ORDER BY required_level ASC, price ASC
-            """, (player_level,))
+            today = datetime.now(timezone.utc).date()
             
-            return cursor.fetchall()
+            # Check if we have today's shop
+            cursor.execute("""
+                SELECT item_ids FROM rpg_daily_shop WHERE shop_date = %s
+            """, (today,))
+            
+            shop_row = cursor.fetchone()
+            
+            if shop_row:
+                # Shop exists for today, load those items
+                item_ids = json.loads(shop_row['item_ids'])
+                
+                if item_ids:
+                    placeholders = ','.join(['%s'] * len(item_ids))
+                    cursor.execute(f"""
+                        SELECT * FROM rpg_items
+                        WHERE id IN ({placeholders}) AND required_level <= %s
+                        ORDER BY rarity, price ASC
+                    """, (*item_ids, player_level))
+                    
+                    return cursor.fetchall()
+                else:
+                    return []
+            
+            else:
+                # Generate new shop for today
+                logger.info(f"Generating new daily shop for {today}")
+                
+                # Get all available items for the player level
+                cursor.execute("""
+                    SELECT id, rarity FROM rpg_items
+                    WHERE created_by IS NULL AND required_level <= %s AND is_quest_item = FALSE
+                """, (player_level,))
+                
+                all_items = cursor.fetchall()
+                
+                if not all_items:
+                    return []
+                
+                # Select items by rarity for balanced shop
+                # 10 common, 6 uncommon, 4 rare, 2 epic, 1 legendary
+                rarity_quotas = {
+                    'common': 10,
+                    'uncommon': 6,
+                    'rare': 4,
+                    'epic': 2,
+                    'legendary': 1
+                }
+                
+                selected_ids = []
+                items_by_rarity = {}
+                
+                # Group items by rarity
+                for item in all_items:
+                    rarity = item['rarity']
+                    if rarity not in items_by_rarity:
+                        items_by_rarity[rarity] = []
+                    items_by_rarity[rarity].append(item['id'])
+                
+                # Randomly select from each rarity
+                for rarity, quota in rarity_quotas.items():
+                    if rarity in items_by_rarity:
+                        available = items_by_rarity[rarity]
+                        count = min(quota, len(available))
+                        selected_ids.extend(random.sample(available, count))
+                
+                # Save today's shop
+                cursor.execute("""
+                    INSERT INTO rpg_daily_shop (shop_date, item_ids)
+                    VALUES (%s, %s)
+                """, (today, json.dumps(selected_ids)))
+                
+                conn.commit()
+                
+                # Return the selected items
+                if selected_ids:
+                    placeholders = ','.join(['%s'] * len(selected_ids))
+                    cursor.execute(f"""
+                        SELECT * FROM rpg_items
+                        WHERE id IN ({placeholders})
+                        ORDER BY rarity, price ASC
+                    """, tuple(selected_ids))
+                    
+                    return cursor.fetchall()
+                else:
+                    return []
+                
         finally:
             cursor.close()
             conn.close()
     except Exception as e:
-        logger.error(f"Error getting shop items: {e}", exc_info=True)
+        logger.error(f"Error getting daily shop items: {e}", exc_info=True)
         return []
+
+
+async def get_shop_items(db_helpers, player_level: int):
+    """
+    Get shop items available for player level.
+    Now uses daily rotation system - shop changes every 24 hours.
+    """
+    return await get_daily_shop_items(db_helpers, player_level)
 
 
 async def purchase_item(db_helpers, user_id: int, item_id: int):
