@@ -12,7 +12,7 @@ print("Word Find Schema Conflict Fix Verification")
 print("=" * 70)
 
 # Load the word_find.py module code
-with open('modules/word_find.py', 'r') as f:
+with open('modules/word_find.py', 'r', encoding='utf-8') as f:
     code = f.read()
 
 # Test 1: Check for schema conflict detection

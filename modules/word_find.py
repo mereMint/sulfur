@@ -195,8 +195,11 @@ async def initialize_word_find_table(db_helpers):
                 logger.info("Dropped incorrect word_find_daily table")
             
             # Also drop other incorrectly named/structured tables if they exist
+            # These tables were created by buggy migration 010 and should never exist
             cursor.execute("DROP TABLE IF EXISTS word_find_user_progress")
+            logger.debug("Cleaned up word_find_user_progress if it existed")
             cursor.execute("DROP TABLE IF EXISTS word_find_user_stats")  # Wrong name, should be word_find_stats
+            logger.debug("Cleaned up word_find_user_stats if it existed")
             
             # Table for daily word
             cursor.execute("""
