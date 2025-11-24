@@ -1909,7 +1909,7 @@ def game_leaderboard(game_type):
                 # Use LEFT JOIN with current month's user_stats
                 # Note: streak and best_streak are set to 0 as these columns don't exist
                 # in detective_user_stats table (streak tracking not yet implemented)
-                cursor.execute("""
+                leaderboard = safe_db_query(cursor, """
                     SELECT u.display_name, u.username, d.user_id,
                            d.cases_solved, d.total_cases_played as total_cases, 
                            ROUND(d.cases_solved * 100.0 / NULLIF(d.total_cases_played, 0), 2) as accuracy,
@@ -1922,9 +1922,9 @@ def game_leaderboard(game_type):
                     ) u ON d.user_id = u.user_id
                     ORDER BY d.cases_solved DESC, accuracy DESC
                     LIMIT 50
-                """)
+                """, default=[], fetch_all=True)
             elif game_type == 'wordle':
-                cursor.execute("""
+                leaderboard = safe_db_query(cursor, """
                     SELECT user_id, COUNT(*) as games_won,
                            AVG(attempts) as avg_attempts
                     FROM wordle_games
@@ -1932,12 +1932,11 @@ def game_leaderboard(game_type):
                     GROUP BY user_id
                     ORDER BY games_won DESC, avg_attempts ASC
                     LIMIT 50
-                """)
+                """, default=[], fetch_all=True)
             else:
                 return jsonify({'error': 'Invalid game type'}), 400
             
-            leaderboard = cursor.fetchall()
-            return jsonify({'leaderboard': leaderboard})
+            return jsonify({'leaderboard': leaderboard or []})
         finally:
             cursor.close()
             conn.close()
