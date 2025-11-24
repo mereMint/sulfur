@@ -1279,9 +1279,13 @@ async def initialize_default_monsters(db_helpers):
             
             logger.info(f"Found {count} monsters in database")
             
-            # Only initialize if we have fewer than 20 monsters
+            # Initialize if we have NO monsters or fewer than expected minimum (20)
+            # This ensures initialization happens on first run or after database reset
             if count < 20:
-                logger.info(f"Only {count} monsters found. Inserting default monsters...")
+                if count == 0:
+                    logger.warning("No monsters found in database! Initializing for the first time...")
+                else:
+                    logger.warning(f"Only {count} monsters found (expected at least 20). Re-initializing...")
                 
                 # Get monster data from the function defined in this file
                 all_monsters = get_base_monsters_data()
@@ -1361,6 +1365,84 @@ async def get_random_monster(db_helpers, player_level: int, world: str):
             """, (world, min_level, max_level))
             
             monster = cursor.fetchone()
+            
+            # Fallback 1: Try wider level range in same world
+            if not monster:
+                logger.warning(f"No monster found for world={world}, level {min_level}-{max_level}. Trying wider range...")
+                cursor.execute("""
+                    SELECT * FROM rpg_monsters
+                    WHERE world = %s
+                    ORDER BY RAND()
+                    LIMIT 1
+                """, (world,))
+                monster = cursor.fetchone()
+            
+            # Fallback 2: Try any world with similar level
+            if not monster:
+                logger.warning(f"No monster found in world={world}. Trying any world with similar level...")
+                cursor.execute("""
+                    SELECT * FROM rpg_monsters
+                    WHERE level BETWEEN %s AND %s
+                    ORDER BY RAND()
+                    LIMIT 1
+                """, (min_level, max_level))
+                monster = cursor.fetchone()
+            
+            # Fallback 3: Get ANY monster
+            if not monster:
+                logger.error("No monsters found with level criteria. Getting ANY monster...")
+                cursor.execute("""
+                    SELECT * FROM rpg_monsters
+                    ORDER BY RAND()
+                    LIMIT 1
+                """)
+                monster = cursor.fetchone()
+            
+            # If still no monster, database is empty - try to initialize
+            if not monster:
+                logger.error("No monsters in database at all! Attempting to initialize...")
+                new_conn = None
+                new_cursor = None
+                try:
+                    cursor.close()
+                    conn.close()
+                    await initialize_default_monsters(db_helpers)
+                    
+                    # Try one more time
+                    new_conn = db_helpers.db_pool.get_connection()
+                    if not new_conn:
+                        logger.error("Failed to get database connection after initialization")
+                        return None
+                    
+                    new_cursor = new_conn.cursor(dictionary=True)
+                    new_cursor.execute("""
+                        SELECT * FROM rpg_monsters
+                        ORDER BY RAND()
+                        LIMIT 1
+                    """)
+                    monster = new_cursor.fetchone()
+                    
+                    # Update conn and cursor references for cleanup in finally block
+                    conn = new_conn
+                    cursor = new_cursor
+                    
+                    if not monster:
+                        logger.error("Failed to initialize monsters! Database may have issues.")
+                        return None
+                except Exception as init_error:
+                    logger.error(f"Error during monster initialization: {init_error}", exc_info=True)
+                    # Clean up the new connection if it was created
+                    if new_cursor:
+                        try:
+                            new_cursor.close()
+                        except Exception as e:
+                            logger.debug(f"Error closing cursor during cleanup: {e}")
+                    if new_conn:
+                        try:
+                            new_conn.close()
+                        except Exception as e:
+                            logger.debug(f"Error closing connection during cleanup: {e}")
+                    return None
             
             if monster:
                 # Add stat variations (±15-20% from base stats)
@@ -2212,9 +2294,13 @@ async def initialize_shop_items(db_helpers):
             
             logger.info(f"Found {count} default RPG items in database")
             
-            # Only initialize if we have fewer than 100 items (should have hundreds)
+            # Initialize if we have NO items or fewer than expected minimum (100)
+            # This ensures initialization happens on first run or after database reset
             if count < 100:
-                logger.info(f"Only {count} default items found. Generating and inserting new items...")
+                if count == 0:
+                    logger.warning("No items found in database! Initializing for the first time...")
+                else:
+                    logger.warning(f"Only {count} items found (expected at least 100). Re-initializing...")
                 
                 # Import generation function (lazy import to avoid circular dependencies)
                 from modules.rpg_items_data import get_all_items_for_seeding
@@ -2320,8 +2406,59 @@ async def get_daily_shop_items(db_helpers, player_level: int):
                 
                 all_items = cursor.fetchall()
                 
+                # If no items found for player level, try without level restriction
                 if not all_items:
-                    return []
+                    logger.warning(f"No items found for player level {player_level}. Trying all items...")
+                    cursor.execute("""
+                        SELECT id, rarity FROM rpg_items
+                        WHERE created_by IS NULL AND is_quest_item = FALSE
+                    """)
+                    all_items = cursor.fetchall()
+                
+                # If still no items, try to initialize items
+                if not all_items:
+                    logger.error("No items in database! Attempting to initialize...")
+                    new_conn = None
+                    new_cursor = None
+                    try:
+                        cursor.close()
+                        conn.close()
+                        await initialize_shop_items(db_helpers)
+                        
+                        # Try again after initialization
+                        new_conn = db_helpers.db_pool.get_connection()
+                        if not new_conn:
+                            logger.error("Failed to get database connection after initialization")
+                            return []
+                        
+                        new_cursor = new_conn.cursor(dictionary=True)
+                        new_cursor.execute("""
+                            SELECT id, rarity FROM rpg_items
+                            WHERE created_by IS NULL AND is_quest_item = FALSE
+                        """)
+                        all_items = new_cursor.fetchall()
+                        
+                        # Update conn and cursor references for cleanup in finally block
+                        conn = new_conn
+                        cursor = new_cursor
+                        
+                        if not all_items:
+                            logger.error("Failed to initialize items! Database may have issues.")
+                            return []
+                    except Exception as init_error:
+                        logger.error(f"Error during item initialization: {init_error}", exc_info=True)
+                        # Clean up the new connection if it was created
+                        if new_cursor:
+                            try:
+                                new_cursor.close()
+                            except Exception as e:
+                                logger.debug(f"Error closing cursor during cleanup: {e}")
+                        if new_conn:
+                            try:
+                                new_conn.close()
+                            except Exception as e:
+                                logger.debug(f"Error closing connection during cleanup: {e}")
+                        return []
                 
                 # Select items by rarity for balanced shop
                 # 10 common, 6 uncommon, 4 rare, 2 epic, 1 legendary
