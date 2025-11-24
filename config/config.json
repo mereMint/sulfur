@@ -220,52 +220,76 @@
         "randomize_targets": true,
         "quest_types": {
           "messages": {
-            "target_min": 20,
-            "target_max": 30,
-            "target_step": 5,
-            "target": 25,
-            "reward": 75,
-            "xp_reward": 100
-          },
-          "vc_minutes": {
             "target_min": 15,
             "target_max": 25,
             "target_step": 5,
             "target": 20,
+            "reward": 75,
+            "xp_reward": 100
+          },
+          "vc_minutes": {
+            "target_min": 10,
+            "target_max": 20,
+            "target_step": 5,
+            "target": 15,
             "reward": 100,
             "xp_reward": 150
           },
           "reactions": {
-            "target_min": 10,
-            "target_max": 20,
+            "target_min": 5,
+            "target_max": 15,
             "target_step": 5,
-            "target": 15,
+            "target": 10,
             "reward": 50,
             "xp_reward": 75
           },
           "game_minutes": {
-            "target_min": 10,
-            "target_max": 20,
+            "target_min": 5,
+            "target_max": 15,
             "target_step": 5,
-            "target": 15,
+            "target": 10,
             "reward": 125,
             "xp_reward": 200
           },
           "daily_media": {
             "target_min": 1,
-            "target_max": 3,
+            "target_max": 2,
             "target_step": 1,
-            "target": 2,
+            "target": 1,
             "reward": 80,
             "xp_reward": 100
           },
-          "daily_word_find": {
+          "daily_word_attempt": {
             "target_min": 1,
             "target_max": 1,
             "target_step": 1,
             "target": 1,
             "reward": 100,
             "xp_reward": 150
+          },
+          "check_news": {
+            "target_min": 1,
+            "target_max": 1,
+            "target_step": 1,
+            "target": 1,
+            "reward": 80,
+            "xp_reward": 120
+          },
+          "check_portfolio": {
+            "target_min": 1,
+            "target_max": 1,
+            "target_step": 1,
+            "target": 1,
+            "reward": 90,
+            "xp_reward": 130
+          },
+          "watch_horses": {
+            "target_min": 1,
+            "target_max": 1,
+            "target_step": 1,
+            "target": 1,
+            "reward": 85,
+            "xp_reward": 125
           }
         },
         "daily_completion_bonus": {
