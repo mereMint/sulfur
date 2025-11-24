@@ -1817,7 +1817,9 @@ def api_update_stock(symbol):
             
             if 'trend' in data:
                 updates.append("trend = %s")
-                params.append(float(data['trend']))
+                # Clamp trend to ±1.0 to prevent DECIMAL(5,4) overflow
+                trend_value = max(-1.0, min(1.0, float(data['trend'])))
+                params.append(trend_value)
             
             if 'game_influence_factor' in data:
                 updates.append("game_influence_factor = %s")
