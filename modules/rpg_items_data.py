@@ -425,13 +425,31 @@ def generate_base_shop_items():
     return EXTENDED_WEAPONS + EXTENDED_SKILLS
 
 
-def generate_all_monsters():
+def _create_elemental_variants(skills_list, max_variants=MAX_ELEMENTAL_VARIANTS):
     """
-    Returns all monsters with their loot tables.
-    This function must be implemented in rpg_system.py since monsters are defined there.
+    Helper function to create elemental variants of skills.
+    Takes a list of skills and creates variants with different damage types.
+    
+    Args:
+        skills_list: List of skill dictionaries
+        max_variants: Maximum number of variants to create
+    
+    Returns:
+        List of skill variant dictionaries
     """
-    # This is a placeholder - actual implementation is in rpg_system.py
-    raise NotImplementedError("Monsters are defined in rpg_system.py - call get_base_monsters_data() instead")
+    elemental_variants = []
+    for skill in skills_list[:len(skills_list)//2]:
+        if 'damage_type' in skill:
+            for element in ['fire', 'ice', 'lightning', 'dark', 'light']:
+                if skill['damage_type'] != element:
+                    variant = skill.copy()
+                    variant['name'] = f"{skill['name']} ({element.capitalize()})"
+                    variant['damage_type'] = element
+                    variant['price'] = int(skill['price'] * 1.1)
+                    elemental_variants.append(variant)
+                    if len(elemental_variants) >= max_variants:
+                        return elemental_variants
+    return elemental_variants
 
 
 # Main function to get all items for database seeding
@@ -458,23 +476,8 @@ def get_all_items_for_seeding():
     base_generated_skills = generate_skill_variations()
     all_items.extend(base_generated_skills)
     
-    # Add elemental variants of skills
-    elemental_variants = []
-    for skill in base_generated_skills[:len(base_generated_skills)//2]:
-        if 'damage_type' in skill:
-            for element in ['fire', 'ice', 'lightning', 'dark', 'light']:
-                if skill['damage_type'] != element:
-                    variant = skill.copy()
-                    variant['name'] = f"{skill['name']} ({element.capitalize()})"
-                    variant['damage_type'] = element
-                    variant['price'] = int(skill['price'] * 1.1)
-                    elemental_variants.append(variant)
-                    if len(elemental_variants) >= MAX_ELEMENTAL_VARIANTS:
-                        break
-            if len(elemental_variants) >= MAX_ELEMENTAL_VARIANTS:
-                break
-    
-    all_items.extend(elemental_variants)
+    # Add elemental variants of generated skills
+    all_items.extend(_create_elemental_variants(base_generated_skills))
     
     return all_items
 
