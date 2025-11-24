@@ -619,21 +619,25 @@ def apply_sql_migration(migration_file_path):
     current_statement = []
     in_delimiter = False
     current_delimiter = ';'
+    custom_delimiter = None
     
     for line in sql_content.split('\n'):
         stripped = line.strip()
         
-        # Handle DELIMITER changes
+        # Handle DELIMITER changes (supports $$, //, and other custom delimiters)
         if stripped.upper().startswith('DELIMITER'):
             parts = stripped.split()
             if len(parts) >= 2:
                 new_delimiter = parts[1]
-                if new_delimiter == '$$':
-                    in_delimiter = True
-                    current_delimiter = '$$'
-                elif new_delimiter == ';':
+                if new_delimiter == ';':
                     in_delimiter = False
                     current_delimiter = ';'
+                    custom_delimiter = None
+                else:
+                    # Support any custom delimiter ($$, //, etc.)
+                    in_delimiter = True
+                    current_delimiter = new_delimiter
+                    custom_delimiter = new_delimiter
             continue
         
         # Skip empty lines and comments
@@ -643,8 +647,8 @@ def apply_sql_migration(migration_file_path):
         current_statement.append(line)
         
         # Check for statement end
-        if in_delimiter and stripped.endswith('$$'):
-            stmt = '\n'.join(current_statement).rstrip('$$').strip()
+        if in_delimiter and custom_delimiter and stripped.endswith(custom_delimiter):
+            stmt = '\n'.join(current_statement).rstrip(custom_delimiter).strip()
             if stmt:
                 statements.append(stmt)
             current_statement = []
@@ -660,15 +664,22 @@ def apply_sql_migration(migration_file_path):
         for i, statement in enumerate(statements, 1):
             try:
                 cursor.execute(statement)
+                # Consume any results to avoid "Unread result found" error
+                # This is necessary when EXECUTE stmt runs a SELECT statement
+                try:
+                    cursor.fetchall()
+                except mysql.connector.Error:
+                    # No results to fetch, which is fine for non-SELECT statements
+                    pass
                 # Get preview of statement for logging
                 preview = ' '.join(statement.split()[:5])
                 logger.debug(f"  [{i}/{len(statements)}] ✓ {preview}...")
             except mysql.connector.Error as err:
                 preview = ' '.join(statement.split()[:5])
                 error_msg = str(err).lower()
-                # Ignore "already exists" and "duplicate" errors - migrations are idempotent
-                if 'already exists' in error_msg or 'duplicate' in error_msg:
-                    logger.debug(f"  [{i}/{len(statements)}] ⚠ {preview}... (already exists, skipping)")
+                # Ignore "already exists", "duplicate", and "does not exist" errors - migrations are idempotent
+                if 'already exists' in error_msg or 'duplicate' in error_msg or 'does not exist' in error_msg:
+                    logger.debug(f"  [{i}/{len(statements)}] ⚠ {preview}... (idempotent, skipping)")
                 else:
                     logger.error(f"  [{i}/{len(statements)}] ✗ {preview}... Error: {err}")
                     raise
