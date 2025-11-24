@@ -24,7 +24,7 @@ BEGIN
             AND COLUMN_NAME = 'is_quest_item'
         ) THEN
             ALTER TABLE rpg_items 
-            ADD COLUMN is_quest_item BOOLEAN DEFAULT FALSE AFTER created_by;
+            ADD COLUMN is_quest_item BOOLEAN DEFAULT FALSE;
         END IF;
         
         -- Add is_sellable column if it doesn't exist
@@ -35,7 +35,7 @@ BEGIN
             AND COLUMN_NAME = 'is_sellable'
         ) THEN
             ALTER TABLE rpg_items 
-            ADD COLUMN is_sellable BOOLEAN DEFAULT TRUE AFTER is_quest_item;
+            ADD COLUMN is_sellable BOOLEAN DEFAULT TRUE;
         END IF;
         
         -- Add is_usable column if it doesn't exist
@@ -46,7 +46,7 @@ BEGIN
             AND COLUMN_NAME = 'is_usable'
         ) THEN
             ALTER TABLE rpg_items 
-            ADD COLUMN is_usable BOOLEAN DEFAULT TRUE AFTER is_sellable;
+            ADD COLUMN is_usable BOOLEAN DEFAULT TRUE;
         END IF;
         
         -- Add quest_id column if it doesn't exist
@@ -57,7 +57,7 @@ BEGIN
             AND COLUMN_NAME = 'quest_id'
         ) THEN
             ALTER TABLE rpg_items 
-            ADD COLUMN quest_id VARCHAR(100) NULL AFTER is_usable;
+            ADD COLUMN quest_id VARCHAR(100) NULL;
         END IF;
         
         -- Add index for is_quest_item if it doesn't exist
