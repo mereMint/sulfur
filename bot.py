@@ -6089,6 +6089,10 @@ class ShopBuyView(discord.ui.View):
             'unlimited_wordle': {
                 'name': '🎮 Unlimited Wordle',
                 'desc': 'Spiele Wordle ohne tägliches Limit!'
+            },
+            'rpg_access': {
+                'name': '⚔️ RPG System Access',
+                'desc': 'Zugriff auf das vollständige RPG-System mit Abenteuern!'
             }
         }
         
