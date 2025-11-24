@@ -9,6 +9,7 @@ import json
 from datetime import datetime, timezone
 from typing import Optional, Dict, List, Tuple
 from modules.logger_utils import bot_logger as logger
+from modules.rpg_items_data import EXTENDED_WEAPONS, EXTENDED_SKILLS
 
 
 # Status Effects - Applied during combat
@@ -2034,6 +2035,11 @@ DEFAULT_SHOP_ITEMS = [
     {'name': 'Doppelangriff', 'type': 'skill', 'rarity': 'epic', 'description': 'Greift zweimal an', 'price': 850, 'required_level': 10, 'effects': json.dumps({'double_attack': 2})},
 ]
 
+# Merge extended items from rpg_items_data module
+DEFAULT_SHOP_ITEMS.extend(EXTENDED_WEAPONS)
+DEFAULT_SHOP_ITEMS.extend(EXTENDED_SKILLS)
+
+logger.info(f"Loaded {len(DEFAULT_SHOP_ITEMS)} total shop items (base + extended)")
 
 
 async def initialize_shop_items(db_helpers):
