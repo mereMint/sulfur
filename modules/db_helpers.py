@@ -2697,11 +2697,15 @@ async def update_gambling_stats(user_id, game_type, wagered, won_amount):
                 biggest_loss = GREATEST(biggest_loss, %s),
                 last_played = NOW()
             """,
-            (user_id, game_type, wagered, 
+            # INSERT params (7): user_id, game_type, wagered, won_amount, lost_amount, biggest_win, biggest_loss
+            # UPDATE params (5): wagered, won_amount, lost_amount, biggest_win, biggest_loss
+            (user_id, game_type, 
+             wagered,
              won_amount if profit > 0 else 0, 
              abs(profit) if profit < 0 else 0,
              profit if profit > 0 else 0,
              abs(profit) if profit < 0 else 0,
+             # UPDATE params below
              wagered, 
              won_amount if profit > 0 else 0,
              abs(profit) if profit < 0 else 0,
