@@ -1403,22 +1403,30 @@ async def get_random_monster(db_helpers, player_level: int, world: str):
             # If still no monster, database is empty - try to initialize
             if not monster:
                 logger.error("No monsters in database at all! Attempting to initialize...")
-                cursor.close()
-                conn.close()
-                await initialize_default_monsters(db_helpers)
-                
-                # Try one more time
-                conn = db_helpers.db_pool.get_connection()
-                cursor = conn.cursor(dictionary=True)
-                cursor.execute("""
-                    SELECT * FROM rpg_monsters
-                    ORDER BY RAND()
-                    LIMIT 1
-                """)
-                monster = cursor.fetchone()
-                
-                if not monster:
-                    logger.error("Failed to initialize monsters! Database may have issues.")
+                try:
+                    cursor.close()
+                    conn.close()
+                    await initialize_default_monsters(db_helpers)
+                    
+                    # Try one more time
+                    conn = db_helpers.db_pool.get_connection()
+                    if not conn:
+                        logger.error("Failed to get database connection after initialization")
+                        return None
+                    
+                    cursor = conn.cursor(dictionary=True)
+                    cursor.execute("""
+                        SELECT * FROM rpg_monsters
+                        ORDER BY RAND()
+                        LIMIT 1
+                    """)
+                    monster = cursor.fetchone()
+                    
+                    if not monster:
+                        logger.error("Failed to initialize monsters! Database may have issues.")
+                        return None
+                except Exception as init_error:
+                    logger.error(f"Error during monster initialization: {init_error}", exc_info=True)
                     return None
             
             if monster:
@@ -2398,21 +2406,29 @@ async def get_daily_shop_items(db_helpers, player_level: int):
                 # If still no items, try to initialize items
                 if not all_items:
                     logger.error("No items in database! Attempting to initialize...")
-                    cursor.close()
-                    conn.close()
-                    await initialize_shop_items(db_helpers)
-                    
-                    # Try again after initialization
-                    conn = db_helpers.db_pool.get_connection()
-                    cursor = conn.cursor(dictionary=True)
-                    cursor.execute("""
-                        SELECT id, rarity FROM rpg_items
-                        WHERE created_by IS NULL AND is_quest_item = FALSE
-                    """)
-                    all_items = cursor.fetchall()
-                    
-                    if not all_items:
-                        logger.error("Failed to initialize items! Database may have issues.")
+                    try:
+                        cursor.close()
+                        conn.close()
+                        await initialize_shop_items(db_helpers)
+                        
+                        # Try again after initialization
+                        conn = db_helpers.db_pool.get_connection()
+                        if not conn:
+                            logger.error("Failed to get database connection after initialization")
+                            return []
+                        
+                        cursor = conn.cursor(dictionary=True)
+                        cursor.execute("""
+                            SELECT id, rarity FROM rpg_items
+                            WHERE created_by IS NULL AND is_quest_item = FALSE
+                        """)
+                        all_items = cursor.fetchall()
+                        
+                        if not all_items:
+                            logger.error("Failed to initialize items! Database may have issues.")
+                            return []
+                    except Exception as init_error:
+                        logger.error(f"Error during item initialization: {init_error}", exc_info=True)
                         return []
                 
                 # Select items by rarity for balanced shop
