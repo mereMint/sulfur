@@ -1475,9 +1475,6 @@ def economy_stats():
             current_period = datetime.now().strftime('%Y-%m')
             
             # Total coins in circulation (using balance column for current period)
-            result = safe_db_query(cursor, 
-                "SELECT COALESCE(SUM(balance), 0) as total_coins FROM user_stats WHERE stat_period = %s",
-                default={'total_coins': 0})
             cursor.execute("SELECT COALESCE(SUM(balance), 0) as total_coins FROM user_stats WHERE stat_period = %s", (current_period,))
             result = cursor.fetchone()
             total_coins = result.get('total_coins', 0) if result else 0

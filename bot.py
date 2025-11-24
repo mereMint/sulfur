@@ -3783,7 +3783,7 @@ class RPGCombatView(discord.ui.View):
         if self.equipped_skills:
             for idx, skill in enumerate(self.equipped_skills):
                 if skill and idx < 2:  # Max 2 skills (skill1 and skill2)
-                    # Create skill button
+                    # Create skill button with callback factory to properly capture loop variables
                     skill_button = discord.ui.Button(
                         label=f"✨ {skill['name'][:20]}", 
                         style=discord.ButtonStyle.primary,
@@ -3791,12 +3791,15 @@ class RPGCombatView(discord.ui.View):
                         row=1  # Put skills in second row
                     )
                     
-                    # Create callback for this skill
-                    async def skill_callback(interaction: discord.Interaction, skill_data=skill, skill_idx=idx):
-                        await self._use_skill(interaction, skill_data, skill_idx)
-                    
-                    skill_button.callback = skill_callback
+                    # Use factory function to create callback with properly captured variables
+                    skill_button.callback = self._create_skill_callback(skill, idx)
                     self.add_item(skill_button)
+    
+    def _create_skill_callback(self, skill_data: dict, skill_idx: int):
+        """Factory function to create skill callback with captured variables."""
+        async def callback(interaction: discord.Interaction):
+            await self._use_skill(interaction, skill_data, skill_idx)
+        return callback
     
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:

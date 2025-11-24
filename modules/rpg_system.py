@@ -1915,12 +1915,14 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
                         # Update player health immediately
                         conn = db_helpers.db_pool.get_connection()
                         cursor = conn.cursor()
-                        cursor.execute("""
-                            UPDATE rpg_players SET health = %s WHERE user_id = %s
-                        """, (new_health, user_id))
-                        conn.commit()
-                        cursor.close()
-                        conn.close()
+                        try:
+                            cursor.execute("""
+                                UPDATE rpg_players SET health = %s WHERE user_id = %s
+                            """, (new_health, user_id))
+                            conn.commit()
+                        finally:
+                            cursor.close()
+                            conn.close()
                 
                 # Additional effect messages
                 if effects.get('burn') and skill_damage > 0:
@@ -2006,12 +2008,14 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
             
             conn = db_helpers.db_pool.get_connection()
             cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE rpg_players SET health = %s WHERE user_id = %s
-            """, (new_health, user_id))
-            conn.commit()
-            cursor.close()
-            conn.close()
+            try:
+                cursor.execute("""
+                    UPDATE rpg_players SET health = %s WHERE user_id = %s
+                """, (new_health, user_id))
+                conn.commit()
+            finally:
+                cursor.close()
+                conn.close()
             
             # Check if player is defeated
             if new_health <= 0:
