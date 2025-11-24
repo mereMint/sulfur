@@ -252,10 +252,15 @@ async def initialize_word_find_table(db_helpers):
         logger.error(f"Error initializing word find tables: {e}", exc_info=True)
 
 
-def calculate_word_similarity(word1: str, word2: str) -> float:
+def calculate_word_similarity(word1: str, word2: str, use_context: bool = True) -> float:
     """
     Calculate similarity between two words using multiple metrics.
     Returns a score from 0 to 100.
+    
+    Args:
+        word1: First word to compare
+        word2: Second word to compare
+        use_context: If True, adds semantic/contextual similarity
     """
     word1 = word1.lower().strip()
     word2 = word2.lower().strip()
@@ -266,16 +271,16 @@ def calculate_word_similarity(word1: str, word2: str) -> float:
     # Length similarity
     max_len = max(len(word1), len(word2))
     min_len = min(len(word1), len(word2))
-    length_score = (min_len / max_len) * 25 if max_len > 0 else 0
+    length_score = (min_len / max_len) * 15 if max_len > 0 else 0
     
     # Character overlap
     common_chars = sum(min(word1.count(c), word2.count(c)) for c in set(word1 + word2))
-    char_score = (common_chars / max(len(word1), len(word2))) * 25
+    char_score = (common_chars / max(len(word1), len(word2))) * 15
     
     # Levenshtein distance (simplified)
     distance = levenshtein_distance(word1, word2)
     max_distance = max(len(word1), len(word2))
-    distance_score = ((max_distance - distance) / max_distance) * 30 if max_distance > 0 else 0
+    distance_score = ((max_distance - distance) / max_distance) * 20 if max_distance > 0 else 0
     
     # Common prefix/suffix
     prefix_len = 0
@@ -292,10 +297,95 @@ def calculate_word_similarity(word1: str, word2: str) -> float:
         else:
             break
     
-    affix_score = ((prefix_len + suffix_len) / max_len) * 20 if max_len > 0 else 0
+    affix_score = ((prefix_len + suffix_len) / max_len) * 10 if max_len > 0 else 0
     
-    total_score = length_score + char_score + distance_score + affix_score
+    # Base score from syntactic similarity
+    base_score = length_score + char_score + distance_score + affix_score
+    
+    # Context-aware semantic similarity (up to 40 points bonus)
+    if use_context:
+        context_score = calculate_semantic_similarity(word1, word2)
+        total_score = base_score + context_score
+    else:
+        total_score = base_score
+    
     return min(100.0, total_score)
+
+
+def calculate_semantic_similarity(word1: str, word2: str) -> float:
+    """
+    Calculate semantic/contextual similarity between two words.
+    Uses predefined semantic relationships and categories.
+    Returns a score from 0 to 40.
+    """
+    # Define semantic categories and relationships
+    semantic_groups = {
+        # Nature
+        'tree': ['forest', 'wood', 'leaf', 'branch', 'oak', 'pine', 'nature', 'park', 'green'],
+        'forest': ['tree', 'wood', 'nature', 'wilderness', 'trees', 'woods'],
+        'flower': ['garden', 'plant', 'rose', 'bloom', 'petal', 'nature'],
+        'garden': ['flower', 'plant', 'nature', 'yard', 'green'],
+        
+        # Animals
+        'dog': ['pet', 'animal', 'puppy', 'canine', 'bark'],
+        'cat': ['pet', 'animal', 'kitten', 'feline', 'meow'],
+        'bird': ['animal', 'fly', 'wing', 'feather', 'nest'],
+        
+        # Technology
+        'computer': ['technology', 'internet', 'screen', 'keyboard', 'software', 'digital'],
+        'internet': ['computer', 'web', 'online', 'network', 'digital'],
+        'phone': ['mobile', 'call', 'smartphone', 'technology', 'communication'],
+        
+        # Buildings/Places
+        'house': ['home', 'building', 'residence', 'dwelling', 'apartment'],
+        'home': ['house', 'residence', 'dwelling', 'family'],
+        'school': ['education', 'learning', 'student', 'teacher', 'class'],
+        'office': ['work', 'business', 'desk', 'workplace'],
+        
+        # German equivalents
+        'baum': ['wald', 'holz', 'blatt', 'ast', 'natur', 'park'],
+        'wald': ['baum', 'holz', 'natur', 'bäume'],
+        'blume': ['garten', 'pflanze', 'rose', 'natur'],
+        'garten': ['blume', 'pflanze', 'natur', 'grün'],
+        'hund': ['tier', 'haustier', 'welpe'],
+        'katze': ['tier', 'haustier', 'kätzchen'],
+        'haus': ['heim', 'gebäude', 'wohnung', 'zuhause'],
+        'computer': ['technologie', 'internet', 'bildschirm', 'tastatur'],
+    }
+    
+    word1 = word1.lower()
+    word2 = word2.lower()
+    
+    # Direct relationship check
+    if word1 in semantic_groups:
+        if word2 in semantic_groups[word1]:
+            # Strong semantic relationship
+            return 40.0
+        # Check if they share a common related word
+        related1 = set(semantic_groups[word1])
+        if word2 in semantic_groups:
+            related2 = set(semantic_groups[word2])
+            overlap = related1 & related2
+            if overlap:
+                # Indirect relationship through common concept
+                return 25.0
+    
+    # Check reverse direction
+    if word2 in semantic_groups and word1 in semantic_groups[word2]:
+        return 40.0
+    
+    # Check for compound word relationships
+    if word1 in word2 or word2 in word1:
+        return 20.0
+    
+    # Check for category similarity based on length and structure
+    # Words in similar length ranges might be related
+    len_diff = abs(len(word1) - len(word2))
+    if len_diff <= 2:
+        # Similar length words get a small boost
+        return 5.0
+    
+    return 0.0
 
 
 def levenshtein_distance(s1: str, s2: str) -> int:
