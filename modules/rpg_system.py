@@ -866,6 +866,15 @@ BASE_STAT_VALUE = 10  # Base value for all stats (strength, dexterity, defense, 
 LEVEL_REWARD_MULTIPLIER = 0.1  # Multiplier for scaling rewards based on player level
 RESPEC_COST_PER_POINT = 50  # Gold cost per skill point when resetting stats
 
+# Loot system constants
+LUCK_BONUS_MAX = 0.05  # Maximum luck bonus to drop rates (5%)
+LUCK_BONUS_PER_LEVEL = 0.001  # Luck bonus gained per player level
+
+# Quest item constants
+QUEST_ITEM_BASE_PRICE = 5  # Base gold value for quest items
+MATERIAL_ITEM_MIN_PRICE = 10  # Minimum price for material items
+MATERIAL_ITEM_MAX_PRICE = 50  # Maximum price for material items
+
 
 async def initialize_rpg_tables(db_helpers):
     """Initialize RPG system tables."""
@@ -1408,13 +1417,19 @@ async def roll_loot_drops(db_helpers, monster: dict, player_level: int) -> list:
     """
     Roll for loot drops from a defeated monster based on its loot table.
     
+    Loot table format: {item_name: drop_rate}
+    - item_name: String, can contain "(Quest)" suffix for quest items
+    - drop_rate: Float 0.0-1.0 (probability of drop)
+    
+    Example: {'Wolfszahn': 0.75, 'Wolfsherz (Quest)': 0.20}
+    
     Args:
         db_helpers: Database helpers module
-        monster: Monster dictionary with loot_table
+        monster: Monster dictionary with loot_table field
         player_level: Player's level (affects drop rates slightly)
     
     Returns:
-        List of item names that dropped
+        List of item dictionaries that dropped: [{'name': str, 'drop_rate': float, 'is_quest_item': bool}]
     """
     try:
         loot_table = monster.get('loot_table', {})
@@ -1423,8 +1438,8 @@ async def roll_loot_drops(db_helpers, monster: dict, player_level: int) -> list:
         
         dropped_items = []
         
-        # Small luck bonus based on player level (max +5% drop rate)
-        luck_bonus = min(0.05, player_level * 0.001)
+        # Small luck bonus based on player level (configured by LUCK_BONUS constants)
+        luck_bonus = min(LUCK_BONUS_MAX, player_level * LUCK_BONUS_PER_LEVEL)
         
         for item_name, base_drop_rate in loot_table.items():
             # Apply luck bonus
@@ -1491,7 +1506,7 @@ async def add_loot_to_inventory(db_helpers, user_id: int, loot_items: list):
                         'quest_item' if is_quest else 'material',
                         'common',
                         f'Dropped by {loot.get("monster_name", "monster")}',
-                        random.randint(10, 50) if not is_quest else 5,
+                        QUEST_ITEM_BASE_PRICE if is_quest else random.randint(MATERIAL_ITEM_MIN_PRICE, MATERIAL_ITEM_MAX_PRICE),
                         is_quest,
                         False,  # Not usable in combat
                         True    # Can be sold (quest items usually can't be sold, but keeping flexible)

@@ -8,6 +8,10 @@ Auto-generates variations to reach 500+ weapons and 800+ skills.
 
 import json
 
+# Configuration Constants
+MAX_GENERATED_WEAPONS = 400  # Maximum number of programmatically generated weapons
+MAX_ELEMENTAL_VARIANTS = 500  # Maximum number of elemental skill variants to generate
+
 # Base weapon templates for generation
 WEAPON_TYPES = [
     'Schwert', 'Axt', 'Speer', 'Dolch', 'Hammer', 'Stab', 'Bogen', 'Sense',
@@ -50,8 +54,8 @@ def generate_weapon_variations():
                 
                 item_id += 1
                 
-                # Limit to prevent too many
-                if len(weapons) >= 400:
+                # Limit to prevent too many (configured by MAX_GENERATED_WEAPONS)
+                if len(weapons) >= MAX_GENERATED_WEAPONS:
                     return weapons
     
     return weapons
@@ -400,9 +404,9 @@ for skill in GENERATED_SKILLS[:len(GENERATED_SKILLS)//2]:  # Take half
                 variant['damage_type'] = element
                 variant['price'] = int(skill['price'] * 1.1)
                 ELEMENTAL_VARIANTS.append(variant)
-                if len(ELEMENTAL_VARIANTS) >= 500:
+                if len(ELEMENTAL_VARIANTS) >= MAX_ELEMENTAL_VARIANTS:
                     break
-        if len(ELEMENTAL_VARIANTS) >= 500:
+        if len(ELEMENTAL_VARIANTS) >= MAX_ELEMENTAL_VARIANTS:
             break
 
 GENERATED_SKILLS.extend(ELEMENTAL_VARIANTS)
@@ -411,6 +415,12 @@ GENERATED_SKILLS.extend(ELEMENTAL_VARIANTS)
 EXTENDED_WEAPONS.extend(GENERATED_WEAPONS)
 EXTENDED_SKILLS.extend(GENERATED_SKILLS)
 
-print(f"RPG Items Data Loaded:")
-print(f"  - {len(EXTENDED_WEAPONS)} total weapons")
-print(f"  - {len(EXTENDED_SKILLS)} total skills")
+# Log loaded counts (use logger in production, print for immediate feedback during module load)
+import sys
+if 'modules.logger_utils' in sys.modules:
+    from modules.logger_utils import bot_logger as logger
+    logger.info(f"RPG Items Data Loaded: {len(EXTENDED_WEAPONS)} weapons, {len(EXTENDED_SKILLS)} skills")
+else:
+    print(f"RPG Items Data Loaded:")
+    print(f"  - {len(EXTENDED_WEAPONS)} total weapons")
+    print(f"  - {len(EXTENDED_SKILLS)} total skills")
