@@ -177,6 +177,30 @@ async def initialize_word_find_table(db_helpers):
         try:
             logger.info("Initializing Word Find tables...")
             
+            # First, check for and fix schema conflicts (from old migration 010)
+            # Check if word_find_daily exists with wrong schema
+            cursor.execute("""
+                SELECT COUNT(*) as count
+                FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = 'word_find_daily' 
+                AND COLUMN_NAME = 'puzzle_date'
+            """)
+            result = cursor.fetchone()
+            has_wrong_schema = result and result[0] > 0
+            
+            if has_wrong_schema:
+                logger.warning("Detected word_find_daily table with incorrect schema - fixing...")
+                cursor.execute("DROP TABLE IF EXISTS word_find_daily")
+                logger.info("Dropped incorrect word_find_daily table")
+            
+            # Also drop other incorrectly named/structured tables if they exist
+            # These tables were created by buggy migration 010 and should never exist
+            cursor.execute("DROP TABLE IF EXISTS word_find_user_progress")
+            logger.debug("Cleaned up word_find_user_progress if it existed")
+            cursor.execute("DROP TABLE IF EXISTS word_find_user_stats")  # Wrong name, should be word_find_stats
+            logger.debug("Cleaned up word_find_user_stats if it existed")
+            
             # Table for daily word
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS word_find_daily (
@@ -560,10 +584,12 @@ async def record_attempt(db_helpers, user_id: int, word_id: int, guess: str, sim
     """Record a guess attempt."""
     try:
         if not db_helpers.db_pool:
+            logger.error("Cannot record attempt: Database pool not available")
             return False
         
         conn = db_helpers.db_pool.get_connection()
         if not conn:
+            logger.error("Cannot record attempt: Could not get database connection")
             return False
         
         cursor = conn.cursor()
@@ -574,12 +600,14 @@ async def record_attempt(db_helpers, user_id: int, word_id: int, guess: str, sim
             """, (user_id, word_id, guess, similarity, attempt_num, game_type))
             
             conn.commit()
+            logger.debug(f"Recorded attempt for user {user_id}: guess='{guess}', similarity={similarity:.1f}%, attempt={attempt_num}, game_type={game_type}")
             return True
         finally:
             cursor.close()
             conn.close()
     except Exception as e:
-        logger.error(f"Error recording attempt: {e}", exc_info=True)
+        logger.error(f"Error recording attempt for user {user_id}: {e}", exc_info=True)
+        logger.error(f"  - word_id: {word_id}, guess: '{guess}', similarity: {similarity}, attempt_num: {attempt_num}, game_type: {game_type}")
         return False
 
 
