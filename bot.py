@@ -10879,8 +10879,13 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
                 # Show completed view with share button (and new game button for premium users)
                 view = WordFindCompletedView(self.user_id, all_attempts, True, self.has_premium, self.game_type)
                 
-                # Send result as new message
-                await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+                # Send result as new message with error handling for Discord errors
+                try:
+                    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+                except (discord.errors.NotFound, discord.errors.HTTPException) as e:
+                    # Could not send message - interaction may have expired or other Discord error
+                    # The win is already recorded in the database, so just log this
+                    logger.warning(f"WordFind win: Could not send result message: {e}")
             else:
                 # Wrong guess - update display with new attempt
                 attempts = await word_find.get_user_attempts(db_helpers, self.user_id, word_id, self.game_type)
@@ -10905,8 +10910,13 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
                     # Show completed view with share button (and new game button for premium users)
                     view = WordFindCompletedView(self.user_id, attempts, False, self.has_premium, self.game_type)
                     
-                    # Send result as new message
-                    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+                    # Send result as new message with error handling for Discord errors
+                    try:
+                        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+                    except (discord.errors.NotFound, discord.errors.HTTPException) as e:
+                        # Could not send message - interaction may have expired or other Discord error
+                        # The loss is already recorded in the database, so just log this
+                        logger.warning(f"WordFind loss: Could not send result message: {e}")
                 else:
                     # Create new view for continuing the game
                     view = WordFindView(self.user_id, self.word_data, self.max_attempts, self.has_premium, self.game_type, self.theme_id)
@@ -10921,7 +10931,13 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
                         inline=False
                     )
                     
-                    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+                    # Send with error handling for Discord errors
+                    try:
+                        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+                    except (discord.errors.NotFound, discord.errors.HTTPException) as e:
+                        # Could not send message - interaction may have expired or other Discord error
+                        # The guess is already recorded in the database, so just log this
+                        logger.warning(f"WordFind guess: Could not send updated game message: {e}")
         except Exception as e:
             logger.error(f"Error in WordGuessModal.on_submit: {e}", exc_info=True)
             try:
