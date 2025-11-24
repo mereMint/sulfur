@@ -28,21 +28,19 @@ Also adds an index on `is_quest_item` for query performance.
 
 ## How to Apply
 
-### Method 1: Using MySQL Command Line
+### Method 1: Using MySQL Command Line (Recommended)
 ```bash
 mysql -u sulfur_bot_user -p sulfur_bot < scripts/db_migrations/012_add_rpg_items_columns.sql
 ```
 
-### Method 2: Using apply_migration.py
-```bash
-python apply_migration.py scripts/db_migrations/012_add_rpg_items_columns.sql
-```
-
-### Method 3: Manual Application (via MySQL client)
+### Method 2: Manual Application (via MySQL client)
 ```sql
 USE sulfur_bot;
 SOURCE scripts/db_migrations/012_add_rpg_items_columns.sql;
 ```
+
+### Method 3: Using apply_migration.py
+Note: This migration uses stored procedures with DELIMITER changes. The apply_migration.py script may not handle this correctly. Use Method 1 or 2 instead.
 
 ## Verification
 
