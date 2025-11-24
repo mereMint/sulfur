@@ -658,6 +658,13 @@ def apply_sql_migration(migration_file_path):
                 statements.append(stmt)
             current_statement = []
     
+    # Idempotent error patterns to ignore - migrations should be re-runnable
+    IDEMPOTENT_ERROR_PATTERNS = [
+        'already exists',
+        'duplicate',
+        'does not exist'
+    ]
+    
     # Execute statements
     try:
         logger.info(f"Executing {len(statements)} SQL statements from migration")
@@ -666,19 +673,18 @@ def apply_sql_migration(migration_file_path):
                 cursor.execute(statement)
                 # Consume any results to avoid "Unread result found" error
                 # This is necessary when EXECUTE stmt runs a SELECT statement
-                try:
+                # Check if the cursor has results using with_rows property
+                if cursor.with_rows:
                     cursor.fetchall()
-                except mysql.connector.Error:
-                    # No results to fetch, which is fine for non-SELECT statements
-                    pass
                 # Get preview of statement for logging
                 preview = ' '.join(statement.split()[:5])
                 logger.debug(f"  [{i}/{len(statements)}] ✓ {preview}...")
             except mysql.connector.Error as err:
                 preview = ' '.join(statement.split()[:5])
                 error_msg = str(err).lower()
-                # Ignore "already exists", "duplicate", and "does not exist" errors - migrations are idempotent
-                if 'already exists' in error_msg or 'duplicate' in error_msg or 'does not exist' in error_msg:
+                # Check if this is an idempotent error that can be safely ignored
+                is_idempotent = any(pattern in error_msg for pattern in IDEMPOTENT_ERROR_PATTERNS)
+                if is_idempotent:
                     logger.debug(f"  [{i}/{len(statements)}] ⚠ {preview}... (idempotent, skipping)")
                 else:
                     logger.error(f"  [{i}/{len(statements)}] ✗ {preview}... Error: {err}")
