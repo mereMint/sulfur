@@ -386,6 +386,8 @@ def initialize_database():
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS user_stats (
                 user_id BIGINT NOT NULL,
+                display_name VARCHAR(255) NOT NULL,
+                username VARCHAR(255) NULL,
                 stat_period VARCHAR(7) NOT NULL,
                 balance BIGINT NOT NULL DEFAULT 0,
                 messages_sent INT NOT NULL DEFAULT 0,
@@ -401,6 +403,17 @@ def initialize_database():
                 INDEX idx_period (stat_period)
             )
         """)
+        
+        # Add display_name and username columns if they don't exist (for existing tables)
+        cursor.execute("SHOW COLUMNS FROM user_stats LIKE 'display_name'")
+        if not cursor.fetchone():
+            logger.info("Adding display_name column to user_stats table")
+            cursor.execute("ALTER TABLE user_stats ADD COLUMN display_name VARCHAR(255) NOT NULL DEFAULT 'Unknown' AFTER user_id")
+        
+        cursor.execute("SHOW COLUMNS FROM user_stats LIKE 'username'")
+        if not cursor.fetchone():
+            logger.info("Adding username column to user_stats table")
+            cursor.execute("ALTER TABLE user_stats ADD COLUMN username VARCHAR(255) NULL AFTER display_name")
         
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS monthly_quest_completion (
