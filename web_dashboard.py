@@ -1938,12 +1938,19 @@ def game_leaderboard(game_type):
                     LIMIT 50
                 """, default=[], fetch_all=True)
             elif game_type == 'wordle':
+                # Join with user_stats to get display names
                 leaderboard = safe_db_query(cursor, """
-                    SELECT user_id, COUNT(*) as games_won,
-                           AVG(attempts) as avg_attempts
-                    FROM wordle_games
-                    WHERE completed = TRUE AND won = TRUE
-                    GROUP BY user_id
+                    SELECT w.user_id, u.display_name, u.username,
+                           COUNT(*) as games_won,
+                           AVG(w.attempts) as avg_attempts
+                    FROM wordle_games w
+                    LEFT JOIN (
+                        SELECT user_id, display_name, username
+                        FROM user_stats
+                        WHERE stat_period = DATE_FORMAT(NOW(), '%Y-%m')
+                    ) u ON w.user_id = u.user_id
+                    WHERE w.completed = TRUE AND w.won = TRUE
+                    GROUP BY w.user_id, u.display_name, u.username
                     ORDER BY games_won DESC, avg_attempts ASC
                     LIMIT 50
                 """, default=[], fetch_all=True)
