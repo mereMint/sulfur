@@ -201,6 +201,36 @@ async def initialize_word_find_table(db_helpers):
             cursor.execute("DROP TABLE IF EXISTS word_find_user_stats")  # Wrong name, should be word_find_stats
             logger.debug("Cleaned up word_find_user_stats if it existed")
             
+            # Check if word_find_attempts exists but is missing the game_type column
+            # This can happen if the table was created by an old version of the code
+            # First check if table exists to avoid unnecessary work
+            cursor.execute("""
+                SELECT COUNT(*) as count
+                FROM INFORMATION_SCHEMA.TABLES 
+                WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = 'word_find_attempts'
+            """)
+            result = cursor.fetchone()
+            attempts_table_exists = result and result[0] > 0
+            
+            if attempts_table_exists:
+                # Table exists, check if it has the game_type column
+                cursor.execute("""
+                    SELECT COUNT(*) as count
+                    FROM INFORMATION_SCHEMA.COLUMNS 
+                    WHERE TABLE_SCHEMA = DATABASE()
+                    AND TABLE_NAME = 'word_find_attempts' 
+                    AND COLUMN_NAME = 'game_type'
+                """)
+                result = cursor.fetchone()
+                has_game_type = result and result[0] > 0
+                
+                # If table exists but missing game_type column, drop and recreate
+                if not has_game_type:
+                    logger.warning("Detected word_find_attempts table missing game_type column - fixing...")
+                    cursor.execute("DROP TABLE IF EXISTS word_find_attempts")
+                    logger.info("Dropped word_find_attempts table to recreate with correct schema")
+            
             # Table for daily word
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS word_find_daily (

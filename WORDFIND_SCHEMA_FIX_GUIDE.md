@@ -40,10 +40,12 @@ The error occurred when `record_attempt()` in `modules/word_find.py` returned `F
 Modified `initialize_word_find_table()` in `modules/word_find.py` to:
 - Check for the wrong `puzzle_date` column in `word_find_daily`
 - If found, automatically drop the incorrectly structured table
+- Check if `word_find_attempts` is missing the `game_type` column
+- If missing, drop and recreate `word_find_attempts` with correct schema
 - Drop other buggy tables: `word_find_user_progress`, `word_find_user_stats`
 - Recreate all tables with correct schema
 
-**Key Code Addition:**
+**Key Code Addition for word_find_daily:**
 ```python
 # Check if word_find_daily exists with wrong schema
 cursor.execute("""
@@ -60,6 +62,36 @@ if has_wrong_schema:
     logger.warning("Detected word_find_daily table with incorrect schema - fixing...")
     cursor.execute("DROP TABLE IF EXISTS word_find_daily")
     logger.info("Dropped incorrect word_find_daily table")
+```
+
+**Key Code Addition for word_find_attempts:**
+```python
+# Check if word_find_attempts exists but is missing the game_type column
+cursor.execute("""
+    SELECT COUNT(*) as count
+    FROM INFORMATION_SCHEMA.COLUMNS 
+    WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'word_find_attempts' 
+    AND COLUMN_NAME = 'game_type'
+""")
+result = cursor.fetchone()
+has_game_type = result and result[0] > 0
+
+# Check if word_find_attempts table exists at all
+cursor.execute("""
+    SELECT COUNT(*) as count
+    FROM INFORMATION_SCHEMA.TABLES 
+    WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'word_find_attempts'
+""")
+result = cursor.fetchone()
+attempts_table_exists = result and result[0] > 0
+
+# If table exists but missing game_type column, drop and recreate
+if attempts_table_exists and not has_game_type:
+    logger.warning("Detected word_find_attempts table missing game_type column - fixing...")
+    cursor.execute("DROP TABLE IF EXISTS word_find_attempts")
+    logger.info("Dropped word_find_attempts table to recreate with correct schema")
 ```
 
 #### 2. Enhanced Error Logging
@@ -89,15 +121,19 @@ Created `verify_wordfind_schema_fix.py` to validate the fix implementation.
 
 ### Startup Flow (Automatic Fix)
 1. Bot starts and calls `word_find.initialize_word_find_table()`
-2. Function checks `INFORMATION_SCHEMA.COLUMNS` for `puzzle_date` column
+2. Function checks `INFORMATION_SCHEMA.COLUMNS` for `puzzle_date` column in `word_find_daily`
 3. If wrong schema detected:
    - Drops `word_find_daily` table
    - Logs warning: "Detected word_find_daily table with incorrect schema - fixing..."
-4. Drops other incorrect tables:
+4. Function checks if `word_find_attempts` exists but is missing `game_type` column
+5. If found:
+   - Drops `word_find_attempts` table
+   - Logs warning: "Detected word_find_attempts table missing game_type column - fixing..."
+6. Drops other incorrect tables:
    - `word_find_user_progress`
    - `word_find_user_stats`
-5. Creates all tables with correct schema using `CREATE TABLE IF NOT EXISTS`
-6. All tables are now ready with correct structure
+7. Creates all tables with correct schema using `CREATE TABLE IF NOT EXISTS`
+8. All tables are now ready with correct structure
 
 ### User Gameplay Flow
 1. User runs `/wordfind` command
