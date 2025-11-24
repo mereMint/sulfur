@@ -409,6 +409,7 @@ def api_ai_usage():
         
         # Import here to avoid circular import
         from modules.db_helpers import get_ai_usage_stats
+        from decimal import Decimal
         
         # Run async function in sync context
         stats = run_async(get_ai_usage_stats(days))
@@ -422,10 +423,10 @@ def api_ai_usage():
         for stat in stats:
             model = stat.get('model_name', 'Unknown')
             feature = stat.get('feature', 'Unknown')
-            calls = stat.get('total_calls', 0)
-            input_tok = stat.get('total_input_tokens', 0)
-            output_tok = stat.get('total_output_tokens', 0)
-            cost = stat.get('total_cost', 0.0)
+            calls = int(stat.get('total_calls', 0))
+            input_tok = int(stat.get('total_input_tokens', 0))
+            output_tok = int(stat.get('total_output_tokens', 0))
+            cost = float(stat.get('total_cost', 0.0)) if isinstance(stat.get('total_cost', 0.0), (Decimal, int, float, str)) else 0.0
             
             # Aggregate by model
             if model not in by_model:
@@ -464,7 +465,7 @@ def api_ai_usage():
             'period_days': days
         })
     except Exception as e:
-        print(f"Error fetching AI usage: {e}")
+        logger.error(f"Error fetching AI usage: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/api/config', methods=['GET'])
@@ -1443,12 +1444,12 @@ def economy_stats():
         cursor = conn.cursor(dictionary=True)
         
         try:
-            # Total coins in circulation
-            cursor.execute("SELECT COALESCE(SUM(coins), 0) as total_coins FROM user_stats")
+            # Total coins in circulation (using balance column)
+            cursor.execute("SELECT COALESCE(SUM(balance), 0) as total_coins FROM user_stats")
             total_coins = cursor.fetchone()['total_coins']
             
             # Total users with coins
-            cursor.execute("SELECT COUNT(*) as total_users FROM user_stats WHERE coins > 0")
+            cursor.execute("SELECT COUNT(DISTINCT user_id) as total_users FROM user_stats WHERE balance > 0")
             total_users = cursor.fetchone()['total_users']
             
             # Average coins per user
@@ -1456,10 +1457,10 @@ def economy_stats():
             
             # Richest users
             cursor.execute("""
-                SELECT user_id, display_name, username, coins 
+                SELECT user_id, display_name, balance as coins 
                 FROM user_stats 
-                WHERE coins > 0 
-                ORDER BY coins DESC 
+                WHERE balance > 0 
+                ORDER BY balance DESC 
                 LIMIT 10
             """)
             richest_users = cursor.fetchall()
@@ -1543,6 +1544,212 @@ def economy_stocks():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/stocks', methods=['GET'])
+def stocks_page():
+    """Renders the stock market management page."""
+    return render_template('stocks.html')
+
+
+@app.route('/api/stocks', methods=['GET'])
+def api_get_stocks():
+    """Get all stocks with current prices."""
+    try:
+        if not db_helpers.db_pool:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        conn = db_helpers.db_pool.get_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        try:
+            cursor.execute("""
+                SELECT symbol, name, category, current_price, previous_price,
+                       trend, last_update, volume_today, game_influence_factor
+                FROM stocks
+                ORDER BY symbol ASC
+            """)
+            stocks = cursor.fetchall()
+            
+            # Convert Decimal to float for JSON serialization
+            for stock in stocks:
+                for key in ['current_price', 'previous_price', 'trend', 'game_influence_factor']:
+                    if stock.get(key) is not None:
+                        stock[key] = float(stock[key])
+            
+            return jsonify({'stocks': stocks})
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting stocks: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/stocks/<symbol>', methods=['GET'])
+def api_get_stock(symbol):
+    """Get details for a specific stock."""
+    try:
+        if not db_helpers.db_pool:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        conn = db_helpers.db_pool.get_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        try:
+            cursor.execute("""
+                SELECT * FROM stocks WHERE symbol = %s
+            """, (symbol,))
+            stock = cursor.fetchone()
+            
+            if not stock:
+                return jsonify({'error': 'Stock not found'}), 404
+            
+            # Convert Decimal to float
+            for key in ['current_price', 'previous_price', 'trend', 'game_influence_factor']:
+                if stock.get(key) is not None:
+                    stock[key] = float(stock[key])
+            
+            return jsonify(stock)
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting stock {symbol}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/stocks', methods=['POST'])
+def api_create_stock():
+    """Create a new stock."""
+    try:
+        if not db_helpers.db_pool:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        data = request.get_json()
+        symbol = data.get('symbol', '').upper()
+        name = data.get('name')
+        category = data.get('category')
+        price = float(data.get('price', 100.0))
+        
+        if not symbol or not name or not category:
+            return jsonify({'error': 'Missing required fields'}), 400
+        
+        if len(symbol) > 10:
+            return jsonify({'error': 'Symbol too long (max 10 characters)'}), 400
+        
+        conn = db_helpers.db_pool.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute("""
+                INSERT INTO stocks (symbol, name, category, current_price, previous_price)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (symbol, name, category, price, price))
+            conn.commit()
+            
+            return jsonify({'message': 'Stock created successfully', 'symbol': symbol})
+        except Exception as e:
+            conn.rollback()
+            if 'Duplicate entry' in str(e):
+                return jsonify({'error': 'Stock with this symbol already exists'}), 409
+            raise
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error creating stock: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/stocks/<symbol>', methods=['PUT'])
+def api_update_stock(symbol):
+    """Update an existing stock."""
+    try:
+        if not db_helpers.db_pool:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        data = request.get_json()
+        
+        conn = db_helpers.db_pool.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # Build update query dynamically based on provided fields
+            updates = []
+            params = []
+            
+            if 'name' in data:
+                updates.append("name = %s")
+                params.append(data['name'])
+            
+            if 'category' in data:
+                updates.append("category = %s")
+                params.append(data['category'])
+            
+            if 'current_price' in data:
+                # Update previous price to current price first
+                cursor.execute("SELECT current_price FROM stocks WHERE symbol = %s", (symbol,))
+                result = cursor.fetchone()
+                if result:
+                    updates.append("previous_price = current_price")
+                
+                updates.append("current_price = %s")
+                params.append(float(data['current_price']))
+            
+            if 'trend' in data:
+                updates.append("trend = %s")
+                params.append(float(data['trend']))
+            
+            if 'game_influence_factor' in data:
+                updates.append("game_influence_factor = %s")
+                params.append(float(data['game_influence_factor']))
+            
+            if not updates:
+                return jsonify({'error': 'No fields to update'}), 400
+            
+            params.append(symbol)
+            query = f"UPDATE stocks SET {', '.join(updates)} WHERE symbol = %s"
+            
+            cursor.execute(query, params)
+            conn.commit()
+            
+            if cursor.rowcount == 0:
+                return jsonify({'error': 'Stock not found'}), 404
+            
+            return jsonify({'message': 'Stock updated successfully'})
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error updating stock {symbol}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/stocks/<symbol>', methods=['DELETE'])
+def api_delete_stock(symbol):
+    """Delete a stock."""
+    try:
+        if not db_helpers.db_pool:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        conn = db_helpers.db_pool.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute("DELETE FROM stocks WHERE symbol = %s", (symbol,))
+            conn.commit()
+            
+            if cursor.rowcount == 0:
+                return jsonify({'error': 'Stock not found'}), 404
+            
+            return jsonify({'message': 'Stock deleted successfully'})
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error deleting stock {symbol}: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 # ========== Games Dashboard APIs ==========
 
 @app.route('/games', methods=['GET'])
@@ -1564,15 +1771,19 @@ def games_stats():
         stats = {}
         
         try:
-            # Werwolf stats
-            cursor.execute("SELECT COUNT(*) as total_games FROM werwolf_games")
-            werwolf_games = cursor.fetchone()['total_games']
+            # Helper function to safely query tables
+            def safe_query(query, default=0):
+                try:
+                    cursor.execute(query)
+                    result = cursor.fetchone()
+                    return result[list(result.keys())[0]] if result else default
+                except Exception as e:
+                    logger.warning(f"Query failed: {query[:50]}... Error: {e}")
+                    return default
             
-            cursor.execute("""
-                SELECT COUNT(DISTINCT user_id) as total_players 
-                FROM werwolf_user_stats
-            """)
-            werwolf_players = cursor.fetchone()['total_players']
+            # Werwolf stats - use werwolf_user_stats which tracks game participation
+            werwolf_games = safe_query("SELECT COUNT(*) as total_games FROM werwolf_user_stats")
+            werwolf_players = safe_query("SELECT COUNT(DISTINCT user_id) as total_players FROM werwolf_user_stats")
             
             stats['werwolf'] = {
                 'total_games': werwolf_games,
@@ -1580,14 +1791,8 @@ def games_stats():
             }
             
             # Detective stats
-            cursor.execute("SELECT COUNT(*) as total_games FROM detective_games")
-            detective_games = cursor.fetchone()['total_games']
-            
-            cursor.execute("""
-                SELECT COUNT(DISTINCT user_id) as total_players 
-                FROM detective_user_stats
-            """)
-            detective_players = cursor.fetchone()['total_players']
+            detective_games = safe_query("SELECT COUNT(*) as total_games FROM detective_games")
+            detective_players = safe_query("SELECT COUNT(DISTINCT user_id) as total_players FROM detective_user_stats")
             
             stats['detective'] = {
                 'total_games': detective_games,
@@ -1595,36 +1800,50 @@ def games_stats():
             }
             
             # Wordle stats  
-            cursor.execute("""
-                SELECT COUNT(*) as total_games FROM wordle_games WHERE completed = TRUE
-            """)
-            wordle_games = cursor.fetchone()['total_games']
-            
-            cursor.execute("""
-                SELECT COUNT(DISTINCT user_id) as total_players 
-                FROM wordle_games
-            """)
-            wordle_players = cursor.fetchone()['total_players']
+            wordle_games = safe_query("SELECT COUNT(*) as total_games FROM wordle_games WHERE completed = TRUE")
+            wordle_players = safe_query("SELECT COUNT(DISTINCT user_id) as total_players FROM wordle_games")
             
             stats['wordle'] = {
                 'total_games': wordle_games,
                 'total_players': wordle_players
             }
             
+            # Word Find stats
+            wordfind_games = safe_query("SELECT COUNT(*) as total_games FROM word_find_stats")
+            wordfind_players = safe_query("SELECT COUNT(DISTINCT user_id) as total_players FROM word_find_stats")
+            
+            stats['wordfind'] = {
+                'total_games': wordfind_games,
+                'total_players': wordfind_players
+            }
+            
             # Casino games
-            cursor.execute("SELECT COUNT(*) as total_games FROM blackjack_games")
-            blackjack_games = cursor.fetchone()['total_games']
-            
-            cursor.execute("SELECT COUNT(*) as total_games FROM roulette_games")
-            roulette_games = cursor.fetchone()['total_games']
-            
-            cursor.execute("SELECT COUNT(*) as total_games FROM mines_games")
-            mines_games = cursor.fetchone()['total_games']
+            blackjack_games = safe_query("SELECT COUNT(*) as total_games FROM blackjack_games")
+            roulette_games = safe_query("SELECT COUNT(*) as total_games FROM roulette_games")
+            mines_games = safe_query("SELECT COUNT(*) as total_games FROM mines_games")
             
             stats['casino'] = {
                 'blackjack_games': blackjack_games,
                 'roulette_games': roulette_games,
                 'mines_games': mines_games
+            }
+            
+            # Horse Racing stats
+            horseracing_games = safe_query("SELECT COUNT(*) as total_games FROM horse_racing_games")
+            horseracing_players = safe_query("SELECT COUNT(DISTINCT user_id) as total_players FROM horse_racing_bets")
+            
+            stats['horseracing'] = {
+                'total_games': horseracing_games,
+                'total_players': horseracing_players
+            }
+            
+            # Trolly Problem stats
+            trolly_games = safe_query("SELECT COUNT(*) as total_games FROM trolly_problem_choices")
+            trolly_players = safe_query("SELECT COUNT(DISTINCT user_id) as total_players FROM trolly_problem_choices")
+            
+            stats['trolly'] = {
+                'total_games': trolly_games,
+                'total_players': trolly_players
             }
             
             return jsonify(stats)

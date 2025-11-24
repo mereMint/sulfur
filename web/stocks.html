@@ -1,0 +1,406 @@
+{% extends "layout.html" %}
+
+{% block title %}Stock Market Management - Sulfur Bot{% endblock %}
+
+{% block extra_styles %}
+<style>
+    .stock-card {
+        background: linear-gradient(135deg, rgba(0, 212, 255, 0.2) 0%, rgba(9, 9, 121, 0.2) 100%);
+        border: 2px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+        transition: all 0.3s ease;
+    }
+    
+    .stock-card:hover {
+        border-color: var(--accent-primary);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    }
+    
+    .price-up {
+        color: #00d4aa;
+    }
+    
+    .price-down {
+        color: #dc3545;
+    }
+    
+    .stock-symbol {
+        font-size: 1.5rem;
+        font-weight: bold;
+        color: var(--accent-primary);
+    }
+    
+    .stock-price {
+        font-size: 1.8rem;
+        font-weight: bold;
+    }
+    
+    .category-badge {
+        padding: 0.25rem 0.75rem;
+        border-radius: 12px;
+        font-size: 0.85rem;
+        font-weight: 500;
+    }
+    
+    .category-tech { background: rgba(0, 123, 255, 0.3); }
+    .category-crypto { background: rgba(255, 193, 7, 0.3); }
+    .category-blue_chip { background: rgba(40, 167, 69, 0.3); }
+    .category-meme { background: rgba(220, 53, 69, 0.3); }
+    .category-commodity { background: rgba(108, 117, 125, 0.3); }
+    .category-fund { background: rgba(23, 162, 184, 0.3); }
+    
+    .modal-content {
+        background: var(--bg-secondary);
+        border: 2px solid var(--border-color);
+    }
+    
+    .form-control, .form-select {
+        background: var(--bg-primary);
+        border: 1px solid var(--border-color);
+        color: var(--text-primary);
+    }
+    
+    .form-control:focus, .form-select:focus {
+        background: var(--bg-primary);
+        border-color: var(--accent-primary);
+        color: var(--text-primary);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4 fade-in">
+    <div class="col-12">
+        <h2 class="gradient-text mb-4">
+            <i class="bi bi-graph-up-arrow"></i> Stock Market Management
+        </h2>
+        <p class="text-muted">Manage stocks, prices, and market dynamics</p>
+    </div>
+</div>
+
+<!-- Add Stock Button -->
+<div class="row mb-4">
+    <div class="col-12">
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addStockModal">
+            <i class="bi bi-plus-circle"></i> Add New Stock
+        </button>
+        <button class="btn btn-secondary ms-2" onclick="loadStocks()">
+            <i class="bi bi-arrow-clockwise"></i> Refresh
+        </button>
+    </div>
+</div>
+
+<!-- Stock List -->
+<div class="row" id="stocksList">
+    <div class="col-12 text-center">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+</div>
+
+<!-- Add Stock Modal -->
+<div class="modal fade" id="addStockModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add New Stock</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addStockForm">
+                    <div class="mb-3">
+                        <label class="form-label">Symbol (max 10 chars)</label>
+                        <input type="text" class="form-control" id="newSymbol" maxlength="10" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Name</label>
+                        <input type="text" class="form-control" id="newName" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Category</label>
+                        <select class="form-select" id="newCategory" required>
+                            <option value="tech">Technology</option>
+                            <option value="crypto">Cryptocurrency</option>
+                            <option value="blue_chip">Blue Chip</option>
+                            <option value="meme">Meme Stock</option>
+                            <option value="commodity">Commodity</option>
+                            <option value="fund">Fund</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Initial Price</label>
+                        <input type="number" class="form-control" id="newPrice" min="0.01" step="0.01" value="100.00" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="createStock()">Create Stock</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Stock Modal -->
+<div class="modal fade" id="editStockModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Stock: <span id="editSymbolLabel"></span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editStockForm">
+                    <input type="hidden" id="editSymbol">
+                    <div class="mb-3">
+                        <label class="form-label">Name</label>
+                        <input type="text" class="form-control" id="editName" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Category</label>
+                        <select class="form-select" id="editCategory" required>
+                            <option value="tech">Technology</option>
+                            <option value="crypto">Cryptocurrency</option>
+                            <option value="blue_chip">Blue Chip</option>
+                            <option value="meme">Meme Stock</option>
+                            <option value="commodity">Commodity</option>
+                            <option value="fund">Fund</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Current Price</label>
+                        <input type="number" class="form-control" id="editPrice" min="0.01" step="0.01" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Trend (-1 to 1)</label>
+                        <input type="number" class="form-control" id="editTrend" min="-1" max="1" step="0.01">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Game Influence Factor (0 to 1)</label>
+                        <input type="number" class="form-control" id="editGameInfluence" min="0" max="1" step="0.01">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="updateStock()">Save Changes</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let stocks = [];
+
+async function loadStocks() {
+    try {
+        const response = await fetch('/api/stocks');
+        const data = await response.json();
+        
+        if (data.error) {
+            console.error('Error loading stocks:', data.error);
+            document.getElementById('stocksList').innerHTML = `
+                <div class="col-12">
+                    <div class="alert alert-danger">
+                        Error loading stocks: ${data.error}
+                    </div>
+                </div>
+            `;
+            return;
+        }
+        
+        stocks = data.stocks || [];
+        displayStocks();
+    } catch (error) {
+        console.error('Error fetching stocks:', error);
+        document.getElementById('stocksList').innerHTML = `
+            <div class="col-12">
+                <div class="alert alert-danger">
+                    Failed to load stocks: ${error.message}
+                </div>
+            </div>
+        `;
+    }
+}
+
+function displayStocks() {
+    const container = document.getElementById('stocksList');
+    
+    if (stocks.length === 0) {
+        container.innerHTML = `
+            <div class="col-12">
+                <div class="alert alert-info">
+                    No stocks found. Click "Add New Stock" to create one.
+                </div>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = '';
+    
+    stocks.forEach(stock => {
+        const priceChange = stock.current_price - stock.previous_price;
+        const priceChangePercent = stock.previous_price > 0 ? 
+            ((priceChange / stock.previous_price) * 100).toFixed(2) : 0;
+        const priceClass = priceChange >= 0 ? 'price-up' : 'price-down';
+        const priceIcon = priceChange >= 0 ? '▲' : '▼';
+        
+        const col = document.createElement('div');
+        col.className = 'col-md-6 col-lg-4';
+        col.innerHTML = `
+            <div class="stock-card">
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <div>
+                        <div class="stock-symbol">${stock.symbol}</div>
+                        <div class="text-muted">${stock.name}</div>
+                    </div>
+                    <span class="category-badge category-${stock.category}">${stock.category}</span>
+                </div>
+                
+                <div class="stock-price ${priceClass} mb-2">
+                    $${stock.current_price.toFixed(2)}
+                    <small class="ms-2">
+                        ${priceIcon} ${Math.abs(priceChangePercent)}%
+                    </small>
+                </div>
+                
+                <div class="text-muted small mb-3">
+                    <div>Trend: ${(stock.trend || 0).toFixed(4)}</div>
+                    <div>Volume: ${stock.volume_today || 0}</div>
+                    <div>Last Update: ${new Date(stock.last_update).toLocaleString()}</div>
+                </div>
+                
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-primary" onclick="openEditModal('${stock.symbol}')">
+                        <i class="bi bi-pencil"></i> Edit
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteStock('${stock.symbol}')">
+                        <i class="bi bi-trash"></i> Delete
+                    </button>
+                </div>
+            </div>
+        `;
+        container.appendChild(col);
+    });
+}
+
+async function createStock() {
+    const symbol = document.getElementById('newSymbol').value.toUpperCase();
+    const name = document.getElementById('newName').value;
+    const category = document.getElementById('newCategory').value;
+    const price = parseFloat(document.getElementById('newPrice').value);
+    
+    if (!symbol || !name || !category || isNaN(price)) {
+        alert('Please fill in all fields correctly');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/stocks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ symbol, name, category, price })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            alert('Stock created successfully!');
+            bootstrap.Modal.getInstance(document.getElementById('addStockModal')).hide();
+            document.getElementById('addStockForm').reset();
+            loadStocks();
+        } else {
+            alert('Error creating stock: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Error creating stock:', error);
+        alert('Failed to create stock: ' + error.message);
+    }
+}
+
+function openEditModal(symbol) {
+    const stock = stocks.find(s => s.symbol === symbol);
+    if (!stock) return;
+    
+    document.getElementById('editSymbol').value = stock.symbol;
+    document.getElementById('editSymbolLabel').textContent = stock.symbol;
+    document.getElementById('editName').value = stock.name;
+    document.getElementById('editCategory').value = stock.category;
+    document.getElementById('editPrice').value = stock.current_price;
+    document.getElementById('editTrend').value = stock.trend || 0;
+    document.getElementById('editGameInfluence').value = stock.game_influence_factor || 0;
+    
+    new bootstrap.Modal(document.getElementById('editStockModal')).show();
+}
+
+async function updateStock() {
+    const symbol = document.getElementById('editSymbol').value;
+    const name = document.getElementById('editName').value;
+    const category = document.getElementById('editCategory').value;
+    const current_price = parseFloat(document.getElementById('editPrice').value);
+    const trend = parseFloat(document.getElementById('editTrend').value);
+    const game_influence_factor = parseFloat(document.getElementById('editGameInfluence').value);
+    
+    if (!name || !category || isNaN(current_price)) {
+        alert('Please fill in all required fields correctly');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/stocks/${symbol}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, category, current_price, trend, game_influence_factor })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            alert('Stock updated successfully!');
+            bootstrap.Modal.getInstance(document.getElementById('editStockModal')).hide();
+            loadStocks();
+        } else {
+            alert('Error updating stock: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Error updating stock:', error);
+        alert('Failed to update stock: ' + error.message);
+    }
+}
+
+async function deleteStock(symbol) {
+    if (!confirm(`Are you sure you want to delete stock ${symbol}? This will also delete all user portfolios containing this stock.`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/stocks/${symbol}`, {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            alert('Stock deleted successfully!');
+            loadStocks();
+        } else {
+            alert('Error deleting stock: ' + data.error);
+        }
+    } catch (error) {
+        console.error('Error deleting stock:', error);
+        alert('Failed to delete stock: ' + error.message);
+    }
+}
+
+// Load stocks on page load
+document.addEventListener('DOMContentLoaded', loadStocks);
+</script>
+{% endblock %}

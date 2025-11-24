@@ -10453,8 +10453,8 @@ class WordFindView(discord.ui.View):
             await interaction.response.send_message("Das ist nicht dein Spiel!", ephemeral=True)
             return
         
-        # Create modal for input and pass the message to edit
-        modal = WordGuessModal(self.user_id, self.word_data, self.max_attempts, self.has_premium, self.game_type, self.theme_id, interaction.message)
+        # Create modal for input
+        modal = WordGuessModal(self.user_id, self.word_data, self.max_attempts, self.has_premium, self.game_type, self.theme_id)
         await interaction.response.send_modal(modal)
     
     @discord.ui.button(label="Aufgeben", style=discord.ButtonStyle.danger, emoji="❌")
@@ -10575,7 +10575,7 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
         required=True
     )
     
-    def __init__(self, user_id: int, word_data: dict, max_attempts: int, has_premium: bool, game_type: str = 'daily', theme_id=None, message: discord.Message = None):
+    def __init__(self, user_id: int, word_data: dict, max_attempts: int, has_premium: bool, game_type: str = 'daily', theme_id=None):
         super().__init__()
         self.user_id = user_id
         self.word_data = word_data
@@ -10583,7 +10583,6 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
         self.has_premium = has_premium
         self.game_type = game_type
         self.theme_id = theme_id
-        self.message = message  # Store the original message to edit
     
     async def on_submit(self, interaction: discord.Interaction):
         """Handle word guess submission."""
@@ -10685,17 +10684,8 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
                 # Show completed view with share button (and new game button for premium users)
                 view = WordFindCompletedView(self.user_id, all_attempts, True, self.has_premium, self.game_type)
                 
-                # Edit the original message
-                if self.message:
-                    try:
-                        await self.message.edit(embed=embed, view=view)
-                        await interaction.followup.send("✅ Richtig geraten!", ephemeral=True)
-                    except (discord.errors.NotFound, discord.errors.HTTPException) as e:
-                        # Message might be deleted or no longer accessible, send new message
-                        logger.warning(f"Could not edit message in wordfind: {e}")
-                        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-                else:
-                    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+                # Send result as new message
+                await interaction.followup.send(embed=embed, view=view, ephemeral=True)
             else:
                 # Wrong guess - update display with new attempt
                 attempts = await word_find.get_user_attempts(db_helpers, self.user_id, word_id, self.game_type)
@@ -10720,34 +10710,23 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
                     # Show completed view with share button (and new game button for premium users)
                     view = WordFindCompletedView(self.user_id, attempts, False, self.has_premium, self.game_type)
                     
-                    # Edit the original message
-                    if self.message:
-                        try:
-                            await self.message.edit(embed=embed, view=view)
-                            await interaction.followup.send("❌ Keine Versuche mehr!", ephemeral=True)
-                        except (discord.errors.NotFound, discord.errors.HTTPException) as e:
-                            # Message might be deleted or no longer accessible, send new message
-                            logger.warning(f"Could not edit message in wordfind: {e}")
-                            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-                    else:
-                        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+                    # Send result as new message
+                    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
                 else:
+                    # Create new view for continuing the game
                     view = WordFindView(self.user_id, self.word_data, self.max_attempts, self.has_premium, self.game_type, self.theme_id)
                     
-                    # Edit the original message
-                    if self.message:
-                        try:
-                            await self.message.edit(embed=embed, view=view)
-                            # Send confirmation with similarity score
-                            similarity_pct = f"{similarity:.1f}%"
-                            temp = "🔥 Sehr heiß!" if similarity >= 80 else "🌡️ Heiß!" if similarity >= 60 else "🌤️ Warm" if similarity >= 40 else "❄️ Kalt" if similarity >= 20 else "🧊 Sehr kalt"
-                            await interaction.followup.send(f"Versuch aufgezeichnet: **{guess}** - {similarity_pct} {temp}", ephemeral=True)
-                        except (discord.errors.NotFound, discord.errors.HTTPException) as e:
-                            # Message might be deleted or no longer accessible, send new message
-                            logger.warning(f"Could not edit message in wordfind: {e}")
-                            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-                    else:
-                        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+                    # Send updated game state with feedback
+                    similarity_pct = f"{similarity:.1f}%"
+                    temp = "🔥 Sehr heiß!" if similarity >= 80 else "🌡️ Heiß!" if similarity >= 60 else "🌤️ Warm" if similarity >= 40 else "❄️ Kalt" if similarity >= 20 else "🧊 Sehr kalt"
+                    
+                    embed.add_field(
+                        name="💡 Letzter Versuch",
+                        value=f"**{guess}** - {similarity_pct} {temp}",
+                        inline=False
+                    )
+                    
+                    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         except Exception as e:
             logger.error(f"Error in WordGuessModal.on_submit: {e}", exc_info=True)
             try:
