@@ -78,6 +78,32 @@ def get_latest_log_file():
         return None
     return max(log_files, key=os.path.getctime)
 
+
+# --- Database Query Helpers ---
+
+def safe_db_query(cursor, query, default=None, fetch_all=False):
+    """
+    Safely execute a database query with error handling.
+    
+    Args:
+        cursor: Database cursor to execute query on
+        query: SQL query string
+        default: Default value to return on error (None, 0, [], etc.)
+        fetch_all: If True, fetchall(); otherwise fetchone()
+    
+    Returns:
+        Query result or default value on error
+    """
+    try:
+        cursor.execute(query)
+        if fetch_all:
+            return cursor.fetchall()
+        else:
+            return cursor.fetchone()
+    except Exception as e:
+        logger.warning(f"Query failed: {query[:80]}... Error: {e}")
+        return default if default is not None else ([] if fetch_all else {})
+
 def follow_log_file():
     """A generator function that yields new lines from the latest log file."""
     latest_log = None
@@ -1444,47 +1470,38 @@ def economy_stats():
         cursor = conn.cursor(dictionary=True)
         
         try:
-            # Helper function to safely query
-            def safe_query(query, default=None):
-                try:
-                    cursor.execute(query)
-                    return cursor.fetchall() if default == [] else cursor.fetchone()
-                except Exception as e:
-                    logger.warning(f"Economy query failed: {query[:80]}... Error: {e}")
-                    return default if default is not None else {}
-            
             # Total coins in circulation (using balance column)
-            result = safe_query("SELECT COALESCE(SUM(balance), 0) as total_coins FROM user_stats")
+            result = safe_db_query(cursor, "SELECT COALESCE(SUM(balance), 0) as total_coins FROM user_stats")
             total_coins = result.get('total_coins', 0) if result else 0
             
             # Total users with coins
-            result = safe_query("SELECT COUNT(DISTINCT user_id) as total_users FROM user_stats WHERE balance > 0")
+            result = safe_db_query(cursor, "SELECT COUNT(DISTINCT user_id) as total_users FROM user_stats WHERE balance > 0")
             total_users = result.get('total_users', 0) if result else 0
             
             # Average coins per user
             avg_coins = total_coins / total_users if total_users > 0 else 0
             
             # Richest users - check if display_name column exists
-            richest_users = safe_query("""
+            richest_users = safe_db_query(cursor, """
                 SELECT user_id, display_name, balance as coins 
                 FROM user_stats 
                 WHERE balance > 0 
                 ORDER BY balance DESC 
                 LIMIT 10
-            """, default=[])
+            """, default=[], fetch_all=True)
             
             # If display_name column doesn't exist, fall back to simpler query
             if not richest_users:
-                richest_users = safe_query("""
+                richest_users = safe_db_query(cursor, """
                     SELECT user_id, balance as coins 
                     FROM user_stats 
                     WHERE balance > 0 
                     ORDER BY balance DESC 
                     LIMIT 10
-                """, default=[])
+                """, default=[], fetch_all=True)
             
             # Recent transactions - use transaction_history table if it exists
-            recent_transactions = safe_query("""
+            recent_transactions = safe_db_query(cursor, """
                 SELECT th.*, us.display_name, us.username 
                 FROM transaction_history th
                 LEFT JOIN (
@@ -1494,16 +1511,16 @@ def economy_stats():
                 ) us ON th.user_id = us.user_id
                 ORDER BY th.created_at DESC 
                 LIMIT 20
-            """, default=[])
+            """, default=[], fetch_all=True)
             
             # Transaction volume by type
-            transaction_types = safe_query("""
+            transaction_types = safe_db_query(cursor, """
                 SELECT transaction_type, COUNT(*) as count, SUM(amount) as total_amount
                 FROM transaction_history
                 WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
                 GROUP BY transaction_type
                 ORDER BY total_amount DESC
-            """, default=[])
+            """, default=[], fetch_all=True)
             
             return jsonify({
                 'total_coins': int(total_coins),
@@ -1532,23 +1549,14 @@ def economy_stocks():
         cursor = conn.cursor(dictionary=True)
         
         try:
-            # Helper function to safely query
-            def safe_query(query, default=None):
-                try:
-                    cursor.execute(query)
-                    return cursor.fetchall() if default == [] else cursor.fetchone()
-                except Exception as e:
-                    logger.warning(f"Stock query failed: {query[:80]}... Error: {e}")
-                    return default if default is not None else {}
-            
             # Get all stocks
-            stocks = safe_query("""
+            stocks = safe_db_query(cursor, """
                 SELECT * FROM stocks
                 ORDER BY symbol ASC
-            """, default=[])
+            """, default=[], fetch_all=True)
             
             # Get top stock holders - join with current month's user_stats
-            top_holders = safe_query("""
+            top_holders = safe_db_query(cursor, """
                 SELECT so.symbol, so.user_id, so.quantity, 
                        u.display_name, u.username, s.current_price
                 FROM stocks_owned so
@@ -1561,7 +1569,7 @@ def economy_stocks():
                 WHERE so.quantity > 0
                 ORDER BY (so.quantity * s.current_price) DESC
                 LIMIT 20
-            """, default=[])
+            """, default=[], fetch_all=True)
             
             return jsonify({
                 'stocks': stocks or [],
@@ -1899,6 +1907,8 @@ def game_leaderboard(game_type):
         try:
             if game_type == 'detective':
                 # Use LEFT JOIN with current month's user_stats
+                # Note: streak and best_streak are set to 0 as these columns don't exist
+                # in detective_user_stats table (streak tracking not yet implemented)
                 cursor.execute("""
                     SELECT u.display_name, u.username, d.user_id,
                            d.cases_solved, d.total_cases_played as total_cases, 
