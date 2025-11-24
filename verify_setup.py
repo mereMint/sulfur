@@ -192,7 +192,7 @@ async def verify_environment_variables():
         
         missing = []
         for var, desc in required_vars.items():
-            if not os.environ.get(var):
+            if var not in os.environ:
                 missing.append(f"{var} ({desc})")
         
         if missing:
@@ -205,7 +205,7 @@ async def verify_environment_variables():
         # Check optional
         optional_missing = []
         for var, desc in optional_vars.items():
-            if not os.environ.get(var):
+            if var not in os.environ:
                 optional_missing.append(f"{var} ({desc})")
         
         if optional_missing:
