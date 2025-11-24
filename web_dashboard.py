@@ -1146,7 +1146,7 @@ def rpg_monsters():
             # Get all monsters
             cursor.execute("""
                 SELECT id, name, world, level, health, strength, defense, speed, 
-                       xp_reward, gold_reward, loot_table, spawn_rate
+                       xp_reward, gold_reward, loot_table, spawn_rate, abilities
                 FROM rpg_monsters
                 ORDER BY world ASC, level ASC, name ASC
             """)
@@ -1159,10 +1159,15 @@ def rpg_monsters():
             # Create new monster
             data = request.json
             
+            # Handle optional abilities and loot_table as JSON
+            import json as json_module
+            abilities_json = json_module.dumps(data.get('abilities', [])) if data.get('abilities') else None
+            loot_table_json = json_module.dumps(data.get('loot_table', {})) if data.get('loot_table') else None
+            
             cursor.execute("""
                 INSERT INTO rpg_monsters 
-                (name, world, level, health, strength, defense, speed, xp_reward, gold_reward)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                (name, world, level, health, strength, defense, speed, xp_reward, gold_reward, abilities, loot_table)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 data['name'],
                 data['world'],
@@ -1172,7 +1177,9 @@ def rpg_monsters():
                 data['defense'],
                 data['speed'],
                 data['xp_reward'],
-                data['gold_reward']
+                data['gold_reward'],
+                abilities_json,
+                loot_table_json
             ))
             
             conn.commit()
@@ -1219,6 +1226,8 @@ def init_rpg_monsters():
         # Run async function
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        # First ensure tables exist, then initialize monsters
+        loop.run_until_complete(rpg_system.initialize_rpg_tables(db_helpers))
         loop.run_until_complete(rpg_system.initialize_default_monsters(db_helpers))
         loop.close()
         
@@ -1238,6 +1247,8 @@ def init_rpg_items():
         # Run async function
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        # First ensure tables exist, then initialize items
+        loop.run_until_complete(rpg_system.initialize_rpg_tables(db_helpers))
         loop.run_until_complete(rpg_system.initialize_shop_items(db_helpers))
         loop.close()
         
