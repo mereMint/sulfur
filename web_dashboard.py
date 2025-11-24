@@ -947,6 +947,73 @@ def rpg_admin():
     return render_template('rpg_admin.html')
 
 
+@app.route('/api/rpg/verify', methods=['GET'])
+def verify_rpg_data():
+    """Verify RPG data exists and is properly initialized."""
+    try:
+        if not db_helpers.db_pool:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        conn = db_helpers.db_pool.get_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        try:
+            verification = {}
+            
+            # Check items
+            cursor.execute("SELECT COUNT(*) as count FROM rpg_items WHERE created_by IS NULL")
+            verification['default_items'] = cursor.fetchone()['count']
+            
+            cursor.execute("SELECT COUNT(*) as count FROM rpg_items")
+            verification['total_items'] = cursor.fetchone()['count']
+            
+            # Check monsters
+            cursor.execute("SELECT COUNT(*) as count FROM rpg_monsters")
+            verification['monsters'] = cursor.fetchone()['count']
+            
+            # Check players
+            cursor.execute("SELECT COUNT(*) as count FROM rpg_players")
+            verification['players'] = cursor.fetchone()['count']
+            
+            # Check today's shop
+            from datetime import datetime, timezone
+            today = datetime.now(timezone.utc).date()
+            cursor.execute("SELECT COUNT(*) as count FROM rpg_daily_shop WHERE shop_date = %s", (today,))
+            verification['todays_shop'] = cursor.fetchone()['count']
+            
+            # Determine status
+            status = 'ok'
+            messages = []
+            
+            if verification['default_items'] < 100:
+                status = 'warning'
+                messages.append(f"Only {verification['default_items']} default items (expected 100+). Reinitialize needed.")
+            
+            if verification['monsters'] < 20:
+                status = 'warning'
+                messages.append(f"Only {verification['monsters']} monsters (expected 20+). Reinitialize needed.")
+            
+            if verification['default_items'] == 0:
+                status = 'error'
+                messages.append("No default items found. Please restart bot to initialize.")
+            
+            if verification['monsters'] == 0:
+                status = 'error'
+                messages.append("No monsters found. Please restart bot to initialize.")
+            
+            return jsonify({
+                'status': status,
+                'verification': verification,
+                'messages': messages
+            })
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error verifying RPG data: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/rpg/stats', methods=['GET'])
 def rpg_stats():
     """Get RPG statistics."""
@@ -1908,6 +1975,64 @@ def games_stats():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/verify/tables', methods=['GET'])
+def verify_all_tables():
+    """Verify all critical database tables exist."""
+    try:
+        if not db_helpers.db_pool:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        conn = db_helpers.db_pool.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # Get all tables
+            cursor.execute("SHOW TABLES")
+            all_tables = [row[0] for row in cursor.fetchall()]
+            
+            # Critical tables that should exist
+            critical_tables = {
+                'word_find': ['word_find_daily', 'word_find_attempts', 'word_find_stats', 'word_find_premium_games'],
+                'rpg': ['rpg_players', 'rpg_items', 'rpg_monsters', 'rpg_inventory', 'rpg_equipped', 'rpg_daily_shop'],
+                'economy': ['user_stats', 'transaction_history'],
+                'ai': ['ai_model_usage'],
+                'games': ['wordle_games', 'detective_user_stats']
+            }
+            
+            verification = {}
+            missing_tables = []
+            
+            for category, tables in critical_tables.items():
+                verification[category] = {
+                    'expected': len(tables),
+                    'found': 0,
+                    'missing': []
+                }
+                
+                for table in tables:
+                    if table in all_tables:
+                        verification[category]['found'] += 1
+                    else:
+                        verification[category]['missing'].append(table)
+                        missing_tables.append(table)
+            
+            status = 'ok' if not missing_tables else 'error'
+            
+            return jsonify({
+                'status': status,
+                'total_tables': len(all_tables),
+                'verification': verification,
+                'missing_tables': missing_tables,
+                'all_tables': all_tables
+            })
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error verifying tables: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/games/<game_type>/leaderboard', methods=['GET'])
 def game_leaderboard(game_type):
     """Get leaderboard for a specific game."""
@@ -1938,12 +2063,19 @@ def game_leaderboard(game_type):
                     LIMIT 50
                 """, default=[], fetch_all=True)
             elif game_type == 'wordle':
+                # Join with user_stats to get display names
                 leaderboard = safe_db_query(cursor, """
-                    SELECT user_id, COUNT(*) as games_won,
-                           AVG(attempts) as avg_attempts
-                    FROM wordle_games
-                    WHERE completed = TRUE AND won = TRUE
-                    GROUP BY user_id
+                    SELECT w.user_id, u.display_name, u.username,
+                           COUNT(*) as games_won,
+                           AVG(w.attempts) as avg_attempts
+                    FROM wordle_games w
+                    LEFT JOIN (
+                        SELECT user_id, display_name, username
+                        FROM user_stats
+                        WHERE stat_period = DATE_FORMAT(NOW(), '%Y-%m')
+                    ) u ON w.user_id = u.user_id
+                    WHERE w.completed = TRUE AND w.won = TRUE
+                    GROUP BY w.user_id, u.display_name, u.username
                     ORDER BY games_won DESC, avg_attempts ASC
                     LIMIT 50
                 """, default=[], fetch_all=True)

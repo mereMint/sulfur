@@ -285,7 +285,7 @@
                         html += `
                             <tr>
                                 <td>${medal} #${index + 1}</td>
-                                <td>User ${player.user_id}</td>
+                                <td>${player.display_name || player.username || `User ${player.user_id}`}</td>
                                 <td><strong>${player.games_won}</strong></td>
                                 <td><span class="badge bg-info">${parseFloat(player.avg_attempts).toFixed(1)}</span></td>
                             </tr>

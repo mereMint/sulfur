@@ -175,6 +175,8 @@ async def initialize_word_find_table(db_helpers):
         
         cursor = conn.cursor()
         try:
+            logger.info("Initializing Word Find tables...")
+            
             # Table for daily word
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS word_find_daily (
@@ -244,7 +246,13 @@ async def initialize_word_find_table(db_helpers):
             """)
             
             conn.commit()
-            logger.info("Word Find tables initialized")
+            logger.info("Word Find tables initialized successfully")
+            
+            # Verify tables were created
+            cursor.execute("SHOW TABLES LIKE 'word_find_%'")
+            tables = cursor.fetchall()
+            logger.info(f"Verified {len(tables)} Word Find tables exist")
+            
         finally:
             cursor.close()
             conn.close()

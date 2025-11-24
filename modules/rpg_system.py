@@ -1263,10 +1263,12 @@ async def initialize_default_monsters(db_helpers):
     """
     try:
         if not db_helpers.db_pool:
+            logger.warning("Database pool not available for monster initialization")
             return
         
         conn = db_helpers.db_pool.get_connection()
         if not conn:
+            logger.warning("Could not get database connection for monster initialization")
             return
         
         cursor = conn.cursor()
@@ -1275,14 +1277,24 @@ async def initialize_default_monsters(db_helpers):
             cursor.execute("SELECT COUNT(*) FROM rpg_monsters")
             count = cursor.fetchone()[0]
             
-            if count == 0:
-                logger.info("No monsters found in database. Inserting monsters...")
+            logger.info(f"Found {count} monsters in database")
+            
+            # Only initialize if we have fewer than 20 monsters
+            if count < 20:
+                logger.info(f"Only {count} monsters found. Inserting default monsters...")
                 
                 # Get monster data from the function defined in this file
                 all_monsters = get_base_monsters_data()
+                logger.info(f"Generated {len(all_monsters)} monsters for seeding")
+                
+                # Clear existing monsters first if reinitializing
+                if count > 0:
+                    cursor.execute("DELETE FROM rpg_monsters")
+                    logger.info(f"Cleared {count} existing monsters for reinitializing")
                 
                 # Insert all monsters with abilities and loot tables
                 inserted = 0
+                failed = 0
                 for monster in all_monsters:
                     try:
                         abilities_json = json.dumps(monster.get('abilities', []))
@@ -1306,10 +1318,14 @@ async def initialize_default_monsters(db_helpers):
                         ))
                         inserted += 1
                     except Exception as e:
-                        logger.warning(f"Failed to insert monster {monster['name']}: {e}")
+                        failed += 1
+                        if failed <= 5:  # Only log first 5 failures
+                            logger.warning(f"Failed to insert monster {monster.get('name', 'Unknown')}: {e}")
                 
                 conn.commit()
-                logger.info(f"Successfully initialized {inserted} monsters with loot tables")
+                logger.info(f"Successfully initialized {inserted} monsters with loot tables ({failed} failed)")
+            else:
+                logger.info(f"Monsters already initialized ({count} monsters)")
         finally:
             cursor.close()
             conn.close()
@@ -2180,10 +2196,12 @@ async def initialize_shop_items(db_helpers):
     """
     try:
         if not db_helpers.db_pool:
+            logger.warning("Database pool not available for shop items initialization")
             return
         
         conn = db_helpers.db_pool.get_connection()
         if not conn:
+            logger.warning("Could not get database connection for shop items initialization")
             return
         
         cursor = conn.cursor()
@@ -2192,17 +2210,27 @@ async def initialize_shop_items(db_helpers):
             cursor.execute("SELECT COUNT(*) FROM rpg_items WHERE created_by IS NULL")
             count = cursor.fetchone()[0]
             
-            if count == 0:
-                logger.info("No default items found in database. Generating and inserting...")
+            logger.info(f"Found {count} default RPG items in database")
+            
+            # Only initialize if we have fewer than 100 items (should have hundreds)
+            if count < 100:
+                logger.info(f"Only {count} default items found. Generating and inserting new items...")
                 
                 # Import generation function (lazy import to avoid circular dependencies)
                 from modules.rpg_items_data import get_all_items_for_seeding
                 
                 # Generate all items (handcrafted + programmatic)
                 all_items = get_all_items_for_seeding()
+                logger.info(f"Generated {len(all_items)} items for seeding")
+                
+                # Clear existing default items first if reinitializing
+                if count > 0:
+                    cursor.execute("DELETE FROM rpg_items WHERE created_by IS NULL")
+                    logger.info(f"Cleared {count} existing default items for reinitializing")
                 
                 # Insert all items into database
                 inserted = 0
+                failed = 0
                 for item in all_items:
                     try:
                         cursor.execute("""
@@ -2222,10 +2250,14 @@ async def initialize_shop_items(db_helpers):
                         ))
                         inserted += 1
                     except Exception as e:
-                        logger.warning(f"Failed to insert item {item['name']}: {e}")
+                        failed += 1
+                        if failed <= 5:  # Only log first 5 failures
+                            logger.warning(f"Failed to insert item {item.get('name', 'Unknown')}: {e}")
                 
                 conn.commit()
-                logger.info(f"Successfully initialized {inserted} shop items in database")
+                logger.info(f"Successfully initialized {inserted} shop items in database ({failed} failed)")
+            else:
+                logger.info(f"Shop items already initialized ({count} items)")
         finally:
             cursor.close()
             conn.close()
