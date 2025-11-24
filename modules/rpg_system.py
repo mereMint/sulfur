@@ -1,6 +1,9 @@
 """
 Sulfur Bot - RPG System Module (Foundation)
 Core RPG system with combat, items, skills, and progression.
+
+NOTE: Items, skills, and monsters are stored in the DATABASE, not hardcoded.
+The generation logic in rpg_items_data.py is used only to seed the database on first run.
 """
 
 import discord
@@ -9,7 +12,6 @@ import json
 from datetime import datetime, timezone
 from typing import Optional, Dict, List, Tuple
 from modules.logger_utils import bot_logger as logger
-from modules.rpg_items_data import EXTENDED_WEAPONS, EXTENDED_SKILLS
 
 
 # Status Effects - Applied during combat
@@ -1108,7 +1110,12 @@ async def gain_xp(db_helpers, user_id: int, xp_amount: int):
 # Default Monsters with abilities and LOOT TABLES
 # Loot tables define what items can drop from each monster category
 # Format: {item_name: drop_rate} where drop_rate is 0.0-1.0
-DEFAULT_MONSTERS = [
+def get_base_monsters_data():
+    """
+    Returns the base monster data for database seeding.
+    Called during database initialization to populate rpg_monsters table.
+    """
+    return [
     # ===== OVERWORLD MONSTERS (Level 1-10) =====
     # Tier 1: Beginners (Level 1-2)
     {'name': 'Schleimling', 'world': 'overworld', 'level': 1, 'health': 30, 'strength': 3, 'defense': 2, 'speed': 5, 'xp_reward': 15, 'gold_reward': 10, 'abilities': ['poison_spit'], 'loot_table': {'Schleim': 0.8, 'Kleiner Gifttrank': 0.3}},
@@ -1238,7 +1245,10 @@ DEFAULT_MONSTERS = [
 
 
 async def initialize_default_monsters(db_helpers):
-    """Initialize default monsters in the database with loot tables."""
+    """
+    Initialize monsters in the database.
+    Monsters are only generated once on first run, then loaded from database.
+    """
     try:
         if not db_helpers.db_pool:
             return
@@ -1254,25 +1264,46 @@ async def initialize_default_monsters(db_helpers):
             count = cursor.fetchone()[0]
             
             if count == 0:
-                # Insert default monsters with abilities and loot tables
-                for monster in DEFAULT_MONSTERS:
-                    abilities_json = json.dumps(monster.get('abilities', []))
-                    loot_table_json = json.dumps(monster.get('loot_table', {}))
-                    cursor.execute("""
-                        INSERT INTO rpg_monsters 
-                        (name, world, level, health, strength, defense, speed, xp_reward, gold_reward, abilities, loot_table)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """, (monster['name'], monster['world'], monster['level'], monster['health'],
-                          monster['strength'], monster['defense'], monster['speed'],
-                          monster['xp_reward'], monster['gold_reward'], abilities_json, loot_table_json))
+                logger.info("No monsters found in database. Inserting monsters...")
+                
+                # Get monster data from the function defined in this file
+                all_monsters = get_base_monsters_data()
+                
+                # Insert all monsters with abilities and loot tables
+                inserted = 0
+                for monster in all_monsters:
+                    try:
+                        abilities_json = json.dumps(monster.get('abilities', []))
+                        loot_table_json = json.dumps(monster.get('loot_table', {}))
+                        cursor.execute("""
+                            INSERT INTO rpg_monsters 
+                            (name, world, level, health, strength, defense, speed, xp_reward, gold_reward, abilities, loot_table)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """, (
+                            monster['name'], 
+                            monster['world'], 
+                            monster['level'], 
+                            monster['health'],
+                            monster['strength'], 
+                            monster['defense'], 
+                            monster['speed'],
+                            monster['xp_reward'], 
+                            monster['gold_reward'], 
+                            abilities_json, 
+                            loot_table_json
+                        ))
+                        inserted += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to insert monster {monster['name']}: {e}")
                 
                 conn.commit()
-                logger.info(f"Initialized {len(DEFAULT_MONSTERS)} default monsters with loot tables")
+                logger.info(f"Successfully initialized {inserted} monsters with loot tables")
         finally:
             cursor.close()
             conn.close()
     except Exception as e:
         logger.error(f"Error initializing default monsters: {e}", exc_info=True)
+
 
 
 async def get_random_monster(db_helpers, player_level: int, world: str):
@@ -2058,7 +2089,11 @@ logger.info(f"Loaded {len(DEFAULT_SHOP_ITEMS)} total shop items (base + extended
 
 
 async def initialize_shop_items(db_helpers):
-    """Initialize default shop items in the database."""
+    """
+    Initialize shop items in the database using generation logic.
+    Imports and uses the generation functions from rpg_items_data module.
+    Items are only generated once on first run, then loaded from database.
+    """
     try:
         if not db_helpers.db_pool:
             return
@@ -2069,23 +2104,44 @@ async def initialize_shop_items(db_helpers):
         
         cursor = conn.cursor()
         try:
-            # Check if items exist
+            # Check if items exist (created_by IS NULL means default/generated items)
             cursor.execute("SELECT COUNT(*) FROM rpg_items WHERE created_by IS NULL")
             count = cursor.fetchone()[0]
             
             if count == 0:
-                # Insert default items
-                for item in DEFAULT_SHOP_ITEMS:
-                    cursor.execute("""
-                        INSERT INTO rpg_items 
-                        (name, type, rarity, description, damage, damage_type, price, required_level, effects)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """, (item['name'], item['type'], item['rarity'], item['description'],
-                          item.get('damage', 0), item.get('damage_type'), item['price'],
-                          item['required_level'], item.get('effects')))
+                logger.info("No default items found in database. Generating and inserting...")
+                
+                # Import generation function (lazy import to avoid circular dependencies)
+                from modules.rpg_items_data import get_all_items_for_seeding
+                
+                # Generate all items (handcrafted + programmatic)
+                all_items = get_all_items_for_seeding()
+                
+                # Insert all items into database
+                inserted = 0
+                for item in all_items:
+                    try:
+                        cursor.execute("""
+                            INSERT INTO rpg_items 
+                            (name, type, rarity, description, damage, damage_type, price, required_level, effects)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """, (
+                            item['name'], 
+                            item['type'], 
+                            item['rarity'], 
+                            item['description'],
+                            item.get('damage', 0), 
+                            item.get('damage_type'), 
+                            item['price'],
+                            item['required_level'], 
+                            item.get('effects')
+                        ))
+                        inserted += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to insert item {item['name']}: {e}")
                 
                 conn.commit()
-                logger.info(f"Initialized {len(DEFAULT_SHOP_ITEMS)} default shop items")
+                logger.info(f"Successfully initialized {inserted} shop items in database")
         finally:
             cursor.close()
             conn.close()

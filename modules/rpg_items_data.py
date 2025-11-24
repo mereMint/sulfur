@@ -1,9 +1,9 @@
 """
-RPG System - Extended Items Data
-Contains massive expansion of weapons, spells, and skills for the RPG system.
-This file is separated from rpg_system.py for better maintainability.
+RPG System - Items and Monsters Data Generation
+Contains generation logic for weapons, spells, skills, and monsters.
+This file DOES NOT store hardcoded data - it generates data on-demand for database seeding.
 
-Auto-generates variations to reach 500+ weapons and 800+ skills.
+The generation functions are called by rpg_system.py during database initialization.
 """
 
 import json
@@ -411,16 +411,78 @@ for skill in GENERATED_SKILLS[:len(GENERATED_SKILLS)//2]:  # Take half
 
 GENERATED_SKILLS.extend(ELEMENTAL_VARIANTS)
 
-# Combine all weapons and skills
-EXTENDED_WEAPONS.extend(GENERATED_WEAPONS)
-EXTENDED_SKILLS.extend(GENERATED_SKILLS)
 
-# Log loaded counts (use logger in production, print for immediate feedback during module load)
-import sys
-if 'modules.logger_utils' in sys.modules:
-    from modules.logger_utils import bot_logger as logger
-    logger.info(f"RPG Items Data Loaded: {len(EXTENDED_WEAPONS)} weapons, {len(EXTENDED_SKILLS)} skills")
-else:
-    print(f"RPG Items Data Loaded:")
-    print(f"  - {len(EXTENDED_WEAPONS)} total weapons")
-    print(f"  - {len(EXTENDED_SKILLS)} total skills")
+# ============================================================================
+# PUBLIC API - These functions are called by rpg_system.py to seed the database
+# ============================================================================
+
+def generate_base_shop_items():
+    """
+    Returns the base/handcrafted shop items (weapons and skills).
+    These are the original curated items from the shop.
+    """
+    # Return the handcrafted items
+    return EXTENDED_WEAPONS + EXTENDED_SKILLS
+
+
+def generate_all_monsters():
+    """
+    Returns all monsters with their loot tables.
+    This function must be implemented in rpg_system.py since monsters are defined there.
+    """
+    # This is a placeholder - actual implementation is in rpg_system.py
+    raise NotImplementedError("Monsters are defined in rpg_system.py - call get_base_monsters_data() instead")
+
+
+# Main function to get all items for database seeding
+def get_all_items_for_seeding():
+    """
+    Generate and return ALL items for database seeding.
+    Combines handcrafted items with programmatically generated ones.
+    
+    Returns:
+        List of all item dictionaries ready for database insertion
+    """
+    all_items = []
+    
+    # Add handcrafted weapons
+    all_items.extend(EXTENDED_WEAPONS)
+    
+    # Add handcrafted skills
+    all_items.extend(EXTENDED_SKILLS)
+    
+    # Add programmatically generated weapons
+    all_items.extend(generate_weapon_variations())
+    
+    # Add programmatically generated skills
+    base_generated_skills = generate_skill_variations()
+    all_items.extend(base_generated_skills)
+    
+    # Add elemental variants of skills
+    elemental_variants = []
+    for skill in base_generated_skills[:len(base_generated_skills)//2]:
+        if 'damage_type' in skill:
+            for element in ['fire', 'ice', 'lightning', 'dark', 'light']:
+                if skill['damage_type'] != element:
+                    variant = skill.copy()
+                    variant['name'] = f"{skill['name']} ({element.capitalize()})"
+                    variant['damage_type'] = element
+                    variant['price'] = int(skill['price'] * 1.1)
+                    elemental_variants.append(variant)
+                    if len(elemental_variants) >= MAX_ELEMENTAL_VARIANTS:
+                        break
+            if len(elemental_variants) >= MAX_ELEMENTAL_VARIANTS:
+                break
+    
+    all_items.extend(elemental_variants)
+    
+    return all_items
+
+
+# Log when module is imported (for debugging)
+if __name__ != '__main__':
+    try:
+        from modules.logger_utils import bot_logger as logger
+        logger.debug("RPG Items Data module loaded - generation functions ready")
+    except:
+        pass  # Logger not available yet
