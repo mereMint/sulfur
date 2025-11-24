@@ -78,6 +78,32 @@ def get_latest_log_file():
         return None
     return max(log_files, key=os.path.getctime)
 
+
+# --- Database Query Helpers ---
+
+def safe_db_query(cursor, query, default=None, fetch_all=False):
+    """
+    Safely execute a database query with error handling.
+    
+    Args:
+        cursor: Database cursor to execute query on
+        query: SQL query string
+        default: Default value to return on error (None, 0, [], etc.)
+        fetch_all: If True, fetchall(); otherwise fetchone()
+    
+    Returns:
+        Query result or default value on error
+    """
+    try:
+        cursor.execute(query)
+        if fetch_all:
+            return cursor.fetchall()
+        else:
+            return cursor.fetchone()
+    except Exception as e:
+        logger.warning(f"Query failed: {query[:80]}... Error: {e}")
+        return default if default is not None else ([] if fetch_all else {})
+
 def follow_log_file():
     """A generator function that yields new lines from the latest log file."""
     latest_log = None
@@ -1445,53 +1471,64 @@ def economy_stats():
         
         try:
             # Total coins in circulation (using balance column)
-            cursor.execute("SELECT COALESCE(SUM(balance), 0) as total_coins FROM user_stats")
-            total_coins = cursor.fetchone()['total_coins']
+            result = safe_db_query(cursor, "SELECT COALESCE(SUM(balance), 0) as total_coins FROM user_stats")
+            total_coins = result.get('total_coins', 0) if result else 0
             
             # Total users with coins
-            cursor.execute("SELECT COUNT(DISTINCT user_id) as total_users FROM user_stats WHERE balance > 0")
-            total_users = cursor.fetchone()['total_users']
+            result = safe_db_query(cursor, "SELECT COUNT(DISTINCT user_id) as total_users FROM user_stats WHERE balance > 0")
+            total_users = result.get('total_users', 0) if result else 0
             
             # Average coins per user
             avg_coins = total_coins / total_users if total_users > 0 else 0
             
-            # Richest users
-            cursor.execute("""
+            # Richest users - check if display_name column exists
+            richest_users = safe_db_query(cursor, """
                 SELECT user_id, display_name, balance as coins 
                 FROM user_stats 
                 WHERE balance > 0 
                 ORDER BY balance DESC 
                 LIMIT 10
-            """)
-            richest_users = cursor.fetchall()
+            """, default=[], fetch_all=True)
             
-            # Recent transactions
-            cursor.execute("""
-                SELECT t.*, u.display_name, u.username 
-                FROM transactions t
-                LEFT JOIN user_stats u ON t.user_id = u.user_id
-                ORDER BY t.timestamp DESC 
+            # If display_name column doesn't exist, fall back to simpler query
+            if not richest_users:
+                richest_users = safe_db_query(cursor, """
+                    SELECT user_id, balance as coins 
+                    FROM user_stats 
+                    WHERE balance > 0 
+                    ORDER BY balance DESC 
+                    LIMIT 10
+                """, default=[], fetch_all=True)
+            
+            # Recent transactions - use transaction_history table if it exists
+            recent_transactions = safe_db_query(cursor, """
+                SELECT th.*, us.display_name, us.username 
+                FROM transaction_history th
+                LEFT JOIN (
+                    SELECT user_id, display_name, username, stat_period
+                    FROM user_stats
+                    WHERE stat_period = DATE_FORMAT(NOW(), '%Y-%m')
+                ) us ON th.user_id = us.user_id
+                ORDER BY th.created_at DESC 
                 LIMIT 20
-            """)
-            recent_transactions = cursor.fetchall()
+            """, default=[], fetch_all=True)
             
             # Transaction volume by type
-            cursor.execute("""
+            transaction_types = safe_db_query(cursor, """
                 SELECT transaction_type, COUNT(*) as count, SUM(amount) as total_amount
-                FROM transactions
-                WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                FROM transaction_history
+                WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
                 GROUP BY transaction_type
                 ORDER BY total_amount DESC
-            """)
-            transaction_types = cursor.fetchall()
+            """, default=[], fetch_all=True)
             
             return jsonify({
                 'total_coins': int(total_coins),
                 'total_users': total_users,
                 'avg_coins': round(avg_coins, 2),
-                'richest_users': richest_users,
-                'recent_transactions': recent_transactions,
-                'transaction_types': transaction_types
+                'richest_users': richest_users or [],
+                'recent_transactions': recent_transactions or [],
+                'transaction_types': transaction_types or []
             })
         finally:
             cursor.close()
@@ -1513,28 +1550,30 @@ def economy_stocks():
         
         try:
             # Get all stocks
-            cursor.execute("""
+            stocks = safe_db_query(cursor, """
                 SELECT * FROM stocks
                 ORDER BY symbol ASC
-            """)
-            stocks = cursor.fetchall()
+            """, default=[], fetch_all=True)
             
-            # Get top stock holders
-            cursor.execute("""
+            # Get top stock holders - join with current month's user_stats
+            top_holders = safe_db_query(cursor, """
                 SELECT so.symbol, so.user_id, so.quantity, 
                        u.display_name, u.username, s.current_price
                 FROM stocks_owned so
-                JOIN user_stats u ON so.user_id = u.user_id
+                LEFT JOIN (
+                    SELECT user_id, display_name, username, stat_period
+                    FROM user_stats
+                    WHERE stat_period = DATE_FORMAT(NOW(), '%Y-%m')
+                ) u ON so.user_id = u.user_id
                 JOIN stocks s ON so.symbol = s.symbol
                 WHERE so.quantity > 0
                 ORDER BY (so.quantity * s.current_price) DESC
                 LIMIT 20
-            """)
-            top_holders = cursor.fetchall()
+            """, default=[], fetch_all=True)
             
             return jsonify({
-                'stocks': stocks,
-                'top_holders': top_holders
+                'stocks': stocks or [],
+                'top_holders': top_holders or []
             })
         finally:
             cursor.close()
@@ -1867,17 +1906,25 @@ def game_leaderboard(game_type):
         
         try:
             if game_type == 'detective':
-                cursor.execute("""
+                # Use LEFT JOIN with current month's user_stats
+                # Note: streak and best_streak are set to 0 as these columns don't exist
+                # in detective_user_stats table (streak tracking not yet implemented)
+                leaderboard = safe_db_query(cursor, """
                     SELECT u.display_name, u.username, d.user_id,
-                           d.cases_solved, d.total_cases, d.accuracy,
-                           d.streak, d.best_streak
+                           d.cases_solved, d.total_cases_played as total_cases, 
+                           ROUND(d.cases_solved * 100.0 / NULLIF(d.total_cases_played, 0), 2) as accuracy,
+                           0 as streak, 0 as best_streak
                     FROM detective_user_stats d
-                    JOIN user_stats u ON d.user_id = u.user_id
-                    ORDER BY d.cases_solved DESC, d.accuracy DESC
+                    LEFT JOIN (
+                        SELECT user_id, display_name, username, stat_period
+                        FROM user_stats
+                        WHERE stat_period = DATE_FORMAT(NOW(), '%Y-%m')
+                    ) u ON d.user_id = u.user_id
+                    ORDER BY d.cases_solved DESC, accuracy DESC
                     LIMIT 50
-                """)
+                """, default=[], fetch_all=True)
             elif game_type == 'wordle':
-                cursor.execute("""
+                leaderboard = safe_db_query(cursor, """
                     SELECT user_id, COUNT(*) as games_won,
                            AVG(attempts) as avg_attempts
                     FROM wordle_games
@@ -1885,12 +1932,11 @@ def game_leaderboard(game_type):
                     GROUP BY user_id
                     ORDER BY games_won DESC, avg_attempts ASC
                     LIMIT 50
-                """)
+                """, default=[], fetch_all=True)
             else:
                 return jsonify({'error': 'Invalid game type'}), 400
             
-            leaderboard = cursor.fetchall()
-            return jsonify({'leaderboard': leaderboard})
+            return jsonify({'leaderboard': leaderboard or []})
         finally:
             cursor.close()
             conn.close()
