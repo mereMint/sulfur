@@ -839,10 +839,30 @@ def _get_proximity_indicator(score: float) -> tuple:
     return bar, temp
 
 
+def _get_language_indicator(language: str) -> tuple:
+    """
+    Get visual language indicator with flag emoji and language name.
+    
+    Args:
+        language: 'de' or 'en'
+    
+    Returns:
+        tuple: (flag_emoji, language_name)
+    """
+    if language == 'en':
+        return "🇬🇧", "English"
+    else:
+        return "🇩🇪", "Deutsch"
+
+
 def create_game_embed(word_data: dict, attempts: list, max_attempts: int, user_stats: dict = None, game_type: str = 'daily', theme_id=None):
     """Create the game embed with current progress and theme support."""
     # Extract difficulty first (needed for both color and description)
     difficulty = word_data.get('difficulty', 'medium')
+    
+    # Extract language for visual indicator
+    language = word_data.get('language', 'de')
+    flag, lang_name = _get_language_indicator(language)
     
     # Import themes here to avoid circular import
     try:
@@ -857,14 +877,14 @@ def create_game_embed(word_data: dict, attempts: list, max_attempts: int, user_s
         }
         color = difficulty_colors.get(difficulty, discord.Color.blue())
     
-    title = "🔍 Word Find - Tägliches Wortratespiel" if game_type == 'daily' else "🔍 Word Find - Premium Spiel"
+    title = f"🔍 Word Find {flag} - {'Tägliches Wortratespiel' if game_type == 'daily' else 'Premium Spiel'}"
     
     remaining_attempts = max_attempts - len(attempts)
     
     embed = discord.Embed(
         title=title,
         description=f"Errate das Wort! Du hast {max_attempts} Versuche.\n"
-                   f"Schwierigkeit: **{difficulty.upper()}**\n"
+                   f"Sprache: **{flag} {lang_name}** | Schwierigkeit: **{difficulty.upper()}**\n"
                    f"Versuche: **{len(attempts)}/{max_attempts}** | Übrig: **{remaining_attempts}** 🎯",
         color=color
     )
