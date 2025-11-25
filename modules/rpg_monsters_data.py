@@ -11,52 +11,58 @@ def get_base_monsters_data():
     """
     Returns the base monster data for database seeding.
     Called during database initialization to populate rpg_monsters table.
+    
+    NOTE: Monster stats are BALANCED to provide challenging combat.
+    - Health values provide sufficient HP pools for strategic battles
+    - Strength values are scaled to deal meaningful damage to players
+    - Defense provides damage mitigation using the percentage-based formula
+    - Speed affects turn order and dodge/crit calculations
     """
     return [
     # ===== OVERWORLD MONSTERS (Level 1-10) =====
-    # Tier 1: Beginners (Level 1-2)
-    {'name': 'Schleimling', 'world': 'overworld', 'level': 1, 'health': 30, 'strength': 3, 'defense': 2, 'speed': 5, 'xp_reward': 15, 'gold_reward': 10, 'abilities': ['poison_spit'], 'loot_table': {'Schleim': 0.8, 'Kleiner Gifttrank': 0.3}},
-    {'name': 'Ratte', 'world': 'overworld', 'level': 1, 'health': 25, 'strength': 2, 'defense': 1, 'speed': 8, 'xp_reward': 12, 'gold_reward': 8, 'abilities': ['savage_bite'], 'loot_table': {'Rattenschwanz': 0.7, 'Krankheit (Quest)': 0.1}},
-    {'name': 'Kleiner Goblin', 'world': 'overworld', 'level': 1, 'health': 28, 'strength': 4, 'defense': 2, 'speed': 6, 'xp_reward': 14, 'gold_reward': 12, 'abilities': ['critical_strike'], 'loot_table': {'Goblin-Ohr': 0.6, 'Rostige Münze': 0.4}},
+    # Tier 1: Beginners (Level 1-2) - Entry level, should be beatable but not trivial
+    {'name': 'Schleimling', 'world': 'overworld', 'level': 1, 'health': 45, 'strength': 8, 'defense': 5, 'speed': 5, 'xp_reward': 15, 'gold_reward': 10, 'abilities': ['poison_spit'], 'loot_table': {'Schleim': 0.8, 'Kleiner Gifttrank': 0.3}},
+    {'name': 'Ratte', 'world': 'overworld', 'level': 1, 'health': 35, 'strength': 6, 'defense': 3, 'speed': 10, 'xp_reward': 12, 'gold_reward': 8, 'abilities': ['savage_bite'], 'loot_table': {'Rattenschwanz': 0.7, 'Krankheit (Quest)': 0.1}},
+    {'name': 'Kleiner Goblin', 'world': 'overworld', 'level': 1, 'health': 40, 'strength': 10, 'defense': 4, 'speed': 7, 'xp_reward': 14, 'gold_reward': 12, 'abilities': ['critical_strike'], 'loot_table': {'Goblin-Ohr': 0.6, 'Rostige Münze': 0.4}},
     
-    {'name': 'Goblin', 'world': 'overworld', 'level': 2, 'health': 45, 'strength': 5, 'defense': 3, 'speed': 6, 'xp_reward': 25, 'gold_reward': 20, 'abilities': ['critical_strike'], 'loot_table': {'Goblin-Ohr': 0.75, 'Kleiner Beutel': 0.3}},
-    {'name': 'Riesenkäfer', 'world': 'overworld', 'level': 2, 'health': 40, 'strength': 4, 'defense': 5, 'speed': 4, 'xp_reward': 22, 'gold_reward': 18, 'abilities': ['armor_up'], 'loot_table': {'Käferpanzer': 0.7, 'Chitin': 0.5}},
-    {'name': 'Wildschwein', 'world': 'overworld', 'level': 2, 'health': 50, 'strength': 6, 'defense': 3, 'speed': 7, 'xp_reward': 24, 'gold_reward': 22, 'abilities': ['savage_bite', 'battle_roar'], 'loot_table': {'Schweineleder': 0.8, 'Wildfleisch': 0.9, 'Stoßzahn': 0.4}},
+    {'name': 'Goblin', 'world': 'overworld', 'level': 2, 'health': 60, 'strength': 12, 'defense': 6, 'speed': 8, 'xp_reward': 25, 'gold_reward': 20, 'abilities': ['critical_strike'], 'loot_table': {'Goblin-Ohr': 0.75, 'Kleiner Beutel': 0.3}},
+    {'name': 'Riesenkäfer', 'world': 'overworld', 'level': 2, 'health': 55, 'strength': 10, 'defense': 12, 'speed': 5, 'xp_reward': 22, 'gold_reward': 18, 'abilities': ['armor_up'], 'loot_table': {'Käferpanzer': 0.7, 'Chitin': 0.5}},
+    {'name': 'Wildschwein', 'world': 'overworld', 'level': 2, 'health': 70, 'strength': 14, 'defense': 7, 'speed': 9, 'xp_reward': 24, 'gold_reward': 22, 'abilities': ['savage_bite', 'battle_roar'], 'loot_table': {'Schweineleder': 0.8, 'Wildfleisch': 0.9, 'Stoßzahn': 0.4}},
     
-    # Tier 2: Adventurers (Level 3-5)
-    {'name': 'Wilder Wolf', 'world': 'overworld', 'level': 3, 'health': 60, 'strength': 7, 'defense': 4, 'speed': 10, 'xp_reward': 35, 'gold_reward': 25, 'abilities': ['savage_bite', 'crippling_strike'], 'loot_table': {'Wolfszahn': 0.75, 'Wolfsfell': 0.6, 'Wolfsherz (Quest)': 0.2}},
-    {'name': 'Banditen-Schütze', 'world': 'overworld', 'level': 3, 'health': 55, 'strength': 8, 'defense': 3, 'speed': 9, 'xp_reward': 38, 'gold_reward': 30, 'abilities': ['hunters_focus', 'expose_weakness'], 'loot_table': {'Gestohlene Münzen': 0.9, 'Bogen': 0.3, 'Kopfgeld-Marke': 0.5}},
-    {'name': 'Giftige Spinne', 'world': 'overworld', 'level': 3, 'health': 50, 'strength': 6, 'defense': 3, 'speed': 11, 'xp_reward': 32, 'gold_reward': 20, 'abilities': ['poison_spit', 'enfeeble'], 'loot_table': {'Spinnengift': 0.8, 'Spinnenseide': 0.7, 'Spinnenauge': 0.4}},
+    # Tier 2: Adventurers (Level 3-5) - Require basic equipment
+    {'name': 'Wilder Wolf', 'world': 'overworld', 'level': 3, 'health': 85, 'strength': 18, 'defense': 10, 'speed': 14, 'xp_reward': 35, 'gold_reward': 25, 'abilities': ['savage_bite', 'crippling_strike'], 'loot_table': {'Wolfszahn': 0.75, 'Wolfsfell': 0.6, 'Wolfsherz (Quest)': 0.2}},
+    {'name': 'Banditen-Schütze', 'world': 'overworld', 'level': 3, 'health': 75, 'strength': 20, 'defense': 8, 'speed': 12, 'xp_reward': 38, 'gold_reward': 30, 'abilities': ['hunters_focus', 'expose_weakness'], 'loot_table': {'Gestohlene Münzen': 0.9, 'Bogen': 0.3, 'Kopfgeld-Marke': 0.5}},
+    {'name': 'Giftige Spinne', 'world': 'overworld', 'level': 3, 'health': 70, 'strength': 16, 'defense': 8, 'speed': 15, 'xp_reward': 32, 'gold_reward': 20, 'abilities': ['poison_spit', 'enfeeble'], 'loot_table': {'Spinnengift': 0.8, 'Spinnenseide': 0.7, 'Spinnenauge': 0.4}},
     
-    {'name': 'Skelett-Krieger', 'world': 'overworld', 'level': 4, 'health': 70, 'strength': 9, 'defense': 6, 'speed': 7, 'xp_reward': 50, 'gold_reward': 35, 'abilities': ['armor_up', 'stunning_blow'], 'loot_table': {'Knochen': 0.9, 'Alter Schild': 0.4, 'Verfluchter Schädel': 0.2}},
-    {'name': 'Zombie', 'world': 'overworld', 'level': 4, 'health': 80, 'strength': 10, 'defense': 5, 'speed': 4, 'xp_reward': 48, 'gold_reward': 30, 'abilities': ['life_drain', 'poison_spit'], 'loot_table': {'Verfaultes Fleisch': 0.95, 'Zombie-Gehirn': 0.3, 'Seuche (Quest)': 0.15}},
-    {'name': 'Waldschamane', 'world': 'overworld', 'level': 4, 'health': 65, 'strength': 11, 'defense': 4, 'speed': 8, 'xp_reward': 52, 'gold_reward': 38, 'abilities': ['dark_curse', 'regeneration'], 'loot_table': {'Kräuter': 0.8, 'Schamanenstab': 0.25, 'Zauberperle': 0.4}},
+    {'name': 'Skelett-Krieger', 'world': 'overworld', 'level': 4, 'health': 100, 'strength': 22, 'defense': 15, 'speed': 9, 'xp_reward': 50, 'gold_reward': 35, 'abilities': ['armor_up', 'stunning_blow'], 'loot_table': {'Knochen': 0.9, 'Alter Schild': 0.4, 'Verfluchter Schädel': 0.2}},
+    {'name': 'Zombie', 'world': 'overworld', 'level': 4, 'health': 120, 'strength': 24, 'defense': 12, 'speed': 5, 'xp_reward': 48, 'gold_reward': 30, 'abilities': ['life_drain', 'poison_spit'], 'loot_table': {'Verfaultes Fleisch': 0.95, 'Zombie-Gehirn': 0.3, 'Seuche (Quest)': 0.15}},
+    {'name': 'Waldschamane', 'world': 'overworld', 'level': 4, 'health': 90, 'strength': 26, 'defense': 10, 'speed': 11, 'xp_reward': 52, 'gold_reward': 38, 'abilities': ['dark_curse', 'regeneration'], 'loot_table': {'Kräuter': 0.8, 'Schamanenstab': 0.25, 'Zauberperle': 0.4}},
     
-    {'name': 'Ork-Schläger', 'world': 'overworld', 'level': 5, 'health': 90, 'strength': 12, 'defense': 8, 'speed': 6, 'xp_reward': 65, 'gold_reward': 50, 'abilities': ['battle_roar', 'critical_strike', 'stunning_blow'], 'loot_table': {'Ork-Zahn': 0.7, 'Schwere Rüstung': 0.3, 'Kriegstrophäe': 0.4}},
-    {'name': 'Harpyie', 'world': 'overworld', 'level': 5, 'health': 75, 'strength': 10, 'defense': 5, 'speed': 14, 'xp_reward': 62, 'gold_reward': 45, 'abilities': ['shadow_step', 'terrifying_roar'], 'loot_table': {'Harpyienfeder': 0.85, 'Kralle': 0.6, 'Luftessenz': 0.3}},
-    {'name': 'Steingolem', 'world': 'overworld', 'level': 5, 'health': 110, 'strength': 13, 'defense': 15, 'speed': 3, 'xp_reward': 68, 'gold_reward': 48, 'abilities': ['stone_skin', 'armor_up'], 'loot_table': {'Steinstück': 0.9, 'Magischer Kern': 0.25, 'Edelstein': 0.4}},
+    {'name': 'Ork-Schläger', 'world': 'overworld', 'level': 5, 'health': 130, 'strength': 30, 'defense': 18, 'speed': 8, 'xp_reward': 65, 'gold_reward': 50, 'abilities': ['battle_roar', 'critical_strike', 'stunning_blow'], 'loot_table': {'Ork-Zahn': 0.7, 'Schwere Rüstung': 0.3, 'Kriegstrophäe': 0.4}},
+    {'name': 'Harpyie', 'world': 'overworld', 'level': 5, 'health': 105, 'strength': 26, 'defense': 12, 'speed': 18, 'xp_reward': 62, 'gold_reward': 45, 'abilities': ['shadow_step', 'terrifying_roar'], 'loot_table': {'Harpyienfeder': 0.85, 'Kralle': 0.6, 'Luftessenz': 0.3}},
+    {'name': 'Steingolem', 'world': 'overworld', 'level': 5, 'health': 160, 'strength': 28, 'defense': 35, 'speed': 4, 'xp_reward': 68, 'gold_reward': 48, 'abilities': ['stone_skin', 'armor_up'], 'loot_table': {'Steinstück': 0.9, 'Magischer Kern': 0.25, 'Edelstein': 0.4}},
     
-    # Tier 3: Veterans (Level 6-8)
-    {'name': 'Dunkler Magier', 'world': 'overworld', 'level': 6, 'health': 80, 'strength': 15, 'defense': 5, 'speed': 9, 'xp_reward': 80, 'gold_reward': 60, 'abilities': ['shadow_cloak', 'life_drain', 'dark_curse'], 'loot_table': {'Dunkle Essenz': 0.7, 'Zauberbuch': 0.35, 'Mystischer Stab': 0.25}},
-    {'name': 'Werwolf', 'world': 'overworld', 'level': 6, 'health': 95, 'strength': 14, 'defense': 7, 'speed': 13, 'xp_reward': 85, 'gold_reward': 55, 'abilities': ['berserk_fury', 'savage_bite', 'regeneration'], 'loot_table': {'Wolfszahn': 0.8, 'Mondfell': 0.5, 'Fluch-Token (Quest)': 0.2}},
-    {'name': 'Sumpfschreiter', 'world': 'overworld', 'level': 6, 'health': 85, 'strength': 12, 'defense': 6, 'speed': 10, 'xp_reward': 78, 'gold_reward': 58, 'abilities': ['poison_spit', 'crippling_strike', 'enfeeble'], 'loot_table': {'Giftige Schlange': 0.7, 'Sumpfkraut': 0.8, 'Seltene Pflanze': 0.3}},
+    # Tier 3: Veterans (Level 6-8) - Challenging encounters
+    {'name': 'Dunkler Magier', 'world': 'overworld', 'level': 6, 'health': 115, 'strength': 35, 'defense': 14, 'speed': 12, 'xp_reward': 80, 'gold_reward': 60, 'abilities': ['shadow_cloak', 'life_drain', 'dark_curse'], 'loot_table': {'Dunkle Essenz': 0.7, 'Zauberbuch': 0.35, 'Mystischer Stab': 0.25}},
+    {'name': 'Werwolf', 'world': 'overworld', 'level': 6, 'health': 140, 'strength': 34, 'defense': 16, 'speed': 16, 'xp_reward': 85, 'gold_reward': 55, 'abilities': ['berserk_fury', 'savage_bite', 'regeneration'], 'loot_table': {'Wolfszahn': 0.8, 'Mondfell': 0.5, 'Fluch-Token (Quest)': 0.2}},
+    {'name': 'Sumpfschreiter', 'world': 'overworld', 'level': 6, 'health': 125, 'strength': 30, 'defense': 14, 'speed': 13, 'xp_reward': 78, 'gold_reward': 58, 'abilities': ['poison_spit', 'crippling_strike', 'enfeeble'], 'loot_table': {'Giftige Schlange': 0.7, 'Sumpfkraut': 0.8, 'Seltene Pflanze': 0.3}},
     
-    {'name': 'Troll', 'world': 'overworld', 'level': 7, 'health': 120, 'strength': 16, 'defense': 12, 'speed': 4, 'xp_reward': 100, 'gold_reward': 75, 'abilities': ['regeneration', 'armor_up', 'last_stand'], 'loot_table': {'Trollblut': 0.65, 'Trollhaut': 0.5, 'Regenerationsstein': 0.3}},
-    {'name': 'Banshee', 'world': 'overworld', 'level': 7, 'health': 90, 'strength': 17, 'defense': 6, 'speed': 12, 'xp_reward': 95, 'gold_reward': 70, 'abilities': ['terrifying_roar', 'mind_blast', 'dark_curse'], 'loot_table': {'Geistessenz': 0.7, 'Verlorene Seele': 0.4, 'Mystisches Tuch': 0.35}},
-    {'name': 'Minotaurus', 'world': 'overworld', 'level': 7, 'health': 130, 'strength': 18, 'defense': 10, 'speed': 7, 'xp_reward': 105, 'gold_reward': 80, 'abilities': ['critical_strike', 'battle_roar', 'stunning_blow'], 'loot_table': {'Minotaurus-Horn': 0.6, 'Starkes Leder': 0.7, 'Labyrinth-Schlüssel': 0.25}},
+    {'name': 'Troll', 'world': 'overworld', 'level': 7, 'health': 180, 'strength': 38, 'defense': 28, 'speed': 6, 'xp_reward': 100, 'gold_reward': 75, 'abilities': ['regeneration', 'armor_up', 'last_stand'], 'loot_table': {'Trollblut': 0.65, 'Trollhaut': 0.5, 'Regenerationsstein': 0.3}},
+    {'name': 'Banshee', 'world': 'overworld', 'level': 7, 'health': 130, 'strength': 40, 'defense': 15, 'speed': 15, 'xp_reward': 95, 'gold_reward': 70, 'abilities': ['terrifying_roar', 'mind_blast', 'dark_curse'], 'loot_table': {'Geistessenz': 0.7, 'Verlorene Seele': 0.4, 'Mystisches Tuch': 0.35}},
+    {'name': 'Minotaurus', 'world': 'overworld', 'level': 7, 'health': 190, 'strength': 42, 'defense': 24, 'speed': 10, 'xp_reward': 105, 'gold_reward': 80, 'abilities': ['critical_strike', 'battle_roar', 'stunning_blow'], 'loot_table': {'Minotaurus-Horn': 0.6, 'Starkes Leder': 0.7, 'Labyrinth-Schlüssel': 0.25}},
     
-    {'name': 'Geist', 'world': 'overworld', 'level': 8, 'health': 100, 'strength': 18, 'defense': 8, 'speed': 12, 'xp_reward': 120, 'gold_reward': 85, 'abilities': ['shadow_cloak', 'life_drain', 'shadow_step'], 'loot_table': {'Ektoplasma': 0.75, 'Geisterkette': 0.4, 'Verfluchtes Medaillon': 0.3}},
-    {'name': 'Elementar (Erde)', 'world': 'overworld', 'level': 8, 'health': 140, 'strength': 16, 'defense': 18, 'speed': 5, 'xp_reward': 115, 'gold_reward': 90, 'abilities': ['stone_skin', 'armor_up', 'stunning_blow'], 'loot_table': {'Erdkristall': 0.7, 'Elementarstein': 0.5, 'Geokern': 0.35}},
-    {'name': 'Riesenspinne', 'world': 'overworld', 'level': 8, 'health': 105, 'strength': 15, 'defense': 8, 'speed': 14, 'xp_reward': 118, 'gold_reward': 88, 'abilities': ['poison_spit', 'enfeeble', 'expose_weakness'], 'loot_table': {'Riesengift': 0.8, 'Robuste Seide': 0.7, 'Spinnenbein': 0.5}},
+    {'name': 'Geist', 'world': 'overworld', 'level': 8, 'health': 145, 'strength': 44, 'defense': 20, 'speed': 16, 'xp_reward': 120, 'gold_reward': 85, 'abilities': ['shadow_cloak', 'life_drain', 'shadow_step'], 'loot_table': {'Ektoplasma': 0.75, 'Geisterkette': 0.4, 'Verfluchtes Medaillon': 0.3}},
+    {'name': 'Elementar (Erde)', 'world': 'overworld', 'level': 8, 'health': 200, 'strength': 40, 'defense': 42, 'speed': 7, 'xp_reward': 115, 'gold_reward': 90, 'abilities': ['stone_skin', 'armor_up', 'stunning_blow'], 'loot_table': {'Erdkristall': 0.7, 'Elementarstein': 0.5, 'Geokern': 0.35}},
+    {'name': 'Riesenspinne', 'world': 'overworld', 'level': 8, 'health': 155, 'strength': 38, 'defense': 20, 'speed': 18, 'xp_reward': 118, 'gold_reward': 88, 'abilities': ['poison_spit', 'enfeeble', 'expose_weakness'], 'loot_table': {'Riesengift': 0.8, 'Robuste Seide': 0.7, 'Spinnenbein': 0.5}},
     
-    # Tier 4: Elite (Level 9-10)
-    {'name': 'Oger', 'world': 'overworld', 'level': 9, 'health': 150, 'strength': 20, 'defense': 15, 'speed': 5, 'xp_reward': 150, 'gold_reward': 100, 'abilities': ['battle_roar', 'critical_strike', 'regeneration', 'last_stand'], 'loot_table': {'Oger-Fleisch': 0.8, 'Großer Knochen': 0.7, 'Kraftamulett': 0.3}},
-    {'name': 'Vampir', 'world': 'overworld', 'level': 9, 'health': 130, 'strength': 19, 'defense': 10, 'speed': 15, 'xp_reward': 145, 'gold_reward': 110, 'abilities': ['vampiric_aura', 'life_drain', 'shadow_cloak'], 'loot_table': {'Vampirzahn': 0.65, 'Blutphiole': 0.5, 'Mondring': 0.35}},
-    {'name': 'Chimäre', 'world': 'overworld', 'level': 9, 'health': 145, 'strength': 21, 'defense': 12, 'speed': 11, 'xp_reward': 155, 'gold_reward': 105, 'abilities': ['fire_breath', 'poison_spit', 'critical_strike'], 'loot_table': {'Chimären-Schuppe': 0.7, 'Dreiköpfige Klaue': 0.4, 'Hybridessenz': 0.3}},
+    # Tier 4: Elite (Level 9-10) - Mini-boss level
+    {'name': 'Oger', 'world': 'overworld', 'level': 9, 'health': 220, 'strength': 50, 'defense': 35, 'speed': 7, 'xp_reward': 150, 'gold_reward': 100, 'abilities': ['battle_roar', 'critical_strike', 'regeneration', 'last_stand'], 'loot_table': {'Oger-Fleisch': 0.8, 'Großer Knochen': 0.7, 'Kraftamulett': 0.3}},
+    {'name': 'Vampir', 'world': 'overworld', 'level': 9, 'health': 185, 'strength': 48, 'defense': 25, 'speed': 19, 'xp_reward': 145, 'gold_reward': 110, 'abilities': ['vampiric_aura', 'life_drain', 'shadow_cloak'], 'loot_table': {'Vampirzahn': 0.65, 'Blutphiole': 0.5, 'Mondring': 0.35}},
+    {'name': 'Chimäre', 'world': 'overworld', 'level': 9, 'health': 210, 'strength': 52, 'defense': 30, 'speed': 14, 'xp_reward': 155, 'gold_reward': 105, 'abilities': ['fire_breath', 'poison_spit', 'critical_strike'], 'loot_table': {'Chimären-Schuppe': 0.7, 'Dreiköpfige Klaue': 0.4, 'Hybridessenz': 0.3}},
     
-    {'name': 'Drache (Jung)', 'world': 'overworld', 'level': 10, 'health': 180, 'strength': 25, 'defense': 18, 'speed': 10, 'xp_reward': 200, 'gold_reward': 150, 'abilities': ['fire_breath', 'critical_strike', 'time_warp'], 'loot_table': {'Drachenschuppe': 0.8, 'Drachenzahn': 0.6, 'Kleine Drachenessenz': 0.4, 'Drachenherzstück (Quest)': 0.15}},
-    {'name': 'Eisgolem', 'world': 'overworld', 'level': 10, 'health': 170, 'strength': 22, 'defense': 20, 'speed': 6, 'xp_reward': 190, 'gold_reward': 140, 'abilities': ['frost_nova', 'stone_skin', 'armor_up'], 'loot_table': {'Ewiges Eis': 0.75, 'Frostkristall': 0.6, 'Golem-Kern': 0.35}},
-    {'name': 'Dunkler Ritter', 'world': 'overworld', 'level': 10, 'health': 165, 'strength': 24, 'defense': 22, 'speed': 9, 'xp_reward': 195, 'gold_reward': 145, 'abilities': ['dark_curse', 'armor_up', 'critical_strike', 'last_stand'], 'loot_table': {'Dunkle Rüstung': 0.5, 'Verfluchte Klinge': 0.35, 'Ritterorden-Abzeichen': 0.4}},
+    {'name': 'Drache (Jung)', 'world': 'overworld', 'level': 10, 'health': 260, 'strength': 58, 'defense': 40, 'speed': 13, 'xp_reward': 200, 'gold_reward': 150, 'abilities': ['fire_breath', 'critical_strike', 'time_warp'], 'loot_table': {'Drachenschuppe': 0.8, 'Drachenzahn': 0.6, 'Kleine Drachenessenz': 0.4, 'Drachenherzstück (Quest)': 0.15}},
+    {'name': 'Eisgolem', 'world': 'overworld', 'level': 10, 'health': 240, 'strength': 52, 'defense': 48, 'speed': 8, 'xp_reward': 190, 'gold_reward': 140, 'abilities': ['frost_nova', 'stone_skin', 'armor_up'], 'loot_table': {'Ewiges Eis': 0.75, 'Frostkristall': 0.6, 'Golem-Kern': 0.35}},
+    {'name': 'Dunkler Ritter', 'world': 'overworld', 'level': 10, 'health': 230, 'strength': 56, 'defense': 50, 'speed': 12, 'xp_reward': 195, 'gold_reward': 145, 'abilities': ['dark_curse', 'armor_up', 'critical_strike', 'last_stand'], 'loot_table': {'Dunkle Rüstung': 0.5, 'Verfluchte Klinge': 0.35, 'Ritterorden-Abzeichen': 0.4}},
     
     # ===== UNDERWORLD MONSTERS (Level 11-25) =====
     # Tier 1: Underworld Initiates (Level 11-13)
