@@ -8721,12 +8721,12 @@ class MinesView(discord.ui.View):
                 button.callback = self._create_callback(row, col)
                 self.add_item(button)
         
-        # Add cashout button on the last row (row 4)
+        # Add cashout button on the row after the grid
         cashout_button = discord.ui.Button(
             label="💎 Cash Out",
             style=discord.ButtonStyle.success,
             custom_id="cashout",
-            row=4
+            row=actual_grid_size
         )
         cashout_button.callback = self._cashout_callback
         self.add_item(cashout_button)
