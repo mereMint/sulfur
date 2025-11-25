@@ -4362,6 +4362,312 @@ class RPGEventView(discord.ui.View):
                 pass
 
 
+# Damage type emoji mapping (used in format_item_details)
+DAMAGE_TYPE_EMOJIS = {
+    'physical': '⚔️',
+    'fire': '🔥',
+    'ice': '❄️',
+    'lightning': '⚡',
+    'poison': '🧪',
+    'dark': '🌑',
+    'light': '✨',
+    'magic': '🔮',
+    'wind': '💨',
+    'earth': '🪨',
+    'water': '💧'
+}
+
+
+def format_item_details(item: dict) -> discord.Embed:
+    """
+    Format detailed item information for purchase confirmation.
+    Shows stats, effects, and status effects in a comprehensive embed.
+    
+    Args:
+        item: Item dictionary from database
+    
+    Returns:
+        Discord embed with detailed item information
+    """
+    # Get rarity color
+    rarity_color = rpg_system.RARITY_COLORS.get(item.get('rarity', 'common'), discord.Color.light_grey())
+    
+    # Rarity emoji mapping
+    rarity_emojis = {
+        'common': '⬜',
+        'uncommon': '🟩',
+        'rare': '🟦',
+        'epic': '🟪',
+        'legendary': '🟨'
+    }
+    rarity_emoji = rarity_emojis.get(item.get('rarity', 'common'), '⬜')
+    
+    # Type emoji mapping
+    type_emojis = {
+        'weapon': '⚔️',
+        'skill': '🔮',
+        'consumable': '🧪',
+        'material': '📦'
+    }
+    type_emoji = type_emojis.get(item.get('type', 'weapon'), '📦')
+    
+    # Create embed
+    embed = discord.Embed(
+        title=f"{type_emoji} {item['name']}",
+        description=item.get('description', 'Keine Beschreibung verfügbar.'),
+        color=rarity_color
+    )
+    
+    # Basic info
+    embed.add_field(
+        name="📋 Grundinfo",
+        value=f"{rarity_emoji} **Seltenheit:** {item.get('rarity', 'common').capitalize()}\n"
+              f"📁 **Typ:** {item.get('type', 'Unbekannt').capitalize()}\n"
+              f"📊 **Min. Level:** {item.get('required_level', 1)}",
+        inline=True
+    )
+    
+    # Stats section (for weapons)
+    if item.get('type') == 'weapon':
+        damage = item.get('damage', 0)
+        damage_type = item.get('damage_type', 'physical')
+        dmg_emoji = DAMAGE_TYPE_EMOJIS.get(damage_type, '⚔️')
+        
+        embed.add_field(
+            name="⚔️ Kampfwerte",
+            value=f"💥 **Schaden:** {damage}\n"
+                  f"{dmg_emoji} **Schadenstyp:** {damage_type.capitalize()}",
+            inline=True
+        )
+    
+    # Stats section (for skills with damage)
+    elif item.get('type') == 'skill' and item.get('damage'):
+        damage = item.get('damage', 0)
+        damage_type = item.get('damage_type', 'magic')
+        dmg_emoji = DAMAGE_TYPE_EMOJIS.get(damage_type, '🔮')
+        
+        embed.add_field(
+            name="🔮 Skill-Werte",
+            value=f"💥 **Schaden:** {damage}\n"
+                  f"{dmg_emoji} **Element:** {damage_type.capitalize()}",
+            inline=True
+        )
+    
+    # Parse and display effects
+    effects_text = ""
+    effects = item.get('effects')
+    if effects:
+        try:
+            # Parse effects if it's a JSON string
+            if isinstance(effects, str):
+                effects_dict = json.loads(effects)
+            else:
+                effects_dict = effects
+            
+            # Map effect keys to readable descriptions
+            effect_descriptions = {
+                # Healing effects
+                'heal': ('💚', 'Heilt', 'HP'),
+                'regen': ('💚', 'Regeneration', 'Runden'),
+                'heal_per_turn': ('💚', 'Heilung/Runde', 'HP'),
+                
+                # Buff effects
+                'shield': ('🛡️', 'Schild', 'Runden'),
+                'defense_bonus': ('🛡️', 'Verteidigung +', ''),
+                'speed_boost': ('⚡', 'Geschwindigkeit', 'Runden'),
+                'attack_boost': ('⚔️', 'Angriff', 'Runden'),
+                'damage_bonus': ('💥', 'Schadensbonus', '%'),
+                'crit_boost': ('🎯', 'Krit-Chance', 'Runden'),
+                'accuracy_boost': ('🎯', 'Trefferchance', 'Runden'),
+                'dodge_boost': ('💨', 'Ausweichen', 'Runden'),
+                'all_stats_boost': ('📊', 'Alle Stats', 'Runden'),
+                'stat_bonus': ('📊', 'Stat-Bonus', '%'),
+                
+                # Debuff/Status effects
+                'burn': ('🔥', 'Verbrennung', '% Chance'),
+                'freeze': ('❄️', 'Einfrieren', '% Chance'),
+                'poison': ('🧪', 'Vergiftung', '% Chance'),
+                'static': ('⚡', 'Lähmung', '% Chance'),
+                'darkness': ('🌑', 'Blenden', '% Chance'),
+                'light': ('✨', 'Licht', '% Chance'),
+                'slow': ('🐌', 'Verlangsamung', '% Chance'),
+                'weaken': ('💔', 'Schwächung', 'Runden'),
+                'attack_reduction': ('⬇️', 'Angriffsred.', '%'),
+                'curse': ('☠️', 'Fluch', 'Runden'),
+                'all_stats_reduction': ('⬇️', 'Stats-Red.', '%'),
+                'paralyze': ('🔌', 'Paralyse', '% Chance'),
+                'stun': ('💫', 'Betäubung', 'Runden'),
+                'static': ('⚡', 'Statisch', '% Chance'),
+                'lifesteal': ('🧛', 'Lebensentzug', '%'),
+                
+                # Special effects
+                'ironSkin': ('🛡️', 'Eisenhaut', 'Runden'),
+                'mana_shield': ('🔮', 'Mana-Schild', 'Runden'),
+                'magic_defense': ('🔮', 'Mag. Vert. +', ''),
+                'invulnerable': ('✨', 'Unverwundbar', 'Runden'),
+                'reflect': ('🪞', 'Reflektion', 'Runden'),
+                'reflect_damage': ('🪞', 'Refl. Schaden', '%'),
+                'rage': ('😡', 'Wut', 'Runden'),
+                'escape': ('🏃', 'Flucht', '% Chance'),
+                'time_stop': ('⏰', 'Zeitstopp', 'Runden'),
+                'extra_turn': ('➡️', 'Extra-Runde', ''),
+                'mana_drain': ('🔮', 'Mana-Entzug', '%'),
+                'counter': ('↩️', 'Konter', 'Runden'),
+                'counter_damage': ('↩️', 'Konter-Schaden', '%'),
+                'double_attack': ('⚔️', 'Doppelschlag', 'Runden'),
+                'triple_attack': ('⚔️', 'Dreifachschlag', ''),
+            }
+            
+            for effect_key, effect_value in effects_dict.items():
+                if effect_key in effect_descriptions:
+                    emoji, name, unit = effect_descriptions[effect_key]
+                    # Format value based on type
+                    if isinstance(effect_value, bool):
+                        value_str = "Ja" if effect_value else "Nein"
+                    elif isinstance(effect_value, float) and effect_value <= 1 and '%' in unit:
+                        value_str = f"{int(effect_value * 100)}"
+                    else:
+                        value_str = str(effect_value)
+                    
+                    effects_text += f"{emoji} **{name}:** {value_str}{' ' + unit if unit else ''}\n"
+                else:
+                    # Unknown effect, display raw
+                    effects_text += f"🔹 **{effect_key}:** {effect_value}\n"
+            
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.debug(f"Could not parse effects: {effects}, error: {e}")
+            effects_text = "Keine speziellen Effekte."
+    
+    if effects_text:
+        embed.add_field(
+            name="✨ Effekte & Status",
+            value=effects_text[:1024] if len(effects_text) > 1024 else effects_text,  # Discord limit
+            inline=False
+        )
+    
+    # Price field
+    embed.add_field(
+        name="💰 Preis",
+        value=f"**{item.get('price', 0)} Gold**",
+        inline=True
+    )
+    
+    embed.set_footer(text="Möchtest du dieses Item kaufen?")
+    
+    return embed
+
+
+class RPGShopConfirmView(discord.ui.View):
+    """Confirmation view for RPG shop purchases."""
+    
+    def __init__(self, user_id: int, item: dict, items: list, player_gold: int):
+        super().__init__(timeout=60)
+        self.user_id = user_id
+        self.item = item
+        self.items = items
+        self.player_gold = player_gold
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Dies ist nicht dein Kauf!", ephemeral=True)
+            return False
+        return True
+    
+    @discord.ui.button(label="✅ Kaufen", style=discord.ButtonStyle.success, row=0)
+    async def confirm_purchase(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Confirm the purchase."""
+        await interaction.response.defer()
+        
+        try:
+            # Perform the actual purchase
+            success, message = await rpg_system.purchase_item(db_helpers, self.user_id, self.item['id'])
+            
+            if success:
+                # Create success embed with item details
+                rarity_color = rpg_system.RARITY_COLORS.get(self.item.get('rarity', 'common'), discord.Color.green())
+                embed = discord.Embed(
+                    title="✅ Kauf erfolgreich!",
+                    description=f"Du hast **{self.item['name']}** für **{self.item['price']} Gold** gekauft!",
+                    color=rarity_color
+                )
+                
+                # Add brief item info
+                if self.item.get('type') == 'weapon':
+                    embed.add_field(
+                        name="⚔️ Waffe erhalten",
+                        value=f"💥 Schaden: {self.item.get('damage', 0)}\n"
+                              f"📁 Typ: {self.item.get('damage_type', 'physical').capitalize()}",
+                        inline=True
+                    )
+                elif self.item.get('type') == 'skill':
+                    skill_info = f"🔮 Skill erhalten"
+                    if self.item.get('damage'):
+                        embed.add_field(
+                            name=skill_info,
+                            value=f"💥 Schaden: {self.item.get('damage', 0)}\n"
+                                  f"📁 Element: {self.item.get('damage_type', 'magic').capitalize()}",
+                            inline=True
+                        )
+                    else:
+                        embed.add_field(
+                            name=skill_info,
+                            value="Rüste den Skill im Inventar aus!",
+                            inline=True
+                        )
+                
+                embed.set_footer(text="Nutze /rpg um dein Inventar anzuzeigen!")
+                
+                # Disable buttons after purchase
+                for child in self.children:
+                    child.disabled = True
+                
+                await interaction.edit_original_response(embed=embed, view=self)
+            else:
+                await interaction.followup.send(f"❌ {message}", ephemeral=True)
+                
+        except Exception as e:
+            logger.error(f"Error confirming purchase: {e}", exc_info=True)
+            await interaction.followup.send("❌ Fehler beim Kauf.", ephemeral=True)
+    
+    @discord.ui.button(label="❌ Abbrechen", style=discord.ButtonStyle.danger, row=0)
+    async def cancel_purchase(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Cancel the purchase and return to shop."""
+        await interaction.response.defer()
+        
+        try:
+            # Get fresh player data
+            player = await rpg_system.get_player_profile(db_helpers, self.user_id)
+            if not player:
+                await interaction.followup.send("❌ Fehler beim Laden deines Profils.", ephemeral=True)
+                return
+            
+            # Rebuild shop embed
+            embed = discord.Embed(
+                title="🏪 RPG Shop",
+                description=f"Dein Gold: **{player['gold']}** 💰\n\nWähle ein Item, um Details anzuzeigen.",
+                color=discord.Color.gold()
+            )
+            
+            for item in self.items[:10]:  # Show max 10 items
+                rarity_emoji = {'common': '⬜', 'uncommon': '🟩', 'rare': '🟦', 'epic': '🟪', 'legendary': '🟨'}
+                r_emoji = rarity_emoji.get(item['rarity'], '⬜')
+                embed.add_field(
+                    name=f"{r_emoji} {item['name']}",
+                    value=f"💰 {item['price']} Gold | ⚔️ {item.get('damage', '-')}",
+                    inline=True
+                )
+            
+            embed.set_footer(text="Wähle ein Item für Details!")
+            
+            # Return to shop view
+            view = RPGShopView(self.user_id, self.items, player['gold'])
+            await interaction.edit_original_response(embed=embed, view=view)
+            
+        except Exception as e:
+            logger.error(f"Error canceling purchase: {e}", exc_info=True)
+            await interaction.followup.send("❌ Fehler beim Abbrechen.", ephemeral=True)
+
+
 class RPGShopView(discord.ui.View):
     """View for RPG shop item selection."""
     
@@ -4396,7 +4702,7 @@ class RPGShopView(discord.ui.View):
         return True
     
     async def item_selected(self, interaction: discord.Interaction):
-        """Handle item purchase."""
+        """Handle item selection - show confirmation with details."""
         await interaction.response.defer()
         
         try:
@@ -4407,22 +4713,31 @@ class RPGShopView(discord.ui.View):
                 await interaction.followup.send("❌ Item nicht gefunden.", ephemeral=True)
                 return
             
-            # Purchase item
-            success, message = await rpg_system.purchase_item(db_helpers, self.user_id, item_id)
+            # Show item details with confirmation buttons
+            embed = format_item_details(item)
             
-            if success:
-                embed = discord.Embed(
-                    title="✅ Kauf erfolgreich!",
-                    description=f"Du hast **{item['name']}** für {item['price']} Gold gekauft!",
-                    color=discord.Color.green()
+            # Add player's gold info to the embed
+            can_afford = self.player_gold >= item.get('price', 0)
+            if can_afford:
+                embed.add_field(
+                    name="💳 Dein Gold",
+                    value=f"**{self.player_gold}** 💰 ✅",
+                    inline=True
                 )
-                await interaction.followup.send(embed=embed, ephemeral=True)
             else:
-                await interaction.followup.send(f"❌ {message}", ephemeral=True)
+                embed.add_field(
+                    name="💳 Dein Gold",
+                    value=f"**{self.player_gold}** 💰 ❌\n*Nicht genug Gold!*",
+                    inline=True
+                )
+            
+            # Create confirmation view
+            view = RPGShopConfirmView(self.user_id, item, self.items, self.player_gold)
+            await interaction.edit_original_response(embed=embed, view=view)
                 
         except Exception as e:
-            logger.error(f"Error purchasing item: {e}", exc_info=True)
-            await interaction.followup.send("❌ Fehler beim Kauf.", ephemeral=True)
+            logger.error(f"Error showing item details: {e}", exc_info=True)
+            await interaction.followup.send("❌ Fehler beim Laden der Item-Details.", ephemeral=True)
     
     @discord.ui.button(label="🔙 Zurück", style=discord.ButtonStyle.secondary, row=1)
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
