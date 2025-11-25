@@ -813,9 +813,13 @@ async def complete_premium_game(db_helpers, game_id: int, won: bool):
         return False
 
 
-def _get_proximity_indicator(score: float) -> tuple:
+def _get_proximity_indicator(score: float, strings: dict = None) -> tuple:
     """
     Get visual indicators for proximity score.
+    
+    Args:
+        score: Similarity score (0-100)
+        strings: Optional localization strings dict
     
     Returns:
         tuple: (bar_string, temperature_string)
@@ -824,17 +828,30 @@ def _get_proximity_indicator(score: float) -> tuple:
     bar_length = int(score / 10)
     bar = "🟩" * bar_length + "⬜" * (10 - bar_length)
     
-    # Temperature indicator
-    if score >= 80:
-        temp = "🔥 Sehr heiß!"
-    elif score >= 60:
-        temp = "🌡️ Heiß!"
-    elif score >= 40:
-        temp = "🌤️ Warm"
-    elif score >= 20:
-        temp = "❄️ Kalt"
+    # Temperature indicator with localization
+    if strings:
+        if score >= 80:
+            temp = strings.get('very_hot', "🔥 Sehr heiß!")
+        elif score >= 60:
+            temp = strings.get('hot', "🌡️ Heiß!")
+        elif score >= 40:
+            temp = strings.get('warm', "🌤️ Warm")
+        elif score >= 20:
+            temp = strings.get('cold', "❄️ Kalt")
+        else:
+            temp = strings.get('very_cold', "🧊 Sehr kalt")
     else:
-        temp = "🧊 Sehr kalt"
+        # Default German for backward compatibility
+        if score >= 80:
+            temp = "🔥 Sehr heiß!"
+        elif score >= 60:
+            temp = "🌡️ Heiß!"
+        elif score >= 40:
+            temp = "🌤️ Warm"
+        elif score >= 20:
+            temp = "❄️ Kalt"
+        else:
+            temp = "🧊 Sehr kalt"
     
     return bar, temp
 
@@ -855,14 +872,77 @@ def _get_language_indicator(language: str) -> tuple:
         return "🇩🇪", "Deutsch"
 
 
+def _get_localized_strings(language: str) -> dict:
+    """
+    Get localized UI strings for the game embed.
+    
+    Args:
+        language: 'de' or 'en'
+    
+    Returns:
+        dict with localized strings
+    """
+    if language == 'en':
+        return {
+            'daily_game': 'Daily Word Game',
+            'premium_game': 'Premium Game',
+            'guess_word': 'Guess the word! You have {max_attempts} attempts.',
+            'language': 'Language',
+            'difficulty': 'Difficulty',
+            'attempts': 'Attempts',
+            'remaining': 'Left',
+            'your_attempts': 'Your Attempts',
+            'your_attempts_part': 'Your Attempts (Part {idx}/{total})',
+            'no_attempts': 'No attempts yet. Guess a word!',
+            'your_stats': 'Your Statistics',
+            'games': 'Games',
+            'won': 'Won',
+            'streak': 'Streak',
+            'best': 'Best',
+            'avg_attempts': 'Ø Attempts per Win',
+            'tip': "💡 Tip: Get closer to the word through similar terms!",
+            'very_hot': '🔥 Very hot!',
+            'hot': '🌡️ Hot!',
+            'warm': '🌤️ Warm',
+            'cold': '❄️ Cold',
+            'very_cold': '🧊 Very cold',
+        }
+    else:
+        return {
+            'daily_game': 'Tägliches Wortratespiel',
+            'premium_game': 'Premium Spiel',
+            'guess_word': 'Errate das Wort! Du hast {max_attempts} Versuche.',
+            'language': 'Sprache',
+            'difficulty': 'Schwierigkeit',
+            'attempts': 'Versuche',
+            'remaining': 'Übrig',
+            'your_attempts': 'Deine Versuche',
+            'your_attempts_part': 'Deine Versuche (Teil {idx}/{total})',
+            'no_attempts': 'Noch keine Versuche. Rate ein Wort!',
+            'your_stats': 'Deine Statistiken',
+            'games': 'Spiele',
+            'won': 'Gewonnen',
+            'streak': 'Streak',
+            'best': 'Best',
+            'avg_attempts': 'Ø Versuche pro Sieg',
+            'tip': "💡 Tipp: Nähere dich dem Wort durch ähnliche Begriffe!",
+            'very_hot': '🔥 Sehr heiß!',
+            'hot': '🌡️ Heiß!',
+            'warm': '🌤️ Warm',
+            'cold': '❄️ Kalt',
+            'very_cold': '🧊 Sehr kalt',
+        }
+
+
 def create_game_embed(word_data: dict, attempts: list, max_attempts: int, user_stats: dict = None, game_type: str = 'daily', theme_id=None):
     """Create the game embed with current progress and theme support."""
     # Extract difficulty first (needed for both color and description)
     difficulty = word_data.get('difficulty', 'medium')
     
-    # Extract language for visual indicator
+    # Extract language for visual indicator and localization
     language = word_data.get('language', 'de')
     flag, lang_name = _get_language_indicator(language)
+    strings = _get_localized_strings(language)
     
     # Import themes here to avoid circular import
     try:
@@ -877,15 +957,16 @@ def create_game_embed(word_data: dict, attempts: list, max_attempts: int, user_s
         }
         color = difficulty_colors.get(difficulty, discord.Color.blue())
     
-    title = f"🔍 Word Find {flag} - {'Tägliches Wortratespiel' if game_type == 'daily' else 'Premium Spiel'}"
+    game_type_label = strings['daily_game'] if game_type == 'daily' else strings['premium_game']
+    title = f"🔍 Word Find {flag} - {game_type_label}"
     
     remaining_attempts = max_attempts - len(attempts)
     
     embed = discord.Embed(
         title=title,
-        description=f"Errate das Wort! Du hast {max_attempts} Versuche.\n"
-                   f"Sprache: **{flag} {lang_name}** | Schwierigkeit: **{difficulty.upper()}**\n"
-                   f"Versuche: **{len(attempts)}/{max_attempts}** | Übrig: **{remaining_attempts}** 🎯",
+        description=f"{strings['guess_word'].format(max_attempts=max_attempts)}\n"
+                   f"{strings['language']}: **{flag} {lang_name}** | {strings['difficulty']}: **{difficulty.upper()}**\n"
+                   f"{strings['attempts']}: **{len(attempts)}/{max_attempts}** | {strings['remaining']}: **{remaining_attempts}** 🎯",
         color=color
     )
     
@@ -900,8 +981,8 @@ def create_game_embed(word_data: dict, attempts: list, max_attempts: int, user_s
             score = attempt['similarity_score']
             guess = attempt['guess']
             
-            # Get visual indicators
-            bar, temp = _get_proximity_indicator(score)
+            # Get visual indicators with localized temperature strings
+            bar, temp = _get_proximity_indicator(score, strings)
             
             attempts_text += f"`#{attempt['attempt_number']:02d}` **{guess}** - {score:.1f}% {temp}\n{bar}\n"
         
@@ -913,7 +994,7 @@ def create_game_embed(word_data: dict, attempts: list, max_attempts: int, user_s
             for attempt in sorted_attempts:
                 score = attempt['similarity_score']
                 guess = attempt['guess']
-                bar, temp = _get_proximity_indicator(score)
+                bar, temp = _get_proximity_indicator(score, strings)
                 
                 line = f"`#{attempt['attempt_number']:02d}` **{guess}** - {score:.1f}% {temp}\n{bar}\n"
                 
@@ -928,7 +1009,7 @@ def create_game_embed(word_data: dict, attempts: list, max_attempts: int, user_s
             
             # Add multiple fields
             for idx, chunk in enumerate(attempt_chunks):
-                field_name = f"📝 Deine Versuche (Teil {idx + 1}/{len(attempt_chunks)})" if len(attempt_chunks) > 1 else f"📝 Deine Versuche"
+                field_name = f"📝 {strings['your_attempts_part'].format(idx=idx + 1, total=len(attempt_chunks))}" if len(attempt_chunks) > 1 else f"📝 {strings['your_attempts']}"
                 embed.add_field(
                     name=field_name,
                     value=chunk,
@@ -936,14 +1017,14 @@ def create_game_embed(word_data: dict, attempts: list, max_attempts: int, user_s
                 )
         else:
             embed.add_field(
-                name=f"📝 Deine Versuche",
-                value=attempts_text if attempts_text else "Noch keine Versuche",
+                name=f"📝 {strings['your_attempts']}",
+                value=attempts_text if attempts_text else strings['no_attempts'],
                 inline=False
             )
     else:
         embed.add_field(
-            name=f"📝 Versuche",
-            value="Noch keine Versuche. Rate ein Wort!",
+            name=f"📝 {strings['attempts']}",
+            value=strings['no_attempts'],
             inline=False
         )
     
@@ -965,15 +1046,15 @@ def create_game_embed(word_data: dict, attempts: list, max_attempts: int, user_s
         win_rate = (total_wins / total_games * 100) if total_games > 0 else 0
         avg_attempts = (total_attempts / total_wins) if total_wins > 0 else 0
         
-        stats_text = f"Spiele: `{total_games}` | Gewonnen: `{total_wins}` ({win_rate:.1f}%)\n"
+        stats_text = f"{strings['games']}: `{total_games}` | {strings['won']}: `{total_wins}` ({win_rate:.1f}%)\n"
         if game_type == 'daily':
-            stats_text += f"Streak: `{current_streak}` 🔥 | Best: `{best_streak}`\n"
+            stats_text += f"{strings['streak']}: `{current_streak}` 🔥 | {strings['best']}: `{best_streak}`\n"
         if avg_attempts > 0:
-            stats_text += f"Ø Versuche pro Sieg: `{avg_attempts:.1f}`"
+            stats_text += f"{strings['avg_attempts']}: `{avg_attempts:.1f}`"
         
-        embed.add_field(name="📊 Deine Statistiken", value=stats_text, inline=False)
+        embed.add_field(name=f"📊 {strings['your_stats']}", value=stats_text, inline=False)
     
-    embed.set_footer(text="💡 Tipp: Nähere dich dem Wort durch ähnliche Begriffe!")
+    embed.set_footer(text=strings['tip'])
     
     return embed
 
