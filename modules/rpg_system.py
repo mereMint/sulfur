@@ -1808,8 +1808,12 @@ async def claim_adventure_event(db_helpers, user_id: int, event: dict):
             # Award XP
             if 'xp_reward' in event:
                 xp_result = await gain_xp(db_helpers, user_id, event['xp_reward'])
-                event['leveled_up'] = xp_result and xp_result.get('leveled_up', False)
-                event['new_level'] = xp_result.get('new_level') if event.get('leveled_up') else None
+                if xp_result:
+                    event['leveled_up'] = xp_result.get('leveled_up', False)
+                    event['new_level'] = xp_result.get('new_level') if event['leveled_up'] else None
+                else:
+                    event['leveled_up'] = False
+                    event['new_level'] = None
             
             # Heal player
             if 'heal_amount' in event and event['heal_amount'] > 0:
@@ -3202,8 +3206,16 @@ async def get_item_by_id(db_helpers, item_id: int):
         return None
 
 
-async def equip_item(db_helpers, user_id: int, item_id: int, item_type: str):
-    """Equip an item."""
+async def equip_item(db_helpers, user_id: int, item_id: int, item_type: str, slot: int = None):
+    """Equip an item.
+    
+    Args:
+        db_helpers: Database helper module
+        user_id: User ID
+        item_id: Item ID to equip
+        item_type: Type of item ('weapon' or 'skill')
+        slot: For skills, specify slot 1 or 2. If None, auto-assigns to first empty slot.
+    """
     try:
         if not db_helpers.db_pool:
             return False
@@ -3242,27 +3254,40 @@ async def equip_item(db_helpers, user_id: int, item_id: int, item_type: str):
                 skill1_id = equipped_row.get('skill1_id')
                 skill2_id = equipped_row.get('skill2_id')
                 
-                # Don't equip the same skill twice
-                if skill1_id == item_id or skill2_id == item_id:
-                    # Already equipped, don't change anything
+                # Don't equip the same skill twice (unless explicitly changing slots)
+                if skill1_id == item_id and slot != 2:
+                    # Already in slot 1, don't change
+                    conn.commit()
+                    return True
+                if skill2_id == item_id and slot != 1:
+                    # Already in slot 2, don't change
                     conn.commit()
                     return True
                 
-                if skill1_id is None:
-                    # Slot 1 is empty, equip there
+                # If a specific slot is requested, use that slot
+                if slot == 1:
                     cursor.execute("""
                         UPDATE rpg_equipped SET skill1_id = %s WHERE user_id = %s
                     """, (item_id, user_id))
-                elif skill2_id is None:
-                    # Slot 1 is filled but slot 2 is empty, equip to slot 2
+                elif slot == 2:
                     cursor.execute("""
                         UPDATE rpg_equipped SET skill2_id = %s WHERE user_id = %s
                     """, (item_id, user_id))
                 else:
-                    # Both slots are full, replace slot 2
-                    cursor.execute("""
-                        UPDATE rpg_equipped SET skill2_id = %s WHERE user_id = %s
-                    """, (item_id, user_id))
+                    # Auto-assign: first empty slot, then replace slot 2
+                    if skill1_id is None:
+                        cursor.execute("""
+                            UPDATE rpg_equipped SET skill1_id = %s WHERE user_id = %s
+                        """, (item_id, user_id))
+                    elif skill2_id is None:
+                        cursor.execute("""
+                            UPDATE rpg_equipped SET skill2_id = %s WHERE user_id = %s
+                        """, (item_id, user_id))
+                    else:
+                        # Both slots are full, replace slot 2
+                        cursor.execute("""
+                            UPDATE rpg_equipped SET skill2_id = %s WHERE user_id = %s
+                        """, (item_id, user_id))
             
             conn.commit()
             return True

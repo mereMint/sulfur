@@ -5121,23 +5121,44 @@ class RPGInventoryView(discord.ui.View):
             weapon_select.callback = self.equip_weapon
             self.add_item(weapon_select)
         
-        # Add select menu for skills
-        skill_options = []
-        for item in [i for i in self.inventory if i.get('type') == 'skill'][:25]:
-            skill_options.append(discord.SelectOption(
-                label=item['name'],
-                description=f"Typ: Skill",
-                value=str(item['item_id'])  # Use item_id, not id
-            ))
+        # Get skill items from inventory
+        skill_items = [i for i in self.inventory if i.get('type') == 'skill'][:25]
         
-        if skill_options:
-            skill_select = discord.ui.Select(
-                placeholder="Skill ausrüsten...",
-                options=skill_options,
+        # Add select menu for Skill Slot 1
+        if skill_items:
+            skill1_options = []
+            for item in skill_items:
+                skill1_options.append(discord.SelectOption(
+                    label=item['name'],
+                    description=f"Typ: Skill",
+                    value=str(item['item_id'])
+                ))
+            
+            skill1_select = discord.ui.Select(
+                placeholder="🔮 Skill 1 ausrüsten...",
+                options=skill1_options,
                 row=1
             )
-            skill_select.callback = self.equip_skill
-            self.add_item(skill_select)
+            skill1_select.callback = self.equip_skill_slot1
+            self.add_item(skill1_select)
+        
+        # Add select menu for Skill Slot 2
+        if skill_items:
+            skill2_options = []
+            for item in skill_items:
+                skill2_options.append(discord.SelectOption(
+                    label=item['name'],
+                    description=f"Typ: Skill",
+                    value=str(item['item_id'])
+                ))
+            
+            skill2_select = discord.ui.Select(
+                placeholder="🔮 Skill 2 ausrüsten...",
+                options=skill2_options,
+                row=2
+            )
+            skill2_select.callback = self.equip_skill_slot2
+            self.add_item(skill2_select)
         
         # Add select menu for selling items (exclude quest items)
         sellable_items = [i for i in self.inventory if not i.get('is_quest_item', False) and i.get('type') != 'quest_item'][:25]
@@ -5154,7 +5175,7 @@ class RPGInventoryView(discord.ui.View):
             sell_select = discord.ui.Select(
                 placeholder="💰 Item verkaufen...",
                 options=sell_options,
-                row=2
+                row=3
             )
             sell_select.callback = self.sell_item
             self.add_item(sell_select)
@@ -5182,22 +5203,38 @@ class RPGInventoryView(discord.ui.View):
             logger.error(f"Error equipping weapon: {e}", exc_info=True)
             await interaction.followup.send("❌ Fehler beim Ausrüsten.", ephemeral=True)
     
-    async def equip_skill(self, interaction: discord.Interaction):
-        """Equip a skill."""
+    async def equip_skill_slot1(self, interaction: discord.Interaction):
+        """Equip a skill to slot 1."""
         await interaction.response.defer()
         
         try:
             item_id = int(interaction.data['values'][0])
-            # Try to equip in slot 1, then slot 2
-            success = await rpg_system.equip_item(db_helpers, self.user_id, item_id, 'skill')
+            success = await rpg_system.equip_item(db_helpers, self.user_id, item_id, 'skill', slot=1)
             
             if success:
-                await interaction.followup.send("✅ Skill ausgerüstet!", ephemeral=True)
+                await interaction.followup.send("✅ Skill in Slot 1 ausgerüstet!", ephemeral=True)
             else:
                 await interaction.followup.send("❌ Konnte Skill nicht ausrüsten.", ephemeral=True)
                 
         except Exception as e:
-            logger.error(f"Error equipping skill: {e}", exc_info=True)
+            logger.error(f"Error equipping skill to slot 1: {e}", exc_info=True)
+            await interaction.followup.send("❌ Fehler beim Ausrüsten.", ephemeral=True)
+    
+    async def equip_skill_slot2(self, interaction: discord.Interaction):
+        """Equip a skill to slot 2."""
+        await interaction.response.defer()
+        
+        try:
+            item_id = int(interaction.data['values'][0])
+            success = await rpg_system.equip_item(db_helpers, self.user_id, item_id, 'skill', slot=2)
+            
+            if success:
+                await interaction.followup.send("✅ Skill in Slot 2 ausgerüstet!", ephemeral=True)
+            else:
+                await interaction.followup.send("❌ Konnte Skill nicht ausrüsten.", ephemeral=True)
+                
+        except Exception as e:
+            logger.error(f"Error equipping skill to slot 2: {e}", exc_info=True)
             await interaction.followup.send("❌ Fehler beim Ausrüsten.", ephemeral=True)
     
     async def sell_item(self, interaction: discord.Interaction):
@@ -5222,7 +5259,7 @@ class RPGInventoryView(discord.ui.View):
             logger.error(f"Error selling item: {e}", exc_info=True)
             await interaction.followup.send("❌ Fehler beim Verkaufen.", ephemeral=True)
     
-    @discord.ui.button(label="🔙 Zurück", style=discord.ButtonStyle.secondary, row=3)
+    @discord.ui.button(label="🔙 Zurück", style=discord.ButtonStyle.secondary, row=4)
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Return to main RPG menu."""
         await interaction.response.defer()
