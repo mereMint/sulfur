@@ -444,6 +444,7 @@ async def initialize_word_find_table(db_helpers):
             if result and result[0] == 0:
                 logger.info("Adding theme_id column to word_find_premium_games table...")
                 cursor.execute("ALTER TABLE word_find_premium_games ADD COLUMN theme_id VARCHAR(50) DEFAULT NULL")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_theme ON word_find_premium_games (theme_id)")
             
             # Table for user attempts
             # Note: No foreign key constraint on word_id because it references different tables

@@ -64,7 +64,7 @@
       "id": "reise",
       "name": "Reise & Urlaub",
       "difficulty": "medium",
-      "words": ["reise", "urlaub", "koffer", "flugzeug", "hotel", "strand", "berge", "meer", "ticket", "pass", "visum", "tourist", "kamera", "souvenír", "ausflug", "landkarte", "kompass", "rucksack", "zelt", "wandern", "camping", "erkunden", "abenteuer", "sehenswürdigkeit", "foto"]
+      "words": ["reise", "urlaub", "koffer", "flugzeug", "hotel", "strand", "berge", "meer", "ticket", "pass", "visum", "tourist", "kamera", "souvenir", "ausflug", "landkarte", "kompass", "rucksack", "zelt", "wandern", "camping", "erkunden", "abenteuer", "sehenswürdigkeit", "foto"]
     },
     {
       "id": "gesundheit",
