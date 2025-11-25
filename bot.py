@@ -11289,13 +11289,8 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
             # Record attempt with game type
             record_success = await word_find.record_attempt(db_helpers, self.user_id, word_id, guess, similarity, attempt_num, self.game_type)
             
-            if not record_success:
-                await interaction.followup.send(
-                    "❌ Fehler beim Speichern des Versuchs. Bitte kontaktiere einen Administrator.\n"
-                    "Hinweis: Möglicherweise fehlen Datenbank-Migrationen.",
-                    ephemeral=True
-                )
-                return
+            # Track if we're in fallback mode (database save failed)
+            db_save_failed = not record_success
             
             # Update quest progress for attempting daily word find (on first attempt only)
             if self.game_type == 'daily' and attempt_num == 1:
@@ -11339,6 +11334,15 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
                 user_stats = await word_find.get_user_stats(db_helpers, self.user_id)
                 all_attempts = await word_find.get_user_attempts(db_helpers, self.user_id, word_id, self.game_type)
                 
+                # If database save failed, add the winning attempt manually
+                if db_save_failed:
+                    fallback_attempt = {
+                        'guess': guess,
+                        'similarity_score': 100.0,  # Correct guess = 100%
+                        'attempt_number': attempt_num
+                    }
+                    all_attempts.append(fallback_attempt)
+                
                 if user_stats:
                     embed.add_field(
                         name="📊 Deine Statistiken",
@@ -11361,9 +11365,27 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
                 # Wrong guess - update display with new attempt
                 attempts = await word_find.get_user_attempts(db_helpers, self.user_id, word_id, self.game_type)
                 
+                # If database save failed, add the current attempt manually so it shows in the embed
+                if db_save_failed:
+                    # Create a fallback attempt entry to display
+                    fallback_attempt = {
+                        'guess': guess,
+                        'similarity_score': similarity,
+                        'attempt_number': attempt_num
+                    }
+                    attempts.append(fallback_attempt)
+                
                 user_stats = await word_find.get_user_stats(db_helpers, self.user_id)
                 
                 embed = word_find.create_game_embed(self.word_data, attempts, self.max_attempts, user_stats, self.game_type, self.theme_id)
+                
+                # Add a warning if database save failed
+                if db_save_failed:
+                    embed.add_field(
+                        name="⚠️ Hinweis",
+                        value="Der Versuch konnte nicht gespeichert werden. Dein Fortschritt wird möglicherweise nicht gespeichert.",
+                        inline=False
+                    )
                 
                 # Check if max attempts reached
                 if attempt_num >= self.max_attempts:
