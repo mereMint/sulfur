@@ -218,29 +218,13 @@ async def claim_quest_reward(db_helpers, user_id: int, display_name: str, quest_
             
         cursor = cnx.cursor(dictionary=True)
         try:
-            # Get quest details
+            # Get quest details - simplified query that works with all quest types
             cursor.execute(
                 """
-                SELECT dq.*, qt.reward
-                FROM daily_quests dq
-                JOIN (
-                    SELECT 'messages' as type, %s as reward UNION ALL
-                    SELECT 'vc_minutes', %s UNION ALL
-                    SELECT 'reactions', %s UNION ALL
-                    SELECT 'game_minutes', %s UNION ALL
-                    SELECT 'daily_media', %s
-                ) qt ON dq.quest_type = qt.type
-                WHERE dq.id = %s AND dq.user_id = %s AND dq.completed = TRUE AND dq.reward_claimed = FALSE
+                SELECT * FROM daily_quests
+                WHERE id = %s AND user_id = %s AND completed = TRUE AND reward_claimed = FALSE
                 """,
-                (
-                    config['modules']['economy']['quests']['quest_types']['messages']['reward'],
-                    config['modules']['economy']['quests']['quest_types']['vc_minutes']['reward'],
-                    config['modules']['economy']['quests']['quest_types']['reactions']['reward'],
-                    config['modules']['economy']['quests']['quest_types']['game_minutes']['reward'],
-                    config['modules']['economy']['quests']['quest_types']['daily_media']['reward'],
-                    quest_id,
-                    user_id
-                )
+                (quest_id, user_id)
             )
             quest = cursor.fetchone()
             
@@ -646,7 +630,11 @@ def create_quests_embed(quests: list, user_name: str, config: dict):
         'reactions': '👍',
         'game_minutes': '🎮',
         'daily_media': '📸',
-        'daily_word_find': '📝'
+        'daily_word_find': '📝',
+        'daily_word_attempt': '🔤',
+        'check_news': '📰',
+        'check_portfolio': '📈',
+        'watch_horses': '🐎'
     }
     
     quest_names = {
@@ -655,7 +643,11 @@ def create_quests_embed(quests: list, user_name: str, config: dict):
         'reactions': 'Reaktionen geben',
         'game_minutes': 'Spiele spielen',
         'daily_media': 'Medien teilen',
-        'daily_word_find': 'Das tägliche Wort finden'
+        'daily_word_find': 'Das tägliche Wort finden',
+        'daily_word_attempt': 'Tägliches Wort versuchen',
+        'check_news': 'Nachrichten prüfen',
+        'check_portfolio': 'Portfolio prüfen',
+        'watch_horses': 'Pferderennen ansehen'
     }
     
     for i, quest in enumerate(quests, 1):
