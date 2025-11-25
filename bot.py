@@ -4369,10 +4369,10 @@ class RPGEventView(discord.ui.View):
                     embed.add_field(name="Erhalten:", value="\n".join(rewards), inline=False)
                 
                 # Check for level up
-                if self.event.get('leveled_up'):
+                if self.event.get('leveled_up') and self.event.get('new_level'):
                     embed.add_field(
                         name="🎊 Level Up!",
-                        value=f"Du bist jetzt **Level {self.event['new_level']}**!",
+                        value=f"Du bist jetzt **Level {self.event.get('new_level')}**!",
                         inline=False
                     )
                 

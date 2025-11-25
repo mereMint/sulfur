@@ -1390,6 +1390,11 @@ def calculate_damage(attacker_str: int, defender_def: int, attacker_dex: int, is
     Calculate damage with dodge/miss/crit mechanics.
     Enhanced AI makes smarter decisions based on situation.
     
+    Uses a balanced damage formula where:
+    - Defense reduces damage by a percentage (damage reduction formula)
+    - Higher defense = more damage reduction, but never fully negates damage
+    - Critical hits deal bonus damage
+    
     Args:
         attacker_str: Attacker's strength
         defender_def: Defender's defense
@@ -1423,13 +1428,29 @@ def calculate_damage(attacker_str: int, defender_def: int, attacker_dex: int, is
     
     result['hit'] = True
     
-    # Calculate base damage
-    base_damage = attacker_str - (defender_def // 2)
-    base_damage = max(1, base_damage)  # Minimum 1 damage
+    # NEW BALANCED DAMAGE FORMULA:
+    # Defense provides percentage-based damage reduction using diminishing returns
+    # Formula: damage = attack * (100 / (100 + defense))
+    # This means:
+    #   - 0 defense = 100% damage taken
+    #   - 50 defense = ~67% damage taken (33% reduction)
+    #   - 100 defense = 50% damage taken (50% reduction)
+    #   - 200 defense = ~33% damage taken (67% reduction)
+    # Defense is never fully negated but always meaningful
     
-    # Add variance (80% - 120%)
-    variance = random.uniform(0.8, 1.2)
-    damage = int(base_damage * variance)
+    # Base damage is the attacker's strength
+    base_damage = attacker_str
+    
+    # Apply defense reduction (diminishing returns formula)
+    defense_multiplier = 100.0 / (100.0 + defender_def)
+    damage_after_defense = base_damage * defense_multiplier
+    
+    # Ensure minimum damage of 1 (glancing blow)
+    damage_after_defense = max(1.0, damage_after_defense)
+    
+    # Add variance (70% - 130% for more unpredictable combat)
+    variance = random.uniform(0.70, 1.30)
+    damage = int(damage_after_defense * variance)
     
     # Critical hit chance: 10% + (dex / 200)
     crit_chance = 0.10 + (attacker_dex / 200.0)
@@ -1442,9 +1463,10 @@ def calculate_damage(attacker_str: int, defender_def: int, attacker_dex: int, is
     
     if random.random() < crit_chance:
         result['crit'] = True
-        damage = int(damage * 1.5)  # 150% damage on crit
+        damage = int(damage * 1.75)  # 175% damage on crit (up from 150%)
     
-    result['damage'] = damage
+    # Ensure minimum damage of 1
+    result['damage'] = max(1, damage)
     return result
 
 
@@ -1793,6 +1815,21 @@ async def claim_adventure_event(db_helpers, user_id: int, event: dict):
         if not db_helpers.db_pool:
             return False, "Datenbank nicht verfügbar"
         
+        # Initialize level up tracking - always set these to avoid KeyError
+        event['leveled_up'] = False
+        event['new_level'] = None
+        
+        # Process XP first (this uses its own database connection)
+        # Do this BEFORE opening our connection to avoid nested connections
+        xp_reward = event.get('xp_reward', 0)
+        if xp_reward and xp_reward > 0:
+            xp_result = await gain_xp(db_helpers, user_id, xp_reward)
+            if xp_result:
+                event['leveled_up'] = xp_result.get('leveled_up', False)
+                if event['leveled_up']:
+                    event['new_level'] = xp_result.get('new_level')
+        
+        # Now handle gold and healing with a single connection
         conn = db_helpers.db_pool.get_connection()
         if not conn:
             return False, "Datenbankverbindung fehlgeschlagen"
@@ -1800,26 +1837,18 @@ async def claim_adventure_event(db_helpers, user_id: int, event: dict):
         cursor = conn.cursor()
         try:
             # Award gold
-            if 'gold_reward' in event:
+            gold_reward = event.get('gold_reward', 0)
+            if gold_reward and gold_reward > 0:
                 cursor.execute("""
                     UPDATE rpg_players SET gold = gold + %s WHERE user_id = %s
-                """, (event['gold_reward'], user_id))
-            
-            # Award XP
-            if 'xp_reward' in event:
-                xp_result = await gain_xp(db_helpers, user_id, event['xp_reward'])
-                if xp_result:
-                    event['leveled_up'] = xp_result.get('leveled_up', False)
-                    event['new_level'] = xp_result.get('new_level') if event['leveled_up'] else None
-                else:
-                    event['leveled_up'] = False
-                    event['new_level'] = None
+                """, (gold_reward, user_id))
             
             # Heal player
-            if 'heal_amount' in event and event['heal_amount'] > 0:
+            heal_amount = event.get('heal_amount', 0)
+            if heal_amount and heal_amount > 0:
                 cursor.execute("""
                     UPDATE rpg_players SET health = LEAST(health + %s, max_health) WHERE user_id = %s
-                """, (event['heal_amount'], user_id))
+                """, (heal_amount, user_id))
             
             conn.commit()
             return True, "Belohnungen erhalten!"
