@@ -291,14 +291,14 @@ STATUS_EFFECTS = {
 # These are triggered during combat and can apply status effects or modify combat
 # AI uses these strategically based on situation (health, buffs, etc.)
 MONSTER_ABILITIES = {
-    # BASIC ELEMENTAL ABILITIES
+    # BASIC ELEMENTAL ABILITIES - Increased trigger chances for more dynamic combat
     'fire_breath': {
         'name': 'Feueratem',
         'emoji': '🔥',
         'description': 'Speit Flammen und verursacht brennenden Schaden',
         'effect_type': 'status',
         'status_effect': 'burn',
-        'trigger_chance': 0.3,
+        'trigger_chance': 0.45,  # Increased from 0.3
         'ai_condition': 'always'
     },
     'poison_spit': {
@@ -307,7 +307,7 @@ MONSTER_ABILITIES = {
         'description': 'Spuckt Gift und vergiftet das Ziel',
         'effect_type': 'status',
         'status_effect': 'poison',
-        'trigger_chance': 0.25,
+        'trigger_chance': 0.40,  # Increased from 0.25
         'ai_condition': 'always'
     },
     'shadow_cloak': {
@@ -316,7 +316,7 @@ MONSTER_ABILITIES = {
         'description': 'Hüllt sich in Schatten und erschwert das Treffen',
         'effect_type': 'status',
         'status_effect': 'darkness',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.35,  # Increased from 0.2
         'ai_condition': 'player_high_accuracy'
     },
     'lightning_strike': {
@@ -325,7 +325,7 @@ MONSTER_ABILITIES = {
         'description': 'Schlägt mit Blitzen zu und kann lähmen',
         'effect_type': 'status',
         'status_effect': 'static',
-        'trigger_chance': 0.3,
+        'trigger_chance': 0.45,  # Increased from 0.3
         'ai_condition': 'always'
     },
     'frost_nova': {
@@ -334,18 +334,18 @@ MONSTER_ABILITIES = {
         'description': 'Erzeugt eisige Kälte und friert das Ziel ein',
         'effect_type': 'status',
         'status_effect': 'freeze',
-        'trigger_chance': 0.15,
+        'trigger_chance': 0.30,  # Increased from 0.15
         'ai_condition': 'player_high_speed'
     },
     
-    # TACTICAL ABILITIES (AI uses strategically)
+    # TACTICAL ABILITIES (AI uses strategically) - Higher chances for strategic use
     'battle_roar': {
         'name': 'Kriegsschrei',
         'emoji': '😡',
         'description': 'Brüllt wütend und erhöht die eigene Stärke',
         'effect_type': 'self_buff',
         'status_effect': 'rage',
-        'trigger_chance': 0.25,
+        'trigger_chance': 0.45,  # Increased from 0.25
         'ai_condition': 'low_health_or_start'
     },
     'regeneration': {
@@ -354,7 +354,7 @@ MONSTER_ABILITIES = {
         'description': 'Heilt sich selbst über mehrere Runden',
         'effect_type': 'self_buff',
         'status_effect': 'heal',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.50,  # Increased from 0.2
         'ai_condition': 'low_health'
     },
     'armor_up': {
@@ -363,18 +363,18 @@ MONSTER_ABILITIES = {
         'description': 'Verstärkt die Rüstung und reduziert Schaden',
         'effect_type': 'self_buff',
         'status_effect': 'shield',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.40,  # Increased from 0.2
         'ai_condition': 'player_high_damage'
     },
     
-    # DAMAGE ABILITIES
+    # DAMAGE ABILITIES - Increased for more impactful combat
     'critical_strike': {
         'name': 'Kritischer Schlag',
         'emoji': '💥',
         'description': 'Führt einen verheerenden kritischen Angriff aus',
         'effect_type': 'damage_boost',
         'damage_multiplier': 2.5,
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.35,  # Increased from 0.2
         'ai_condition': 'always'
     },
     'life_drain': {
@@ -383,18 +383,18 @@ MONSTER_ABILITIES = {
         'description': 'Stiehlt Leben vom Ziel und heilt sich selbst',
         'effect_type': 'lifesteal',
         'lifesteal_percent': 0.5,
-        'trigger_chance': 0.25,
+        'trigger_chance': 0.45,  # Increased from 0.25
         'ai_condition': 'low_health'
     },
     
-    # NEW TURN ORDER MANIPULATION ABILITIES
+    # NEW TURN ORDER MANIPULATION ABILITIES - Higher chances for tactical depth
     'terrifying_roar': {
         'name': 'Schrecklicher Schrei',
         'emoji': '😱',
         'description': 'Erschreckt den Gegner, der langsamer wird',
         'effect_type': 'status',
         'status_effect': 'startled',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.35,  # Increased from 0.2
         'ai_condition': 'player_faster'
     },
     'time_warp': {
@@ -403,7 +403,7 @@ MONSTER_ABILITIES = {
         'description': 'Verzerrt die Zeit und wird schneller',
         'effect_type': 'self_buff',
         'status_effect': 'haste',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.35,  # Increased from 0.2
         'ai_condition': 'player_faster'
     },
     'crippling_strike': {
@@ -412,7 +412,7 @@ MONSTER_ABILITIES = {
         'description': 'Verlangsamt den Gegner mit einem Schlag',
         'effect_type': 'status',
         'status_effect': 'slow',
-        'trigger_chance': 0.25,
+        'trigger_chance': 0.40,  # Increased from 0.25
         'ai_condition': 'always'
     },
     'stunning_blow': {
@@ -421,18 +421,18 @@ MONSTER_ABILITIES = {
         'description': 'Betäubt den Gegner für eine Runde',
         'effect_type': 'status',
         'status_effect': 'stun',
-        'trigger_chance': 0.15,
+        'trigger_chance': 0.30,  # Increased from 0.15
         'ai_condition': 'player_low_health'
     },
     
-    # NEW COMPLEX ABILITIES
+    # NEW COMPLEX ABILITIES - Strategic combat abilities
     'savage_bite': {
         'name': 'Wilder Biss',
         'emoji': '🦷',
         'description': 'Beißt zu und verursacht starke Blutung',
         'effect_type': 'status',
         'status_effect': 'bleed',
-        'trigger_chance': 0.3,
+        'trigger_chance': 0.45,  # Increased from 0.3
         'ai_condition': 'always'
     },
     'dark_curse': {
@@ -441,7 +441,7 @@ MONSTER_ABILITIES = {
         'description': 'Verflucht den Gegner mit dunkler Magie',
         'effect_type': 'status',
         'status_effect': 'curse',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.35,  # Increased from 0.2
         'ai_condition': 'player_high_stats'
     },
     'arcane_barrier': {
@@ -450,7 +450,7 @@ MONSTER_ABILITIES = {
         'description': 'Erschafft eine magische Schutzbarriere',
         'effect_type': 'self_buff',
         'status_effect': 'barrier',
-        'trigger_chance': 0.15,
+        'trigger_chance': 0.35,  # Increased from 0.15
         'ai_condition': 'low_health'
     },
     'berserk_fury': {
@@ -459,7 +459,7 @@ MONSTER_ABILITIES = {
         'description': 'Verfällt in Berserker-Wut',
         'effect_type': 'self_buff',
         'status_effect': 'berserk',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.40,  # Increased from 0.2
         'ai_condition': 'low_health'
     },
     'stone_skin': {
@@ -468,7 +468,7 @@ MONSTER_ABILITIES = {
         'description': 'Verhärtet die Haut zu Stein',
         'effect_type': 'self_buff',
         'status_effect': 'fortify',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.40,  # Increased from 0.2
         'ai_condition': 'player_high_damage'
     },
     'enfeeble': {
@@ -477,7 +477,7 @@ MONSTER_ABILITIES = {
         'description': 'Schwächt den Gegner erheblich',
         'effect_type': 'status',
         'status_effect': 'weakness',
-        'trigger_chance': 0.25,
+        'trigger_chance': 0.40,  # Increased from 0.25
         'ai_condition': 'player_high_damage'
     },
     'divine_blessing': {
@@ -486,7 +486,7 @@ MONSTER_ABILITIES = {
         'description': 'Segnet sich selbst mit göttlicher Kraft',
         'effect_type': 'self_buff',
         'status_effect': 'blessed',
-        'trigger_chance': 0.15,
+        'trigger_chance': 0.35,  # Increased from 0.15
         'ai_condition': 'low_health'
     },
     'death_mark': {
@@ -495,7 +495,7 @@ MONSTER_ABILITIES = {
         'description': 'Markiert den Gegner für den Tod',
         'effect_type': 'status',
         'status_effect': 'doomed',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.35,  # Increased from 0.2
         'ai_condition': 'player_low_health'
     },
     'thorn_armor': {
@@ -504,7 +504,7 @@ MONSTER_ABILITIES = {
         'description': 'Bedeckt sich mit schmerzhaften Dornen',
         'effect_type': 'self_buff',
         'status_effect': 'thorns',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.40,  # Increased from 0.2
         'ai_condition': 'player_high_damage'
     },
     'expose_weakness': {
@@ -513,7 +513,7 @@ MONSTER_ABILITIES = {
         'description': 'Deckt Schwachstellen des Gegners auf',
         'effect_type': 'status',
         'status_effect': 'vulnerable',
-        'trigger_chance': 0.25,
+        'trigger_chance': 0.40,  # Increased from 0.25
         'ai_condition': 'always'
     },
     'shadow_step': {
@@ -522,7 +522,7 @@ MONSTER_ABILITIES = {
         'description': 'Wird schwer zu treffen',
         'effect_type': 'self_buff',
         'status_effect': 'evasive',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.35,  # Increased from 0.2
         'ai_condition': 'player_high_accuracy'
     },
     'hunters_focus': {
@@ -531,7 +531,7 @@ MONSTER_ABILITIES = {
         'description': 'Fokussiert sich auf das Ziel',
         'effect_type': 'self_buff',
         'status_effect': 'focus',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.35,  # Increased from 0.2
         'ai_condition': 'always'
     },
     'mind_blast': {
@@ -540,7 +540,7 @@ MONSTER_ABILITIES = {
         'description': 'Verwirrt den Geist des Gegners',
         'effect_type': 'status',
         'status_effect': 'confusion',
-        'trigger_chance': 0.15,
+        'trigger_chance': 0.30,  # Increased from 0.15
         'ai_condition': 'player_high_accuracy'
     },
     'petrifying_gaze': {
@@ -549,7 +549,7 @@ MONSTER_ABILITIES = {
         'description': 'Versteinert den Gegner kurzzeitig',
         'effect_type': 'status',
         'status_effect': 'petrify',
-        'trigger_chance': 0.1,
+        'trigger_chance': 0.25,  # Increased from 0.1
         'ai_condition': 'player_low_health'
     },
     'vampiric_aura': {
@@ -558,11 +558,11 @@ MONSTER_ABILITIES = {
         'description': 'Umgibt sich mit lebensentziehender Aura',
         'effect_type': 'self_buff',
         'status_effect': 'lifesteal',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.40,  # Increased from 0.2
         'ai_condition': 'low_health'
     },
     
-    # MULTI-HIT ABILITIES
+    # MULTI-HIT ABILITIES - Higher chances for variety
     'flurry': {
         'name': 'Hagel',
         'emoji': '🌪️',
@@ -570,7 +570,7 @@ MONSTER_ABILITIES = {
         'effect_type': 'multi_hit',
         'hit_count': 3,
         'damage_per_hit': 0.4,
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.35,  # Increased from 0.2
         'ai_condition': 'always'
     },
     'whirlwind_attack': {
@@ -580,17 +580,17 @@ MONSTER_ABILITIES = {
         'effect_type': 'multi_hit',
         'hit_count': 2,
         'damage_per_hit': 0.6,
-        'trigger_chance': 0.25,
+        'trigger_chance': 0.40,  # Increased from 0.25
         'ai_condition': 'always'
     },
     
-    # UTILITY ABILITIES
+    # UTILITY ABILITIES - Strategic use
     'cleanse': {
         'name': 'Reinigung',
         'emoji': '✨',
         'description': 'Entfernt negative Statuseffekte',
         'effect_type': 'cleanse',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.50,  # Increased from 0.2
         'ai_condition': 'has_debuff'
     },
     'enrage': {
@@ -600,7 +600,7 @@ MONSTER_ABILITIES = {
         'effect_type': 'triggered',
         'status_effect': 'berserk',
         'trigger_condition': 'below_50_hp',
-        'trigger_chance': 1.0,
+        'trigger_chance': 1.0,  # Always triggers when condition met
         'ai_condition': 'low_health'
     },
     'last_stand': {
