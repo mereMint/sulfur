@@ -8542,8 +8542,6 @@ async def view_quests(interaction: discord.Interaction):
     except Exception as e:
         logger.error(f"Error in /quests command: {e}", exc_info=True)
         await interaction.followup.send(f"❌ Fehler beim Laden der Quests: {str(e)}", ephemeral=True)
-        logger.error(f"Error in /quests command: {e}", exc_info=True)
-        await interaction.followup.send(f"❌ Fehler beim Laden der Quests: {str(e)}", ephemeral=True)
 
 
 # REMOVED: /questclaim command - functionality exists as a button in /quests command
