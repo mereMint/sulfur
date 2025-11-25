@@ -1808,8 +1808,12 @@ async def claim_adventure_event(db_helpers, user_id: int, event: dict):
             # Award XP
             if 'xp_reward' in event:
                 xp_result = await gain_xp(db_helpers, user_id, event['xp_reward'])
-                event['leveled_up'] = xp_result and xp_result.get('leveled_up', False)
-                event['new_level'] = xp_result.get('new_level') if event.get('leveled_up') else None
+                if xp_result:
+                    event['leveled_up'] = xp_result.get('leveled_up', False)
+                    event['new_level'] = xp_result.get('new_level') if event['leveled_up'] else None
+                else:
+                    event['leveled_up'] = False
+                    event['new_level'] = None
             
             # Heal player
             if 'heal_amount' in event and event['heal_amount'] > 0:
