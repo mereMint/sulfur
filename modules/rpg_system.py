@@ -873,6 +873,7 @@ RESPEC_COST_PER_POINT = 50  # Gold cost per skill point when resetting stats
 # Loot system constants
 LUCK_BONUS_MAX = 0.05  # Maximum luck bonus to drop rates (5%)
 LUCK_BONUS_PER_LEVEL = 0.001  # Luck bonus gained per player level
+DEFAULT_DROP_RATE = 0.1  # Default drop rate (10%) for items without explicit rate
 
 # Quest item constants
 QUEST_ITEM_BASE_PRICE = 5  # Base gold value for quest items
@@ -923,10 +924,19 @@ async def initialize_rpg_tables(db_helpers):
                     item_id INT NOT NULL,
                     item_type VARCHAR(50) NOT NULL,
                     quantity INT DEFAULT 1,
+                    uses_remaining INT DEFAULT NULL,
                     UNIQUE KEY unique_user_item (user_id, item_id, item_type),
                     INDEX idx_user (user_id)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
+            
+            # Add uses_remaining column if it doesn't exist (migration)
+            try:
+                cursor.execute("""
+                    ALTER TABLE rpg_inventory ADD COLUMN IF NOT EXISTS uses_remaining INT DEFAULT NULL
+                """)
+            except Exception:
+                pass  # Column might already exist
             
             # Equipment
             cursor.execute("""
@@ -962,6 +972,7 @@ async def initialize_rpg_tables(db_helpers):
                     damage INT DEFAULT 0,
                     damage_type VARCHAR(50) NULL,
                     durability INT DEFAULT 100,
+                    max_uses INT DEFAULT NULL,
                     price INT DEFAULT 100,
                     required_level INT DEFAULT 1,
                     created_by BIGINT NULL,
@@ -974,6 +985,14 @@ async def initialize_rpg_tables(db_helpers):
                     INDEX idx_quest (is_quest_item)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
+            
+            # Add max_uses column if it doesn't exist (migration)
+            try:
+                cursor.execute("""
+                    ALTER TABLE rpg_items ADD COLUMN IF NOT EXISTS max_uses INT DEFAULT NULL
+                """)
+            except Exception:
+                pass  # Column might already exist
             
             # Daily shop rotation - stores which items are available each day
             cursor.execute("""
@@ -1094,12 +1113,14 @@ async def gain_xp(db_helpers, user_id: int, xp_amount: int):
         if new_level > current_level:
             # Level up! Increase stats
             hp_increase = 20 * (new_level - current_level)
+            # First update max_health, then set health to new max_health (capped properly)
             cursor.execute("""
                 UPDATE rpg_players 
                 SET level = %s, xp = %s, skill_points = skill_points + %s,
-                    max_health = max_health + %s, health = max_health + %s
+                    max_health = max_health + %s, 
+                    health = LEAST(health + %s, max_health + %s)
                 WHERE user_id = %s
-            """, (new_level, new_xp, skill_points_gained, hp_increase, hp_increase, user_id))
+            """, (new_level, new_xp, skill_points_gained, hp_increase, hp_increase, hp_increase, user_id))
         else:
             cursor.execute("""
                 UPDATE rpg_players SET xp = %s WHERE user_id = %s
@@ -1431,11 +1452,13 @@ async def roll_loot_drops(db_helpers, monster: dict, player_level: int) -> list:
     """
     Roll for loot drops from a defeated monster based on its loot table.
     
-    Loot table format: {item_name: drop_rate}
+    Loot table format: {item_name: drop_rate} or {item_name: {"rate": float, "type": "weapon"|"skill"|"material"}}
     - item_name: String, can contain "(Quest)" suffix for quest items
-    - drop_rate: Float 0.0-1.0 (probability of drop)
+    - drop_rate: Float 0.0-1.0 (probability of drop) OR dict with rate and type
     
-    Example: {'Wolfszahn': 0.75, 'Wolfsherz (Quest)': 0.20}
+    Example: 
+      {'Wolfszahn': 0.75, 'Wolfsherz (Quest)': 0.20}
+      {'Rostiges Schwert': {"rate": 0.1, "type": "weapon"}, 'Feuerball': {"rate": 0.05, "type": "skill"}}
     
     Args:
         db_helpers: Database helpers module
@@ -1443,19 +1466,35 @@ async def roll_loot_drops(db_helpers, monster: dict, player_level: int) -> list:
         player_level: Player's level (affects drop rates slightly)
     
     Returns:
-        List of item dictionaries that dropped: [{'name': str, 'drop_rate': float, 'is_quest_item': bool}]
+        List of item dictionaries that dropped
     """
     try:
         loot_table = monster.get('loot_table', {})
         if not loot_table:
             return []
         
+        # Parse loot_table if it's a JSON string
+        if isinstance(loot_table, str):
+            try:
+                loot_table = json.loads(loot_table)
+            except json.JSONDecodeError:
+                logger.warning(f"Failed to parse loot_table JSON: {loot_table[:100]}...")
+                return []
+        
         dropped_items = []
         
         # Small luck bonus based on player level (configured by LUCK_BONUS constants)
         luck_bonus = min(LUCK_BONUS_MAX, player_level * LUCK_BONUS_PER_LEVEL)
         
-        for item_name, base_drop_rate in loot_table.items():
+        for item_name, drop_info in loot_table.items():
+            # Handle both simple float and dict formats
+            if isinstance(drop_info, dict):
+                base_drop_rate = drop_info.get('rate', DEFAULT_DROP_RATE)
+                item_type = drop_info.get('type', 'material')
+            else:
+                base_drop_rate = float(drop_info) if drop_info else DEFAULT_DROP_RATE
+                item_type = 'quest_item' if '(Quest)' in item_name else 'material'
+            
             # Apply luck bonus
             drop_rate = min(1.0, base_drop_rate + luck_bonus)
             
@@ -1464,7 +1503,8 @@ async def roll_loot_drops(db_helpers, monster: dict, player_level: int) -> list:
                 dropped_items.append({
                     'name': item_name,
                     'drop_rate': base_drop_rate,
-                    'is_quest_item': '(Quest)' in item_name
+                    'item_type': item_type,
+                    'is_quest_item': '(Quest)' in item_name or item_type == 'quest_item'
                 })
         
         return dropped_items
@@ -1473,18 +1513,19 @@ async def roll_loot_drops(db_helpers, monster: dict, player_level: int) -> list:
         return []
 
 
-async def add_loot_to_inventory(db_helpers, user_id: int, loot_items: list):
+async def add_loot_to_inventory(db_helpers, user_id: int, loot_items: list, monster_name: str = "Monster"):
     """
     Add dropped loot items to player's inventory.
-    Creates quest items as needed in the rpg_items table.
+    Supports weapons, skills, and materials. Creates items as needed.
     
     Args:
         db_helpers: Database helpers module
         user_id: Player's user ID
         loot_items: List of loot item dictionaries
+        monster_name: Name of the monster that dropped the loot
     
     Returns:
-        Success boolean and message
+        Success boolean and list of added item names
     """
     try:
         if not db_helpers.db_pool or not loot_items:
@@ -1500,41 +1541,69 @@ async def add_loot_to_inventory(db_helpers, user_id: int, loot_items: list):
         try:
             for loot in loot_items:
                 item_name = loot['name']
+                item_type = loot.get('item_type', 'material')
                 is_quest = loot.get('is_quest_item', False)
                 
                 # Check if item exists in rpg_items
                 cursor.execute("""
-                    SELECT id FROM rpg_items WHERE name = %s LIMIT 1
+                    SELECT id, type FROM rpg_items WHERE name = %s LIMIT 1
                 """, (item_name,))
                 
                 item_row = cursor.fetchone()
                 
-                if not item_row:
-                    # Create the item as a quest/sellable item
-                    cursor.execute("""
-                        INSERT INTO rpg_items 
-                        (name, type, rarity, description, price, is_quest_item, is_usable, is_sellable)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    """, (
-                        item_name,
-                        'quest_item' if is_quest else 'material',
-                        'common',
-                        f'Dropped by {loot.get("monster_name", "monster")}',
-                        QUEST_ITEM_BASE_PRICE if is_quest else random.randint(MATERIAL_ITEM_MIN_PRICE, MATERIAL_ITEM_MAX_PRICE),
-                        is_quest,
-                        False,  # Not usable in combat
-                        True    # Can be sold (quest items usually can't be sold, but keeping flexible)
-                    ))
-                    item_id = cursor.lastrowid
-                else:
+                if item_row:
                     item_id = item_row['id']
+                    actual_type = item_row['type']
+                else:
+                    # Create the item based on its type
+                    if item_type in ('weapon', 'skill'):
+                        # For weapons/skills dropped as loot, create with basic stats
+                        # These are typically monster-specific variants
+                        rarity = 'uncommon'  # Loot drops are at least uncommon
+                        damage = 15 if item_type == 'weapon' else 20 if item_type == 'skill' else 0
+                        price = 100 if item_type == 'weapon' else 80
+                        
+                        cursor.execute("""
+                            INSERT INTO rpg_items 
+                            (name, type, rarity, description, damage, price, is_quest_item, is_usable, is_sellable, required_level)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """, (
+                            item_name,
+                            item_type,
+                            rarity,
+                            f'Von {monster_name} erbeutet',
+                            damage,
+                            price,
+                            False,
+                            True,  # Usable in combat
+                            True,  # Can be sold
+                            1      # Level 1 requirement for loot
+                        ))
+                    else:
+                        # Material or quest item
+                        cursor.execute("""
+                            INSERT INTO rpg_items 
+                            (name, type, rarity, description, price, is_quest_item, is_usable, is_sellable)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        """, (
+                            item_name,
+                            'quest_item' if is_quest else 'material',
+                            'common',
+                            f'Von {monster_name} erbeutet',
+                            QUEST_ITEM_BASE_PRICE if is_quest else random.randint(MATERIAL_ITEM_MIN_PRICE, MATERIAL_ITEM_MAX_PRICE),
+                            is_quest,
+                            False,  # Not usable in combat
+                            not is_quest  # Quest items can't be sold
+                        ))
+                    item_id = cursor.lastrowid
+                    actual_type = item_type
                 
                 # Add to inventory
                 cursor.execute("""
                     INSERT INTO rpg_inventory (user_id, item_id, item_type, quantity)
                     VALUES (%s, %s, %s, 1)
                     ON DUPLICATE KEY UPDATE quantity = quantity + 1
-                """, (user_id, item_id, 'quest_item' if is_quest else 'material'))
+                """, (user_id, item_id, actual_type))
                 
                 added_items.append(item_name)
             
@@ -2047,6 +2116,14 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
         if not player:
             return {'error': 'Profil konnte nicht geladen werden.'}
         
+        # Get equipped weapon for damage boost
+        equipped = await get_equipped_items(db_helpers, user_id)
+        weapon_damage_bonus = 0
+        if equipped and equipped.get('weapon_id'):
+            weapon = await get_item_by_id(db_helpers, equipped['weapon_id'])
+            if weapon:
+                weapon_damage_bonus = weapon.get('damage', 0)
+        
         # Initialize combat state if not provided
         if combat_state is None:
             combat_state = {
@@ -2069,12 +2146,16 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
             'messages': [],
             'combat_state': combat_state,  # Return updated combat state
             'monster_ability_used': None,
-            'status_applied': []
+            'status_applied': [],
+            'weapon_bonus': weapon_damage_bonus  # Track weapon bonus for display
         }
         
-        # Get effective stats with status modifiers
+        # Calculate effective strength including weapon bonus
+        effective_strength = player['strength'] + weapon_damage_bonus
+        
+        # Get effective stats with status modifiers (including weapon bonus)
         player_stats = get_effective_stats({
-            'strength': player['strength'],
+            'strength': effective_strength,
             'defense': player['defense'],
             'speed': player['speed'],
             'dexterity': player.get('dexterity', DEFAULT_DEXTERITY)
@@ -2468,16 +2549,28 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
             cursor.close()
             conn.close()
             
+            # Roll for loot drops
+            player_profile = await get_player_profile(db_helpers, user_id)
+            player_level = player_profile['level'] if player_profile else 1
+            loot_drops = await roll_loot_drops(db_helpers, monster, player_level)
+            loot_names = []
+            
+            if loot_drops:
+                success, loot_names = await add_loot_to_inventory(db_helpers, user_id, loot_drops, monster['name'])
+            
             result['rewards'] = {
                 'xp': monster['xp_reward'],
                 'gold': monster['gold_reward'],
                 'leveled_up': xp_result['leveled_up'] if xp_result else False,
-                'new_level': xp_result['new_level'] if xp_result and xp_result['leveled_up'] else None
+                'new_level': xp_result['new_level'] if xp_result and xp_result['leveled_up'] else None,
+                'loot': loot_names
             }
             
             msg = f"\n🎉 **{monster['name']} besiegt!**\n"
             msg += f"💰 +{monster['gold_reward']} Gold\n"
             msg += f"⭐ +{monster['xp_reward']} XP"
+            if loot_names:
+                msg += f"\n📦 **Loot:** {', '.join(loot_names)}"
             if result['rewards']['leveled_up']:
                 msg += f"\n\n🎊 **LEVEL UP!** Du bist jetzt Level {result['rewards']['new_level']}!"
             result['messages'].append(msg)
@@ -2909,6 +3002,16 @@ async def purchase_item(db_helpers, user_id: int, item_id: int):
             if player['gold'] < item['price']:
                 return False, "Nicht genug Gold"
             
+            # Check if player already owns this item (prevent double-buy for unique items like weapons/skills)
+            if item['type'] in ('weapon', 'skill'):
+                cursor.execute("""
+                    SELECT quantity FROM rpg_inventory 
+                    WHERE user_id = %s AND item_id = %s
+                """, (user_id, item_id))
+                existing = cursor.fetchone()
+                if existing and existing['quantity'] > 0:
+                    return False, "Du besitzt dieses Item bereits!"
+            
             # Add to inventory
             cursor.execute("""
                 INSERT INTO rpg_inventory (user_id, item_id, item_type, quantity)
@@ -2943,9 +3046,9 @@ async def sell_item(db_helpers, user_id: int, item_id: int, quantity: int = 1):
         
         cursor = conn.cursor(dictionary=True)
         try:
-            # Check if player has item in inventory
+            # Check if player has item in inventory with full item details
             cursor.execute("""
-                SELECT i.quantity, it.name, it.price
+                SELECT i.quantity, it.name, it.price, it.type, it.is_quest_item, it.is_sellable
                 FROM rpg_inventory i
                 JOIN rpg_items it ON i.item_id = it.id
                 WHERE i.user_id = %s AND i.item_id = %s
@@ -2956,8 +3059,30 @@ async def sell_item(db_helpers, user_id: int, item_id: int, quantity: int = 1):
             if not inventory_item:
                 return False, "Item nicht im Inventar"
             
+            # Check if item is a quest item (cannot be sold)
+            if inventory_item.get('is_quest_item', False):
+                return False, "Quest-Items können nicht verkauft werden!"
+            
+            # Check if item is explicitly marked as non-sellable
+            if inventory_item.get('is_sellable') is False:
+                return False, "Dieses Item kann nicht verkauft werden!"
+            
             if inventory_item['quantity'] < quantity:
                 return False, f"Nicht genug Items (hast {inventory_item['quantity']})"
+            
+            # Check if item is currently equipped (weapons and skills)
+            if inventory_item['type'] in ('weapon', 'skill'):
+                cursor.execute("SELECT weapon_id, skill1_id, skill2_id FROM rpg_equipped WHERE user_id = %s", (user_id,))
+                equipped = cursor.fetchone()
+                if equipped:
+                    if inventory_item['type'] == 'weapon' and equipped['weapon_id'] == item_id:
+                        # Unequip weapon before selling
+                        cursor.execute("UPDATE rpg_equipped SET weapon_id = NULL WHERE user_id = %s", (user_id,))
+                    elif inventory_item['type'] == 'skill':
+                        if equipped['skill1_id'] == item_id:
+                            cursor.execute("UPDATE rpg_equipped SET skill1_id = NULL WHERE user_id = %s", (user_id,))
+                        if equipped['skill2_id'] == item_id:
+                            cursor.execute("UPDATE rpg_equipped SET skill2_id = NULL WHERE user_id = %s", (user_id,))
             
             # Calculate sell price (50% of shop price)
             sell_price = int(inventory_item['price'] * 0.5 * quantity)
@@ -3083,7 +3208,7 @@ async def equip_item(db_helpers, user_id: int, item_id: int, item_type: str):
         if not conn:
             return False
         
-        cursor = conn.cursor()
+        cursor = conn.cursor(dictionary=True)
         try:
             # Check if player has item
             cursor.execute("""
@@ -3093,28 +3218,39 @@ async def equip_item(db_helpers, user_id: int, item_id: int, item_type: str):
             if not cursor.fetchone():
                 return False
             
-            # Equip item
+            # Ensure player has an equipped row
+            cursor.execute("SELECT * FROM rpg_equipped WHERE user_id = %s", (user_id,))
+            equipped_row = cursor.fetchone()
+            
+            if not equipped_row:
+                # Create the row first
+                cursor.execute("INSERT INTO rpg_equipped (user_id) VALUES (%s)", (user_id,))
+                conn.commit()
+                equipped_row = {'weapon_id': None, 'skill1_id': None, 'skill2_id': None}
+            
+            # Equip item based on type
             if item_type == 'weapon':
                 cursor.execute("""
-                    INSERT INTO rpg_equipped (user_id, weapon_id)
-                    VALUES (%s, %s)
-                    ON DUPLICATE KEY UPDATE weapon_id = %s
-                """, (user_id, item_id, item_id))
+                    UPDATE rpg_equipped SET weapon_id = %s WHERE user_id = %s
+                """, (item_id, user_id))
             elif item_type == 'skill':
-                # Try slot 1 first, then slot 2
-                cursor.execute("SELECT skill1_id, skill2_id FROM rpg_equipped WHERE user_id = %s", (user_id,))
-                result = cursor.fetchone()
+                # Check current equipped skills
+                skill1_id = equipped_row.get('skill1_id')
+                skill2_id = equipped_row.get('skill2_id')
                 
-                if not result or result[0] is None:
+                # Don't equip the same skill twice
+                if skill1_id == item_id or skill2_id == item_id:
+                    # Already equipped, don't change anything
+                    conn.commit()
+                    return True
+                
+                if skill1_id is None:
                     # Slot 1 is empty, equip there
                     cursor.execute("""
-                        INSERT INTO rpg_equipped (user_id, skill1_id)
-                        VALUES (%s, %s)
-                        ON DUPLICATE KEY UPDATE skill1_id = %s
-                    """, (user_id, item_id, item_id))
-                elif result[1] is None:
+                        UPDATE rpg_equipped SET skill1_id = %s WHERE user_id = %s
+                    """, (item_id, user_id))
+                elif skill2_id is None:
                     # Slot 1 is filled but slot 2 is empty, equip to slot 2
-                    # We know row exists at this point, so just UPDATE
                     cursor.execute("""
                         UPDATE rpg_equipped SET skill2_id = %s WHERE user_id = %s
                     """, (item_id, user_id))
@@ -3195,6 +3331,128 @@ async def apply_blessing(db_helpers, user_id: int, blessing_type: str, cost: int
     except Exception as e:
         logger.error(f"Error applying blessing: {e}", exc_info=True)
         return False
+
+
+async def recharge_skills(db_helpers, user_id: int, cost: int):
+    """Recharge all skill uses to maximum at the temple."""
+    try:
+        if not db_helpers.db_pool:
+            return False, "Datenbank nicht verfügbar"
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return False, "Datenbankverbindung fehlgeschlagen"
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            # Check player gold
+            cursor.execute("SELECT gold FROM rpg_players WHERE user_id = %s", (user_id,))
+            player = cursor.fetchone()
+            
+            if not player:
+                return False, "Spieler nicht gefunden"
+            
+            if player['gold'] < cost:
+                return False, f"Nicht genug Gold! Du brauchst {cost} Gold."
+            
+            # Find all skills in inventory with max_uses and recharge them
+            cursor.execute("""
+                SELECT i.id, i.item_id, it.max_uses
+                FROM rpg_inventory i
+                JOIN rpg_items it ON i.item_id = it.id
+                WHERE i.user_id = %s AND it.type = 'skill' AND it.max_uses IS NOT NULL
+            """, (user_id,))
+            
+            skills_to_recharge = cursor.fetchall()
+            
+            if not skills_to_recharge:
+                return False, "Keine Skills mit begrenzten Nutzungen gefunden."
+            
+            # Recharge all skills
+            recharged_count = 0
+            for skill in skills_to_recharge:
+                cursor.execute("""
+                    UPDATE rpg_inventory 
+                    SET uses_remaining = %s
+                    WHERE user_id = %s AND item_id = %s
+                """, (skill['max_uses'], user_id, skill['item_id']))
+                recharged_count += cursor.rowcount
+            
+            # Deduct gold
+            cursor.execute("""
+                UPDATE rpg_players SET gold = gold - %s WHERE user_id = %s
+            """, (cost, user_id))
+            
+            conn.commit()
+            return True, f"{recharged_count} Skills wurden vollständig aufgeladen!"
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error recharging skills: {e}", exc_info=True)
+        return False, "Fehler beim Aufladen"
+
+
+async def use_skill_charge(db_helpers, user_id: int, skill_id: int):
+    """
+    Use one charge of a skill. Returns whether the skill can still be used.
+    
+    Returns:
+        (can_use, remaining_uses) - can_use is True if skill can be used (infinite or has charges)
+    """
+    try:
+        if not db_helpers.db_pool:
+            return True, None  # Assume skill can be used if no DB
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return True, None
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            # Check if skill has max_uses
+            cursor.execute("""
+                SELECT it.max_uses, i.uses_remaining
+                FROM rpg_inventory i
+                JOIN rpg_items it ON i.item_id = it.id
+                WHERE i.user_id = %s AND i.item_id = %s
+            """, (user_id, skill_id))
+            
+            result = cursor.fetchone()
+            
+            if not result:
+                return True, None  # Skill not found, assume usable
+            
+            max_uses = result.get('max_uses')
+            
+            # If no max_uses, skill has infinite uses
+            if max_uses is None:
+                return True, None
+            
+            uses_remaining = result.get('uses_remaining')
+            
+            # Initialize uses if not set
+            if uses_remaining is None:
+                uses_remaining = max_uses
+            
+            if uses_remaining <= 0:
+                return False, 0  # No charges remaining
+            
+            # Decrement uses
+            new_uses = uses_remaining - 1
+            cursor.execute("""
+                UPDATE rpg_inventory SET uses_remaining = %s
+                WHERE user_id = %s AND item_id = %s
+            """, (new_uses, user_id, skill_id))
+            
+            conn.commit()
+            return True, new_uses
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error using skill charge: {e}", exc_info=True)
+        return True, None  # Assume usable on error
 
 
 async def allocate_skill_point(db_helpers, user_id: int, stat_name: str):
