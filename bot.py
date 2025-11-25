@@ -3028,6 +3028,9 @@ async def rpg_command(interaction: discord.Interaction):
         
         user_id = interaction.user.id
         
+        # Get user's theme for theming
+        user_theme = await themes.get_user_theme(db_helpers, user_id)
+        
         # Check if user has RPG access
         has_rpg_access = await db_helpers.has_feature_unlock(user_id, 'rpg_access')
         
@@ -3043,7 +3046,7 @@ async def rpg_command(interaction: discord.Interaction):
                            "🏪 Shop mit Waffen und Items\n"
                            "🌍 Verschiedene Welten zum Erkunden\n\n"
                            "Kaufe den Zugang im Shop!",
-                color=discord.Color.red()
+                color=themes.get_theme_color(user_theme, 'danger') if user_theme else discord.Color.red()
             )
             await interaction.followup.send(embed=embed, ephemeral=True)
             return
@@ -3057,11 +3060,11 @@ async def rpg_command(interaction: discord.Interaction):
         # Get skill tree bonuses
         skill_tree_bonuses = await rpg_system.calculate_skill_tree_bonuses(db_helpers, user_id)
         
-        # Create profile embed
+        # Create profile embed with theme support
         embed = discord.Embed(
             title=f"⚔️ RPG Profil - {interaction.user.display_name}",
             description=f"**Level {player['level']}** | Welt: {rpg_system.WORLDS[player['world']]['name']}",
-            color=discord.Color.purple()
+            color=themes.get_theme_color(user_theme, 'primary') if user_theme else discord.Color.purple()
         )
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
         
@@ -6588,12 +6591,17 @@ async def shop_main(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     
     try:
+        user_id = interaction.user.id
+        
+        # Get user's theme for theming
+        user_theme = await themes.get_user_theme(db_helpers, user_id)
+        
         # Show shop with interactive buttons
         view = ShopBuyView(interaction.user, config)
         embed = discord.Embed(
             title="🛒 Shop",
             description="Willkommen im Shop! Wähle eine Kategorie aus:",
-            color=discord.Color.blue()
+            color=themes.get_theme_color(user_theme, 'primary') if user_theme else discord.Color.blue()
         )
         
         currency = config['modules']['economy']['currency_symbol']
@@ -7577,9 +7585,14 @@ async def daily(interaction: discord.Interaction):
     try:
         from modules.economy import grant_daily_reward
         
+        user_id = interaction.user.id
+        
+        # Get user's theme for theming
+        user_theme = await themes.get_user_theme(db_helpers, user_id)
+        
         success, amount, message = await grant_daily_reward(
             db_helpers,
-            interaction.user.id,
+            user_id,
             interaction.user.display_name,
             config
         )
@@ -7588,16 +7601,16 @@ async def daily(interaction: discord.Interaction):
             embed = discord.Embed(
                 title="🎁 Tägliche Belohnung!",
                 description=message,
-                color=discord.Color.green()
+                color=themes.get_theme_color(user_theme, 'success') if user_theme else discord.Color.green()
             )
-            new_balance = await db_helpers.get_balance(interaction.user.id)
+            new_balance = await db_helpers.get_balance(user_id)
             currency = config['modules']['economy']['currency_symbol']
             embed.add_field(name="Neues Guthaben", value=f"{new_balance} {currency}", inline=True)
         else:
             embed = discord.Embed(
                 title="⏰ Bereits abgeholt",
                 description=message,
-                color=discord.Color.orange()
+                color=themes.get_theme_color(user_theme, 'warning') if user_theme else discord.Color.orange()
             )
         
         await interaction.followup.send(embed=embed, ephemeral=True)
@@ -8493,14 +8506,19 @@ async def view_quests(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     
     try:
-        # Create menu view
-        view = QuestMenuView(interaction.user.id, config)
+        user_id = interaction.user.id
         
-        # Create initial embed
+        # Get user's theme
+        user_theme = await themes.get_user_theme(db_helpers, user_id)
+        
+        # Create menu view
+        view = QuestMenuView(user_id, config)
+        
+        # Create initial embed with theme support
         embed = discord.Embed(
             title="📋 Quest-Menü",
             description="Wähle eine Option aus dem Menü:",
-            color=discord.Color.blue()
+            color=themes.get_theme_color(user_theme, 'primary') if user_theme else discord.Color.blue()
         )
         
         embed.add_field(
@@ -8524,10 +8542,6 @@ async def view_quests(interaction: discord.Interaction):
     except Exception as e:
         logger.error(f"Error in /quests command: {e}", exc_info=True)
         await interaction.followup.send(f"❌ Fehler beim Laden der Quests: {str(e)}", ephemeral=True)
-        
-        await interaction.followup.send(embed=embed, ephemeral=True)
-        
-    except Exception as e:
         logger.error(f"Error in /quests command: {e}", exc_info=True)
         await interaction.followup.send(f"❌ Fehler beim Laden der Quests: {str(e)}", ephemeral=True)
 
@@ -8551,10 +8565,11 @@ race_counter = 0  # Global race ID counter
 class BlackjackView(discord.ui.View):
     """UI view for Blackjack game with Hit/Stand buttons."""
     
-    def __init__(self, game: BlackjackGame, user_id: int):
+    def __init__(self, game: BlackjackGame, user_id: int, theme_id=None):
         super().__init__(timeout=120)
         self.game = game
         self.user_id = user_id
+        self.theme_id = theme_id
     
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
@@ -8571,7 +8586,7 @@ class BlackjackView(discord.ui.View):
         temp_embed = discord.Embed(
             title="🃏 Blackjack",
             description="Ziehe eine Karte... 🎴",
-            color=discord.Color.blurple()
+            color=themes.get_theme_color(self.theme_id, 'primary') if self.theme_id else discord.Color.blurple()
         )
         await interaction.edit_original_response(embed=temp_embed, view=self)
         await asyncio.sleep(0.6)
@@ -8583,7 +8598,7 @@ class BlackjackView(discord.ui.View):
             await self._finish_game(interaction)
         else:
             # Update the embed
-            embed = self.game.create_embed()
+            embed = self.game.create_embed(theme_id=self.theme_id)
             await interaction.edit_original_response(embed=embed, view=self)
     
     @discord.ui.button(label="Stand", style=discord.ButtonStyle.success, emoji="✋")
@@ -8596,7 +8611,7 @@ class BlackjackView(discord.ui.View):
     async def _finish_game(self, interaction: discord.Interaction):
         """Finishes the game and shows results."""
         result, multiplier = self.game.get_result()
-        embed = self.game.create_embed(show_dealer_card=True)
+        embed = self.game.create_embed(show_dealer_card=True, theme_id=self.theme_id)
         
         currency = config['modules']['economy']['currency_symbol']
         
@@ -8665,28 +8680,28 @@ class BlackjackView(discord.ui.View):
         except Exception as e:
             logger.error(f"Failed to log blackjack game stats: {e}")
         
-        # Add result field with enhanced formatting
+        # Add result field with enhanced formatting and theme colors
         result_text = ""
         if result == 'blackjack':
             result_text = f"🎉 **BLACKJACK!** 🎉\n"
             result_text += f"Perfekte 21! Du gewinnst **{int(self.game.bet * multiplier)} {currency}**!"
             embed.add_field(name="🏆 Ergebnis", value=result_text, inline=False)
-            embed.color = discord.Color.gold()
+            embed.color = themes.get_theme_color(self.theme_id, 'success') if self.theme_id else discord.Color.gold()
         elif result == 'win':
             result_text = f"✅ **Gewonnen!** ✅\n"
             result_text += f"Du schlägst den Dealer! Gewinn: **{int(self.game.bet * multiplier)} {currency}**"
             embed.add_field(name="🏆 Ergebnis", value=result_text, inline=False)
-            embed.color = discord.Color.green()
+            embed.color = themes.get_theme_color(self.theme_id, 'success') if self.theme_id else discord.Color.green()
         elif result == 'lose':
             result_text = f"❌ **Verloren!** ❌\n"
             result_text += f"Der Dealer gewinnt. Verlust: **-{self.game.bet} {currency}**"
             embed.add_field(name="💸 Ergebnis", value=result_text, inline=False)
-            embed.color = discord.Color.red()
+            embed.color = themes.get_theme_color(self.theme_id, 'danger') if self.theme_id else discord.Color.red()
         else:  # push
             result_text = f"🤝 **Unentschieden!** 🤝\n"
             result_text += f"Beide haben den gleichen Wert. Einsatz zurück: **{self.game.bet} {currency}**"
             embed.add_field(name="⚖️ Ergebnis", value=result_text, inline=False)
-            embed.color = discord.Color.blue()
+            embed.color = themes.get_theme_color(self.theme_id, 'primary') if self.theme_id else discord.Color.blue()
         
         # Add balance info
         balance_change = winnings
@@ -9137,9 +9152,12 @@ async def blackjack(interaction: discord.Interaction, bet: int):
     game = BlackjackGame(user_id, bet)
     active_blackjack_games[user_id] = game
     
-    # Create view
-    view = BlackjackView(game, user_id)
-    embed = game.create_embed()
+    # Get user's theme
+    user_theme = await themes.get_user_theme(db_helpers, user_id)
+    
+    # Create view with theme support
+    view = BlackjackView(game, user_id, user_theme)
+    embed = game.create_embed(theme_id=user_theme)
     
     await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
@@ -9331,11 +9349,12 @@ class GamblingShareView(discord.ui.View):
 class RouletteView(discord.ui.View):
     """Interactive view for Roulette with dropdown menus."""
     
-    def __init__(self, user_id: int, bet_amount: int):
+    def __init__(self, user_id: int, bet_amount: int, theme_id=None):
         super().__init__(timeout=180)
         self.user_id = user_id
         self.bet_amount = bet_amount
         self.bets = []  # List of (bet_type, bet_value) tuples
+        self.theme_id = theme_id
         
         # Add bet type dropdown
         self.add_item(RouletteBetTypeSelect(self))
@@ -9358,19 +9377,22 @@ class RouletteView(discord.ui.View):
         # Create animation frames
         import asyncio
         
+        # Get themed roulette wheel emoji
+        roulette_emoji = themes.get_theme_asset(self.theme_id, 'roulette_wheel') if self.theme_id else '🎰'
+        
         # Show spinning animation
         spin_frames = [
-            "🎰 Das Rad dreht sich... ⚪",
-            "🎰 Das Rad dreht sich... 🔴",
-            "🎰 Das Rad dreht sich... ⚫",
-            "🎰 Das Rad dreht sich... 🔴",
-            "🎰 Das Rad dreht sich... ⚪",
+            f"{roulette_emoji} Das Rad dreht sich... ⚪",
+            f"{roulette_emoji} Das Rad dreht sich... 🔴",
+            f"{roulette_emoji} Das Rad dreht sich... ⚫",
+            f"{roulette_emoji} Das Rad dreht sich... 🔴",
+            f"{roulette_emoji} Das Rad dreht sich... ⚪",
         ]
         
         embed = discord.Embed(
-            title="🎰 Roulette",
+            title=f"{roulette_emoji} Roulette",
             description=spin_frames[0],
-            color=discord.Color.blurple()
+            color=themes.get_theme_color(self.theme_id, 'primary') if self.theme_id else discord.Color.blurple()
         )
         await interaction.edit_original_response(embed=embed, view=None)
         
@@ -9476,22 +9498,29 @@ class RouletteView(discord.ui.View):
         except Exception as e:
             logger.error(f"Failed to log roulette game stats: {e}")
         
-        # Create result embed with enhanced visuals
+        # Create result embed with enhanced visuals and theme support
         currency = config['modules']['economy']['currency_symbol']
+        roulette_emoji = themes.get_theme_asset(self.theme_id, 'roulette_wheel') if self.theme_id else '🎰'
         
         # Determine result emoji and color for embed
         if result_number == 0:
             result_emoji = "🟢"
-            embed_color = discord.Color.green()
+            embed_color = themes.get_theme_color(self.theme_id, 'success') if self.theme_id else discord.Color.green()
         elif result_number in RouletteGame.RED:
             result_emoji = "🔴"
-            embed_color = discord.Color.red() if total_winnings <= 0 else discord.Color.gold()
+            if total_winnings <= 0:
+                embed_color = themes.get_theme_color(self.theme_id, 'danger') if self.theme_id else discord.Color.red()
+            else:
+                embed_color = themes.get_theme_color(self.theme_id, 'success') if self.theme_id else discord.Color.gold()
         else:
             result_emoji = "⚫"
-            embed_color = discord.Color.dark_grey() if total_winnings <= 0 else discord.Color.gold()
+            if total_winnings <= 0:
+                embed_color = themes.get_theme_color(self.theme_id, 'warning') if self.theme_id else discord.Color.dark_grey()
+            else:
+                embed_color = themes.get_theme_color(self.theme_id, 'success') if self.theme_id else discord.Color.gold()
         
         embed = discord.Embed(
-            title="🎰 Roulette - Ergebnis",
+            title=f"{roulette_emoji} Roulette - Ergebnis",
             description=f"Das Rad hat sich gedreht...",
             color=embed_color
         )
@@ -9769,13 +9798,19 @@ async def roulette(interaction: discord.Interaction, bet: int):
         )
         return
     
-    # Create view
-    view = RouletteView(user_id, bet)
+    # Get user's theme
+    user_theme = await themes.get_user_theme(db_helpers, user_id)
+    
+    # Create view with theme support
+    view = RouletteView(user_id, bet, user_theme)
+    
+    # Get themed roulette wheel emoji
+    roulette_emoji = themes.get_theme_asset(user_theme, 'roulette_wheel') if user_theme else '🎰'
     
     embed = discord.Embed(
-        title="🎰 Roulette",
+        title=f"{roulette_emoji} Roulette",
         description="Wähle deine Wette(n) aus dem Dropdown-Menü. Du kannst bis zu 2 Wetten gleichzeitig platzieren!",
-        color=discord.Color.blue()
+        color=themes.get_theme_color(user_theme, 'primary') if user_theme else discord.Color.blue()
     )
     
     embed.add_field(

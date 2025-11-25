@@ -121,11 +121,18 @@ class BlackjackGame:
         else:
             return 'push', 1
     
-    def create_embed(self, show_dealer_card=False):
-        """Creates a Discord embed for the game state."""
+    def create_embed(self, show_dealer_card=False, theme_id=None):
+        """Creates a Discord embed for the game state with theme support."""
+        # Import themes here to avoid circular import
+        try:
+            from modules import themes
+            color = themes.get_theme_color(theme_id, 'primary')
+        except (ImportError, ModuleNotFoundError, AttributeError):
+            color = discord.Color.green()
+        
         embed = discord.Embed(
             title="🃏 Blackjack",
-            color=discord.Color.green()
+            color=color
         )
         
         # Player hand
