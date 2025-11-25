@@ -83,13 +83,13 @@ def generate_skill_variations():
     
     BALANCE NOTES:
     - Skills use their damage value DIRECTLY (not added to strength)
-    - Basic attack = strength (10) + weapon bonus (4-35)
+    - Basic attack = strength (~10) + weapon bonus (4-40 depending on tier)
     - Skills should compete by having: higher base damage + utility effects
-    - Common skills: 15-25 damage (matches basic attack + minor effect)
-    - Uncommon skills: 25-40 damage (exceeds basic attack + effect)
-    - Rare skills: 40-60 damage (strong damage + effect)
-    - Epic skills: 55-80 damage (very strong)
-    - Legendary skills: 75-100 damage (devastating)
+    - Common skills: 18-28 damage (exceeds early game basic attack)
+    - Uncommon skills: 28-44 damage (competitive with mid-game attacks)
+    - Rare skills: 45-60 damage (strong damage + effect)
+    - Epic skills: 65-82 damage (very strong)
+    - Legendary skills: 92-100 damage (devastating)
     """
     skills = []
     
@@ -110,15 +110,17 @@ def generate_skill_variations():
     ]
     
     # REBALANCED spell levels - damage now competitive with basic attacks
+    # Basic attack = STR (10 base + level bonus) + weapon (4-40)
+    # Early: ~15-20 damage, Mid: ~25-35 damage, Late: ~40-55 damage
     spell_levels = [
-        ('Schwach', 1, 18, 80, 0.25),      # Lv1: 18 dmg (basic attack ~14)
-        ('Leicht', 2, 25, 140, 0.30),      # Lv2: 25 dmg (basic attack ~16)
-        ('Mittel', 4, 35, 250, 0.40),      # Lv4: 35 dmg (basic attack ~20)
-        ('Stark', 6, 45, 450, 0.50),       # Lv6: 45 dmg (basic attack ~25)
-        ('Mächtig', 8, 55, 650, 0.55),     # Lv8: 55 dmg (basic attack ~30)
-        ('Gewaltig', 10, 65, 900, 0.60),   # Lv10: 65 dmg (basic attack ~35)
-        ('Ultimativ', 13, 80, 1400, 0.70), # Lv13: 80 dmg
-        ('Göttlich', 16, 95, 1800, 0.75),  # Lv16: 95 dmg
+        ('Schwach', 1, 18, 80, 0.25),      # Lv1: 18 dmg - slightly above early attacks
+        ('Leicht', 2, 25, 140, 0.30),      # Lv2: 25 dmg - exceeds early attacks
+        ('Mittel', 4, 35, 250, 0.40),      # Lv4: 35 dmg - competitive with mid attacks
+        ('Stark', 6, 45, 450, 0.50),       # Lv6: 45 dmg - exceeds mid attacks
+        ('Mächtig', 8, 55, 650, 0.55),     # Lv8: 55 dmg - strong mid-game option
+        ('Gewaltig', 10, 65, 900, 0.60),   # Lv10: 65 dmg - dominates mid game
+        ('Ultimativ', 13, 80, 1400, 0.70), # Lv13: 80 dmg - late game viable
+        ('Göttlich', 16, 95, 1800, 0.75),  # Lv16: 95 dmg - endgame power
     ]
     
     # Generate damage spells
@@ -341,13 +343,8 @@ EXTENDED_SKILLS = [
     {'name': 'Wunder', 'type': 'skill', 'rarity': 'legendary', 'description': 'Heilt 200 HP', 'price': 1500, 'required_level': 14, 'effects': json.dumps({'heal': 200})},
     {'name': 'Auferstehung', 'type': 'skill', 'rarity': 'legendary', 'description': 'Vollständige Heilung', 'price': 2000, 'required_level': 16, 'effects': json.dumps({'heal': 999})},
     
-    # ===== FIRE ATTACK SKILLS EXPANSION =====
-    {'name': 'Feuerpfeil', 'type': 'skill', 'rarity': 'common', 'description': 'Schießt einen Feuerpfeil', 'damage': 18, 'damage_type': 'fire', 'price': 95, 'required_level': 2, 'effects': json.dumps({'burn': 0.25})},
-    {'name': 'Flammenklinge', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Umhüllt Waffe mit Feuer', 'damage': 28, 'damage_type': 'fire', 'price': 240, 'required_level': 4, 'effects': json.dumps({'burn': 0.35})},
-    {'name': 'Feuerschlag', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Ein brennender Schlag', 'damage': 32, 'damage_type': 'fire', 'price': 270, 'required_level': 5, 'effects': json.dumps({'burn': 0.4})},
-    {'name': 'Höll enfeuer', 'type': 'skill', 'rarity': 'rare', 'description': 'Entfesselt Höllenfeuer', 'damage': 50, 'damage_type': 'fire', 'price': 600, 'required_level': 8, 'effects': json.dumps({'burn': 0.5})},
     # ===== MORE FIRE SKILLS - BALANCED =====
-    # Skills need to match/exceed basic attacks (STR 10 + weapon 4-35 = 14-45 total)
+    # Skills need to match/exceed basic attacks (STR 10 + weapon 4-40 = 14-50 total)
     {'name': 'Feuerpfeil', 'type': 'skill', 'rarity': 'common', 'description': 'Schießt feurigen Pfeil', 'damage': 22, 'damage_type': 'fire', 'price': 95, 'required_level': 2, 'effects': json.dumps({'burn': 0.3})},
     {'name': 'Feuerkreis', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Kreis aus Feuer', 'damage': 35, 'damage_type': 'fire', 'price': 240, 'required_level': 4, 'effects': json.dumps({'burn': 0.4})},
     {'name': 'Lavastrom', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Strom heißer Lava', 'damage': 42, 'damage_type': 'fire', 'price': 300, 'required_level': 5, 'effects': json.dumps({'burn': 0.45})},
