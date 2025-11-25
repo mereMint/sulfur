@@ -4561,7 +4561,35 @@ class RPGTempleView(discord.ui.View):
             logger.error(f"Error applying blessing: {e}", exc_info=True)
             await interaction.followup.send("❌ Fehler beim Segen.", ephemeral=True)
     
-    @discord.ui.button(label="💎 Skillpunkte zurücksetzen", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="🔋 Skills aufladen", style=discord.ButtonStyle.success, row=0)
+    async def recharge_skills_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Recharge all skill uses."""
+        await interaction.response.defer()
+        
+        try:
+            recharge_cost = 50  # Base cost to recharge skills
+            
+            if self.player['gold'] < recharge_cost:
+                await interaction.followup.send(f"❌ Nicht genug Gold! Du brauchst {recharge_cost} Gold.", ephemeral=True)
+                return
+            
+            success, message = await rpg_system.recharge_skills(db_helpers, self.user_id, recharge_cost)
+            
+            if success:
+                embed = discord.Embed(
+                    title="🔋 Skills aufgeladen!",
+                    description=f"{message}\nKosten: {recharge_cost} Gold",
+                    color=discord.Color.green()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+            else:
+                await interaction.followup.send(f"❌ {message}", ephemeral=True)
+                
+        except Exception as e:
+            logger.error(f"Error recharging skills: {e}", exc_info=True)
+            await interaction.followup.send("❌ Fehler beim Aufladen.", ephemeral=True)
+    
+    @discord.ui.button(label="💎 Skillpunkte zurücksetzen", style=discord.ButtonStyle.primary, row=1)
     async def respec_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Reset skill points and redistribute stats."""
         await interaction.response.defer()
@@ -4613,7 +4641,7 @@ class RPGTempleView(discord.ui.View):
             logger.error(f"Error resetting skill points: {e}", exc_info=True)
             await interaction.followup.send("❌ Fehler beim Zurücksetzen.", ephemeral=True)
     
-    @discord.ui.button(label="🌳 Skill-Baum", style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label="🌳 Skill-Baum", style=discord.ButtonStyle.primary, row=2)
     async def skill_tree_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Open skill tree from temple."""
         await interaction.response.defer()
@@ -4650,7 +4678,7 @@ class RPGTempleView(discord.ui.View):
             logger.error(f"Error opening skill tree from temple: {e}", exc_info=True)
             await interaction.followup.send("❌ Fehler beim Öffnen des Skill-Baums.", ephemeral=True)
     
-    @discord.ui.button(label="🔙 Zurück", style=discord.ButtonStyle.secondary, row=1)
+    @discord.ui.button(label="🔙 Zurück", style=discord.ButtonStyle.secondary, row=2)
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Return to main RPG menu."""
         await interaction.response.defer()

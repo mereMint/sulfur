@@ -923,10 +923,19 @@ async def initialize_rpg_tables(db_helpers):
                     item_id INT NOT NULL,
                     item_type VARCHAR(50) NOT NULL,
                     quantity INT DEFAULT 1,
+                    uses_remaining INT DEFAULT NULL,
                     UNIQUE KEY unique_user_item (user_id, item_id, item_type),
                     INDEX idx_user (user_id)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
+            
+            # Add uses_remaining column if it doesn't exist (migration)
+            try:
+                cursor.execute("""
+                    ALTER TABLE rpg_inventory ADD COLUMN IF NOT EXISTS uses_remaining INT DEFAULT NULL
+                """)
+            except Exception:
+                pass  # Column might already exist
             
             # Equipment
             cursor.execute("""
@@ -962,6 +971,7 @@ async def initialize_rpg_tables(db_helpers):
                     damage INT DEFAULT 0,
                     damage_type VARCHAR(50) NULL,
                     durability INT DEFAULT 100,
+                    max_uses INT DEFAULT NULL,
                     price INT DEFAULT 100,
                     required_level INT DEFAULT 1,
                     created_by BIGINT NULL,
@@ -974,6 +984,14 @@ async def initialize_rpg_tables(db_helpers):
                     INDEX idx_quest (is_quest_item)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
+            
+            # Add max_uses column if it doesn't exist (migration)
+            try:
+                cursor.execute("""
+                    ALTER TABLE rpg_items ADD COLUMN IF NOT EXISTS max_uses INT DEFAULT NULL
+                """)
+            except Exception:
+                pass  # Column might already exist
             
             # Daily shop rotation - stores which items are available each day
             cursor.execute("""
@@ -3311,6 +3329,128 @@ async def apply_blessing(db_helpers, user_id: int, blessing_type: str, cost: int
     except Exception as e:
         logger.error(f"Error applying blessing: {e}", exc_info=True)
         return False
+
+
+async def recharge_skills(db_helpers, user_id: int, cost: int):
+    """Recharge all skill uses to maximum at the temple."""
+    try:
+        if not db_helpers.db_pool:
+            return False, "Datenbank nicht verfügbar"
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return False, "Datenbankverbindung fehlgeschlagen"
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            # Check player gold
+            cursor.execute("SELECT gold FROM rpg_players WHERE user_id = %s", (user_id,))
+            player = cursor.fetchone()
+            
+            if not player:
+                return False, "Spieler nicht gefunden"
+            
+            if player['gold'] < cost:
+                return False, f"Nicht genug Gold! Du brauchst {cost} Gold."
+            
+            # Find all skills in inventory with max_uses and recharge them
+            cursor.execute("""
+                SELECT i.id, i.item_id, it.max_uses
+                FROM rpg_inventory i
+                JOIN rpg_items it ON i.item_id = it.id
+                WHERE i.user_id = %s AND it.type = 'skill' AND it.max_uses IS NOT NULL
+            """, (user_id,))
+            
+            skills_to_recharge = cursor.fetchall()
+            
+            if not skills_to_recharge:
+                return False, "Keine Skills mit begrenzten Nutzungen gefunden."
+            
+            # Recharge all skills
+            recharged_count = 0
+            for skill in skills_to_recharge:
+                cursor.execute("""
+                    UPDATE rpg_inventory 
+                    SET uses_remaining = %s
+                    WHERE user_id = %s AND item_id = %s
+                """, (skill['max_uses'], user_id, skill['item_id']))
+                recharged_count += cursor.rowcount
+            
+            # Deduct gold
+            cursor.execute("""
+                UPDATE rpg_players SET gold = gold - %s WHERE user_id = %s
+            """, (cost, user_id))
+            
+            conn.commit()
+            return True, f"{recharged_count} Skills wurden vollständig aufgeladen!"
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error recharging skills: {e}", exc_info=True)
+        return False, "Fehler beim Aufladen"
+
+
+async def use_skill_charge(db_helpers, user_id: int, skill_id: int):
+    """
+    Use one charge of a skill. Returns whether the skill can still be used.
+    
+    Returns:
+        (can_use, remaining_uses) - can_use is True if skill can be used (infinite or has charges)
+    """
+    try:
+        if not db_helpers.db_pool:
+            return True, None  # Assume skill can be used if no DB
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return True, None
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            # Check if skill has max_uses
+            cursor.execute("""
+                SELECT it.max_uses, i.uses_remaining
+                FROM rpg_inventory i
+                JOIN rpg_items it ON i.item_id = it.id
+                WHERE i.user_id = %s AND i.item_id = %s
+            """, (user_id, skill_id))
+            
+            result = cursor.fetchone()
+            
+            if not result:
+                return True, None  # Skill not found, assume usable
+            
+            max_uses = result.get('max_uses')
+            
+            # If no max_uses, skill has infinite uses
+            if max_uses is None:
+                return True, None
+            
+            uses_remaining = result.get('uses_remaining')
+            
+            # Initialize uses if not set
+            if uses_remaining is None:
+                uses_remaining = max_uses
+            
+            if uses_remaining <= 0:
+                return False, 0  # No charges remaining
+            
+            # Decrement uses
+            new_uses = uses_remaining - 1
+            cursor.execute("""
+                UPDATE rpg_inventory SET uses_remaining = %s
+                WHERE user_id = %s AND item_id = %s
+            """, (new_uses, user_id, skill_id))
+            
+            conn.commit()
+            return True, new_uses
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error using skill charge: {e}", exc_info=True)
+        return True, None  # Assume usable on error
 
 
 async def allocate_skill_point(db_helpers, user_id: int, stat_name: str):
