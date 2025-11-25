@@ -1020,7 +1020,7 @@ SKILL_TREE = {
                 'branch': 'shadow',
                 'description': 'Verlangsamt Gegner um 50% für 3 Runden',
                 'cost': 3,
-                'requires': 'quick_reflexes',
+                'requires': 'evasion',
                 'effect': {'slow_percent': 0.50, 'slow_duration': 3, 'cooldown': 3}
             },
             'phantom_step': {

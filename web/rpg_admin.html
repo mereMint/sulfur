@@ -1257,22 +1257,38 @@
     }
     
     function formatEffectValue(key, value) {
-        // Format percentages
-        if (key.includes('percent') || key.includes('chance') || key.includes('bonus') || key.includes('reduction')) {
-            if (typeof value === 'number' && value <= 1) {
+        // Format damage multiplier specifically (e.g., 1.5 = "150% Schaden")
+        if (key === 'damage_multiplier' || key.includes('_multiplier')) {
+            if (typeof value === 'number') {
+                return `${(value * 100).toFixed(0)}% Schaden`;
+            }
+        }
+        // Format percentages (values 0-1 that represent percentages)
+        if (key.includes('percent') || key.includes('chance') || key.includes('reduction')) {
+            if (typeof value === 'number' && value > 0 && value <= 1) {
                 return `${(value * 100).toFixed(0)}%`;
+            }
+        }
+        // Format bonus values (can be > 1 for large bonuses)
+        if (key.includes('bonus')) {
+            if (typeof value === 'number') {
+                if (value <= 1 && value > 0) {
+                    return `+${(value * 100).toFixed(0)}%`;
+                }
+                return `+${value}`;
             }
         }
         // Format booleans
         if (typeof value === 'boolean') {
             return value ? '✅ Ja' : '❌ Nein';
         }
-        // Format numbers
+        // Format numbers with appropriate prefix
         if (typeof value === 'number') {
-            if (key === 'damage_multiplier') {
-                return `${(value * 100).toFixed(0)}%`;
+            // Don't add + for cooldown, duration, hits, etc.
+            if (key === 'cooldown' || key === 'duration' || key === 'hits' || key === 'delay') {
+                return `${value} Runden`;
             }
-            return value > 0 ? `+${value}` : value;
+            return value > 0 ? `+${value}` : String(value);
         }
         return value;
     }
