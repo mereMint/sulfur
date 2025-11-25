@@ -1821,8 +1821,9 @@ async def claim_adventure_event(db_helpers, user_id: int, event: dict):
         
         # Process XP first (this uses its own database connection)
         # Do this BEFORE opening our connection to avoid nested connections
-        if 'xp_reward' in event and event['xp_reward'] > 0:
-            xp_result = await gain_xp(db_helpers, user_id, event['xp_reward'])
+        xp_reward = event.get('xp_reward', 0)
+        if xp_reward and xp_reward > 0:
+            xp_result = await gain_xp(db_helpers, user_id, xp_reward)
             if xp_result:
                 event['leveled_up'] = xp_result.get('leveled_up', False)
                 if event['leveled_up']:
@@ -1836,16 +1837,18 @@ async def claim_adventure_event(db_helpers, user_id: int, event: dict):
         cursor = conn.cursor()
         try:
             # Award gold
-            if 'gold_reward' in event and event['gold_reward'] > 0:
+            gold_reward = event.get('gold_reward', 0)
+            if gold_reward and gold_reward > 0:
                 cursor.execute("""
                     UPDATE rpg_players SET gold = gold + %s WHERE user_id = %s
-                """, (event['gold_reward'], user_id))
+                """, (gold_reward, user_id))
             
             # Heal player
-            if 'heal_amount' in event and event['heal_amount'] > 0:
+            heal_amount = event.get('heal_amount', 0)
+            if heal_amount and heal_amount > 0:
                 cursor.execute("""
                     UPDATE rpg_players SET health = LEAST(health + %s, max_health) WHERE user_id = %s
-                """, (event['heal_amount'], user_id))
+                """, (heal_amount, user_id))
             
             conn.commit()
             return True, "Belohnungen erhalten!"
