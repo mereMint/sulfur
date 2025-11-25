@@ -8741,9 +8741,9 @@ class MinesView(discord.ui.View):
     def _build_grid(self):
         """Builds the button grid for the mines game."""
         # Discord allows max 5 rows with 5 buttons each (25 total)
-        # With share button, we need to accommodate the grid + cashout + share
+        # Limit grid to 4x4 (16 buttons) to leave room for cashout button
         
-        actual_grid_size = min(self.game.grid_size, 5)
+        actual_grid_size = min(self.game.grid_size, 4)
         
         # Add all grid cells as buttons
         for row in range(actual_grid_size):
@@ -8757,13 +8757,12 @@ class MinesView(discord.ui.View):
                 button.callback = self._create_callback(row, col)
                 self.add_item(button)
         
-        # Add cashout button as a grid cell that looks like it was already tapped (showing a mine)
-        # This will be in the last row as a separate control button
+        # Add cashout button on the row after the grid
         cashout_button = discord.ui.Button(
             label="💎 Cash Out",
             style=discord.ButtonStyle.success,
             custom_id="cashout",
-            row=4  # Last row
+            row=actual_grid_size
         )
         cashout_button.callback = self._cashout_callback
         self.add_item(cashout_button)
