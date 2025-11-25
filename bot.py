@@ -4756,6 +4756,26 @@ class RPGInventoryView(discord.ui.View):
             )
             skill_select.callback = self.equip_skill
             self.add_item(skill_select)
+        
+        # Add select menu for selling items (exclude quest items)
+        sellable_items = [i for i in self.inventory if not i.get('is_quest_item', False) and i.get('type') != 'quest_item'][:25]
+        sell_options = []
+        for item in sellable_items:
+            sell_price = int(item.get('price', 0) * 0.5)
+            sell_options.append(discord.SelectOption(
+                label=f"🪙 {item['name']}",
+                description=f"Verkaufen für {sell_price} Gold (x{item.get('quantity', 1)})",
+                value=str(item['item_id'])
+            ))
+        
+        if sell_options:
+            sell_select = discord.ui.Select(
+                placeholder="💰 Item verkaufen...",
+                options=sell_options,
+                row=2
+            )
+            sell_select.callback = self.sell_item
+            self.add_item(sell_select)
     
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
@@ -4798,7 +4818,29 @@ class RPGInventoryView(discord.ui.View):
             logger.error(f"Error equipping skill: {e}", exc_info=True)
             await interaction.followup.send("❌ Fehler beim Ausrüsten.", ephemeral=True)
     
-    @discord.ui.button(label="🔙 Zurück", style=discord.ButtonStyle.secondary, row=2)
+    async def sell_item(self, interaction: discord.Interaction):
+        """Sell an item from inventory."""
+        await interaction.response.defer()
+        
+        try:
+            item_id = int(interaction.data['values'][0])
+            success, message = await rpg_system.sell_item(db_helpers, self.user_id, item_id, 1)
+            
+            if success:
+                embed = discord.Embed(
+                    title="💰 Item verkauft!",
+                    description=message,
+                    color=discord.Color.gold()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+            else:
+                await interaction.followup.send(f"❌ {message}", ephemeral=True)
+                
+        except Exception as e:
+            logger.error(f"Error selling item: {e}", exc_info=True)
+            await interaction.followup.send("❌ Fehler beim Verkaufen.", ephemeral=True)
+    
+    @discord.ui.button(label="🔙 Zurück", style=discord.ButtonStyle.secondary, row=3)
     async def back_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Return to main RPG menu."""
         await interaction.response.defer()
