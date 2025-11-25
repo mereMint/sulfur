@@ -94,6 +94,102 @@
     .table-responsive::-webkit-scrollbar-thumb:hover {
         background: var(--accent-primary);
     }
+    
+    /* Enhanced Skill Tree Styles */
+    .nav-pills .nav-link {
+        color: var(--text-secondary);
+        background: rgba(30, 34, 56, 0.6);
+        border: 1px solid var(--border-color);
+        margin-right: 0.5rem;
+        margin-bottom: 0.5rem;
+        border-radius: 8px;
+        transition: all 0.3s ease;
+    }
+    
+    .nav-pills .nav-link:hover {
+        background: rgba(83, 52, 131, 0.4);
+        border-color: var(--accent-primary);
+        transform: translateY(-2px);
+    }
+    
+    .nav-pills .nav-link.active {
+        background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
+        border-color: var(--accent-primary);
+        color: white;
+    }
+    
+    /* Skill Tree Path Content */
+    .path-header {
+        border-left: 4px solid var(--accent-primary);
+    }
+    
+    .branch-container {
+        transition: all 0.3s ease;
+    }
+    
+    .branch-container:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+    }
+    
+    .skill-card {
+        transition: all 0.3s ease;
+    }
+    
+    .skill-card:hover {
+        background: rgba(83, 52, 131, 0.3) !important;
+    }
+    
+    .ultimate-skill {
+        transition: all 0.3s ease;
+        animation: ultimatePulse 2s infinite;
+    }
+    
+    .ultimate-skill:hover {
+        transform: scale(1.02);
+        box-shadow: 0 8px 25px rgba(231, 76, 60, 0.4);
+    }
+    
+    @keyframes ultimatePulse {
+        0%, 100% { box-shadow: 0 0 5px rgba(231, 76, 60, 0.3); }
+        50% { box-shadow: 0 0 20px rgba(231, 76, 60, 0.5); }
+    }
+    
+    /* Skill Tree Legend */
+    .skill-tree-legend {
+        border-left: 4px solid var(--accent-tertiary);
+    }
+    
+    /* Effects list in modal */
+    .effects-list .effect-item {
+        transition: all 0.2s ease;
+    }
+    
+    .effects-list .effect-item:hover {
+        background: rgba(83, 52, 131, 0.4) !important;
+        transform: translateX(5px);
+    }
+    
+    /* Custom badge for purple tier */
+    .bg-purple {
+        background-color: #9b59b6 !important;
+    }
+    
+    /* Responsive skill tree */
+    @media (max-width: 768px) {
+        .nav-pills {
+            flex-wrap: wrap;
+        }
+        
+        .nav-pills .nav-link {
+            font-size: 0.85rem;
+            padding: 0.4rem 0.8rem;
+        }
+        
+        .branch-container {
+            margin-bottom: 1rem;
+        }
+    }
 </style>
 {% endblock %}
 
@@ -350,11 +446,35 @@
         <div class="row">
             <div class="col-12 mb-4">
                 <div class="card p-4">
-                    <h3 class="section-title"><i class="bi bi-tree-fill"></i> Skill Tree Paths</h3>
-                    <p class="text-muted">View and manage all skill tree paths and their skills</p>
+                    <h3 class="section-title"><i class="bi bi-tree-fill"></i> Enhanced Skill Tree System</h3>
+                    <p class="text-muted">6 unique paths with branching specializations, strategic choices, and ultimate abilities</p>
                     
-                    <div class="row mt-4" id="skillTreeContainer">
-                        <!-- Skill trees will be loaded here -->
+                    <!-- Skill Tree Legend -->
+                    <div class="skill-tree-legend mb-4 p-3" style="background: rgba(30,34,56,0.6); border-radius: 10px;">
+                        <h6 class="mb-3">📋 Legend</h6>
+                        <div class="d-flex flex-wrap gap-3">
+                            <span class="badge" style="background: #27ae60;">🟢 Tier 1 - Anfänger</span>
+                            <span class="badge" style="background: #3498db;">🔵 Tier 2 - Fortgeschritten</span>
+                            <span class="badge" style="background: #9b59b6;">🟣 Tier 3 - Experte</span>
+                            <span class="badge" style="background: #e67e22;">🟠 Tier 4 - Meister</span>
+                            <span class="badge" style="background: #e74c3c;">🔴 Ultimate</span>
+                        </div>
+                        <div class="d-flex flex-wrap gap-3 mt-2">
+                            <span class="badge bg-secondary">📈 Stat - Passive Boni</span>
+                            <span class="badge bg-info">⚡ Skill - Aktive Fähigkeit</span>
+                            <span class="badge bg-warning text-dark">🔮 Passive - Dauerhafter Effekt</span>
+                            <span class="badge bg-danger">💥 Ultimate - Finaler Skill</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Path Selection Tabs -->
+                    <ul class="nav nav-pills mb-4" id="skillPathTabs" role="tablist">
+                        <!-- Paths will be loaded dynamically -->
+                    </ul>
+                    
+                    <!-- Path Content -->
+                    <div class="tab-content" id="skillPathContent">
+                        <!-- Content loaded dynamically -->
                     </div>
                 </div>
             </div>
@@ -741,67 +861,275 @@
         }
     }
 
+    // Enhanced Skill Tree Loading
     async function loadSkillTree() {
         try {
             const response = await fetch('/api/rpg/skill_tree');
             const skillTree = await response.json();
-            const container = document.getElementById('skillTreeContainer');
             
-            let html = '';
+            // Build tabs for each path
+            const tabsContainer = document.getElementById('skillPathTabs');
+            const contentContainer = document.getElementById('skillPathContent');
             
-            // Create a card for each path
+            let tabsHtml = '';
+            let contentHtml = '';
+            let isFirst = true;
+            
             Object.entries(skillTree).forEach(([pathKey, pathData]) => {
-                html += `
-                <div class="col-md-4 mb-4">
-                    <div class="card h-100">
-                        <div class="card-header text-center">
-                            <h4>${pathData.emoji} ${pathData.name}</h4>
-                            <p class="text-muted small mb-0">${pathData.description}</p>
-                        </div>
-                        <div class="card-body">
-                            <div class="skill-list">
+                const activeClass = isFirst ? 'active' : '';
+                const showClass = isFirst ? 'show active' : '';
+                
+                // Create tab
+                tabsHtml += `
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link ${activeClass}" id="${pathKey}-tab" data-bs-toggle="pill" 
+                                data-bs-target="#${pathKey}-content" type="button" role="tab">
+                            ${pathData.emoji} ${pathData.name}
+                        </button>
+                    </li>
                 `;
                 
-                // Display skills in order (considering requirements)
-                const sortedSkills = topologicalSortSkills(pathData.skills);
-                
-                sortedSkills.forEach(skillKey => {
-                    const skill = pathData.skills[skillKey];
-                    // Icon based on skill type: skill (active ability), stat (stat increase), or passive
-                    const typeIcon = skill.type === 'skill' ? '⚡' : skill.type === 'stat' ? '📈' : '📊';
-                    const typeLabel = skill.type === 'skill' ? 'Skill' : skill.type === 'stat' ? 'Stat' : 'Passive';
-                    const requiresText = skill.requires ? `<small class="text-warning">Requires: ${pathData.skills[skill.requires]?.name || skill.requires}</small>` : '';
-                    
-                    html += `
-                    <div class="skill-item mb-3 p-3" style="background: rgba(83, 52, 131, 0.2); border-radius: 8px; border-left: 3px solid var(--accent-primary); cursor: pointer;" 
-                         onclick="showSkillDetails('${pathKey}', '${skillKey}')">
-                        <div class="d-flex justify-content-between align-items-start">
-                            <div>
-                                <strong>${typeIcon} ${skill.name}</strong>
-                                <div><span class="badge bg-info small">${typeLabel}</span></div>
-                                <div class="text-muted small">${skill.description}</div>
-                                ${requiresText}
-                            </div>
-                            <span class="badge bg-primary">${skill.cost} SP</span>
-                        </div>
+                // Create content
+                contentHtml += `
+                    <div class="tab-pane fade ${showClass}" id="${pathKey}-content" role="tabpanel">
+                        ${buildPathContent(pathKey, pathData)}
                     </div>
-                    `;
-                });
-                
-                html += `
-                            </div>
-                        </div>
-                    </div>
-                </div>
                 `;
+                
+                isFirst = false;
             });
             
-            container.innerHTML = html;
+            tabsContainer.innerHTML = tabsHtml;
+            contentContainer.innerHTML = contentHtml;
+            
         } catch (error) {
             console.error('Error loading skill tree:', error);
-            document.getElementById('skillTreeContainer').innerHTML = 
-                '<div class="col-12"><div class="alert alert-danger">Error loading skill tree</div></div>';
+            document.getElementById('skillPathContent').innerHTML = 
+                '<div class="alert alert-danger">Error loading skill tree</div>';
         }
+    }
+    
+    function buildPathContent(pathKey, pathData) {
+        // Get specializations if any
+        const specializations = pathData.specializations || [];
+        
+        // Group skills by tier and branch
+        const skillsByTier = {
+            tier1: [],
+            tier2: [],
+            tier3: {},  // Grouped by branch
+            tier4: {},  // Grouped by branch
+            ultimate: []
+        };
+        
+        Object.entries(pathData.skills).forEach(([skillKey, skill]) => {
+            const tier = skill.tier || 'tier1';
+            const branch = skill.branch || 'common';
+            
+            if (tier === 'tier3' || tier === 'tier4') {
+                if (!skillsByTier[tier][branch]) {
+                    skillsByTier[tier][branch] = [];
+                }
+                skillsByTier[tier][branch].push({ key: skillKey, ...skill });
+            } else if (tier === 'ultimate') {
+                skillsByTier.ultimate.push({ key: skillKey, ...skill });
+            } else {
+                skillsByTier[tier].push({ key: skillKey, ...skill });
+            }
+        });
+        
+        let html = `
+            <div class="path-header mb-4 p-3" style="background: linear-gradient(135deg, rgba(83,52,131,0.4) 0%, rgba(233,69,96,0.3) 100%); border-radius: 12px;">
+                <h4>${pathData.emoji} ${pathData.name}</h4>
+                <p class="mb-2">${pathData.description}</p>
+                ${specializations.length > 0 ? `
+                    <div class="specializations">
+                        <strong>Spezialisierungen:</strong> 
+                        ${specializations.map(s => `<span class="badge bg-secondary ms-1">${formatBranchName(s)}</span>`).join('')}
+                    </div>
+                ` : ''}
+                <div class="mt-2">
+                    <small class="text-muted">
+                        Gesamt Skills: ${Object.keys(pathData.skills).length} | 
+                        SP benötigt: ${Object.values(pathData.skills).reduce((sum, s) => sum + s.cost, 0)}
+                    </small>
+                </div>
+            </div>
+        `;
+        
+        // Tier 1 Skills
+        html += buildTierSection('Tier 1 - Anfänger', skillsByTier.tier1, pathKey, pathData, '#27ae60');
+        
+        // Tier 2 Skills  
+        html += buildTierSection('Tier 2 - Fortgeschritten', skillsByTier.tier2, pathKey, pathData, '#3498db');
+        
+        // Tier 3 Skills (branching)
+        if (Object.keys(skillsByTier.tier3).length > 0) {
+            html += `<h5 class="mt-4 mb-3" style="color: #9b59b6;"><i class="bi bi-diagram-3"></i> Tier 3 - Spezialisierung</h5>`;
+            html += '<div class="row">';
+            Object.entries(skillsByTier.tier3).forEach(([branch, skills]) => {
+                const branchName = formatBranchName(branch);
+                html += `
+                    <div class="col-md-6 mb-3">
+                        <div class="branch-container p-3" style="background: rgba(155,89,182,0.15); border-radius: 10px; border: 2px solid #9b59b6;">
+                            <h6 class="text-center mb-3" style="color: #9b59b6;">
+                                ${getBranchIcon(branch)} ${branchName}
+                            </h6>
+                            ${skills.map(skill => buildSkillCard(skill, pathKey, pathData, '#9b59b6')).join('')}
+                        </div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+        }
+        
+        // Tier 4 Skills (advanced branching)
+        if (Object.keys(skillsByTier.tier4).length > 0) {
+            html += `<h5 class="mt-4 mb-3" style="color: #e67e22;"><i class="bi bi-star-fill"></i> Tier 4 - Meister</h5>`;
+            html += '<div class="row">';
+            Object.entries(skillsByTier.tier4).forEach(([branch, skills]) => {
+                const branchName = formatBranchName(branch);
+                html += `
+                    <div class="col-md-6 mb-3">
+                        <div class="branch-container p-3" style="background: rgba(230,126,34,0.15); border-radius: 10px; border: 2px solid #e67e22;">
+                            <h6 class="text-center mb-3" style="color: #e67e22;">
+                                ${getBranchIcon(branch)} ${branchName}
+                            </h6>
+                            ${skills.map(skill => buildSkillCard(skill, pathKey, pathData, '#e67e22')).join('')}
+                        </div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+        }
+        
+        // Ultimate Skills
+        if (skillsByTier.ultimate.length > 0) {
+            html += `
+                <h5 class="mt-4 mb-3" style="color: #e74c3c;"><i class="bi bi-lightning-charge-fill"></i> Ultimate Fähigkeiten</h5>
+                <div class="row">
+            `;
+            skillsByTier.ultimate.forEach(skill => {
+                html += `
+                    <div class="col-md-6 mb-3">
+                        <div class="ultimate-skill p-3" style="background: linear-gradient(135deg, rgba(231,76,60,0.2) 0%, rgba(192,57,43,0.3) 100%); border-radius: 10px; border: 2px solid #e74c3c; cursor: pointer;"
+                             onclick="showSkillDetails('${pathKey}', '${skill.key}')">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div>
+                                    <strong class="text-danger">💥 ${skill.name}</strong>
+                                    <div class="text-muted small mt-1">${skill.description}</div>
+                                    <small class="text-warning">Benötigt: ${pathData.skills[skill.requires]?.name || skill.requires}</small>
+                                </div>
+                                <span class="badge bg-danger">${skill.cost} SP</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+        }
+        
+        return html;
+    }
+    
+    function buildTierSection(title, skills, pathKey, pathData, color) {
+        if (skills.length === 0) return '';
+        
+        return `
+            <h5 class="mt-4 mb-3" style="color: ${color};"><i class="bi bi-circle-fill"></i> ${title}</h5>
+            <div class="row">
+                ${skills.map(skill => `
+                    <div class="col-md-4 mb-3">
+                        ${buildSkillCard(skill, pathKey, pathData, color)}
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+    
+    function buildSkillCard(skill, pathKey, pathData, borderColor) {
+        const typeIcon = getTypeIcon(skill.type);
+        const typeBadge = getTypeBadge(skill.type);
+        const requiresText = skill.requires 
+            ? `<small class="text-warning d-block">⬆️ ${pathData.skills[skill.requires]?.name || skill.requires}</small>` 
+            : '';
+        
+        return `
+            <div class="skill-card p-3 mb-2" style="background: rgba(30,34,56,0.8); border-radius: 8px; border-left: 4px solid ${borderColor}; cursor: pointer; transition: all 0.3s ease;"
+                 onclick="showSkillDetails('${pathKey}', '${skill.key}')"
+                 onmouseover="this.style.transform='translateX(5px)'; this.style.boxShadow='0 4px 15px rgba(0,0,0,0.3)';"
+                 onmouseout="this.style.transform='none'; this.style.boxShadow='none';">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div class="flex-grow-1">
+                        <strong>${typeIcon} ${skill.name}</strong>
+                        <div class="mt-1">${typeBadge}</div>
+                        <div class="text-muted small mt-1">${skill.description}</div>
+                        ${requiresText}
+                    </div>
+                    <span class="badge bg-primary ms-2">${skill.cost} SP</span>
+                </div>
+            </div>
+        `;
+    }
+    
+    function getTypeIcon(type) {
+        const icons = {
+            'stat': '📈',
+            'skill': '⚡',
+            'passive': '🔮',
+            'ultimate': '💥'
+        };
+        return icons[type] || '📊';
+    }
+    
+    function getTypeBadge(type) {
+        const badges = {
+            'stat': '<span class="badge bg-secondary">Stat</span>',
+            'skill': '<span class="badge bg-info">Skill</span>',
+            'passive': '<span class="badge bg-warning text-dark">Passive</span>',
+            'ultimate': '<span class="badge bg-danger">Ultimate</span>'
+        };
+        return badges[type] || '<span class="badge bg-secondary">Unknown</span>';
+    }
+    
+    function formatBranchName(branch) {
+        const names = {
+            'berserker': 'Berserker',
+            'guardian': 'Wächter',
+            'assassin': 'Assassine',
+            'shadow': 'Schatten',
+            'archmage': 'Erzmagier',
+            'spellweaver': 'Zauberweber',
+            'priest': 'Priester',
+            'paladin': 'Paladin',
+            'lich': 'Lich',
+            'blood_mage': 'Blutmagier',
+            'pyromancer': 'Pyromant',
+            'cryomancer': 'Kryomant',
+            'stormcaller': 'Sturmrufer',
+            'common': 'Allgemein'
+        };
+        return names[branch] || branch;
+    }
+    
+    function getBranchIcon(branch) {
+        const icons = {
+            'berserker': '🔥',
+            'guardian': '🛡️',
+            'assassin': '🗡️',
+            'shadow': '🌑',
+            'archmage': '✨',
+            'spellweaver': '🕸️',
+            'priest': '✝️',
+            'paladin': '⚔️',
+            'lich': '💀',
+            'blood_mage': '🩸',
+            'pyromancer': '🔥',
+            'cryomancer': '❄️',
+            'stormcaller': '⚡',
+            'common': '⭐'
+        };
+        return icons[branch] || '📌';
     }
 
     function topologicalSortSkills(skills) {
@@ -832,42 +1160,57 @@
                 const pathData = skillTree[pathKey];
                 const skill = pathData.skills[skillKey];
                 
-                let effectsHtml = '<ul class="list-unstyled">';
+                let effectsHtml = '<div class="effects-list">';
                 if (skill.effect) {
                     Object.entries(skill.effect).forEach(([key, value]) => {
-                        const displayValue = typeof value === 'number' && value < 1 && value > 0 
-                            ? `${(value * 100).toFixed(0)}%` 
-                            : value;
-                        effectsHtml += `<li><strong>${key}:</strong> ${displayValue}</li>`;
+                        const displayKey = formatEffectKey(key);
+                        const displayValue = formatEffectValue(key, value);
+                        effectsHtml += `
+                            <div class="effect-item d-flex justify-content-between p-2 mb-1" style="background: rgba(83,52,131,0.2); border-radius: 5px;">
+                                <span>${displayKey}</span>
+                                <strong class="text-success">${displayValue}</strong>
+                            </div>
+                        `;
                     });
                 }
-                effectsHtml += '</ul>';
+                effectsHtml += '</div>';
                 
                 const requiresHtml = skill.requires 
-                    ? `<p><strong>Requires:</strong> ${pathData.skills[skill.requires]?.name || skill.requires}</p>`
-                    : '<p><em>No prerequisites</em></p>';
+                    ? `<div class="alert alert-warning py-2"><i class="bi bi-arrow-up-circle"></i> <strong>Benötigt:</strong> ${pathData.skills[skill.requires]?.name || skill.requires}</div>`
+                    : '<div class="alert alert-success py-2"><i class="bi bi-check-circle"></i> Keine Voraussetzungen</div>';
+                
+                const tierInfo = skill.tier ? `<span class="badge ${getTierBadgeClass(skill.tier)} ms-2">${formatTierName(skill.tier)}</span>` : '';
+                const branchInfo = skill.branch ? `<span class="badge bg-secondary ms-2">${formatBranchName(skill.branch)}</span>` : '';
                 
                 const modalBody = document.getElementById('skillModalBody');
                 modalBody.innerHTML = `
-                    <div class="mb-3">
-                        <h4>${pathData.emoji} ${skill.name}</h4>
-                        <span class="badge bg-${skill.type === 'active' ? 'success' : 'info'}">${skill.type.toUpperCase()}</span>
-                        <span class="badge bg-primary ms-2">Cost: ${skill.cost} SP</span>
+                    <div class="skill-detail-header mb-4 p-3" style="background: linear-gradient(135deg, rgba(83,52,131,0.3) 0%, rgba(233,69,96,0.2) 100%); border-radius: 10px;">
+                        <h4 class="mb-2">${pathData.emoji} ${skill.name}</h4>
+                        <div class="badges">
+                            ${getTypeBadge(skill.type)}
+                            <span class="badge bg-primary ms-2">${skill.cost} SP</span>
+                            ${tierInfo}
+                            ${branchInfo}
+                        </div>
                     </div>
-                    <div class="mb-3">
-                        <h6>Description</h6>
-                        <p>${skill.description}</p>
+                    
+                    <div class="mb-4">
+                        <h6><i class="bi bi-info-circle"></i> Beschreibung</h6>
+                        <p class="lead">${skill.description}</p>
                     </div>
-                    <div class="mb-3">
-                        <h6>Path</h6>
-                        <p>${pathData.emoji} ${pathData.name} - ${pathData.description}</p>
+                    
+                    <div class="mb-4">
+                        <h6><i class="bi bi-diagram-3"></i> Pfad</h6>
+                        <p>${pathData.emoji} <strong>${pathData.name}</strong> - ${pathData.description}</p>
                     </div>
-                    <div class="mb-3">
-                        <h6>Requirements</h6>
+                    
+                    <div class="mb-4">
+                        <h6><i class="bi bi-lock"></i> Voraussetzungen</h6>
                         ${requiresHtml}
                     </div>
+                    
                     <div class="mb-3">
-                        <h6>Effects</h6>
+                        <h6><i class="bi bi-magic"></i> Effekte</h6>
                         ${effectsHtml}
                     </div>
                 `;
@@ -878,6 +1221,82 @@
             .catch(error => {
                 console.error('Error loading skill details:', error);
             });
+    }
+    
+    function formatEffectKey(key) {
+        const keyNames = {
+            'strength': '💪 Stärke',
+            'defense': '🛡️ Verteidigung',
+            'speed': '⚡ Geschwindigkeit',
+            'dexterity': '🎯 Geschicklichkeit',
+            'max_health': '❤️ Max HP',
+            'damage_multiplier': '⚔️ Schadensmultiplikator',
+            'cooldown': '⏱️ Abklingzeit',
+            'lifesteal_percent': '🩸 Lebensentzug',
+            'crit_chance': '🎯 Kritische Trefferchance',
+            'crit_damage_bonus': '💥 Kritischer Schaden',
+            'dodge_chance': '💨 Ausweichen',
+            'hp_regen_percent': '💚 HP Regeneration',
+            'damage_reduction': '🛡️ Schadensreduktion',
+            'stun_duration': '😵 Betäubungsdauer',
+            'element': '🌟 Element',
+            'heal': '💚 Heilung',
+            'burn_damage': '🔥 Brennschaden',
+            'freeze_chance': '❄️ Einfrierchance',
+            'poison_damage': '☠️ Giftschaden',
+            'reflect_damage_percent': '↩️ Schadensreflexion',
+            'spell_damage_bonus': '✨ Zauberschaden',
+            'fire_damage_bonus': '🔥 Feuerschaden',
+            'ice_damage_bonus': '❄️ Eisschaden',
+            'lightning_damage_bonus': '⚡ Blitzschaden',
+            'dark_damage_bonus': '🌑 Dunkelschaden',
+            'healing_bonus': '💚 Heilungsbonus',
+            'duration': '⏳ Dauer (Runden)'
+        };
+        return keyNames[key] || key.replace(/_/g, ' ');
+    }
+    
+    function formatEffectValue(key, value) {
+        // Format percentages
+        if (key.includes('percent') || key.includes('chance') || key.includes('bonus') || key.includes('reduction')) {
+            if (typeof value === 'number' && value <= 1) {
+                return `${(value * 100).toFixed(0)}%`;
+            }
+        }
+        // Format booleans
+        if (typeof value === 'boolean') {
+            return value ? '✅ Ja' : '❌ Nein';
+        }
+        // Format numbers
+        if (typeof value === 'number') {
+            if (key === 'damage_multiplier') {
+                return `${(value * 100).toFixed(0)}%`;
+            }
+            return value > 0 ? `+${value}` : value;
+        }
+        return value;
+    }
+    
+    function getTierBadgeClass(tier) {
+        const classes = {
+            'tier1': 'bg-success',
+            'tier2': 'bg-info',
+            'tier3': 'bg-purple',
+            'tier4': 'bg-warning text-dark',
+            'ultimate': 'bg-danger'
+        };
+        return classes[tier] || 'bg-secondary';
+    }
+    
+    function formatTierName(tier) {
+        const names = {
+            'tier1': 'Tier 1',
+            'tier2': 'Tier 2',
+            'tier3': 'Tier 3',
+            'tier4': 'Tier 4',
+            'ultimate': 'Ultimate'
+        };
+        return names[tier] || tier;
     }
 
 </script>

@@ -616,18 +616,50 @@ MONSTER_ABILITIES = {
     }
 }
 
-# Skill Tree System
-# Players can unlock passive abilities and active skills using skill points
+# =============================================================================
+# ENHANCED SKILL TREE SYSTEM
+# =============================================================================
+# A complex, strategic skill tree system with multiple paths, specializations,
+# branching choices, and synergies between different paths.
+#
+# SKILL TYPES:
+# - 'stat': Passive stat bonuses (permanent when unlocked)
+# - 'skill': Active abilities usable in combat
+# - 'passive': Passive combat bonuses (crit chance, lifesteal, etc.)
+# - 'ultimate': Powerful capstone abilities (require multiple prerequisites)
+#
+# STRATEGIC ELEMENTS:
+# - Branching paths within each tree (choose your specialization)
+# - Mutually exclusive choices (pick one or the other)
+# - Cross-path synergies (combining paths unlocks bonuses)
+# - Ultimate abilities that define playstyle
+# =============================================================================
+
+# Skill tiers for progression tracking
+SKILL_TIERS = {
+    'tier1': {'name': 'Anfänger', 'color': '🟢', 'min_skills': 0},
+    'tier2': {'name': 'Fortgeschritten', 'color': '🔵', 'min_skills': 2},
+    'tier3': {'name': 'Experte', 'color': '🟣', 'min_skills': 5},
+    'tier4': {'name': 'Meister', 'color': '🟠', 'min_skills': 8},
+    'ultimate': {'name': 'Ultimativ', 'color': '🔴', 'min_skills': 10}
+}
+
 SKILL_TREE = {
-    # Warrior Path - Focuses on strength and defense
+    # ==========================================================================
+    # WARRIOR PATH - Master of melee combat and defense
+    # Specializations: Berserker (offense) vs Guardian (defense)
+    # ==========================================================================
     'warrior': {
         'name': 'Krieger',
         'emoji': '⚔️',
         'description': 'Meister des Nahkampfs und der Verteidigung',
+        'specializations': ['berserker', 'guardian'],
         'skills': {
+            # === TIER 1: Foundation (No requirements) ===
             'strength_training': {
                 'name': 'Krafttraining',
                 'type': 'stat',
+                'tier': 'tier1',
                 'description': '+5 Stärke',
                 'cost': 1,
                 'requires': None,
@@ -636,14 +668,27 @@ SKILL_TREE = {
             'defense_training': {
                 'name': 'Verteidigungstraining',
                 'type': 'stat',
+                'tier': 'tier1',
                 'description': '+5 Verteidigung',
                 'cost': 1,
                 'requires': None,
                 'effect': {'defense': 5}
             },
+            'warriors_resolve': {
+                'name': 'Kriegerentschlossenheit',
+                'type': 'stat',
+                'tier': 'tier1',
+                'description': '+15 Max HP',
+                'cost': 1,
+                'requires': None,
+                'effect': {'max_health': 15}
+            },
+            
+            # === TIER 2: Core Skills ===
             'power_strike': {
                 'name': 'Machtschlag',
                 'type': 'skill',
+                'tier': 'tier2',
                 'description': 'Fügt 150% Waffenschaden zu',
                 'cost': 2,
                 'requires': 'strength_training',
@@ -652,6 +697,7 @@ SKILL_TREE = {
             'shield_bash': {
                 'name': 'Schildstoß',
                 'type': 'skill',
+                'tier': 'tier2',
                 'description': 'Betäubt den Gegner für 1 Runde und fügt Schaden zu',
                 'cost': 2,
                 'requires': 'defense_training',
@@ -660,14 +706,29 @@ SKILL_TREE = {
             'fortified_stance': {
                 'name': 'Verstärkte Haltung',
                 'type': 'stat',
+                'tier': 'tier2',
                 'description': '+10 Verteidigung, +20 Max HP',
                 'cost': 2,
                 'requires': 'defense_training',
                 'effect': {'defense': 10, 'max_health': 20}
             },
+            'combat_endurance': {
+                'name': 'Kampfausdauer',
+                'type': 'passive',
+                'tier': 'tier2',
+                'description': 'Regeneriere 5% Max HP pro Runde',
+                'cost': 2,
+                'requires': 'warriors_resolve',
+                'effect': {'hp_regen_percent': 0.05}
+            },
+            
+            # === TIER 3: Branching - Choose Berserker OR Guardian ===
+            # --- Berserker Branch (Offensive) ---
             'battle_rage': {
                 'name': 'Kampfwut',
                 'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'berserker',
                 'description': 'Erhöht Stärke um 15 für 3 Runden',
                 'cost': 3,
                 'requires': 'power_strike',
@@ -676,23 +737,157 @@ SKILL_TREE = {
             'whirlwind': {
                 'name': 'Wirbelwind',
                 'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'berserker',
                 'description': 'Angriff der 200% Schaden verursacht',
                 'cost': 3,
                 'requires': 'power_strike',
                 'effect': {'damage_multiplier': 2.0, 'cooldown': 3}
+            },
+            'bloodlust': {
+                'name': 'Blutdurst',
+                'type': 'passive',
+                'tier': 'tier3',
+                'branch': 'berserker',
+                'description': '+10% Lebensentzug bei Angriffen',
+                'cost': 3,
+                'requires': 'battle_rage',
+                'effect': {'lifesteal_percent': 0.10}
+            },
+            'reckless_strike': {
+                'name': 'Waghalsiger Schlag',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'berserker',
+                'description': '250% Schaden, aber nimm 15% Schaden selbst',
+                'cost': 3,
+                'requires': 'whirlwind',
+                'effect': {'damage_multiplier': 2.5, 'self_damage_percent': 0.15, 'cooldown': 3}
+            },
+            
+            # --- Guardian Branch (Defensive) ---
+            'iron_wall': {
+                'name': 'Eiserne Mauer',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'guardian',
+                'description': 'Reduziert eingehenden Schaden um 50% für 2 Runden',
+                'cost': 3,
+                'requires': 'shield_bash',
+                'effect': {'damage_reduction': 0.5, 'duration': 2, 'cooldown': 4}
+            },
+            'counter_stance': {
+                'name': 'Konterhaltung',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'guardian',
+                'description': 'Kontert den nächsten Angriff mit 100% Schaden',
+                'cost': 3,
+                'requires': 'fortified_stance',
+                'effect': {'counter_multiplier': 1.0, 'cooldown': 3}
+            },
+            'stalwart_defender': {
+                'name': 'Standhafter Verteidiger',
+                'type': 'stat',
+                'tier': 'tier3',
+                'branch': 'guardian',
+                'description': '+15 Verteidigung, +30 Max HP',
+                'cost': 3,
+                'requires': 'iron_wall',
+                'effect': {'defense': 15, 'max_health': 30}
+            },
+            'thorns_aura': {
+                'name': 'Dornenaura',
+                'type': 'passive',
+                'tier': 'tier3',
+                'branch': 'guardian',
+                'description': 'Reflektiere 20% des erhaltenen Schadens',
+                'cost': 3,
+                'requires': 'counter_stance',
+                'effect': {'reflect_damage_percent': 0.20}
+            },
+            
+            # === TIER 4: Advanced Skills ===
+            'executioner': {
+                'name': 'Henker',
+                'type': 'skill',
+                'tier': 'tier4',
+                'branch': 'berserker',
+                'description': '300% Schaden gegen Gegner unter 30% HP',
+                'cost': 4,
+                'requires': 'bloodlust',
+                'effect': {'damage_multiplier': 3.0, 'execute_threshold': 0.30, 'cooldown': 4}
+            },
+            'undying_rage': {
+                'name': 'Unsterbliche Wut',
+                'type': 'passive',
+                'tier': 'tier4',
+                'branch': 'berserker',
+                'description': 'Einmal pro Kampf: Überlebe tödlichen Schaden mit 1 HP',
+                'cost': 4,
+                'requires': 'reckless_strike',
+                'effect': {'death_prevention': True, 'uses_per_combat': 1}
+            },
+            'unbreakable': {
+                'name': 'Unzerbrechlich',
+                'type': 'passive',
+                'tier': 'tier4',
+                'branch': 'guardian',
+                'description': 'Immun gegen Betäubung und Verlangsamung',
+                'cost': 4,
+                'requires': 'stalwart_defender',
+                'effect': {'stun_immunity': True, 'slow_immunity': True}
+            },
+            'last_bastion': {
+                'name': 'Letzte Bastion',
+                'type': 'skill',
+                'tier': 'tier4',
+                'branch': 'guardian',
+                'description': 'Werde für 2 Runden unverwundbar',
+                'cost': 4,
+                'requires': 'thorns_aura',
+                'effect': {'invulnerable': True, 'duration': 2, 'cooldown': 8}
+            },
+            
+            # === ULTIMATE: Requires both branches or high investment ===
+            'avatar_of_war': {
+                'name': 'Avatar des Krieges',
+                'type': 'ultimate',
+                'tier': 'ultimate',
+                'description': '+20 Stärke, +20 Verteidigung, +50 Max HP. Alle Angriffe haben 10% Chance zu betäuben.',
+                'cost': 5,
+                'requires': 'executioner',  # Berserker ultimate
+                'requires_any': ['undying_rage'],
+                'effect': {'strength': 20, 'defense': 20, 'max_health': 50, 'stun_on_hit_chance': 0.10}
+            },
+            'immortal_guardian': {
+                'name': 'Unsterblicher Wächter',
+                'type': 'ultimate',
+                'tier': 'ultimate',
+                'description': '+30 Verteidigung, +80 Max HP, 30% Schadensreflexion, +5% HP Regeneration/Runde',
+                'cost': 5,
+                'requires': 'unbreakable',  # Guardian ultimate
+                'requires_any': ['last_bastion'],
+                'effect': {'defense': 30, 'max_health': 80, 'reflect_damage_percent': 0.30, 'hp_regen_percent': 0.05}
             }
         }
     },
     
-    # Rogue Path - Focuses on dexterity and critical hits
+    # ==========================================================================
+    # ROGUE PATH - Master of speed, crits, and subtlety
+    # Specializations: Assassin (burst damage) vs Shadow (evasion/debuffs)
+    # ==========================================================================
     'rogue': {
         'name': 'Schurke',
         'emoji': '🗡️',
         'description': 'Meister der Geschicklichkeit und kritischen Treffer',
+        'specializations': ['assassin', 'shadow'],
         'skills': {
+            # === TIER 1: Foundation ===
             'agility_training': {
                 'name': 'Beweglichkeitstraining',
                 'type': 'stat',
+                'tier': 'tier1',
                 'description': '+5 Geschwindigkeit',
                 'cost': 1,
                 'requires': None,
@@ -701,14 +896,27 @@ SKILL_TREE = {
             'dexterity_training': {
                 'name': 'Geschicklichkeitstraining',
                 'type': 'stat',
+                'tier': 'tier1',
                 'description': '+5 Geschicklichkeit',
                 'cost': 1,
                 'requires': None,
                 'effect': {'dexterity': 5}
             },
+            'quick_reflexes': {
+                'name': 'Schnelle Reflexe',
+                'type': 'passive',
+                'tier': 'tier1',
+                'description': '+5% Ausweichen-Chance',
+                'cost': 1,
+                'requires': None,
+                'effect': {'dodge_chance': 0.05}
+            },
+            
+            # === TIER 2: Core Skills ===
             'rapid_strike': {
                 'name': 'Schneller Schlag',
                 'type': 'skill',
+                'tier': 'tier2',
                 'description': 'Zwei schnelle Angriffe mit je 75% Schaden',
                 'cost': 2,
                 'requires': 'agility_training',
@@ -717,47 +925,196 @@ SKILL_TREE = {
             'evasion': {
                 'name': 'Ausweichen',
                 'type': 'skill',
+                'tier': 'tier2',
                 'description': 'Weicht dem nächsten Angriff aus',
                 'cost': 2,
-                'requires': 'agility_training',
+                'requires': 'quick_reflexes',
                 'effect': {'dodge_next': True, 'cooldown': 3}
             },
             'precision_strike': {
                 'name': 'Präzisionsschlag',
                 'type': 'stat',
+                'tier': 'tier2',
                 'description': '+8 Geschicklichkeit',
                 'cost': 2,
                 'requires': 'dexterity_training',
                 'effect': {'dexterity': 8}
             },
+            'deadly_focus': {
+                'name': 'Tödlicher Fokus',
+                'type': 'passive',
+                'tier': 'tier2',
+                'description': '+10% kritische Trefferchance',
+                'cost': 2,
+                'requires': 'dexterity_training',
+                'effect': {'crit_chance': 0.10}
+            },
+            
+            # === TIER 3: Assassin Branch (Burst Damage) ===
             'backstab': {
                 'name': 'Meucheln',
                 'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'assassin',
                 'description': 'Kritischer Angriff mit 250% Schaden',
                 'cost': 3,
                 'requires': 'rapid_strike',
                 'effect': {'damage_multiplier': 2.5, 'guaranteed_crit': True, 'cooldown': 4}
             },
+            'poison_blade': {
+                'name': 'Giftklinge',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'assassin',
+                'description': 'Vergiftet Gegner für 3 Runden (8 Schaden/Runde)',
+                'cost': 3,
+                'requires': 'precision_strike',
+                'effect': {'poison_damage': 8, 'poison_duration': 3, 'cooldown': 3}
+            },
+            'assassins_mark': {
+                'name': 'Assassinenmal',
+                'type': 'passive',
+                'tier': 'tier3',
+                'branch': 'assassin',
+                'description': '+25% kritischer Schaden',
+                'cost': 3,
+                'requires': 'deadly_focus',
+                'effect': {'crit_damage_bonus': 0.25}
+            },
+            'ambush': {
+                'name': 'Hinterhalt',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'assassin',
+                'description': 'Erster Angriff im Kampf verursacht 300% Schaden',
+                'cost': 3,
+                'requires': 'backstab',
+                'effect': {'first_strike_multiplier': 3.0, 'cooldown': 0}
+            },
+            
+            # === TIER 3: Shadow Branch (Evasion/Debuffs) ===
             'shadow_dance': {
                 'name': 'Schattentanz',
                 'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'shadow',
                 'description': 'Erhöht Geschwindigkeit um 20 für 2 Runden',
                 'cost': 3,
                 'requires': 'evasion',
                 'effect': {'speed_buff': 20, 'duration': 2, 'cooldown': 4}
+            },
+            'smoke_bomb': {
+                'name': 'Rauchbombe',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'shadow',
+                'description': 'Reduziert Gegner-Trefferchance um 40% für 2 Runden',
+                'cost': 3,
+                'requires': 'evasion',
+                'effect': {'enemy_accuracy_reduction': 0.40, 'duration': 2, 'cooldown': 4}
+            },
+            'crippling_strike': {
+                'name': 'Verkrüppelnder Schlag',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'shadow',
+                'description': 'Verlangsamt Gegner um 50% für 3 Runden',
+                'cost': 3,
+                'requires': 'quick_reflexes',
+                'effect': {'slow_percent': 0.50, 'slow_duration': 3, 'cooldown': 3}
+            },
+            'phantom_step': {
+                'name': 'Phantomschritt',
+                'type': 'passive',
+                'tier': 'tier3',
+                'branch': 'shadow',
+                'description': '+15% Ausweichen-Chance',
+                'cost': 3,
+                'requires': 'shadow_dance',
+                'effect': {'dodge_chance': 0.15}
+            },
+            
+            # === TIER 4: Advanced Skills ===
+            'death_sentence': {
+                'name': 'Todesurteil',
+                'type': 'skill',
+                'tier': 'tier4',
+                'branch': 'assassin',
+                'description': '400% Schaden, 100% kritisch. 6 Runden Abklingzeit.',
+                'cost': 4,
+                'requires': 'ambush',
+                'effect': {'damage_multiplier': 4.0, 'guaranteed_crit': True, 'cooldown': 6}
+            },
+            'venomous_mastery': {
+                'name': 'Giftmeisterschaft',
+                'type': 'passive',
+                'tier': 'tier4',
+                'branch': 'assassin',
+                'description': 'Alle Angriffe vergiften (5 Schaden/Runde, 2 Runden)',
+                'cost': 4,
+                'requires': 'poison_blade',
+                'effect': {'auto_poison_damage': 5, 'auto_poison_duration': 2}
+            },
+            'shadow_master': {
+                'name': 'Schattenmeister',
+                'type': 'passive',
+                'tier': 'tier4',
+                'branch': 'shadow',
+                'description': '25% Chance Angriffe komplett zu negieren',
+                'cost': 4,
+                'requires': 'phantom_step',
+                'effect': {'complete_dodge_chance': 0.25}
+            },
+            'nightmare': {
+                'name': 'Alptraum',
+                'type': 'skill',
+                'tier': 'tier4',
+                'branch': 'shadow',
+                'description': 'Verursacht Furcht: Gegner verliert 2 Runden',
+                'cost': 4,
+                'requires': 'smoke_bomb',
+                'effect': {'fear_duration': 2, 'cooldown': 6}
+            },
+            
+            # === ULTIMATE ===
+            'death_incarnate': {
+                'name': 'Tod persönlich',
+                'type': 'ultimate',
+                'tier': 'ultimate',
+                'description': '+15 Geschicklichkeit, +15 Geschwindigkeit, +25% Krit-Chance, +50% Krit-Schaden',
+                'cost': 5,
+                'requires': 'death_sentence',
+                'requires_any': ['venomous_mastery'],
+                'effect': {'dexterity': 15, 'speed': 15, 'crit_chance': 0.25, 'crit_damage_bonus': 0.50}
+            },
+            'living_shadow': {
+                'name': 'Lebender Schatten',
+                'type': 'ultimate',
+                'tier': 'ultimate',
+                'description': '+20 Geschwindigkeit, +40% Ausweichen, Immunität gegen Verlangsamung',
+                'cost': 5,
+                'requires': 'shadow_master',
+                'requires_any': ['nightmare'],
+                'effect': {'speed': 20, 'dodge_chance': 0.40, 'slow_immunity': True}
             }
         }
     },
     
-    # Mage Path - Focuses on magic and special effects
+    # ==========================================================================
+    # MAGE PATH - Master of arcane magic and elemental forces
+    # Specializations: Archmage (raw power) vs Spellweaver (utility/control)
+    # ==========================================================================
     'mage': {
         'name': 'Magier',
         'emoji': '🔮',
         'description': 'Meister der arkanen Künste und Elemente',
+        'specializations': ['archmage', 'spellweaver'],
         'skills': {
+            # === TIER 1: Foundation ===
             'intelligence_training': {
                 'name': 'Intelligenztraining',
                 'type': 'stat',
+                'tier': 'tier1',
                 'description': '+5 Stärke (Magie nutzt Stärke für Schaden)',
                 'cost': 1,
                 'requires': None,
@@ -766,14 +1123,27 @@ SKILL_TREE = {
             'vitality_training': {
                 'name': 'Vitalitätstraining',
                 'type': 'stat',
+                'tier': 'tier1',
                 'description': '+15 Max HP',
                 'cost': 1,
                 'requires': None,
                 'effect': {'max_health': 15}
             },
+            'mana_efficiency': {
+                'name': 'Mana-Effizienz',
+                'type': 'passive',
+                'tier': 'tier1',
+                'description': 'Skill-Abklingzeiten um 1 Runde reduziert',
+                'cost': 1,
+                'requires': None,
+                'effect': {'cooldown_reduction': 1}
+            },
+            
+            # === TIER 2: Core Skills ===
             'fireball': {
                 'name': 'Feuerball',
                 'type': 'skill',
+                'tier': 'tier2',
                 'description': 'Feuert einen Feuerball der 120% magischen Schaden verursacht',
                 'cost': 2,
                 'requires': 'intelligence_training',
@@ -782,6 +1152,7 @@ SKILL_TREE = {
             'frost_bolt': {
                 'name': 'Frostblitz',
                 'type': 'skill',
+                'tier': 'tier2',
                 'description': 'Verursacht 100% Schaden und verlangsamt Gegner',
                 'cost': 2,
                 'requires': 'intelligence_training',
@@ -790,26 +1161,900 @@ SKILL_TREE = {
             'arcane_intellect': {
                 'name': 'Arkane Intelligenz',
                 'type': 'stat',
+                'tier': 'tier2',
                 'description': '+8 Stärke, +10 Max HP',
                 'cost': 2,
                 'requires': 'intelligence_training',
                 'effect': {'strength': 8, 'max_health': 10}
             },
+            'mana_shield': {
+                'name': 'Manaschild',
+                'type': 'skill',
+                'tier': 'tier2',
+                'description': 'Absorbiert 50 Schaden',
+                'cost': 2,
+                'requires': 'vitality_training',
+                'effect': {'absorb_damage': 50, 'cooldown': 4}
+            },
+            
+            # === TIER 3: Archmage Branch (Raw Power) ===
             'chain_lightning': {
                 'name': 'Kettenblitz',
                 'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'archmage',
                 'description': 'Blitz der 180% Schaden verursacht',
                 'cost': 3,
                 'requires': 'fireball',
                 'effect': {'damage_multiplier': 1.8, 'element': 'lightning', 'cooldown': 3}
             },
+            'pyroblast': {
+                'name': 'Pyroblast',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'archmage',
+                'description': 'Gewaltiger Feuerball mit 220% Schaden + Brennen',
+                'cost': 3,
+                'requires': 'fireball',
+                'effect': {'damage_multiplier': 2.2, 'element': 'fire', 'burn_duration': 3, 'cooldown': 4}
+            },
+            'spell_power': {
+                'name': 'Zaubermacht',
+                'type': 'passive',
+                'tier': 'tier3',
+                'branch': 'archmage',
+                'description': '+15% Zauberschaden',
+                'cost': 3,
+                'requires': 'arcane_intellect',
+                'effect': {'spell_damage_bonus': 0.15}
+            },
+            'arcane_explosion': {
+                'name': 'Arkane Explosion',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'archmage',
+                'description': '150% Schaden + 30% Chance den Gegner zu betäuben',
+                'cost': 3,
+                'requires': 'chain_lightning',
+                'effect': {'damage_multiplier': 1.5, 'stun_chance': 0.30, 'cooldown': 3}
+            },
+            
+            # === TIER 3: Spellweaver Branch (Control/Utility) ===
+            'blizzard': {
+                'name': 'Blizzard',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'spellweaver',
+                'description': '100% Schaden + 30% Chance einzufrieren',
+                'cost': 3,
+                'requires': 'frost_bolt',
+                'effect': {'damage_multiplier': 1.0, 'freeze_chance': 0.30, 'element': 'ice', 'cooldown': 3}
+            },
+            'polymorph': {
+                'name': 'Verwandlung',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'spellweaver',
+                'description': 'Gegner kann 1 Runde nicht angreifen',
+                'cost': 3,
+                'requires': 'mana_shield',
+                'effect': {'disable_duration': 1, 'cooldown': 5}
+            },
+            'time_warp': {
+                'name': 'Zeitverzerrung',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'spellweaver',
+                'description': 'Du handelst zweimal diese Runde',
+                'cost': 3,
+                'requires': 'mana_efficiency',
+                'effect': {'extra_action': True, 'cooldown': 6}
+            },
+            'arcane_barrier': {
+                'name': 'Arkane Barriere',
+                'type': 'passive',
+                'tier': 'tier3',
+                'branch': 'spellweaver',
+                'description': '+10% Schadensreduktion gegen alle Angriffe',
+                'cost': 3,
+                'requires': 'mana_shield',
+                'effect': {'damage_reduction': 0.10}
+            },
+            
+            # === TIER 4: Advanced Skills ===
             'meteor_strike': {
                 'name': 'Meteorschlag',
                 'type': 'skill',
+                'tier': 'tier4',
+                'branch': 'archmage',
                 'description': 'Gewaltiger Meteor der 300% Schaden verursacht',
-                'cost': 3,
-                'requires': 'arcane_intellect',
+                'cost': 4,
+                'requires': 'pyroblast',
                 'effect': {'damage_multiplier': 3.0, 'element': 'fire', 'cooldown': 5}
+            },
+            'arcane_mastery': {
+                'name': 'Arkane Meisterschaft',
+                'type': 'passive',
+                'tier': 'tier4',
+                'branch': 'archmage',
+                'description': '+25% Zauberschaden, +10 Stärke',
+                'cost': 4,
+                'requires': 'spell_power',
+                'effect': {'spell_damage_bonus': 0.25, 'strength': 10}
+            },
+            'absolute_zero': {
+                'name': 'Absoluter Nullpunkt',
+                'type': 'skill',
+                'tier': 'tier4',
+                'branch': 'spellweaver',
+                'description': 'Friert Gegner für 2 Runden ein',
+                'cost': 4,
+                'requires': 'blizzard',
+                'effect': {'freeze_duration': 2, 'cooldown': 6}
+            },
+            'temporal_mastery': {
+                'name': 'Zeitmeisterschaft',
+                'type': 'passive',
+                'tier': 'tier4',
+                'branch': 'spellweaver',
+                'description': 'Alle Abklingzeiten um 2 Runden reduziert',
+                'cost': 4,
+                'requires': 'time_warp',
+                'effect': {'cooldown_reduction': 2}
+            },
+            
+            # === ULTIMATE ===
+            'apocalypse': {
+                'name': 'Apokalypse',
+                'type': 'ultimate',
+                'tier': 'ultimate',
+                'description': '+20 Stärke, +30% Zauberschaden, Alle Zauber haben 20% Chance auf Doppelwirkung',
+                'cost': 5,
+                'requires': 'meteor_strike',
+                'requires_any': ['arcane_mastery'],
+                'effect': {'strength': 20, 'spell_damage_bonus': 0.30, 'spell_echo_chance': 0.20}
+            },
+            'chronomancer': {
+                'name': 'Chronomant',
+                'type': 'ultimate',
+                'tier': 'ultimate',
+                'description': 'Alle Abklingzeiten -3, +30 Max HP, 25% Chance Angriffe zu negieren',
+                'cost': 5,
+                'requires': 'absolute_zero',
+                'requires_any': ['temporal_mastery'],
+                'effect': {'cooldown_reduction': 3, 'max_health': 30, 'complete_dodge_chance': 0.25}
+            }
+        }
+    },
+    
+    # ==========================================================================
+    # HEALER PATH - Master of restoration and protection
+    # Specializations: Priest (healing focus) vs Paladin (offensive healer)
+    # ==========================================================================
+    'healer': {
+        'name': 'Heiler',
+        'emoji': '💚',
+        'description': 'Meister der Heilung und des Schutzes',
+        'specializations': ['priest', 'paladin'],
+        'skills': {
+            # === TIER 1: Foundation ===
+            'healing_touch': {
+                'name': 'Heilende Berührung',
+                'type': 'skill',
+                'tier': 'tier1',
+                'description': 'Heilt 25 HP',
+                'cost': 1,
+                'requires': None,
+                'effect': {'heal': 25, 'cooldown': 2}
+            },
+            'inner_peace': {
+                'name': 'Innerer Frieden',
+                'type': 'stat',
+                'tier': 'tier1',
+                'description': '+20 Max HP',
+                'cost': 1,
+                'requires': None,
+                'effect': {'max_health': 20}
+            },
+            'divine_protection': {
+                'name': 'Göttlicher Schutz',
+                'type': 'passive',
+                'tier': 'tier1',
+                'description': '+5 Verteidigung',
+                'cost': 1,
+                'requires': None,
+                'effect': {'defense': 5}
+            },
+            
+            # === TIER 2: Core Skills ===
+            'rejuvenation': {
+                'name': 'Verjüngung',
+                'type': 'skill',
+                'tier': 'tier2',
+                'description': 'Heilt 10 HP pro Runde für 4 Runden',
+                'cost': 2,
+                'requires': 'healing_touch',
+                'effect': {'heal_per_turn': 10, 'duration': 4, 'cooldown': 4}
+            },
+            'purify': {
+                'name': 'Reinigung',
+                'type': 'skill',
+                'tier': 'tier2',
+                'description': 'Entfernt alle negativen Effekte',
+                'cost': 2,
+                'requires': 'healing_touch',
+                'effect': {'cleanse': True, 'cooldown': 3}
+            },
+            'blessed_armor': {
+                'name': 'Gesegnete Rüstung',
+                'type': 'stat',
+                'tier': 'tier2',
+                'description': '+10 Verteidigung, +15 Max HP',
+                'cost': 2,
+                'requires': 'divine_protection',
+                'effect': {'defense': 10, 'max_health': 15}
+            },
+            'life_tap': {
+                'name': 'Lebensquelle',
+                'type': 'passive',
+                'tier': 'tier2',
+                'description': 'Regeneriere 3% Max HP pro Runde',
+                'cost': 2,
+                'requires': 'inner_peace',
+                'effect': {'hp_regen_percent': 0.03}
+            },
+            
+            # === TIER 3: Priest Branch (Pure Healing) ===
+            'greater_heal': {
+                'name': 'Große Heilung',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'priest',
+                'description': 'Heilt 60 HP sofort',
+                'cost': 3,
+                'requires': 'rejuvenation',
+                'effect': {'heal': 60, 'cooldown': 3}
+            },
+            'prayer_of_mending': {
+                'name': 'Gebet der Heilung',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'priest',
+                'description': 'Heilt 15 HP pro Runde für 5 Runden',
+                'cost': 3,
+                'requires': 'rejuvenation',
+                'effect': {'heal_per_turn': 15, 'duration': 5, 'cooldown': 5}
+            },
+            'spirit_link': {
+                'name': 'Geistverbindung',
+                'type': 'passive',
+                'tier': 'tier3',
+                'branch': 'priest',
+                'description': '+50% Heilungseffektivität',
+                'cost': 3,
+                'requires': 'purify',
+                'effect': {'healing_bonus': 0.50}
+            },
+            'divine_grace': {
+                'name': 'Göttliche Gnade',
+                'type': 'passive',
+                'tier': 'tier3',
+                'branch': 'priest',
+                'description': '20% Chance bei Heilung auf Doppelheilung',
+                'cost': 3,
+                'requires': 'greater_heal',
+                'effect': {'double_heal_chance': 0.20}
+            },
+            
+            # === TIER 3: Paladin Branch (Offensive Healer) ===
+            'holy_smite': {
+                'name': 'Heiliger Zorn',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'paladin',
+                'description': '130% Lichtschaden',
+                'cost': 3,
+                'requires': 'blessed_armor',
+                'effect': {'damage_multiplier': 1.3, 'element': 'light', 'cooldown': 2}
+            },
+            'consecration': {
+                'name': 'Weihung',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'paladin',
+                'description': '80% Lichtschaden + 20 HP Heilung',
+                'cost': 3,
+                'requires': 'blessed_armor',
+                'effect': {'damage_multiplier': 0.8, 'heal': 20, 'element': 'light', 'cooldown': 3}
+            },
+            'righteous_fury': {
+                'name': 'Gerechter Zorn',
+                'type': 'passive',
+                'tier': 'tier3',
+                'branch': 'paladin',
+                'description': '+10% Lebensentzug bei Angriffen',
+                'cost': 3,
+                'requires': 'divine_protection',
+                'effect': {'lifesteal_percent': 0.10}
+            },
+            'divine_shield': {
+                'name': 'Göttliches Schild',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'paladin',
+                'description': 'Unverwundbar für 1 Runde',
+                'cost': 3,
+                'requires': 'holy_smite',
+                'effect': {'invulnerable': True, 'duration': 1, 'cooldown': 6}
+            },
+            
+            # === TIER 4: Advanced Skills ===
+            'divine_hymn': {
+                'name': 'Göttlicher Hymnus',
+                'type': 'skill',
+                'tier': 'tier4',
+                'branch': 'priest',
+                'description': 'Heilt 100 HP und entfernt alle negativen Effekte',
+                'cost': 4,
+                'requires': 'prayer_of_mending',
+                'effect': {'heal': 100, 'cleanse': True, 'cooldown': 5}
+            },
+            'guardian_spirit': {
+                'name': 'Schutzgeist',
+                'type': 'passive',
+                'tier': 'tier4',
+                'branch': 'priest',
+                'description': 'Wenn HP unter 20% fallen, heile 50% Max HP (einmal pro Kampf)',
+                'cost': 4,
+                'requires': 'divine_grace',
+                'effect': {'low_hp_heal_percent': 0.50, 'low_hp_threshold': 0.20, 'uses_per_combat': 1}
+            },
+            'avenging_wrath': {
+                'name': 'Rächender Zorn',
+                'type': 'skill',
+                'tier': 'tier4',
+                'branch': 'paladin',
+                'description': '+50% Schaden und +50% Heilung für 3 Runden',
+                'cost': 4,
+                'requires': 'consecration',
+                'effect': {'damage_bonus': 0.50, 'healing_bonus': 0.50, 'duration': 3, 'cooldown': 6}
+            },
+            'lay_on_hands': {
+                'name': 'Handauflegen',
+                'type': 'skill',
+                'tier': 'tier4',
+                'branch': 'paladin',
+                'description': 'Heilt 100% Max HP (einmal pro Kampf)',
+                'cost': 4,
+                'requires': 'divine_shield',
+                'effect': {'heal_percent': 1.0, 'cooldown': 0, 'uses_per_combat': 1}
+            },
+            
+            # === ULTIMATE ===
+            'divine_intervention': {
+                'name': 'Göttliche Intervention',
+                'type': 'ultimate',
+                'tier': 'ultimate',
+                'description': '+40 Max HP, +100% Heilungseffektivität, Alle Heilungen heilen zusätzlich 10% Max HP',
+                'cost': 5,
+                'requires': 'divine_hymn',
+                'requires_any': ['guardian_spirit'],
+                'effect': {'max_health': 40, 'healing_bonus': 1.0, 'bonus_heal_percent': 0.10}
+            },
+            'holy_avenger': {
+                'name': 'Heiliger Rächer',
+                'type': 'ultimate',
+                'tier': 'ultimate',
+                'description': '+15 Stärke, +15 Verteidigung, +20% Lebensentzug, Alle Angriffe heilen 5% Max HP',
+                'cost': 5,
+                'requires': 'avenging_wrath',
+                'requires_any': ['lay_on_hands'],
+                'effect': {'strength': 15, 'defense': 15, 'lifesteal_percent': 0.20, 'attack_heal_percent': 0.05}
+            }
+        }
+    },
+    
+    # ==========================================================================
+    # NECROMANCER PATH - Master of death and dark magic
+    # Specializations: Lich (pure dark magic) vs Blood Mage (life manipulation)
+    # ==========================================================================
+    'necromancer': {
+        'name': 'Nekromant',
+        'emoji': '💀',
+        'description': 'Meister des Todes und der dunklen Magie',
+        'specializations': ['lich', 'blood_mage'],
+        'skills': {
+            # === TIER 1: Foundation ===
+            'dark_power': {
+                'name': 'Dunkle Macht',
+                'type': 'stat',
+                'tier': 'tier1',
+                'description': '+5 Stärke',
+                'cost': 1,
+                'requires': None,
+                'effect': {'strength': 5}
+            },
+            'soul_harvest': {
+                'name': 'Seelenernte',
+                'type': 'passive',
+                'tier': 'tier1',
+                'description': '+5% Lebensentzug bei allen Angriffen',
+                'cost': 1,
+                'requires': None,
+                'effect': {'lifesteal_percent': 0.05}
+            },
+            'dark_resilience': {
+                'name': 'Dunkle Widerstandskraft',
+                'type': 'stat',
+                'tier': 'tier1',
+                'description': '+10 Max HP, +3 Verteidigung',
+                'cost': 1,
+                'requires': None,
+                'effect': {'max_health': 10, 'defense': 3}
+            },
+            
+            # === TIER 2: Core Skills ===
+            'shadow_bolt': {
+                'name': 'Schattenblitz',
+                'type': 'skill',
+                'tier': 'tier2',
+                'description': '120% Dunkler Schaden',
+                'cost': 2,
+                'requires': 'dark_power',
+                'effect': {'damage_multiplier': 1.2, 'element': 'dark', 'cooldown': 2}
+            },
+            'drain_life': {
+                'name': 'Lebensentzug',
+                'type': 'skill',
+                'tier': 'tier2',
+                'description': '80% Schaden, heilt dich für 50% des Schadens',
+                'cost': 2,
+                'requires': 'soul_harvest',
+                'effect': {'damage_multiplier': 0.8, 'lifesteal_percent': 0.50, 'cooldown': 3}
+            },
+            'curse_of_weakness': {
+                'name': 'Fluch der Schwäche',
+                'type': 'skill',
+                'tier': 'tier2',
+                'description': 'Reduziert Gegnerschaden um 25% für 3 Runden',
+                'cost': 2,
+                'requires': 'dark_power',
+                'effect': {'enemy_damage_reduction': 0.25, 'duration': 3, 'cooldown': 4}
+            },
+            'dark_pact': {
+                'name': 'Dunkler Pakt',
+                'type': 'passive',
+                'tier': 'tier2',
+                'description': '+10% Dunkler Schaden',
+                'cost': 2,
+                'requires': 'dark_resilience',
+                'effect': {'dark_damage_bonus': 0.10}
+            },
+            
+            # === TIER 3: Lich Branch (Pure Dark Magic) ===
+            'death_coil': {
+                'name': 'Todesschrei',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'lich',
+                'description': '150% Dunkler Schaden oder heilt 40 HP',
+                'cost': 3,
+                'requires': 'shadow_bolt',
+                'effect': {'damage_multiplier': 1.5, 'element': 'dark', 'alt_heal': 40, 'cooldown': 3}
+            },
+            'soul_rend': {
+                'name': 'Seelenriss',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'lich',
+                'description': '180% Schaden + 10 Schaden pro Runde für 4 Runden',
+                'cost': 3,
+                'requires': 'shadow_bolt',
+                'effect': {'damage_multiplier': 1.8, 'dot_damage': 10, 'dot_duration': 4, 'cooldown': 4}
+            },
+            'necrotic_aura': {
+                'name': 'Nekrotische Aura',
+                'type': 'passive',
+                'tier': 'tier3',
+                'branch': 'lich',
+                'description': 'Gegner nehmen 8 Schaden pro Runde',
+                'cost': 3,
+                'requires': 'curse_of_weakness',
+                'effect': {'passive_damage_per_turn': 8}
+            },
+            'death_gate': {
+                'name': 'Todestor',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'lich',
+                'description': '200% Schaden, 20% Chance sofort zu töten (unter 20% HP)',
+                'cost': 3,
+                'requires': 'death_coil',
+                'effect': {'damage_multiplier': 2.0, 'execute_chance': 0.20, 'execute_threshold': 0.20, 'cooldown': 4}
+            },
+            
+            # === TIER 3: Blood Mage Branch (Life Manipulation) ===
+            'blood_bolt': {
+                'name': 'Blutblitz',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'blood_mage',
+                'description': '140% Schaden + heilt 30% des Schadens',
+                'cost': 3,
+                'requires': 'drain_life',
+                'effect': {'damage_multiplier': 1.4, 'lifesteal_percent': 0.30, 'cooldown': 2}
+            },
+            'blood_shield': {
+                'name': 'Blutschild',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'blood_mage',
+                'description': 'Absorbiert 40 Schaden, heilt 20 HP',
+                'cost': 3,
+                'requires': 'drain_life',
+                'effect': {'absorb_damage': 40, 'heal': 20, 'cooldown': 4}
+            },
+            'sanguine_pact': {
+                'name': 'Blutiger Pakt',
+                'type': 'passive',
+                'tier': 'tier3',
+                'branch': 'blood_mage',
+                'description': '+20% Lebensentzug',
+                'cost': 3,
+                'requires': 'dark_pact',
+                'effect': {'lifesteal_percent': 0.20}
+            },
+            'hemorrhage': {
+                'name': 'Blutung',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'blood_mage',
+                'description': '100% Schaden + 15 Blutungsschaden pro Runde für 5 Runden',
+                'cost': 3,
+                'requires': 'blood_bolt',
+                'effect': {'damage_multiplier': 1.0, 'bleed_damage': 15, 'bleed_duration': 5, 'cooldown': 4}
+            },
+            
+            # === TIER 4: Advanced Skills ===
+            'army_of_dead': {
+                'name': 'Armee der Toten',
+                'type': 'skill',
+                'tier': 'tier4',
+                'branch': 'lich',
+                'description': '50 zusätzlicher Schaden pro Runde für 4 Runden',
+                'cost': 4,
+                'requires': 'soul_rend',
+                'effect': {'summon_damage_per_turn': 50, 'summon_duration': 4, 'cooldown': 6}
+            },
+            'death_incarnate': {
+                'name': 'Verkörperung des Todes',
+                'type': 'passive',
+                'tier': 'tier4',
+                'branch': 'lich',
+                'description': '+30% Dunkler Schaden, +15 Passivschaden pro Runde',
+                'cost': 4,
+                'requires': 'necrotic_aura',
+                'effect': {'dark_damage_bonus': 0.30, 'passive_damage_per_turn': 15}
+            },
+            'blood_nova': {
+                'name': 'Blutnova',
+                'type': 'skill',
+                'tier': 'tier4',
+                'branch': 'blood_mage',
+                'description': '200% Schaden, heilt 50% des Schadens',
+                'cost': 4,
+                'requires': 'hemorrhage',
+                'effect': {'damage_multiplier': 2.0, 'lifesteal_percent': 0.50, 'cooldown': 4}
+            },
+            'crimson_pact': {
+                'name': 'Purpurpakt',
+                'type': 'passive',
+                'tier': 'tier4',
+                'branch': 'blood_mage',
+                'description': '+40% Lebensentzug, +20 Max HP',
+                'cost': 4,
+                'requires': 'sanguine_pact',
+                'effect': {'lifesteal_percent': 0.40, 'max_health': 20}
+            },
+            
+            # === ULTIMATE ===
+            'lord_of_death': {
+                'name': 'Herr des Todes',
+                'type': 'ultimate',
+                'tier': 'ultimate',
+                'description': '+15 Stärke, +50% Dunkler Schaden, 25 Passivschaden/Runde, 30% Chance auf Sofort-Tod (unter 25% HP)',
+                'cost': 5,
+                'requires': 'army_of_dead',
+                'requires_any': ['death_incarnate'],
+                'effect': {'strength': 15, 'dark_damage_bonus': 0.50, 'passive_damage_per_turn': 25, 'execute_chance': 0.30, 'execute_threshold': 0.25}
+            },
+            'blood_god': {
+                'name': 'Blutgott',
+                'type': 'ultimate',
+                'tier': 'ultimate',
+                'description': '+30 Max HP, +60% Lebensentzug, Alle Angriffe verursachen Blutung (10/Runde)',
+                'cost': 5,
+                'requires': 'blood_nova',
+                'requires_any': ['crimson_pact'],
+                'effect': {'max_health': 30, 'lifesteal_percent': 0.60, 'auto_bleed_damage': 10, 'auto_bleed_duration': 3}
+            }
+        }
+    },
+    
+    # ==========================================================================
+    # ELEMENTALIST PATH - Master of elemental forces
+    # Specializations: Pyromancer (fire) vs Cryomancer (ice) vs Stormcaller (lightning)
+    # ==========================================================================
+    'elementalist': {
+        'name': 'Elementarist',
+        'emoji': '🌪️',
+        'description': 'Meister der elementaren Kräfte',
+        'specializations': ['pyromancer', 'cryomancer', 'stormcaller'],
+        'skills': {
+            # === TIER 1: Foundation ===
+            'elemental_attunement': {
+                'name': 'Elementare Einstimmung',
+                'type': 'stat',
+                'tier': 'tier1',
+                'description': '+5 Stärke, +5 Geschwindigkeit',
+                'cost': 1,
+                'requires': None,
+                'effect': {'strength': 5, 'speed': 5}
+            },
+            'elemental_resistance': {
+                'name': 'Elementarer Widerstand',
+                'type': 'passive',
+                'tier': 'tier1',
+                'description': '+10% Resistenz gegen elementaren Schaden',
+                'cost': 1,
+                'requires': None,
+                'effect': {'elemental_resistance': 0.10}
+            },
+            'mana_well': {
+                'name': 'Manaquelle',
+                'type': 'stat',
+                'tier': 'tier1',
+                'description': '+15 Max HP',
+                'cost': 1,
+                'requires': None,
+                'effect': {'max_health': 15}
+            },
+            
+            # === TIER 2: Core Elements ===
+            'flame_burst': {
+                'name': 'Flammenstoß',
+                'type': 'skill',
+                'tier': 'tier2',
+                'description': '120% Feuerschaden',
+                'cost': 2,
+                'requires': 'elemental_attunement',
+                'effect': {'damage_multiplier': 1.2, 'element': 'fire', 'cooldown': 2}
+            },
+            'ice_spike': {
+                'name': 'Eisspitze',
+                'type': 'skill',
+                'tier': 'tier2',
+                'description': '100% Eisschaden + 20% Verlangsamung',
+                'cost': 2,
+                'requires': 'elemental_attunement',
+                'effect': {'damage_multiplier': 1.0, 'element': 'ice', 'slow_chance': 0.20, 'cooldown': 2}
+            },
+            'lightning_bolt': {
+                'name': 'Blitzschlag',
+                'type': 'skill',
+                'tier': 'tier2',
+                'description': '110% Blitzschaden',
+                'cost': 2,
+                'requires': 'elemental_attunement',
+                'effect': {'damage_multiplier': 1.1, 'element': 'lightning', 'cooldown': 2}
+            },
+            'elemental_shield': {
+                'name': 'Elementarschild',
+                'type': 'skill',
+                'tier': 'tier2',
+                'description': 'Absorbiert 35 Schaden',
+                'cost': 2,
+                'requires': 'elemental_resistance',
+                'effect': {'absorb_damage': 35, 'cooldown': 4}
+            },
+            
+            # === TIER 3: Pyromancer Branch (Fire) ===
+            'inferno': {
+                'name': 'Inferno',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'pyromancer',
+                'description': '180% Feuerschaden + Brennen (8/Runde, 3 Runden)',
+                'cost': 3,
+                'requires': 'flame_burst',
+                'effect': {'damage_multiplier': 1.8, 'element': 'fire', 'burn_damage': 8, 'burn_duration': 3, 'cooldown': 3}
+            },
+            'combustion': {
+                'name': 'Verbrennung',
+                'type': 'passive',
+                'tier': 'tier3',
+                'branch': 'pyromancer',
+                'description': '+20% Feuerschaden',
+                'cost': 3,
+                'requires': 'flame_burst',
+                'effect': {'fire_damage_bonus': 0.20}
+            },
+            'living_bomb': {
+                'name': 'Lebende Bombe',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'pyromancer',
+                'description': '100% Schaden sofort, 150% Schaden nach 2 Runden',
+                'cost': 3,
+                'requires': 'inferno',
+                'effect': {'damage_multiplier': 1.0, 'delayed_damage_multiplier': 1.5, 'delay': 2, 'cooldown': 4}
+            },
+            'pyromaniac': {
+                'name': 'Pyromane',
+                'type': 'passive',
+                'tier': 'tier3',
+                'branch': 'pyromancer',
+                'description': 'Brennende Gegner nehmen +30% Schaden',
+                'cost': 3,
+                'requires': 'combustion',
+                'effect': {'burn_damage_amplify': 0.30}
+            },
+            
+            # === TIER 3: Cryomancer Branch (Ice) ===
+            'frost_nova': {
+                'name': 'Frostnova',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'cryomancer',
+                'description': '140% Eisschaden + 40% Chance einzufrieren',
+                'cost': 3,
+                'requires': 'ice_spike',
+                'effect': {'damage_multiplier': 1.4, 'element': 'ice', 'freeze_chance': 0.40, 'cooldown': 3}
+            },
+            'permafrost': {
+                'name': 'Permafrost',
+                'type': 'passive',
+                'tier': 'tier3',
+                'branch': 'cryomancer',
+                'description': '+20% Eisschaden, +5 Verteidigung',
+                'cost': 3,
+                'requires': 'ice_spike',
+                'effect': {'ice_damage_bonus': 0.20, 'defense': 5}
+            },
+            'shatter': {
+                'name': 'Zerschmettern',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'cryomancer',
+                'description': '250% Schaden gegen eingefrorene Gegner',
+                'cost': 3,
+                'requires': 'frost_nova',
+                'effect': {'damage_multiplier': 2.5, 'requires_frozen': True, 'cooldown': 3}
+            },
+            'ice_armor': {
+                'name': 'Eisrüstung',
+                'type': 'passive',
+                'tier': 'tier3',
+                'branch': 'cryomancer',
+                'description': '+10 Verteidigung, Angreifer werden 20% verlangsamt',
+                'cost': 3,
+                'requires': 'permafrost',
+                'effect': {'defense': 10, 'attacker_slow_percent': 0.20}
+            },
+            
+            # === TIER 3: Stormcaller Branch (Lightning) ===
+            'thunderstorm': {
+                'name': 'Gewittersturm',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'stormcaller',
+                'description': '160% Blitzschaden + 25% Chance zu betäuben',
+                'cost': 3,
+                'requires': 'lightning_bolt',
+                'effect': {'damage_multiplier': 1.6, 'element': 'lightning', 'stun_chance': 0.25, 'cooldown': 3}
+            },
+            'overcharge': {
+                'name': 'Überladung',
+                'type': 'passive',
+                'tier': 'tier3',
+                'branch': 'stormcaller',
+                'description': '+20% Blitzschaden, +5 Geschwindigkeit',
+                'cost': 3,
+                'requires': 'lightning_bolt',
+                'effect': {'lightning_damage_bonus': 0.20, 'speed': 5}
+            },
+            'ball_lightning': {
+                'name': 'Kugelblitz',
+                'type': 'skill',
+                'tier': 'tier3',
+                'branch': 'stormcaller',
+                'description': '100% Schaden pro Runde für 3 Runden',
+                'cost': 3,
+                'requires': 'thunderstorm',
+                'effect': {'damage_per_turn_multiplier': 1.0, 'duration': 3, 'cooldown': 4}
+            },
+            'static_field': {
+                'name': 'Statisches Feld',
+                'type': 'passive',
+                'tier': 'tier3',
+                'branch': 'stormcaller',
+                'description': 'Jeder Angriff hat 15% Chance auf zusätzlichen Blitzschaden',
+                'cost': 3,
+                'requires': 'overcharge',
+                'effect': {'lightning_proc_chance': 0.15, 'lightning_proc_damage': 20}
+            },
+            
+            # === TIER 4: Advanced Skills ===
+            'meteor': {
+                'name': 'Meteor',
+                'type': 'skill',
+                'tier': 'tier4',
+                'branch': 'pyromancer',
+                'description': '300% Feuerschaden + massives Brennen',
+                'cost': 4,
+                'requires': 'living_bomb',
+                'effect': {'damage_multiplier': 3.0, 'element': 'fire', 'burn_damage': 15, 'burn_duration': 4, 'cooldown': 5}
+            },
+            'ice_age': {
+                'name': 'Eiszeit',
+                'type': 'skill',
+                'tier': 'tier4',
+                'branch': 'cryomancer',
+                'description': '200% Eisschaden, friert für 2 Runden ein',
+                'cost': 4,
+                'requires': 'shatter',
+                'effect': {'damage_multiplier': 2.0, 'element': 'ice', 'freeze_duration': 2, 'cooldown': 5}
+            },
+            'lightning_storm': {
+                'name': 'Blitzsturm',
+                'type': 'skill',
+                'tier': 'tier4',
+                'branch': 'stormcaller',
+                'description': '250% Blitzschaden + 50% Betäubungschance',
+                'cost': 4,
+                'requires': 'ball_lightning',
+                'effect': {'damage_multiplier': 2.5, 'element': 'lightning', 'stun_chance': 0.50, 'cooldown': 5}
+            },
+            'elemental_mastery': {
+                'name': 'Elementarmeisterschaft',
+                'type': 'passive',
+                'tier': 'tier4',
+                'description': '+15% zu allen elementaren Schadensboni',
+                'cost': 4,
+                'requires': 'elemental_shield',
+                'effect': {'fire_damage_bonus': 0.15, 'ice_damage_bonus': 0.15, 'lightning_damage_bonus': 0.15}
+            },
+            
+            # === ULTIMATE ===
+            'phoenix_form': {
+                'name': 'Phönixgestalt',
+                'type': 'ultimate',
+                'tier': 'ultimate',
+                'description': '+50% Feuerschaden, Brennen heilt dich, Bei Tod: Wiedergeburt mit 50% HP (einmal)',
+                'cost': 5,
+                'requires': 'meteor',
+                'requires_any': ['pyromaniac'],
+                'effect': {'fire_damage_bonus': 0.50, 'burn_heals': True, 'rebirth_percent': 0.50, 'rebirth_uses': 1}
+            },
+            'frost_lich': {
+                'name': 'Frostlich',
+                'type': 'ultimate',
+                'tier': 'ultimate',
+                'description': '+50% Eisschaden, +20 Verteidigung, Eingefrorene Gegner nehmen 50% mehr Schaden',
+                'cost': 5,
+                'requires': 'ice_age',
+                'requires_any': ['ice_armor'],
+                'effect': {'ice_damage_bonus': 0.50, 'defense': 20, 'frozen_damage_amplify': 0.50}
+            },
+            'storm_avatar': {
+                'name': 'Sturmavatar',
+                'type': 'ultimate',
+                'tier': 'ultimate',
+                'description': '+50% Blitzschaden, +15 Geschwindigkeit, 30% Chance auf Kettenblitz bei jedem Angriff',
+                'cost': 5,
+                'requires': 'lightning_storm',
+                'requires_any': ['static_field'],
+                'effect': {'lightning_damage_bonus': 0.50, 'speed': 15, 'chain_lightning_chance': 0.30, 'chain_lightning_damage': 30}
             }
         }
     }
