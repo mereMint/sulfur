@@ -2124,6 +2124,9 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
             if weapon:
                 weapon_damage_bonus = weapon.get('damage', 0)
         
+        # Get skill tree stat bonuses
+        skill_tree_bonuses = await calculate_skill_tree_bonuses(db_helpers, user_id)
+        
         # Initialize combat state if not provided
         if combat_state is None:
             combat_state = {
@@ -2147,18 +2150,19 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
             'combat_state': combat_state,  # Return updated combat state
             'monster_ability_used': None,
             'status_applied': [],
-            'weapon_bonus': weapon_damage_bonus  # Track weapon bonus for display
+            'weapon_bonus': weapon_damage_bonus,  # Track weapon bonus for display
+            'skill_tree_bonuses': skill_tree_bonuses  # Track skill tree bonuses
         }
         
-        # Calculate effective strength including weapon bonus
-        effective_strength = player['strength'] + weapon_damage_bonus
+        # Calculate effective strength including weapon bonus AND skill tree bonuses
+        effective_strength = player['strength'] + weapon_damage_bonus + skill_tree_bonuses.get('strength', 0)
         
-        # Get effective stats with status modifiers (including weapon bonus)
+        # Get effective stats with status modifiers (including weapon bonus and skill tree bonuses)
         player_stats = get_effective_stats({
             'strength': effective_strength,
-            'defense': player['defense'],
-            'speed': player['speed'],
-            'dexterity': player.get('dexterity', DEFAULT_DEXTERITY)
+            'defense': player['defense'] + skill_tree_bonuses.get('defense', 0),
+            'speed': player['speed'] + skill_tree_bonuses.get('speed', 0),
+            'dexterity': player.get('dexterity', DEFAULT_DEXTERITY) + skill_tree_bonuses.get('dexterity', 0)
         }, combat_state.get('player_effects', {}))
         
         monster_stats = get_effective_stats({
@@ -3601,6 +3605,71 @@ async def get_unlocked_skills(db_helpers, user_id: int):
     except Exception as e:
         logger.error(f"Error getting unlocked skills: {e}", exc_info=True)
         return {}
+
+
+async def calculate_skill_tree_bonuses(db_helpers, user_id: int) -> dict:
+    """
+    Calculate total stat bonuses from unlocked skill tree skills.
+    
+    Only 'stat' type skills provide permanent bonuses.
+    'skill' type skills are active abilities used in combat.
+    
+    Args:
+        db_helpers: Database helpers module
+        user_id: The user ID to calculate bonuses for
+    
+    Returns:
+        dict: Stat bonuses with keys 'strength', 'dexterity', 'defense', 'speed', 'max_health'
+              All values are integers.
+    """
+    bonuses = {
+        'strength': 0,
+        'dexterity': 0,
+        'defense': 0,
+        'speed': 0,
+        'max_health': 0
+    }
+    
+    try:
+        unlocked = await get_unlocked_skills(db_helpers, user_id)
+        
+        if not unlocked:
+            return bonuses
+        
+        # Iterate through all unlocked skills and sum up stat bonuses
+        for path_key, skill_keys in unlocked.items():
+            if path_key not in SKILL_TREE:
+                continue
+            
+            path_skills = SKILL_TREE[path_key]['skills']
+            
+            for skill_key in skill_keys:
+                if skill_key not in path_skills:
+                    continue
+                
+                skill = path_skills[skill_key]
+                
+                # Only process 'stat' type skills for permanent bonuses
+                if skill.get('type') != 'stat':
+                    continue
+                
+                effect = skill.get('effect', {})
+                
+                # Add each stat bonus (ensure integer conversion)
+                for stat_name, bonus_value in effect.items():
+                    if stat_name in bonuses:
+                        # Ensure bonus_value is an integer
+                        try:
+                            bonuses[stat_name] += int(bonus_value)
+                        except (ValueError, TypeError):
+                            logger.warning(f"Invalid bonus value for {stat_name}: {bonus_value}")
+        
+        logger.debug(f"Calculated skill tree bonuses for user {user_id}: {bonuses}")
+        return bonuses
+        
+    except Exception as e:
+        logger.error(f"Error calculating skill tree bonuses: {e}", exc_info=True)
+        return bonuses
 
 
 async def unlock_skill(db_helpers, user_id: int, skill_path: str, skill_key: str):

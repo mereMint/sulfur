@@ -3054,6 +3054,9 @@ async def rpg_command(interaction: discord.Interaction):
             await interaction.followup.send("❌ Fehler beim Laden deines Profils.")
             return
         
+        # Get skill tree bonuses
+        skill_tree_bonuses = await rpg_system.calculate_skill_tree_bonuses(db_helpers, user_id)
+        
         # Create profile embed
         embed = discord.Embed(
             title=f"⚔️ RPG Profil - {interaction.user.display_name}",
@@ -3062,14 +3065,22 @@ async def rpg_command(interaction: discord.Interaction):
         )
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
         
+        # Format stats with bonus display if applicable
+        def format_stat(base, bonus, emoji, name):
+            if bonus > 0:
+                return f"{emoji} {name}: {base} (+{bonus}) = **{base + bonus}**"
+            return f"{emoji} {name}: {base}"
+        
         # Stats
+        stats_text = f"❤️ HP: {player['health']}/{player['max_health']}\n"
+        stats_text += format_stat(player['strength'], skill_tree_bonuses.get('strength', 0), "⚔️", "Stärke") + "\n"
+        stats_text += format_stat(player['dexterity'], skill_tree_bonuses.get('dexterity', 0), "🎯", "Geschick") + "\n"
+        stats_text += format_stat(player['defense'], skill_tree_bonuses.get('defense', 0), "🛡️", "Verteidigung") + "\n"
+        stats_text += format_stat(player['speed'], skill_tree_bonuses.get('speed', 0), "⚡", "Geschwindigkeit")
+        
         embed.add_field(
             name="📊 Attribute",
-            value=f"❤️ HP: {player['health']}/{player['max_health']}\n"
-                  f"⚔️ Stärke: {player['strength']}\n"
-                  f"🎯 Geschick: {player['dexterity']}\n"
-                  f"🛡️ Verteidigung: {player['defense']}\n"
-                  f"⚡ Geschwindigkeit: {player['speed']}",
+            value=stats_text,
             inline=True
         )
         
@@ -3206,9 +3217,9 @@ class RPGMenuView(discord.ui.View):
                 
                 embed.set_footer(text="Klicke auf den Button um die Belohnungen zu erhalten!")
                 
-                # Create event view
+                # Create event view and update the original message
                 view = RPGEventView(self.user_id, event)
-                await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+                await interaction.edit_original_response(embed=embed, view=view)
             
         except Exception as e:
             logger.error(f"Error in adventure button: {e}", exc_info=True)
@@ -3413,14 +3424,39 @@ async def adventure_command(interaction: discord.Interaction):
             return
         
         if not result:
-            await interaction.followup.send("❌ Kein Monster gefunden.")
+            await interaction.followup.send("❌ Keine Begegnung gefunden.")
             return
         
-        # For now, only handle combat encounters (monster)
-        if encounter_type != 'combat':
-            await interaction.followup.send("❌ Nur Kampf-Begegnungen werden derzeit unterstützt.")
+        # Handle non-combat events
+        if encounter_type == 'event':
+            event = result
+            # Create event embed
+            embed = discord.Embed(
+                title=event['title'],
+                description=event['description'],
+                color=discord.Color.blue()
+            )
+            
+            # Show rewards
+            rewards = []
+            if 'gold_reward' in event:
+                rewards.append(f"💰 {event['gold_reward']} Gold")
+            if 'xp_reward' in event:
+                rewards.append(f"⭐ {event['xp_reward']} XP")
+            if 'heal_amount' in event and event['heal_amount'] > 0:
+                rewards.append(f"❤️ +{event['heal_amount']} HP")
+            
+            if rewards:
+                embed.add_field(name="🎁 Belohnungen", value="\n".join(rewards), inline=False)
+            
+            embed.set_footer(text="Klicke auf den Button um die Belohnungen zu erhalten!")
+            
+            # Create event view
+            view = RPGEventView(user_id, event)
+            await interaction.followup.send(embed=embed, view=view)
             return
         
+        # Handle combat encounters
         monster = result
         
         # Initialize default monsters if needed
@@ -8705,9 +8741,9 @@ class MinesView(discord.ui.View):
     def _build_grid(self):
         """Builds the button grid for the mines game."""
         # Discord allows max 5 rows with 5 buttons each (25 total)
-        # With share button, we need to accommodate the grid + cashout + share
+        # Limit grid to 4x4 (16 buttons) to leave room for cashout button
         
-        actual_grid_size = min(self.game.grid_size, 5)
+        actual_grid_size = min(self.game.grid_size, 4)
         
         # Add all grid cells as buttons
         for row in range(actual_grid_size):
@@ -8721,13 +8757,12 @@ class MinesView(discord.ui.View):
                 button.callback = self._create_callback(row, col)
                 self.add_item(button)
         
-        # Add cashout button as a grid cell that looks like it was already tapped (showing a mine)
-        # This will be in the last row as a separate control button
+        # Add cashout button on the row after the grid
         cashout_button = discord.ui.Button(
             label="💎 Cash Out",
             style=discord.ButtonStyle.success,
             custom_id="cashout",
-            row=4  # Last row
+            row=actual_grid_size
         )
         cashout_button.callback = self._cashout_callback
         self.add_item(cashout_button)
@@ -11598,8 +11633,9 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
                 await interaction.followup.send("Du hast alle Versuche aufgebraucht!", ephemeral=True)
                 return
             
-            # Calculate similarity
-            similarity = word_find.calculate_word_similarity(guess, correct_word)
+            # Calculate similarity with theme context for better semantic matching
+            theme_id = self.word_data.get('theme_id')
+            similarity = word_find.calculate_word_similarity(guess, correct_word, use_context=True, theme_id=theme_id, language=user_lang)
             
             # Record attempt with game type
             record_success = await word_find.record_attempt(db_helpers, self.user_id, word_id, guess, similarity, attempt_num, self.game_type)

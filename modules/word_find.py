@@ -1,6 +1,7 @@
 """
 Sulfur Bot - Word Find Game Module
 Daily word guessing game with proximity-based hints.
+Words are now organized by themes for better semantic relationships.
 """
 
 import discord
@@ -25,9 +26,90 @@ def load_word_list_dict(filename):
         return {}
 
 
-# Load language-specific word lists
+def load_themed_word_lists(filename):
+    """Load themed word lists from JSON file."""
+    try:
+        filepath = os.path.join('config', filename)
+        with open(filepath, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            return data.get('themes', [])
+    except Exception as e:
+        logger.error(f"Error loading themed word list from {filename}: {e}")
+        return []
+
+
+# Load themed word lists (new context-based system)
+THEMED_WORDS_DE = load_themed_word_lists('word_find_themes_de.json')
+THEMED_WORDS_EN = load_themed_word_lists('word_find_themes_en.json')
+
+# Create lookup dictionaries for themes
+THEMES_BY_ID_DE = {theme['id']: theme for theme in THEMED_WORDS_DE}
+THEMES_BY_ID_EN = {theme['id']: theme for theme in THEMED_WORDS_EN}
+
+# Also load old word lists for backward compatibility
 WORD_LISTS_DE = load_word_list_dict('word_find_words_de.json')
 WORD_LISTS_EN = load_word_list_dict('word_find_words_en.json')
+
+# Fallback hardcoded themes in case files don't exist
+if not THEMED_WORDS_DE:
+    logger.warning("Using fallback German themed word lists")
+    THEMED_WORDS_DE = [
+        {
+            "id": "ozean",
+            "name": "Ozean & Meer",
+            "difficulty": "easy",
+            "words": ["meer", "welle", "strand", "fisch", "schiff", "ozean", "wasser", "boot", "sand", "muschel"]
+        },
+        {
+            "id": "wald",
+            "name": "Wald & Natur",
+            "difficulty": "easy",
+            "words": ["wald", "baum", "blatt", "pilz", "fuchs", "reh", "eiche", "moos", "vogel", "nest"]
+        },
+        {
+            "id": "technik",
+            "name": "Technologie",
+            "difficulty": "medium",
+            "words": ["computer", "internet", "tastatur", "maus", "bildschirm", "handy", "laptop", "software", "app", "email"]
+        },
+        {
+            "id": "wissenschaft",
+            "name": "Wissenschaft",
+            "difficulty": "hard",
+            "words": ["wissenschaft", "forschung", "experiment", "labor", "theorie", "hypothese", "beweis", "analyse", "daten", "studie"]
+        }
+    ]
+    THEMES_BY_ID_DE = {theme['id']: theme for theme in THEMED_WORDS_DE}
+
+if not THEMED_WORDS_EN:
+    logger.warning("Using fallback English themed word lists")
+    THEMED_WORDS_EN = [
+        {
+            "id": "ocean",
+            "name": "Ocean & Sea",
+            "difficulty": "easy",
+            "words": ["sea", "wave", "beach", "fish", "ship", "ocean", "water", "boat", "sand", "shell"]
+        },
+        {
+            "id": "forest",
+            "name": "Forest & Nature",
+            "difficulty": "easy",
+            "words": ["forest", "tree", "leaf", "mushroom", "fox", "deer", "oak", "moss", "bird", "nest"]
+        },
+        {
+            "id": "technology",
+            "name": "Technology",
+            "difficulty": "medium",
+            "words": ["computer", "internet", "keyboard", "mouse", "screen", "phone", "laptop", "software", "app", "email"]
+        },
+        {
+            "id": "science",
+            "name": "Science",
+            "difficulty": "hard",
+            "words": ["science", "research", "experiment", "laboratory", "theory", "hypothesis", "proof", "analysis", "data", "study"]
+        }
+    ]
+    THEMES_BY_ID_EN = {theme['id']: theme for theme in THEMED_WORDS_EN}
 
 # Fallback hardcoded words in case files don't exist (for backward compatibility)
 if not WORD_LISTS_DE:
@@ -67,7 +149,12 @@ if not WORD_LISTS_EN:
 # Default to German for backward compatibility
 WORD_LISTS = WORD_LISTS_DE
 
-logger.info(f"Loaded Word Find word lists: DE={len(WORD_LISTS_DE.get('easy', []))+len(WORD_LISTS_DE.get('medium', []))+len(WORD_LISTS_DE.get('hard', []))} words, EN={len(WORD_LISTS_EN.get('easy', []))+len(WORD_LISTS_EN.get('medium', []))+len(WORD_LISTS_EN.get('hard', []))} words")
+# Log loaded themes count
+de_theme_count = len(THEMED_WORDS_DE)
+en_theme_count = len(THEMED_WORDS_EN)
+de_word_count = sum(len(t.get('words', [])) for t in THEMED_WORDS_DE)
+en_word_count = sum(len(t.get('words', [])) for t in THEMED_WORDS_EN)
+logger.info(f"Loaded Word Find themed lists: DE={de_theme_count} themes ({de_word_count} words), EN={en_theme_count} themes ({en_word_count} words)")
 
 
 def get_word_lists(language='de'):
@@ -97,10 +184,78 @@ def get_word_lists(language='de'):
     return word_lists
 
 
+def get_themed_word_lists(language='de'):
+    """Get themed word lists for specified language."""
+    if language == 'en':
+        return THEMED_WORDS_EN
+    else:
+        return THEMED_WORDS_DE
+
+
+def get_theme_by_id(theme_id: str, language='de'):
+    """Get a specific theme by its ID."""
+    if language == 'en':
+        return THEMES_BY_ID_EN.get(theme_id)
+    else:
+        return THEMES_BY_ID_DE.get(theme_id)
+
+
+def get_themes_by_difficulty(difficulty: str, language='de'):
+    """Get all themes of a given difficulty level."""
+    themes = get_themed_word_lists(language)
+    return [t for t in themes if t.get('difficulty') == difficulty]
+
+
+def get_random_theme(difficulty: str = None, language='de'):
+    """
+    Get a random theme, optionally filtered by difficulty.
+    
+    Args:
+        difficulty: 'easy', 'medium', 'hard', or None for any
+        language: 'de' or 'en'
+    
+    Returns:
+        A theme dict with id, name, difficulty, and words
+    """
+    themes = get_themed_word_lists(language)
+    
+    if difficulty:
+        themes = [t for t in themes if t.get('difficulty') == difficulty]
+    
+    if not themes:
+        # Fallback to all themes if no themes match difficulty
+        themes = get_themed_word_lists(language)
+    
+    if not themes:
+        # Ultimate fallback
+        logger.error(f"No themes available for language {language}")
+        return None
+    
+    return random.choice(themes)
+
+
+def get_theme_words(theme_id: str, language='de') -> list:
+    """Get all words for a specific theme."""
+    theme = get_theme_by_id(theme_id, language)
+    if theme:
+        return theme.get('words', [])
+    return []
+
+
+def get_all_themed_words(language='de') -> set:
+    """Get all words from all themes as a set for validation."""
+    themes = get_themed_word_lists(language)
+    all_words = set()
+    for theme in themes:
+        for word in theme.get('words', []):
+            all_words.add(word.lower())
+    return all_words
+
+
 def get_valid_word_pool(language='de'):
     """
     Get a comprehensive set of valid words for guess validation.
-    Combines all difficulty levels into a single set for validation.
+    Combines all themed words and old difficulty levels into a single set for validation.
     
     Args:
         language: 'de' or 'en'
@@ -108,15 +263,14 @@ def get_valid_word_pool(language='de'):
     Returns:
         Set of valid words (lowercase)
     """
+    # Start with all themed words (primary source)
+    valid_words = get_all_themed_words(language)
+    
+    # Also add words from old difficulty-based lists for backward compatibility
     word_lists = get_word_lists(language)
-    
-    # Combine all difficulty levels
-    all_words = []
     for difficulty in ['easy', 'medium', 'hard']:
-        all_words.extend(word_lists.get(difficulty, []))
-    
-    # Convert to lowercase set for fast lookup
-    valid_words = set(word.lower() for word in all_words)
+        for word in word_lists.get(difficulty, []):
+            valid_words.add(word.lower())
     
     # Try to enhance with word_service fallback words for more validation options
     try:
@@ -238,12 +392,28 @@ async def initialize_word_find_table(db_helpers):
                     word VARCHAR(100) NOT NULL,
                     difficulty VARCHAR(20) NOT NULL,
                     language VARCHAR(2) DEFAULT 'de',
+                    theme_id VARCHAR(50) DEFAULT NULL,
                     date DATE NOT NULL,
                     UNIQUE KEY unique_date_lang (date, language),
                     INDEX idx_date (date),
-                    INDEX idx_lang (language)
+                    INDEX idx_lang (language),
+                    INDEX idx_theme (theme_id)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
+            
+            # Add theme_id column to existing tables if it doesn't exist
+            cursor.execute("""
+                SELECT COUNT(*) as count
+                FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = 'word_find_daily' 
+                AND COLUMN_NAME = 'theme_id'
+            """)
+            result = cursor.fetchone()
+            if result and result[0] == 0:
+                logger.info("Adding theme_id column to word_find_daily table...")
+                cursor.execute("ALTER TABLE word_find_daily ADD COLUMN theme_id VARCHAR(50) DEFAULT NULL")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_theme ON word_find_daily (theme_id)")
             
             # Table for premium games (separate from daily)
             cursor.execute("""
@@ -253,12 +423,28 @@ async def initialize_word_find_table(db_helpers):
                     word VARCHAR(100) NOT NULL,
                     difficulty VARCHAR(20) NOT NULL,
                     language VARCHAR(2) DEFAULT 'de',
+                    theme_id VARCHAR(50) DEFAULT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     completed BOOLEAN DEFAULT FALSE,
                     won BOOLEAN DEFAULT FALSE,
-                    INDEX idx_user_created (user_id, created_at)
+                    INDEX idx_user_created (user_id, created_at),
+                    INDEX idx_theme (theme_id)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
+            
+            # Add theme_id column to premium games if it doesn't exist
+            cursor.execute("""
+                SELECT COUNT(*) as count
+                FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = 'word_find_premium_games' 
+                AND COLUMN_NAME = 'theme_id'
+            """)
+            result = cursor.fetchone()
+            if result and result[0] == 0:
+                logger.info("Adding theme_id column to word_find_premium_games table...")
+                cursor.execute("ALTER TABLE word_find_premium_games ADD COLUMN theme_id VARCHAR(50) DEFAULT NULL")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_theme ON word_find_premium_games (theme_id)")
             
             # Table for user attempts
             # Note: No foreign key constraint on word_id because it references different tables
@@ -314,15 +500,17 @@ async def initialize_word_find_table(db_helpers):
         logger.error(f"Error initializing word find tables: {e}", exc_info=True)
 
 
-def calculate_word_similarity(word1: str, word2: str, use_context: bool = True) -> float:
+def calculate_word_similarity(word1: str, word2: str, use_context: bool = True, theme_id: str = None, language: str = 'de') -> float:
     """
     Calculate similarity between two words using multiple metrics.
     Returns a score from 0 to 100.
     
     Args:
-        word1: First word to compare
-        word2: Second word to compare
+        word1: First word to compare (the guess)
+        word2: Second word to compare (the target)
         use_context: If True, adds semantic/contextual similarity
+        theme_id: Optional theme ID for enhanced context-based scoring
+        language: Language code ('de' or 'en')
     """
     word1 = word1.lower().strip()
     word2 = word2.lower().strip()
@@ -333,16 +521,16 @@ def calculate_word_similarity(word1: str, word2: str, use_context: bool = True) 
     # Length similarity
     max_len = max(len(word1), len(word2))
     min_len = min(len(word1), len(word2))
-    length_score = (min_len / max_len) * 15 if max_len > 0 else 0
+    length_score = (min_len / max_len) * 10 if max_len > 0 else 0
     
     # Character overlap
     common_chars = sum(min(word1.count(c), word2.count(c)) for c in set(word1 + word2))
-    char_score = (common_chars / max(len(word1), len(word2))) * 15
+    char_score = (common_chars / max(len(word1), len(word2))) * 10
     
     # Levenshtein distance (simplified)
     distance = levenshtein_distance(word1, word2)
     max_distance = max(len(word1), len(word2))
-    distance_score = ((max_distance - distance) / max_distance) * 20 if max_distance > 0 else 0
+    distance_score = ((max_distance - distance) / max_distance) * 15 if max_distance > 0 else 0
     
     # Common prefix/suffix
     prefix_len = 0
@@ -359,19 +547,79 @@ def calculate_word_similarity(word1: str, word2: str, use_context: bool = True) 
         else:
             break
     
-    affix_score = ((prefix_len + suffix_len) / max_len) * 10 if max_len > 0 else 0
+    affix_score = ((prefix_len + suffix_len) / max_len) * 5 if max_len > 0 else 0
     
-    # Base score from syntactic similarity
+    # Base score from syntactic similarity (up to ~40 points)
     base_score = length_score + char_score + distance_score + affix_score
     
-    # Context-aware semantic similarity (up to 40 points bonus)
+    # Context-aware semantic similarity (up to 60 points bonus for themed words)
+    context_score = 0.0
     if use_context:
-        context_score = calculate_semantic_similarity(word1, word2)
-        total_score = base_score + context_score
-    else:
-        total_score = base_score
+        # First, check if the guess is in the same theme as the target (big bonus!)
+        if theme_id:
+            context_score = calculate_theme_similarity(word1, word2, theme_id, language)
+        
+        # If no theme match or low theme score, fall back to general semantic similarity
+        if context_score < 20:
+            general_context = calculate_semantic_similarity(word1, word2)
+            context_score = max(context_score, general_context)
     
-    return min(100.0, total_score)
+    total_score = base_score + context_score
+    
+    return min(99.9, total_score)  # Cap at 99.9, only exact match gets 100
+
+
+def calculate_theme_similarity(word1: str, word2: str, theme_id: str, language: str = 'de') -> float:
+    """
+    Calculate similarity between two words based on theme membership.
+    Words in the same theme get a high similarity bonus.
+    
+    Args:
+        word1: First word (the guess)
+        word2: Second word (the target)
+        theme_id: The theme ID to check
+        language: Language code
+    
+    Returns:
+        A score from 0 to 60 based on theme relationship
+    """
+    theme = get_theme_by_id(theme_id, language)
+    if not theme:
+        return 0.0
+    
+    theme_words = set(w.lower() for w in theme.get('words', []))
+    word1_lower = word1.lower()
+    word2_lower = word2.lower()
+    
+    # Both words are in the same theme - give a big bonus!
+    if word1_lower in theme_words and word2_lower in theme_words:
+        # Calculate position-based bonus (words closer together in the list are more related)
+        words_list = [w.lower() for w in theme.get('words', [])]
+        try:
+            pos1 = words_list.index(word1_lower)
+            pos2 = words_list.index(word2_lower)
+            distance = abs(pos1 - pos2)
+            max_distance = len(words_list) - 1
+            
+            # Base theme bonus for being in the same theme
+            theme_bonus = 40.0
+            
+            # Additional bonus based on position proximity (up to 20 more points)
+            if max_distance > 0:
+                position_bonus = ((max_distance - distance) / max_distance) * 20
+            else:
+                position_bonus = 20.0
+            
+            return theme_bonus + position_bonus
+        except ValueError:
+            # Word not found in list, but is in theme set
+            return 40.0
+    
+    # Guess is in the theme but target might be too (fallback)
+    if word1_lower in theme_words:
+        return 25.0  # Good guess, in the right theme
+    
+    return 0.0
 
 
 def calculate_semantic_similarity(word1: str, word2: str) -> float:
@@ -474,6 +722,7 @@ def levenshtein_distance(s1: str, s2: str) -> int:
 def _generate_fallback_word(language='de', difficulty=None):
     """
     Generate a fallback word using date-based seed for consistency.
+    Uses themed word lists for better context-based gameplay.
     Used when database is unavailable.
     
     Args:
@@ -481,7 +730,7 @@ def _generate_fallback_word(language='de', difficulty=None):
         difficulty: 'easy', 'medium', or 'hard' (auto-determined if None)
     
     Returns:
-        dict with word data or None
+        dict with word data including theme_id, or None
     """
     # Determine difficulty if not provided
     if difficulty is None:
@@ -493,24 +742,48 @@ def _generate_fallback_word(language='de', difficulty=None):
         else:
             difficulty = 'easy'
     
-    word_lists = get_word_lists(language)
-    if difficulty not in word_lists or not word_lists[difficulty]:
-        logger.error(f"No words available for difficulty {difficulty} in language {language}")
-        return None
-    
     # Use date-based seed for consistent daily words without database
     today = datetime.now(timezone.utc).date()
     seed = int(today.strftime('%Y%m%d'))
     random.seed(seed)
+    
+    # Try to get a themed word first (preferred)
+    theme = get_random_theme(difficulty, language)
+    
+    if theme and theme.get('words'):
+        word = random.choice(theme['words'])
+        theme_id = theme['id']
+        random.seed()  # Reset seed
+        
+        logger.info(f"Generated fallback Word Find word for {today} ({language}, {difficulty}, theme={theme_id}): {word}")
+        return {
+            'id': 0,
+            'word': word,
+            'difficulty': difficulty,
+            'language': language,
+            'theme_id': theme_id,
+            'theme_name': theme.get('name', '')
+        }
+    
+    # Fallback to old word lists if no themed words available
+    word_lists = get_word_lists(language)
+    if difficulty not in word_lists or not word_lists[difficulty]:
+        logger.error(f"No words available for difficulty {difficulty} in language {language}")
+        random.seed()  # Reset seed
+        return None
+    
     word = random.choice(word_lists[difficulty])
     random.seed()  # Reset seed
     
     logger.info(f"Generated fallback Word Find word for {today} ({language}, {difficulty}): {word}")
-    return {'id': 0, 'word': word, 'difficulty': difficulty, 'language': language}
+    return {'id': 0, 'word': word, 'difficulty': difficulty, 'language': language, 'theme_id': None}
 
 
 async def get_or_create_daily_word(db_helpers, language='de'):
-    """Get today's word or create a new one for the specified language."""
+    """
+    Get today's word or create a new one for the specified language.
+    Uses themed word lists for context-based gameplay.
+    """
     # Fallback: if database is not available, generate word from list
     if not db_helpers or not hasattr(db_helpers, 'db_pool') or not db_helpers.db_pool:
         logger.warning("Database pool not available for Word Find - using fallback mode")
@@ -536,35 +809,58 @@ async def get_or_create_daily_word(db_helpers, language='de'):
         
         # Check if today's word exists for this language
         cursor.execute("""
-            SELECT id, word, difficulty, language FROM word_find_daily
+            SELECT id, word, difficulty, language, theme_id FROM word_find_daily
             WHERE date = %s AND language = %s
         """, (today, language))
         result = cursor.fetchone()
         
         if result:
+            # Add theme_name if we have a theme_id
+            if result.get('theme_id'):
+                theme = get_theme_by_id(result['theme_id'], language)
+                if theme:
+                    result['theme_name'] = theme.get('name', '')
             logger.debug(f"Found existing Word Find word for {today} ({language}): {result['word']}")
             return result
         
-        # Use curated list to ensure consistency
+        # Generate new daily word using themed lists
         logger.info(f"Generating new daily word for Word Find ({language}, {difficulty})")
-        word_lists = get_word_lists(language)
-        if difficulty not in word_lists or not word_lists[difficulty]:
-            logger.error(f"No words available for difficulty {difficulty} in language {language}")
-            return None
         
-        # Select a random word from the curated list
-        word = random.choice(word_lists[difficulty])
+        # Get a random theme for this difficulty
+        theme = get_random_theme(difficulty, language)
         
+        if theme and theme.get('words'):
+            word = random.choice(theme['words'])
+            theme_id = theme['id']
+            theme_name = theme.get('name', '')
+        else:
+            # Fallback to old word lists if no themed words available
+            word_lists = get_word_lists(language)
+            if difficulty not in word_lists or not word_lists[difficulty]:
+                logger.error(f"No words available for difficulty {difficulty} in language {language}")
+                return None
+            word = random.choice(word_lists[difficulty])
+            theme_id = None
+            theme_name = None
+        
+        # Insert with theme_id
         cursor.execute("""
-            INSERT INTO word_find_daily (word, difficulty, language, date)
-            VALUES (%s, %s, %s, %s)
-        """, (word, difficulty, language, today))
+            INSERT INTO word_find_daily (word, difficulty, language, theme_id, date)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (word, difficulty, language, theme_id, today))
         
         conn.commit()
         word_id = cursor.lastrowid
         
-        logger.info(f"Created new Word Find word for {today} ({language}, {difficulty}): {word}")
-        return {'id': word_id, 'word': word, 'difficulty': difficulty, 'language': language}
+        logger.info(f"Created new Word Find word for {today} ({language}, {difficulty}, theme={theme_id}): {word}")
+        return {
+            'id': word_id,
+            'word': word,
+            'difficulty': difficulty,
+            'language': language,
+            'theme_id': theme_id,
+            'theme_name': theme_name
+        }
     except Exception as e:
         logger.error(f"Database error in get_or_create_daily_word: {e}", exc_info=True)
         try:
@@ -747,7 +1043,7 @@ async def get_user_stats(db_helpers, user_id: int):
 
 
 async def create_premium_game(db_helpers, user_id: int, language='de'):
-    """Create a new premium game for a user."""
+    """Create a new premium game for a user using themed words."""
     try:
         if not db_helpers.db_pool:
             return None
@@ -758,25 +1054,44 @@ async def create_premium_game(db_helpers, user_id: int, language='de'):
         
         cursor = conn.cursor(dictionary=True)
         try:
-            # Choose random difficulty and word from language-specific lists
+            # Choose random difficulty
             difficulty = random.choice(['easy', 'medium', 'hard'])
-            word_lists = get_word_lists(language)
-            if difficulty not in word_lists or not word_lists[difficulty]:
-                logger.error(f"No words available for difficulty {difficulty} in language {language}")
-                return None
             
-            word = random.choice(word_lists[difficulty])
+            # Get a random theme for this difficulty
+            theme = get_random_theme(difficulty, language)
+            
+            if theme and theme.get('words'):
+                word = random.choice(theme['words'])
+                theme_id = theme['id']
+                theme_name = theme.get('name', '')
+            else:
+                # Fallback to old word lists
+                word_lists = get_word_lists(language)
+                if difficulty not in word_lists or not word_lists[difficulty]:
+                    logger.error(f"No words available for difficulty {difficulty} in language {language}")
+                    return None
+                word = random.choice(word_lists[difficulty])
+                theme_id = None
+                theme_name = None
             
             cursor.execute("""
-                INSERT INTO word_find_premium_games (user_id, word, difficulty, language)
-                VALUES (%s, %s, %s, %s)
-            """, (user_id, word, difficulty, language))
+                INSERT INTO word_find_premium_games (user_id, word, difficulty, language, theme_id)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (user_id, word, difficulty, language, theme_id))
             
             conn.commit()
             game_id = cursor.lastrowid
             
-            logger.info(f"Created premium Word Find game {game_id} for user {user_id}: {word} ({language}, {difficulty})")
-            return {'id': game_id, 'word': word, 'difficulty': difficulty, 'language': language, 'type': 'premium'}
+            logger.info(f"Created premium Word Find game {game_id} for user {user_id}: {word} ({language}, {difficulty}, theme={theme_id})")
+            return {
+                'id': game_id,
+                'word': word,
+                'difficulty': difficulty,
+                'language': language,
+                'theme_id': theme_id,
+                'theme_name': theme_name,
+                'type': 'premium'
+            }
         finally:
             cursor.close()
             conn.close()
@@ -944,6 +1259,16 @@ def create_game_embed(word_data: dict, attempts: list, max_attempts: int, user_s
     flag, lang_name = _get_language_indicator(language)
     strings = _get_localized_strings(language)
     
+    # Get theme information from word_data if available
+    game_theme_id = word_data.get('theme_id') or theme_id
+    theme_name = word_data.get('theme_name', '')
+    
+    # If we have a theme_id but no name, try to get it
+    if game_theme_id and not theme_name:
+        theme = get_theme_by_id(game_theme_id, language)
+        if theme:
+            theme_name = theme.get('name', '')
+    
     # Import themes here to avoid circular import
     try:
         from modules import themes
@@ -962,11 +1287,23 @@ def create_game_embed(word_data: dict, attempts: list, max_attempts: int, user_s
     
     remaining_attempts = max_attempts - len(attempts)
     
+    # Build description with theme hint if available
+    description_lines = [
+        strings['guess_word'].format(max_attempts=max_attempts),
+        f"{strings['language']}: **{flag} {lang_name}** | {strings['difficulty']}: **{difficulty.upper()}**",
+        f"{strings['attempts']}: **{len(attempts)}/{max_attempts}** | {strings['remaining']}: **{remaining_attempts}** 🎯"
+    ]
+    
+    # Add theme hint - this is the key feature for context-based guessing!
+    if theme_name:
+        if language == 'en':
+            description_lines.append(f"\n💡 **Hint:** The word belongs to the theme **\"{theme_name}\"**")
+        else:
+            description_lines.append(f"\n💡 **Hinweis:** Das Wort gehört zum Thema **\"{theme_name}\"**")
+    
     embed = discord.Embed(
         title=title,
-        description=f"{strings['guess_word'].format(max_attempts=max_attempts)}\n"
-                   f"{strings['language']}: **{flag} {lang_name}** | {strings['difficulty']}: **{difficulty.upper()}**\n"
-                   f"{strings['attempts']}: **{len(attempts)}/{max_attempts}** | {strings['remaining']}: **{remaining_attempts}** 🎯",
+        description="\n".join(description_lines),
         color=color
     )
     

@@ -200,8 +200,8 @@
         "mines": {
           "min_bet": 10,
           "max_bet": 500,
-          "grid_size": 5,
-          "mine_count": 5
+          "grid_size": 4,
+          "mine_count": 4
         },
         "detective": {
           "reward_correct": 500,
