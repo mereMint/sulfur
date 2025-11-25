@@ -3065,12 +3065,6 @@ async def rpg_command(interaction: discord.Interaction):
         )
         embed.set_thumbnail(url=interaction.user.display_avatar.url)
         
-        # Calculate effective stats with skill tree bonuses
-        effective_strength = player['strength'] + skill_tree_bonuses.get('strength', 0)
-        effective_dexterity = player['dexterity'] + skill_tree_bonuses.get('dexterity', 0)
-        effective_defense = player['defense'] + skill_tree_bonuses.get('defense', 0)
-        effective_speed = player['speed'] + skill_tree_bonuses.get('speed', 0)
-        
         # Format stats with bonus display if applicable
         def format_stat(base, bonus, emoji, name):
             if bonus > 0:

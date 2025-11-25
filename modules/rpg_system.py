@@ -3614,14 +3614,13 @@ async def calculate_skill_tree_bonuses(db_helpers, user_id: int) -> dict:
     Only 'stat' type skills provide permanent bonuses.
     'skill' type skills are active abilities used in combat.
     
+    Args:
+        db_helpers: Database helpers module
+        user_id: The user ID to calculate bonuses for
+    
     Returns:
-        dict with stat bonuses: {
-            'strength': int,
-            'dexterity': int,
-            'defense': int,
-            'speed': int,
-            'max_health': int
-        }
+        dict: Stat bonuses with keys 'strength', 'dexterity', 'defense', 'speed', 'max_health'
+              All values are integers.
     """
     bonuses = {
         'strength': 0,
@@ -3656,10 +3655,14 @@ async def calculate_skill_tree_bonuses(db_helpers, user_id: int) -> dict:
                 
                 effect = skill.get('effect', {})
                 
-                # Add each stat bonus
+                # Add each stat bonus (ensure integer conversion)
                 for stat_name, bonus_value in effect.items():
                     if stat_name in bonuses:
-                        bonuses[stat_name] += bonus_value
+                        # Ensure bonus_value is an integer
+                        try:
+                            bonuses[stat_name] += int(bonus_value)
+                        except (ValueError, TypeError):
+                            logger.warning(f"Invalid bonus value for {stat_name}: {bonus_value}")
         
         logger.debug(f"Calculated skill tree bonuses for user {user_id}: {bonuses}")
         return bonuses
