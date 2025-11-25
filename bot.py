@@ -4362,6 +4362,22 @@ class RPGEventView(discord.ui.View):
                 pass
 
 
+# Damage type emoji mapping (used in format_item_details)
+DAMAGE_TYPE_EMOJIS = {
+    'physical': '⚔️',
+    'fire': '🔥',
+    'ice': '❄️',
+    'lightning': '⚡',
+    'poison': '🧪',
+    'dark': '🌑',
+    'light': '✨',
+    'magic': '🔮',
+    'wind': '💨',
+    'earth': '🪨',
+    'water': '💧'
+}
+
+
 def format_item_details(item: dict) -> discord.Embed:
     """
     Format detailed item information for purchase confirmation.
@@ -4415,22 +4431,7 @@ def format_item_details(item: dict) -> discord.Embed:
     if item.get('type') == 'weapon':
         damage = item.get('damage', 0)
         damage_type = item.get('damage_type', 'physical')
-        
-        # Damage type emoji mapping
-        dmg_type_emojis = {
-            'physical': '⚔️',
-            'fire': '🔥',
-            'ice': '❄️',
-            'lightning': '⚡',
-            'poison': '🧪',
-            'dark': '🌑',
-            'light': '✨',
-            'magic': '🔮',
-            'wind': '💨',
-            'earth': '🪨',
-            'water': '💧'
-        }
-        dmg_emoji = dmg_type_emojis.get(damage_type, '⚔️')
+        dmg_emoji = DAMAGE_TYPE_EMOJIS.get(damage_type, '⚔️')
         
         embed.add_field(
             name="⚔️ Kampfwerte",
@@ -4443,21 +4444,7 @@ def format_item_details(item: dict) -> discord.Embed:
     elif item.get('type') == 'skill' and item.get('damage'):
         damage = item.get('damage', 0)
         damage_type = item.get('damage_type', 'magic')
-        
-        dmg_type_emojis = {
-            'physical': '⚔️',
-            'fire': '🔥',
-            'ice': '❄️',
-            'lightning': '⚡',
-            'poison': '🧪',
-            'dark': '🌑',
-            'light': '✨',
-            'magic': '🔮',
-            'wind': '💨',
-            'earth': '🪨',
-            'water': '💧'
-        }
-        dmg_emoji = dmg_type_emojis.get(damage_type, '🔮')
+        dmg_emoji = DAMAGE_TYPE_EMOJIS.get(damage_type, '🔮')
         
         embed.add_field(
             name="🔮 Skill-Werte",
@@ -4508,8 +4495,9 @@ def format_item_details(item: dict) -> discord.Embed:
                 'attack_reduction': ('⬇️', 'Angriffsred.', '%'),
                 'curse': ('☠️', 'Fluch', 'Runden'),
                 'all_stats_reduction': ('⬇️', 'Stats-Red.', '%'),
-                'paralyze': ('⚡', 'Paralyse', '% Chance'),
+                'paralyze': ('🔌', 'Paralyse', '% Chance'),
                 'stun': ('💫', 'Betäubung', 'Runden'),
+                'static': ('⚡', 'Statisch', '% Chance'),
                 'lifesteal': ('🧛', 'Lebensentzug', '%'),
                 
                 # Special effects
@@ -4678,11 +4666,6 @@ class RPGShopConfirmView(discord.ui.View):
         except Exception as e:
             logger.error(f"Error canceling purchase: {e}", exc_info=True)
             await interaction.followup.send("❌ Fehler beim Abbrechen.", ephemeral=True)
-    
-    @discord.ui.button(label="🔙 Zurück zum Shop", style=discord.ButtonStyle.secondary, row=1)
-    async def back_to_shop(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Return to shop without purchasing."""
-        await self.cancel_purchase(interaction, button)
 
 
 class RPGShopView(discord.ui.View):
