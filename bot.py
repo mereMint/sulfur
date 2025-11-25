@@ -11321,13 +11321,14 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
                     color=discord.Color.gold()
                 )
                 
-                # Update stats
-                await word_find.update_user_stats(db_helpers, self.user_id, True, attempt_num, self.game_type)
+                # Update stats (only if database save succeeded to maintain consistency)
+                if not db_save_failed:
+                    await word_find.update_user_stats(db_helpers, self.user_id, True, attempt_num, self.game_type)
                 
                 # Quest tracking is done on first attempt (not on completion) - see line 10638
                 
-                # Mark premium game as completed if applicable
-                if self.game_type == 'premium':
+                # Mark premium game as completed if applicable (only if database save succeeded)
+                if self.game_type == 'premium' and not db_save_failed:
                     await word_find.complete_premium_game(db_helpers, word_id, True)
                 
                 # Get updated stats and attempts for sharing
@@ -11338,7 +11339,7 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
                 if db_save_failed:
                     fallback_attempt = {
                         'guess': guess,
-                        'similarity_score': 100.0,  # Correct guess = 100%
+                        'similarity_score': similarity,  # Use calculated similarity for consistency
                         'attempt_number': attempt_num
                     }
                     all_attempts.append(fallback_attempt)
@@ -11393,11 +11394,12 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
                     embed.description = f"Das gesuchte Wort war: **{correct_word.upper()}**"
                     embed.color = discord.Color.red()
                     
-                    # Update stats (loss)
-                    await word_find.update_user_stats(db_helpers, self.user_id, False, attempt_num, self.game_type)
+                    # Update stats (loss) - only if database save succeeded to maintain consistency
+                    if not db_save_failed:
+                        await word_find.update_user_stats(db_helpers, self.user_id, False, attempt_num, self.game_type)
                     
-                    # Mark premium game as completed if applicable
-                    if self.game_type == 'premium':
+                    # Mark premium game as completed if applicable (only if database save succeeded)
+                    if self.game_type == 'premium' and not db_save_failed:
                         await word_find.complete_premium_game(db_helpers, word_id, False)
                     
                     # Show completed view with share button (and new game button for premium users)
