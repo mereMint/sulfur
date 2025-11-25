@@ -1,0 +1,154 @@
+{
+  "themes": [
+    {
+      "id": "ozean",
+      "name": "Ozean & Meer",
+      "difficulty": "easy",
+      "words": ["meer", "welle", "strand", "fisch", "schiff", "ozean", "wasser", "boot", "sand", "muschel", "wal", "delphin", "hai", "seetang", "koralle", "krabbe", "seestern", "anker", "leuchtturm", "möwe", "küste", "bucht", "riff", "gezeiten", "brandung"]
+    },
+    {
+      "id": "wald",
+      "name": "Wald & Natur",
+      "difficulty": "easy",
+      "words": ["wald", "baum", "blatt", "pilz", "fuchs", "reh", "eiche", "moos", "vogel", "nest", "ast", "wurzel", "farn", "eichhörnchen", "birke", "tanne", "kiefer", "buche", "holz", "förster", "pfad", "lichtung", "baumkrone", "rinde", "jäger"]
+    },
+    {
+      "id": "küche",
+      "name": "Küche & Essen",
+      "difficulty": "easy",
+      "words": ["küche", "kochen", "herd", "topf", "pfanne", "rezept", "zutat", "messer", "löffel", "gabel", "teller", "schüssel", "ofen", "salz", "pfeffer", "suppe", "braten", "backen", "mehl", "butter", "milch", "eier", "brot", "käse", "gewürz"]
+    },
+    {
+      "id": "musik",
+      "name": "Musik & Instrumente",
+      "difficulty": "easy",
+      "words": ["musik", "gitarre", "klavier", "trommel", "geige", "flöte", "lied", "melodie", "sänger", "band", "konzert", "noten", "rhythmus", "ton", "chor", "harfe", "trompete", "bass", "dirigent", "orchester", "akkord", "oper", "jazz", "rock", "radio"]
+    },
+    {
+      "id": "garten",
+      "name": "Garten & Pflanzen",
+      "difficulty": "easy",
+      "words": ["garten", "blume", "rose", "tulpe", "rasen", "hecke", "erde", "samen", "gießen", "schaufel", "harke", "beet", "topf", "blüte", "gärtner", "dünger", "zaun", "laub", "kompost", "obstbaum", "gemüse", "kräuter", "sonnenlicht", "regenwurm", "schmetterling"]
+    },
+    {
+      "id": "sport",
+      "name": "Sport & Bewegung",
+      "difficulty": "easy",
+      "words": ["sport", "ball", "tor", "laufen", "springen", "schwimmen", "team", "spiel", "sieger", "trainer", "stadion", "marathon", "tennis", "golf", "rad", "fitness", "turnen", "training", "wettkampf", "medaille", "rennen", "pokal", "athlet", "sprint", "mannschaft"]
+    },
+    {
+      "id": "wetter",
+      "name": "Wetter & Klima",
+      "difficulty": "easy",
+      "words": ["wetter", "sonne", "regen", "wolke", "wind", "sturm", "schnee", "hagel", "nebel", "frost", "hitze", "kalt", "warm", "donner", "blitz", "regenbogen", "tau", "schauer", "gewitter", "temperatur", "feucht", "trocken", "himmel", "bewölkt", "sonnig"]
+    },
+    {
+      "id": "familie",
+      "name": "Familie & Zuhause",
+      "difficulty": "easy",
+      "words": ["familie", "mutter", "vater", "kind", "bruder", "schwester", "oma", "opa", "haus", "wohnung", "zimmer", "bett", "sofa", "tisch", "stuhl", "tür", "fenster", "küche", "bad", "garten", "eltern", "baby", "enkel", "cousin", "tante"]
+    },
+    {
+      "id": "schule",
+      "name": "Schule & Bildung",
+      "difficulty": "medium",
+      "words": ["schule", "lehrer", "schüler", "buch", "heft", "stift", "tafel", "klasse", "unterricht", "pause", "prüfung", "note", "hausaufgabe", "rechnen", "lesen", "schreiben", "mathematik", "deutsch", "englisch", "sport", "kunst", "musik", "direktor", "zeugnis", "stundenplan"]
+    },
+    {
+      "id": "technik",
+      "name": "Technologie & Computer",
+      "difficulty": "medium",
+      "words": ["computer", "internet", "tastatur", "maus", "bildschirm", "handy", "laptop", "software", "app", "email", "passwort", "datei", "ordner", "drucker", "speicher", "download", "website", "browser", "netzwerk", "router", "kabel", "akku", "laden", "digital", "online"]
+    },
+    {
+      "id": "reise",
+      "name": "Reise & Urlaub",
+      "difficulty": "medium",
+      "words": ["reise", "urlaub", "koffer", "flugzeug", "hotel", "strand", "berge", "meer", "ticket", "pass", "visum", "tourist", "kamera", "souvenír", "ausflug", "landkarte", "kompass", "rucksack", "zelt", "wandern", "camping", "erkunden", "abenteuer", "sehenswürdigkeit", "foto"]
+    },
+    {
+      "id": "gesundheit",
+      "name": "Gesundheit & Medizin",
+      "difficulty": "medium",
+      "words": ["gesundheit", "arzt", "krankenhaus", "medikament", "rezept", "apotheke", "krankheit", "fieber", "husten", "schnupfen", "verband", "spritze", "tablette", "schmerz", "heilung", "pflaster", "therapie", "patient", "behandlung", "untersuchung", "krankenschwester", "notfall", "impfung", "chirurg", "diagnose"]
+    },
+    {
+      "id": "stadt",
+      "name": "Stadt & Verkehr",
+      "difficulty": "medium",
+      "words": ["stadt", "straße", "auto", "bus", "bahn", "ampel", "kreuzung", "parkplatz", "gehweg", "brücke", "rathaus", "kirche", "markt", "geschäft", "café", "restaurant", "museum", "park", "platz", "hochhaus", "verkehr", "fußgänger", "radweg", "stau", "tankstelle"]
+    },
+    {
+      "id": "tiere",
+      "name": "Tiere & Zoo",
+      "difficulty": "medium",
+      "words": ["tier", "hund", "katze", "vogel", "pferd", "kuh", "schwein", "schaf", "löwe", "tiger", "elefant", "affe", "giraffe", "zebra", "bär", "wolf", "zoo", "käfig", "futter", "fell", "federn", "pfote", "schnabel", "schwanz", "flügel"]
+    },
+    {
+      "id": "kunst",
+      "name": "Kunst & Kreativität",
+      "difficulty": "medium",
+      "words": ["kunst", "maler", "bild", "farbe", "pinsel", "leinwand", "skulptur", "museum", "galerie", "ausstellung", "zeichnung", "skizze", "aquarell", "ölgemälde", "rahmen", "künstler", "atelier", "staffelei", "palette", "motiv", "porträt", "landschaft", "abstrakt", "modern", "kreativ"]
+    },
+    {
+      "id": "wirtschaft",
+      "name": "Wirtschaft & Geld",
+      "difficulty": "hard",
+      "words": ["wirtschaft", "geld", "bank", "konto", "kredit", "zinsen", "börse", "aktie", "investition", "gewinn", "verlust", "firma", "unternehmen", "handel", "markt", "preis", "kosten", "budget", "steuern", "gehalt", "einkommen", "ausgaben", "sparen", "schulden", "währung"]
+    },
+    {
+      "id": "wissenschaft",
+      "name": "Wissenschaft & Forschung",
+      "difficulty": "hard",
+      "words": ["wissenschaft", "forschung", "experiment", "labor", "theorie", "hypothese", "beweis", "analyse", "daten", "studie", "professor", "universität", "entdeckung", "erfindung", "mikroskop", "chemie", "physik", "biologie", "mathematik", "formel", "gleichung", "reaktion", "atom", "molekül", "zelle"]
+    },
+    {
+      "id": "weltraum",
+      "name": "Weltraum & Astronomie",
+      "difficulty": "hard",
+      "words": ["weltraum", "stern", "planet", "mond", "sonne", "galaxie", "rakete", "astronaut", "satellit", "orbit", "komet", "asteroid", "universum", "teleskop", "schwerkraft", "schwarzesloch", "milchstraße", "mars", "venus", "jupiter", "saturn", "neptun", "merkur", "raumstation", "kosmos"]
+    },
+    {
+      "id": "politik",
+      "name": "Politik & Gesellschaft",
+      "difficulty": "hard",
+      "words": ["politik", "regierung", "parlament", "demokratie", "wahl", "partei", "gesetz", "verfassung", "minister", "präsident", "kanzler", "bürger", "recht", "pflicht", "freiheit", "gleichheit", "justiz", "gericht", "richter", "anwalt", "staat", "nation", "reform", "debatte", "abstimmung"]
+    },
+    {
+      "id": "literatur",
+      "name": "Literatur & Bücher",
+      "difficulty": "hard",
+      "words": ["literatur", "buch", "roman", "gedicht", "autor", "schriftsteller", "kapitel", "seite", "zeile", "vers", "reim", "prosa", "drama", "komödie", "tragödie", "bibliothek", "verleger", "druck", "leser", "handlung", "charakter", "held", "erzähler", "metapher", "symbol"]
+    },
+    {
+      "id": "umwelt",
+      "name": "Umwelt & Ökologie",
+      "difficulty": "hard",
+      "words": ["umwelt", "natur", "ökologie", "klima", "recycling", "müll", "verschmutzung", "erneuerbar", "solar", "windkraft", "energie", "nachhaltigkeit", "artenschutz", "wald", "ozon", "treibhaus", "kohlendioxid", "emission", "biologisch", "kompost", "plastik", "ressourcen", "schutzgebiet", "biodiversität", "ökosystem"]
+    },
+    {
+      "id": "beruf",
+      "name": "Berufe & Arbeit",
+      "difficulty": "easy",
+      "words": ["beruf", "arbeit", "chef", "kollege", "büro", "fabrik", "gehalt", "arbeiter", "angestellter", "bäcker", "friseur", "arzt", "lehrer", "polizist", "feuerwehr", "pilot", "koch", "kellner", "handwerker", "ingenieur", "architekt", "verkäufer", "mechaniker", "elektriker", "maler"]
+    },
+    {
+      "id": "kleidung",
+      "name": "Kleidung & Mode",
+      "difficulty": "easy",
+      "words": ["kleidung", "hemd", "hose", "kleid", "rock", "jacke", "mantel", "schuhe", "socken", "mütze", "schal", "handschuhe", "gürtel", "krawatte", "pullover", "tshirt", "jeans", "anzug", "bluse", "unterwäsche", "stiefel", "sandalen", "tasche", "schmuck", "knopf"]
+    },
+    {
+      "id": "obst",
+      "name": "Obst & Früchte",
+      "difficulty": "easy",
+      "words": ["obst", "apfel", "birne", "banane", "orange", "zitrone", "erdbeere", "kirsche", "traube", "melone", "pfirsich", "pflaume", "ananas", "mango", "kiwi", "himbeere", "brombeere", "heidelbeere", "johannisbeere", "feige", "kokosnuss", "limette", "mandarine", "grapefruit", "aprikose"]
+    },
+    {
+      "id": "maerchen",
+      "name": "Märchen & Fantasy",
+      "difficulty": "medium",
+      "words": ["märchen", "prinz", "prinzessin", "könig", "königin", "drache", "ritter", "schloss", "burg", "zauberer", "hexe", "fee", "zwerg", "riese", "elfe", "einhorn", "magie", "zauber", "fluch", "verwandlung", "schatz", "krone", "schwert", "held", "abenteuer"]
+    }
+  ]
+}

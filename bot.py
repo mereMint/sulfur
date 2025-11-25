@@ -11598,8 +11598,9 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
                 await interaction.followup.send("Du hast alle Versuche aufgebraucht!", ephemeral=True)
                 return
             
-            # Calculate similarity
-            similarity = word_find.calculate_word_similarity(guess, correct_word)
+            # Calculate similarity with theme context for better semantic matching
+            theme_id = self.word_data.get('theme_id')
+            similarity = word_find.calculate_word_similarity(guess, correct_word, use_context=True, theme_id=theme_id, language=user_lang)
             
             # Record attempt with game type
             record_success = await word_find.record_attempt(db_helpers, self.user_id, word_id, guess, similarity, attempt_num, self.game_type)

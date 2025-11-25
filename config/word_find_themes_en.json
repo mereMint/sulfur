@@ -1,0 +1,154 @@
+{
+  "themes": [
+    {
+      "id": "ocean",
+      "name": "Ocean & Sea",
+      "difficulty": "easy",
+      "words": ["sea", "wave", "beach", "fish", "ship", "ocean", "water", "boat", "sand", "shell", "whale", "dolphin", "shark", "seaweed", "coral", "crab", "starfish", "anchor", "lighthouse", "seagull", "coast", "bay", "reef", "tide", "surf"]
+    },
+    {
+      "id": "forest",
+      "name": "Forest & Nature",
+      "difficulty": "easy",
+      "words": ["forest", "tree", "leaf", "mushroom", "fox", "deer", "oak", "moss", "bird", "nest", "branch", "root", "fern", "squirrel", "birch", "pine", "spruce", "beech", "wood", "ranger", "path", "clearing", "canopy", "bark", "hunter"]
+    },
+    {
+      "id": "kitchen",
+      "name": "Kitchen & Cooking",
+      "difficulty": "easy",
+      "words": ["kitchen", "cook", "stove", "pot", "pan", "recipe", "ingredient", "knife", "spoon", "fork", "plate", "bowl", "oven", "salt", "pepper", "soup", "roast", "bake", "flour", "butter", "milk", "eggs", "bread", "cheese", "spice"]
+    },
+    {
+      "id": "music",
+      "name": "Music & Instruments",
+      "difficulty": "easy",
+      "words": ["music", "guitar", "piano", "drum", "violin", "flute", "song", "melody", "singer", "band", "concert", "notes", "rhythm", "tone", "choir", "harp", "trumpet", "bass", "conductor", "orchestra", "chord", "opera", "jazz", "rock", "radio"]
+    },
+    {
+      "id": "garden",
+      "name": "Garden & Plants",
+      "difficulty": "easy",
+      "words": ["garden", "flower", "rose", "tulip", "lawn", "hedge", "soil", "seed", "water", "shovel", "rake", "bed", "pot", "bloom", "gardener", "fertilizer", "fence", "leaves", "compost", "fruit", "vegetable", "herb", "sunlight", "worm", "butterfly"]
+    },
+    {
+      "id": "sports",
+      "name": "Sports & Exercise",
+      "difficulty": "easy",
+      "words": ["sport", "ball", "goal", "run", "jump", "swim", "team", "game", "winner", "coach", "stadium", "marathon", "tennis", "golf", "bike", "fitness", "gymnastics", "training", "competition", "medal", "race", "trophy", "athlete", "sprint", "squad"]
+    },
+    {
+      "id": "weather",
+      "name": "Weather & Climate",
+      "difficulty": "easy",
+      "words": ["weather", "sun", "rain", "cloud", "wind", "storm", "snow", "hail", "fog", "frost", "heat", "cold", "warm", "thunder", "lightning", "rainbow", "dew", "shower", "thunderstorm", "temperature", "humid", "dry", "sky", "cloudy", "sunny"]
+    },
+    {
+      "id": "family",
+      "name": "Family & Home",
+      "difficulty": "easy",
+      "words": ["family", "mother", "father", "child", "brother", "sister", "grandma", "grandpa", "house", "apartment", "room", "bed", "sofa", "table", "chair", "door", "window", "kitchen", "bathroom", "garden", "parents", "baby", "grandchild", "cousin", "aunt"]
+    },
+    {
+      "id": "school",
+      "name": "School & Education",
+      "difficulty": "medium",
+      "words": ["school", "teacher", "student", "book", "notebook", "pen", "board", "class", "lesson", "break", "exam", "grade", "homework", "math", "reading", "writing", "science", "english", "history", "art", "music", "principal", "report", "schedule", "study"]
+    },
+    {
+      "id": "technology",
+      "name": "Technology & Computers",
+      "difficulty": "medium",
+      "words": ["computer", "internet", "keyboard", "mouse", "screen", "phone", "laptop", "software", "app", "email", "password", "file", "folder", "printer", "memory", "download", "website", "browser", "network", "router", "cable", "battery", "charge", "digital", "online"]
+    },
+    {
+      "id": "travel",
+      "name": "Travel & Vacation",
+      "difficulty": "medium",
+      "words": ["travel", "vacation", "suitcase", "airplane", "hotel", "beach", "mountains", "sea", "ticket", "passport", "visa", "tourist", "camera", "souvenir", "trip", "map", "compass", "backpack", "tent", "hiking", "camping", "explore", "adventure", "landmark", "photo"]
+    },
+    {
+      "id": "health",
+      "name": "Health & Medicine",
+      "difficulty": "medium",
+      "words": ["health", "doctor", "hospital", "medicine", "prescription", "pharmacy", "illness", "fever", "cough", "cold", "bandage", "injection", "pill", "pain", "healing", "bandaid", "therapy", "patient", "treatment", "checkup", "nurse", "emergency", "vaccine", "surgeon", "diagnosis"]
+    },
+    {
+      "id": "city",
+      "name": "City & Traffic",
+      "difficulty": "medium",
+      "words": ["city", "street", "car", "bus", "train", "traffic", "crossing", "parking", "sidewalk", "bridge", "hall", "church", "market", "store", "cafe", "restaurant", "museum", "park", "square", "skyscraper", "traffic", "pedestrian", "bike", "jam", "station"]
+    },
+    {
+      "id": "animals",
+      "name": "Animals & Zoo",
+      "difficulty": "medium",
+      "words": ["animal", "dog", "cat", "bird", "horse", "cow", "pig", "sheep", "lion", "tiger", "elephant", "monkey", "giraffe", "zebra", "bear", "wolf", "zoo", "cage", "food", "fur", "feathers", "paw", "beak", "tail", "wings"]
+    },
+    {
+      "id": "art",
+      "name": "Art & Creativity",
+      "difficulty": "medium",
+      "words": ["art", "painter", "picture", "color", "brush", "canvas", "sculpture", "museum", "gallery", "exhibition", "drawing", "sketch", "watercolor", "painting", "frame", "artist", "studio", "easel", "palette", "subject", "portrait", "landscape", "abstract", "modern", "creative"]
+    },
+    {
+      "id": "economy",
+      "name": "Economy & Money",
+      "difficulty": "hard",
+      "words": ["economy", "money", "bank", "account", "credit", "interest", "stock", "share", "investment", "profit", "loss", "company", "business", "trade", "market", "price", "cost", "budget", "taxes", "salary", "income", "expenses", "savings", "debt", "currency"]
+    },
+    {
+      "id": "science",
+      "name": "Science & Research",
+      "difficulty": "hard",
+      "words": ["science", "research", "experiment", "laboratory", "theory", "hypothesis", "proof", "analysis", "data", "study", "professor", "university", "discovery", "invention", "microscope", "chemistry", "physics", "biology", "mathematics", "formula", "equation", "reaction", "atom", "molecule", "cell"]
+    },
+    {
+      "id": "space",
+      "name": "Space & Astronomy",
+      "difficulty": "hard",
+      "words": ["space", "star", "planet", "moon", "sun", "galaxy", "rocket", "astronaut", "satellite", "orbit", "comet", "asteroid", "universe", "telescope", "gravity", "blackhole", "milkyway", "mars", "venus", "jupiter", "saturn", "neptune", "mercury", "station", "cosmos"]
+    },
+    {
+      "id": "politics",
+      "name": "Politics & Society",
+      "difficulty": "hard",
+      "words": ["politics", "government", "parliament", "democracy", "election", "party", "law", "constitution", "minister", "president", "chancellor", "citizen", "rights", "duty", "freedom", "equality", "justice", "court", "judge", "lawyer", "state", "nation", "reform", "debate", "vote"]
+    },
+    {
+      "id": "literature",
+      "name": "Literature & Books",
+      "difficulty": "hard",
+      "words": ["literature", "book", "novel", "poem", "author", "writer", "chapter", "page", "line", "verse", "rhyme", "prose", "drama", "comedy", "tragedy", "library", "publisher", "print", "reader", "plot", "character", "hero", "narrator", "metaphor", "symbol"]
+    },
+    {
+      "id": "environment",
+      "name": "Environment & Ecology",
+      "difficulty": "hard",
+      "words": ["environment", "nature", "ecology", "climate", "recycling", "waste", "pollution", "renewable", "solar", "wind", "energy", "sustainable", "conservation", "forest", "ozone", "greenhouse", "carbon", "emission", "organic", "compost", "plastic", "resources", "reserve", "biodiversity", "ecosystem"]
+    },
+    {
+      "id": "jobs",
+      "name": "Jobs & Work",
+      "difficulty": "easy",
+      "words": ["job", "work", "boss", "colleague", "office", "factory", "salary", "worker", "employee", "baker", "barber", "doctor", "teacher", "police", "firefighter", "pilot", "chef", "waiter", "craftsman", "engineer", "architect", "salesman", "mechanic", "electrician", "painter"]
+    },
+    {
+      "id": "clothing",
+      "name": "Clothing & Fashion",
+      "difficulty": "easy",
+      "words": ["clothing", "shirt", "pants", "dress", "skirt", "jacket", "coat", "shoes", "socks", "hat", "scarf", "gloves", "belt", "tie", "sweater", "tshirt", "jeans", "suit", "blouse", "underwear", "boots", "sandals", "bag", "jewelry", "button"]
+    },
+    {
+      "id": "fruit",
+      "name": "Fruit & Produce",
+      "difficulty": "easy",
+      "words": ["fruit", "apple", "pear", "banana", "orange", "lemon", "strawberry", "cherry", "grape", "melon", "peach", "plum", "pineapple", "mango", "kiwi", "raspberry", "blackberry", "blueberry", "currant", "fig", "coconut", "lime", "tangerine", "grapefruit", "apricot"]
+    },
+    {
+      "id": "fairytale",
+      "name": "Fairytales & Fantasy",
+      "difficulty": "medium",
+      "words": ["fairytale", "prince", "princess", "king", "queen", "dragon", "knight", "castle", "fortress", "wizard", "witch", "fairy", "dwarf", "giant", "elf", "unicorn", "magic", "spell", "curse", "transformation", "treasure", "crown", "sword", "hero", "adventure"]
+    }
+  ]
+}
