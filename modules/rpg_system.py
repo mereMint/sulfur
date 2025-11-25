@@ -873,6 +873,7 @@ RESPEC_COST_PER_POINT = 50  # Gold cost per skill point when resetting stats
 # Loot system constants
 LUCK_BONUS_MAX = 0.05  # Maximum luck bonus to drop rates (5%)
 LUCK_BONUS_PER_LEVEL = 0.001  # Luck bonus gained per player level
+DEFAULT_DROP_RATE = 0.1  # Default drop rate (10%) for items without explicit rate
 
 # Quest item constants
 QUEST_ITEM_BASE_PRICE = 5  # Base gold value for quest items
@@ -1476,7 +1477,8 @@ async def roll_loot_drops(db_helpers, monster: dict, player_level: int) -> list:
         if isinstance(loot_table, str):
             try:
                 loot_table = json.loads(loot_table)
-            except Exception:
+            except json.JSONDecodeError:
+                logger.warning(f"Failed to parse loot_table JSON: {loot_table[:100]}...")
                 return []
         
         dropped_items = []
@@ -1487,10 +1489,10 @@ async def roll_loot_drops(db_helpers, monster: dict, player_level: int) -> list:
         for item_name, drop_info in loot_table.items():
             # Handle both simple float and dict formats
             if isinstance(drop_info, dict):
-                base_drop_rate = drop_info.get('rate', 0.1)
+                base_drop_rate = drop_info.get('rate', DEFAULT_DROP_RATE)
                 item_type = drop_info.get('type', 'material')
             else:
-                base_drop_rate = float(drop_info) if drop_info else 0.1
+                base_drop_rate = float(drop_info) if drop_info else DEFAULT_DROP_RATE
                 item_type = 'quest_item' if '(Quest)' in item_name else 'material'
             
             # Apply luck bonus
