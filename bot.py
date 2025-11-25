@@ -8722,7 +8722,7 @@ class BlackjackView(discord.ui.View):
         else:
             embed.set_footer(text="Knapp! Beim nächsten Mal vielleicht mehr Glück!")
         
-        # Create share button view
+        # Create share button view with theme support
         share_view = GamblingShareView(
             game_type="blackjack",
             result_data={
@@ -8731,7 +8731,8 @@ class BlackjackView(discord.ui.View):
                 'bet': self.game.bet,
                 'balance': new_balance
             },
-            user_id=self.user_id
+            user_id=self.user_id,
+            theme_id=self.theme_id
         )
         
         await interaction.edit_original_response(embed=embed, view=share_view)
@@ -8922,7 +8923,7 @@ class MinesView(discord.ui.View):
             for item in self.children:
                 item.disabled = True
             
-            # Add share button
+            # Add share button with theme support
             share_view = GamblingShareView(
                 game_type="mines",
                 result_data={
@@ -8931,7 +8932,8 @@ class MinesView(discord.ui.View):
                     'profit': profit,
                     'balance': new_balance
                 },
-                user_id=self.user_id
+                user_id=self.user_id,
+                theme_id=self.theme_id
             )
             
             await interaction.edit_original_response(embed=embed, view=share_view)
@@ -9018,7 +9020,7 @@ class MinesView(discord.ui.View):
             embed.add_field(name="💰 Guthaben", value=f"{new_balance} {currency}", inline=True)
             embed.set_footer(text="Beim nächsten Mal vorsichtiger sein!")
             
-            # Add share button for loss
+            # Add share button for loss with theme support
             share_view = GamblingShareView(
                 game_type="mines",
                 result_data={
@@ -9027,7 +9029,8 @@ class MinesView(discord.ui.View):
                     'profit': -self.game.bet,
                     'balance': new_balance
                 },
-                user_id=self.user_id
+                user_id=self.user_id,
+                theme_id=self.theme_id
             )
 
         else:
@@ -9074,7 +9077,7 @@ class MinesView(discord.ui.View):
             embed.add_field(name="💰 Guthaben", value=f"{new_balance} {currency}", inline=True)
             embed.set_footer(text="🎊 Glückwunsch! Perfekt gespielt!")
             
-            # Add share button for win
+            # Add share button for win with theme support
             share_view = GamblingShareView(
                 game_type="mines",
                 result_data={
@@ -9083,7 +9086,8 @@ class MinesView(discord.ui.View):
                     'profit': profit,
                     'balance': new_balance
                 },
-                user_id=self.user_id
+                user_id=self.user_id,
+                theme_id=self.theme_id
             )
         
         # Disable all buttons and reveal all mines
@@ -9167,11 +9171,12 @@ async def blackjack(interaction: discord.Interaction, bet: int):
 class GamblingShareView(discord.ui.View):
     """View with share button for gambling results."""
     
-    def __init__(self, game_type: str, result_data: dict, user_id: int):
+    def __init__(self, game_type: str, result_data: dict, user_id: int, theme_id=None):
         super().__init__(timeout=300)
         self.game_type = game_type
         self.result_data = result_data
         self.user_id = user_id
+        self.theme_id = theme_id
     
     @discord.ui.button(label="Ergebnis teilen", style=discord.ButtonStyle.primary, emoji="📢")
     async def share_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -9190,16 +9195,22 @@ class GamblingShareView(discord.ui.View):
             result_number = data['result_number']
             net_result = data['net_result']
             
-            # Determine color emoji
+            # Determine color emoji and embed color (with theme support)
             if result_number == 0:
                 result_emoji = "🟢"
-                color = discord.Color.green()
+                color = themes.get_theme_color(self.theme_id, 'success') if self.theme_id else discord.Color.green()
             elif result_number in RouletteGame.RED:
                 result_emoji = "🔴"
-                color = discord.Color.gold() if net_result > 0 else discord.Color.red()
+                if net_result > 0:
+                    color = themes.get_theme_color(self.theme_id, 'success') if self.theme_id else discord.Color.gold()
+                else:
+                    color = themes.get_theme_color(self.theme_id, 'danger') if self.theme_id else discord.Color.red()
             else:
                 result_emoji = "⚫"
-                color = discord.Color.gold() if net_result > 0 else discord.Color.dark_grey()
+                if net_result > 0:
+                    color = themes.get_theme_color(self.theme_id, 'success') if self.theme_id else discord.Color.gold()
+                else:
+                    color = themes.get_theme_color(self.theme_id, 'warning') if self.theme_id else discord.Color.dark_grey()
             
             if net_result > 0:
                 title = "🎉 Roulette Gewinn!"
@@ -9238,16 +9249,16 @@ class GamblingShareView(discord.ui.View):
             
             if result == 'blackjack':
                 title = "🃏 BLACKJACK! 21!"
-                color = discord.Color.gold()
+                color = themes.get_theme_color(self.theme_id, 'success') if self.theme_id else discord.Color.gold()
             elif result == 'win':
                 title = "✅ Blackjack Gewinn!"
-                color = discord.Color.green()
+                color = themes.get_theme_color(self.theme_id, 'success') if self.theme_id else discord.Color.green()
             elif result == 'lose':
                 title = "❌ Blackjack Verlust"
-                color = discord.Color.red()
+                color = themes.get_theme_color(self.theme_id, 'danger') if self.theme_id else discord.Color.red()
             else:
                 title = "🤝 Blackjack Push"
-                color = discord.Color.blue()
+                color = themes.get_theme_color(self.theme_id, 'primary') if self.theme_id else discord.Color.blue()
             
             description = f"{interaction.user.mention} hat **{'+' if net_result >= 0 else ''}{net_result} {currency}** {'gewonnen' if net_result > 0 else 'verloren'}!"
             
@@ -9261,18 +9272,21 @@ class GamblingShareView(discord.ui.View):
             multiplier = data.get('multiplier', 0)
             revealed_count = data.get('revealed_count', 0)
             
+            # Get themed mines asset
+            mines_emoji = themes.get_theme_asset(self.theme_id, 'mines_revealed') if self.theme_id else '💎'
+            
             if profit > 0:
-                title = "💎 Mines Gewinn!"
+                title = f"{mines_emoji} Mines Gewinn!"
                 description = f"{interaction.user.mention} hat **+{profit} {currency}** gewonnen!"
-                color = discord.Color.green()
+                color = themes.get_theme_color(self.theme_id, 'success') if self.theme_id else discord.Color.green()
             elif profit < 0:
                 title = "💥 Mines Verlust"
                 description = f"{interaction.user.mention} hat eine Mine getroffen!"
-                color = discord.Color.red()
+                color = themes.get_theme_color(self.theme_id, 'danger') if self.theme_id else discord.Color.red()
             else:
-                title = "💎 Mines Spiel"
+                title = f"{mines_emoji} Mines Spiel"
                 description = f"{interaction.user.mention} hat Mines gespielt!"
-                color = discord.Color.blue()
+                color = themes.get_theme_color(self.theme_id, 'primary') if self.theme_id else discord.Color.blue()
             
             embed = discord.Embed(title=title, description=description, color=color)
             
@@ -9297,18 +9311,21 @@ class GamblingShareView(discord.ui.View):
             max_floors = data.get('max_floors', 10)
             difficulty = data.get('difficulty', 1)
             
+            # Get themed tower name
+            tower_name = themes.get_theme_asset(self.theme_id, 'tower_name') if self.theme_id else '🗼 Tower'
+            
             if profit > 0:
-                title = "🗼 Tower Gewinn!"
+                title = f"{tower_name} Gewinn!"
                 description = f"{interaction.user.mention} hat **+{profit} {currency}** gewonnen!"
-                color = discord.Color.gold()
+                color = themes.get_theme_color(self.theme_id, 'success') if self.theme_id else discord.Color.gold()
             elif profit < 0:
                 title = "💥 Tower Verlust"
                 description = f"{interaction.user.mention} ist im Tower gestürzt!"
-                color = discord.Color.red()
+                color = themes.get_theme_color(self.theme_id, 'danger') if self.theme_id else discord.Color.red()
             else:
-                title = "🗼 Tower Spiel"
+                title = f"{tower_name} Spiel"
                 description = f"{interaction.user.mention} hat Tower gespielt!"
-                color = discord.Color.blue()
+                color = themes.get_theme_color(self.theme_id, 'primary') if self.theme_id else discord.Color.blue()
             
             embed = discord.Embed(title=title, description=description, color=color)
             
@@ -9332,7 +9349,10 @@ class GamblingShareView(discord.ui.View):
             net_result = self.result_data.get('profit', self.result_data.get('net_result', 0))
             title = f"🎰 {self.game_type.capitalize()} Ergebnis"
             description = f"{interaction.user.mention} hat **{'+' if net_result >= 0 else ''}{net_result} {currency}** {'gewonnen' if net_result > 0 else 'verloren'}!"
-            color = discord.Color.gold() if net_result > 0 else discord.Color.red()
+            if net_result > 0:
+                color = themes.get_theme_color(self.theme_id, 'success') if self.theme_id else discord.Color.gold()
+            else:
+                color = themes.get_theme_color(self.theme_id, 'danger') if self.theme_id else discord.Color.red()
             
             embed = discord.Embed(title=title, description=description, color=color)
             embed.set_footer(text=f"Gespielt von {interaction.user.display_name}")
@@ -9570,7 +9590,7 @@ class RouletteView(discord.ui.View):
         else:
             embed.set_footer(text="Viel Glück beim nächsten Mal!")
         
-        # Create share button view
+        # Create share button view with theme support
         share_view = GamblingShareView(
             game_type="roulette",
             result_data={
@@ -9581,7 +9601,8 @@ class RouletteView(discord.ui.View):
                 'net_result': net_result,
                 'balance': new_balance
             },
-            user_id=self.user_id
+            user_id=self.user_id,
+            theme_id=self.theme_id
         )
         
         await interaction.edit_original_response(embed=embed, view=share_view)
@@ -10066,7 +10087,7 @@ class TowerOfTreasureView(discord.ui.View):
         
         embed.add_field(name="Neues Guthaben", value=f"{new_balance} {currency}", inline=True)
         
-        # Create share view
+        # Create share view with theme support
         share_view = GamblingShareView(
             game_type="tower",
             result_data={
@@ -10076,7 +10097,8 @@ class TowerOfTreasureView(discord.ui.View):
                 'difficulty': self.game.difficulty,
                 'balance': new_balance
             },
-            user_id=self.user_id
+            user_id=self.user_id,
+            theme_id=self.theme_id
         )
         
         await interaction.edit_original_response(embed=embed, view=share_view)
