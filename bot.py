@@ -790,6 +790,11 @@ async def on_ready():
     if not sport_betting_notifications_task.is_running():
         sport_betting_notifications_task.start()
         print("  -> Sport betting notifications task started")
+    
+    # --- NEW: Start sport betting sync and settle task ---
+    if not sport_betting_sync_and_settle_task.is_running():
+        sport_betting_sync_and_settle_task.start()
+        print("  -> Sport betting sync and settle task started")
 
 @tasks.loop(minutes=15)
 async def update_presence_task():
@@ -1487,6 +1492,201 @@ async def sport_betting_notifications_task():
 @sport_betting_notifications_task.before_loop
 async def before_sport_betting_notifications():
     await client.wait_until_ready()
+
+
+@tasks.loop(minutes=5)
+async def sport_betting_sync_and_settle_task():
+    """
+    Background task to sync match data and settle bets.
+    Runs every 5 minutes to:
+    1. Sync match data from API for free leagues
+    2. Check for finished matches and update their status
+    3. Settle bets for finished matches
+    4. Send DM notifications to users about their bet results
+    """
+    try:
+        if not client.guilds:
+            return
+        
+        logger.debug("Running sport betting sync and settle task")
+        
+        # Step 1: Sync match data from free leagues
+        free_leagues = ["bl1", "bl2", "dfb"]
+        total_synced = 0
+        
+        for league_id in free_leagues:
+            try:
+                synced = await sport_betting.sync_league_matches(db_helpers, league_id)
+                total_synced += synced
+            except Exception as e:
+                logger.warning(f"Could not sync {league_id}: {e}")
+        
+        if total_synced > 0:
+            logger.info(f"Sport betting: Synced {total_synced} matches")
+        
+        # Step 2: Get matches that need to be checked for results
+        matches_to_check = await sport_betting.get_matches_to_check(db_helpers)
+        
+        if not matches_to_check:
+            return
+        
+        logger.info(f"Sport betting: Found {len(matches_to_check)} matches to check for results")
+        
+        # Step 3: Check each match and settle bets
+        all_settled_bets = []
+        
+        for match in matches_to_check:
+            match_id = match.get("match_id")
+            league_id = match.get("league_id", "bl1")
+            
+            # Try to get updated match info from API
+            league_config = sport_betting.LEAGUES.get(league_id)
+            if not league_config:
+                continue
+            
+            provider = sport_betting.APIProviderFactory.get_provider(league_config["provider"])
+            
+            try:
+                # Check if provider supports get_match method
+                if not hasattr(provider, 'get_match'):
+                    logger.debug(f"Provider {league_config['provider']} does not support get_match")
+                    continue
+                
+                # Get the match from API
+                updated_match = await provider.get_match(match_id)
+                
+                if updated_match and updated_match.get("status") == sport_betting.MatchStatus.FINISHED:
+                    home_score = updated_match.get("home_score", 0)
+                    away_score = updated_match.get("away_score", 0)
+                    
+                    # Settle bets and get details for notifications
+                    settled_bets = await sport_betting.settle_match_bets_with_details(
+                        db_helpers, match_id, home_score, away_score
+                    )
+                    
+                    if settled_bets:
+                        all_settled_bets.extend(settled_bets)
+                        logger.info(f"Settled {len(settled_bets)} bets for match {match_id}")
+                        
+            except AttributeError as e:
+                logger.debug(f"Provider method not available for match {match_id}: {e}")
+                continue
+            except Exception as e:
+                logger.warning(f"Error checking match {match_id}: {e}")
+                continue
+        
+        # Step 4: Send DM notifications to users about their settled bets
+        if all_settled_bets:
+            # Group by user
+            user_bets = {}
+            for bet in all_settled_bets:
+                user_id = bet["user_id"]
+                if user_id not in user_bets:
+                    user_bets[user_id] = []
+                user_bets[user_id].append(bet)
+            
+            for user_id, bets in user_bets.items():
+                try:
+                    user = await client.fetch_user(user_id)
+                    if not user:
+                        continue
+                    
+                    # Calculate totals
+                    total_won = sum(b["actual_payout"] for b in bets if b["status"] == "won")
+                    total_lost = sum(b["bet_amount"] for b in bets if b["status"] == "lost")
+                    wins = len([b for b in bets if b["status"] == "won"])
+                    losses = len([b for b in bets if b["status"] == "lost"])
+                    
+                    # Determine embed color based on results
+                    if total_won > total_lost:
+                        color = discord.Color.green()
+                        title_emoji = "🎉"
+                    elif total_won < total_lost:
+                        color = discord.Color.red()
+                        title_emoji = "😢"
+                    else:
+                        color = discord.Color.gold()
+                        title_emoji = "⚽"
+                    
+                    embed = discord.Embed(
+                        title=f"{title_emoji} Wettergebnisse!",
+                        description=f"Deine Wetten wurden ausgewertet!\n**{wins}** Gewonnen | **{losses}** Verloren",
+                        color=color
+                    )
+                    
+                    # Add each bet result (max 5)
+                    for bet in bets[:5]:
+                        home_team = bet.get("home_team", "Heim")
+                        away_team = bet.get("away_team", "Auswärts")
+                        home_score = bet.get("home_score", 0)
+                        away_score = bet.get("away_score", 0)
+                        bet_outcome = bet.get("bet_outcome", "")
+                        status = bet.get("status", "")
+                        bet_amount = bet.get("bet_amount", 0)
+                        actual_payout = bet.get("actual_payout", 0)
+                        odds = bet.get("odds_at_bet", 1.0)
+                        
+                        outcome_names = {
+                            "home": f"🏠 {home_team}",
+                            "draw": "🤝 Remis",
+                            "away": f"✈️ {away_team}",
+                            "over": "⬆️ Über",
+                            "under": "⬇️ Unter",
+                            "yes": "✅ Ja",
+                            "no": "❌ Nein",
+                        }
+                        
+                        status_emoji = "✅" if status == "won" else "❌"
+                        result_text = f"+{actual_payout} 🪙" if status == "won" else f"-{bet_amount} 🪙"
+                        
+                        embed.add_field(
+                            name=f"{status_emoji} {home_team} {home_score}:{away_score} {away_team}",
+                            value=(
+                                f"🎯 Dein Tipp: **{outcome_names.get(bet_outcome, bet_outcome)}**\n"
+                                f"📊 Quote: **{odds:.2f}x** | 💰 {result_text}"
+                            ),
+                            inline=False
+                        )
+                    
+                    if len(bets) > 5:
+                        embed.set_footer(text=f"Und {len(bets) - 5} weitere Wetten...")
+                    else:
+                        # Add total summary
+                        net = total_won - total_lost
+                        net_text = f"+{net}" if net >= 0 else str(net)
+                        embed.set_footer(text=f"Gesamtbilanz: {net_text} 🪙")
+                    
+                    # Send DM
+                    try:
+                        await user.send(embed=embed)
+                        logger.info(f"Sent bet results notification to user {user_id}")
+                        
+                        # Credit winnings to user balance
+                        if total_won > 0:
+                            stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+                            await db_helpers.add_balance(user_id, user.display_name, total_won, config, stat_period)
+                            logger.info(f"Credited {total_won} coins to user {user_id}")
+                            
+                    except discord.Forbidden:
+                        logger.warning(f"Could not send DM to user {user_id} (DMs disabled)")
+                    except Exception as e:
+                        logger.warning(f"Failed to send notification to user {user_id}: {e}")
+                        
+                except discord.NotFound:
+                    logger.warning(f"User {user_id} not found")
+                except Exception as e:
+                    logger.error(f"Error notifying user {user_id} about bet results: {e}")
+            
+            logger.info(f"Sport betting: Processed {len(all_settled_bets)} settled bets for {len(user_bets)} users")
+            
+    except Exception as e:
+        logger.error(f"Error in sport_betting_sync_and_settle_task: {e}", exc_info=True)
+
+
+@sport_betting_sync_and_settle_task.before_loop
+async def before_sport_betting_sync_and_settle():
+    await client.wait_until_ready()
+
 
 async def _calculate_server_averages(all_stats):
     """Helper to calculate average stats for the server."""
@@ -13286,8 +13486,8 @@ async def sportbets_command(interaction: discord.Interaction):
             except Exception as e:
                 logger.warning(f"Could not sync {league_id}: {e}")
         
-        # Get upcoming matches for highlighting
-        matches = await sport_betting.get_upcoming_matches(db_helpers, None, limit=5)
+        # Get recent matches for highlighting (including recently finished games)
+        matches = await sport_betting.get_recent_matches(db_helpers, None, limit=5)
         
         # Get user balance
         balance = await get_user_balance(user_id)
