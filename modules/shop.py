@@ -12,7 +12,8 @@ from modules.logger_utils import bot_logger as logger
 async def create_color_role(guild: discord.Guild, member: discord.Member, color: str, role_name: str = None):
     """
     Creates a custom color role for a member.
-    Places the role above the user's highest existing role so the color is visible.
+    Places the role just below the bot's top role so the color is always visible,
+    regardless of what other roles the user has.
     
     Args:
         guild: Discord guild
@@ -32,41 +33,18 @@ async def create_color_role(guild: discord.Guild, member: discord.Member, color:
         if not role_name:
             role_name = f"Color-{member.name}"
         
-        # Find the member's highest role position (excluding @everyone)
-        # Color roles need to be ABOVE the user's other roles to be visible
-        member_highest_role_position = 0
-        for role in member.roles:
-            if role.name != "@everyone":
-                member_highest_role_position = max(member_highest_role_position, role.position)
-        
         # Find bot's highest role position to ensure we don't exceed it
         bot_member = guild.get_member(guild.me.id)
         bot_top_position = guild.me.top_role.position if bot_member else len(guild.roles) - 1
         
-        # Find existing color roles to group them together
-        existing_color_roles = []
-        for role in guild.roles:
-            if role.name.startswith("Color-"):
-                existing_color_roles.append(role)
-        
         # Determine target position for the new color role
-        # Strategy: Place above the user's highest role, but below bot's top role
-        # If other color roles exist at similar positions, group with them
-        if existing_color_roles:
-            # Find the highest color role position that's still above the user's roles
-            suitable_color_positions = [r.position for r in existing_color_roles if r.position > member_highest_role_position]
-            if suitable_color_positions:
-                # Use the lowest suitable existing color role position to group together
-                target_position = min(suitable_color_positions)
-            else:
-                # No suitable existing color roles, place just above user's highest role
-                target_position = min(member_highest_role_position + 1, bot_top_position - 1)
-        else:
-            # No existing color roles - place just above user's highest role
-            target_position = min(member_highest_role_position + 1, bot_top_position - 1)
+        # Strategy: Place just below bot's top role so color is always visible
+        # regardless of what other roles the user has
+        # All color roles will be grouped together at this high position
+        target_position = bot_top_position - 1
         
-        # Ensure target position is at least 1 and doesn't exceed bot's position
-        target_position = max(1, min(target_position, bot_top_position - 1))
+        # Ensure target position is at least 1 (position 0 is @everyone)
+        target_position = max(1, target_position)
         
         # Create the role at a default position first
         role = await guild.create_role(
@@ -75,10 +53,10 @@ async def create_color_role(guild: discord.Guild, member: discord.Member, color:
             reason=f"Color role purchased by {member.name}"
         )
         
-        # Move role to the target position (above user's roles)
+        # Move role to the target position (high in hierarchy for visibility)
         try:
             await role.edit(position=target_position)
-            logger.info(f"Created color role '{role_name}' ({color}) for {member.name} at position {target_position} (above user's role at {member_highest_role_position})")
+            logger.info(f"Created color role '{role_name}' ({color}) for {member.name} at position {target_position} (below bot's role at {bot_top_position})")
         except discord.Forbidden:
             logger.error(f"Missing permissions to move color role to position {target_position}")
             # Keep at default position
