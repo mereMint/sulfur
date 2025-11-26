@@ -208,6 +208,75 @@ class OpenLigaDBProvider(FootballAPIProvider):
             logger.error(f"OpenLigaDB API error: {e}", exc_info=True)
             return []
     
+    async def get_upcoming_matches(self, league_id: str, num_matchdays: int = 3) -> List[Dict[str, Any]]:
+        """
+        Get matches from current and upcoming matchdays.
+        This ensures we always have upcoming matches to bet on, even if the current matchday is complete.
+        
+        Args:
+            league_id: The league identifier (e.g., 'bl1' for Bundesliga)
+            num_matchdays: Number of matchdays to fetch (including current)
+            
+        Returns:
+            List of parsed match data dictionaries
+        """
+        all_matches = []
+        seen_ids = set()
+        
+        try:
+            # Establish session early for reuse
+            session = await self.get_session()
+            
+            # Get current matchday number and season
+            current_matchday = await self.get_current_matchday(league_id)
+            season = self._get_season()
+            
+            # Fetch current and next matchdays
+            for offset in range(num_matchdays):
+                matchday = current_matchday + offset
+                url = f"{self.BASE_URL}/getmatchdata/{league_id}/{season}/{matchday}"
+                
+                try:
+                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as response:
+                        if response.status != 200:
+                            # May have reached end of season - log at info level for monitoring
+                            if offset > 0:
+                                logger.info(f"No data for matchday {matchday} (end of season or future matchday)")
+                            else:
+                                logger.debug(f"No data for matchday {matchday}: status {response.status}")
+                            continue
+                        
+                        data = await response.json()
+                        if not data:
+                            continue
+                            
+                        matches = self._parse_matches(data)
+                        
+                        # Add matches we haven't seen yet (avoid duplicates)
+                        for match in matches:
+                            match_id = match.get("id")
+                            if match_id and match_id not in seen_ids:
+                                seen_ids.add(match_id)
+                                all_matches.append(match)
+                                
+                except asyncio.TimeoutError:
+                    logger.warning(f"Timeout fetching matchday {matchday}")
+                    continue
+                except Exception as e:
+                    logger.warning(f"Error fetching matchday {matchday}: {e}")
+                    continue
+                
+                # Small delay between requests to be polite to the API (skip after last request)
+                if offset < num_matchdays - 1:
+                    await asyncio.sleep(0.5)
+            
+            logger.info(f"Fetched {len(all_matches)} matches from {num_matchdays} matchdays for {league_id}")
+            return all_matches
+            
+        except Exception as e:
+            logger.error(f"Error getting upcoming matches: {e}", exc_info=True)
+            return []
+    
     async def get_match(self, match_id: str) -> Optional[Dict[str, Any]]:
         """Get a specific match by ID."""
         try:
@@ -1068,10 +1137,20 @@ async def get_betting_leaderboard(db_helpers, limit: int = 10) -> List[Dict]:
 # MATCH DATA SYNC
 # ============================================================================
 
-async def sync_league_matches(db_helpers, league_id: str) -> int:
+async def sync_league_matches(db_helpers, league_id: str, num_matchdays: int = 3) -> int:
     """
     Sync matches from API to database for a league.
-    Returns number of matches synced.
+    
+    For OpenLigaDB leagues, fetches current and upcoming matchdays to ensure
+    there are always upcoming matches available for betting.
+    
+    Args:
+        db_helpers: Database helper instance
+        league_id: The league identifier
+        num_matchdays: Number of matchdays to fetch for OpenLigaDB (default: 3)
+        
+    Returns:
+        Number of matches synced.
     """
     league_config = LEAGUES.get(league_id)
     if not league_config:
@@ -1081,7 +1160,12 @@ async def sync_league_matches(db_helpers, league_id: str) -> int:
     provider = APIProviderFactory.get_provider(league_config["provider"])
     
     try:
-        matches = await provider.get_matches(league_config["api_id"])
+        # Use get_upcoming_matches for OpenLigaDB to fetch multiple matchdays
+        if isinstance(provider, OpenLigaDBProvider):
+            matches = await provider.get_upcoming_matches(league_config["api_id"], num_matchdays)
+        else:
+            # For other providers, use the standard get_matches method
+            matches = await provider.get_matches(league_config["api_id"])
         
         synced = 0
         for match in matches:
