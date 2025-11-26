@@ -224,10 +224,12 @@ class OpenLigaDBProvider(FootballAPIProvider):
         seen_ids = set()
         
         try:
-            # Get current matchday number
+            # Establish session early for reuse
+            session = await self.get_session()
+            
+            # Get current matchday number and season
             current_matchday = await self.get_current_matchday(league_id)
             season = self._get_season()
-            session = await self.get_session()
             
             # Fetch current and next matchdays
             for offset in range(num_matchdays):
@@ -237,8 +239,11 @@ class OpenLigaDBProvider(FootballAPIProvider):
                 try:
                     async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as response:
                         if response.status != 200:
-                            # May have reached end of season
-                            logger.debug(f"No data for matchday {matchday}: status {response.status}")
+                            # May have reached end of season - log at info level for monitoring
+                            if offset > 0:
+                                logger.info(f"No data for matchday {matchday} (end of season or future matchday)")
+                            else:
+                                logger.debug(f"No data for matchday {matchday}: status {response.status}")
                             continue
                         
                         data = await response.json()
@@ -261,8 +266,9 @@ class OpenLigaDBProvider(FootballAPIProvider):
                     logger.warning(f"Error fetching matchday {matchday}: {e}")
                     continue
                 
-                # Small delay between requests to be polite to the API
-                await asyncio.sleep(0.5)
+                # Small delay between requests to be polite to the API (skip after last request)
+                if offset < num_matchdays - 1:
+                    await asyncio.sleep(0.5)
             
             logger.info(f"Fetched {len(all_matches)} matches from {num_matchdays} matchdays for {league_id}")
             return all_matches
