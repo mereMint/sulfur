@@ -3957,7 +3957,7 @@ class RPGContinueAdventureView(discord.ui.View):
 
 
 class RPGCombatView(discord.ui.View):
-    """Interactive combat view for RPG battles with strategic combat."""
+    """Interactive combat view for RPG battles with strategic combat and enhanced features."""
     
     def __init__(self, user_id: int, monster: dict, equipped_skills: list = None):
         super().__init__(timeout=300)  # 5 minute timeout
@@ -3967,13 +3967,12 @@ class RPGCombatView(discord.ui.View):
         self.turn_count = 0
         self.equipped_skills = equipped_skills or []
         
-        # Combat state for tracking status effects across turns
-        self.combat_state = {
-            'player_effects': {},
-            'monster_effects': {},
-            'turn_count': 0,
-            'player_defending': False
-        }
+        # Import combat enhancements
+        from modules import rpg_combat_enhancements as combat_fx
+        self.combat_fx = combat_fx
+        
+        # Enhanced combat state for tracking status effects and new mechanics
+        self.combat_state = combat_fx.create_enhanced_combat_state()
         
         # Add skill buttons dynamically
         self._add_skill_buttons()
@@ -4118,7 +4117,7 @@ class RPGCombatView(discord.ui.View):
             await interaction.followup.send(f"❌ Fehler: {e}")
     
     def _get_status_effects_display(self) -> str:
-        """Get formatted display of active status effects."""
+        """Get formatted display of active status effects and combat momentum."""
         lines = []
         
         # Player effects
@@ -4149,7 +4148,46 @@ class RPGCombatView(discord.ui.View):
             if monster_status:
                 lines.append(f"🐉 Gegner: {' '.join(monster_status)}")
         
+        # Add momentum/combo display using combat enhancements
+        momentum_display = self.combat_fx.get_momentum_display(
+            self.combat_state.get('combo_count', 0),
+            self.combat_state.get('player_rage', 0)
+        )
+        if momentum_display:
+            lines.append(f"\n{momentum_display}")
+        
+        # Monster enrage indicator
+        if self.combat_state.get('monster_enraged'):
+            lines.append(f"⚠️ **{self.monster['name']} ist wütend!**")
+        
         return "\n".join(lines) if lines else ""
+    
+    def _create_health_bar(self, percentage: float) -> str:
+        """Create an enhanced visual health bar with color-coded segments."""
+        bar_length = 10
+        percentage = max(0, min(100, percentage))
+        filled = int(bar_length * (percentage / 100))
+        empty = bar_length - filled
+        
+        # Choose colors based on health percentage
+        if percentage > 70:
+            bar_char = "🟩"
+        elif percentage > 40:
+            bar_char = "🟨"
+        elif percentage > 20:
+            bar_char = "🟧"
+        else:
+            bar_char = "🟥"
+        
+        health_bar = bar_char * filled + "⬛" * empty
+        
+        # Add pulsing effect indicator for low health
+        if percentage <= 20:
+            health_bar = f"[{health_bar}] ⚠️"
+        else:
+            health_bar = f"[{health_bar}]"
+        
+        return health_bar
     
     @discord.ui.button(label="⚔️ Angreifen", style=discord.ButtonStyle.danger)
     async def attack_button(self, interaction: discord.Interaction, button: discord.ui.Button):
