@@ -571,6 +571,12 @@ if [ -z "$ENV_EXISTS" ]; then
     echo -e "${YELLOW}Enter your OpenAI API Key (or press Enter to skip):${NC}"
     read -p "> " OPENAI_KEY
     
+    # Football-Data.org API Key
+    echo -e "${YELLOW}Enter your Football-Data.org API Key (or press Enter to skip):${NC}"
+    echo -e "${CYAN}  Free tier available at: https://www.football-data.org/client/register${NC}"
+    echo -e "${CYAN}  Enables: Champions League, Premier League, La Liga, Serie A, FIFA World Cup${NC}"
+    read -p "> " FOOTBALL_DATA_KEY
+    
     # Create .env file (without quotes around values to avoid escaping issues)
     cat > .env <<EOF
 # Discord Bot Token
@@ -579,6 +585,10 @@ DISCORD_BOT_TOKEN=${DISCORD_TOKEN}
 # AI API Keys
 GEMINI_API_KEY=${GEMINI_KEY}
 OPENAI_API_KEY=${OPENAI_KEY}
+
+# Football Data API (for Sport Betting)
+# Enables: Champions League, Premier League, La Liga, Serie A, FIFA World Cup
+FOOTBALL_DATA_API_KEY=${FOOTBALL_DATA_KEY}
 
 # Database Configuration
 DB_HOST=localhost

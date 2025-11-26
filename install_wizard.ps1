@@ -338,8 +338,21 @@ if (!(Test-Path $envPath)) {
     
     Write-Host ""
     
+    # Football-Data.org API Key
+    Write-Host "  4. Football-Data.org API Key (Optional - For Sport Betting)" -ForegroundColor $ColorPrompt
+    Write-Host "     Get it from: https://www.football-data.org/client/register" -ForegroundColor DarkGray
+    Write-Host "     Free tier available - Enables: Champions League, Premier League, World Cup" -ForegroundColor DarkGray
+    Write-Host ""
+    if (Read-YesNo "     Open Football-Data.org registration page?") {
+        Open-URL "https://www.football-data.org/client/register"
+        Write-Host ""
+    }
+    $footballDataKey = Read-Host "     Enter your Football-Data.org API Key (or press Enter to skip)"
+    
+    Write-Host ""
+    
     # Database Configuration
-    Write-Host "  4. Database Configuration" -ForegroundColor $ColorPrompt
+    Write-Host "  5. Database Configuration" -ForegroundColor $ColorPrompt
     Write-Host ""
     $dbHost = Read-Host "     Database Host (default: localhost)"
     if ([string]::IsNullOrWhiteSpace($dbHost)) { $dbHost = "localhost" }
@@ -355,14 +368,14 @@ if (!(Test-Path $envPath)) {
     Write-Host ""
     
     # Optional: Bot Prefix
-    $botPrefix = Read-Host "  5. Bot Command Prefix (default: !)"
+    $botPrefix = Read-Host "  6. Bot Command Prefix (default: !)"
     if ([string]::IsNullOrWhiteSpace($botPrefix)) { $botPrefix = "!" }
     
     # Optional: Owner ID
     Write-Host ""
     Write-Info "Your Discord User ID (optional - for owner-only commands)"
     Write-Info "To find it: Enable Developer Mode in Discord -> Right-click your name -> Copy ID"
-    $ownerId = Read-Host "  6. Your Discord User ID (or press Enter to skip)"
+    $ownerId = Read-Host "  7. Your Discord User ID (or press Enter to skip)"
     
     # Create .env file
     Write-Host ""
@@ -380,6 +393,10 @@ DISCORD_BOT_TOKEN="$discordToken"
 # AI API Keys
 GEMINI_API_KEY="$geminiKey"
 OPENAI_API_KEY="$openaiKey"
+
+# Football Data API (for Sport Betting)
+# Enables: Champions League, Premier League, La Liga, Serie A, FIFA World Cup
+FOOTBALL_DATA_API_KEY="$footballDataKey"
 
 # Database Configuration
 DB_HOST=$dbHost

@@ -47,6 +47,8 @@ from modules import wordle  # NEW: Wordle game
 from modules import themes  # NEW: Theme system
 from modules import horse_racing  # NEW: Horse racing game
 from modules import rpg_system  # NEW: RPG system
+from modules import sport_betting  # NEW: Sport betting system
+from modules import sport_betting_ui_v2 as sport_betting_ui  # NEW: Sport betting UI components (v2)
 from modules.bot_enhancements import (
     handle_image_attachment,
     handle_unknown_emojis_in_message,
@@ -67,6 +69,7 @@ from discord.ext import tasks as _tasks  # separate alias for new periodic clean
 DISCORD_BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "").strip().strip('"').strip("'")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+FOOTBALL_DATA_API_KEY = os.environ.get("FOOTBALL_DATA_API_KEY")  # Football-Data.org API key
 
 # --- NEW: Database Configuration ---
 # Set these as environment variables for security, or hardcode for testing.
@@ -630,6 +633,23 @@ async def on_ready():
     await rpg_system.initialize_default_monsters(db_helpers)
     await rpg_system.initialize_shop_items(db_helpers)
     print("RPG system ready!")
+    
+    # --- NEW: Initialize Sport Betting system ---
+    print("Initializing sport betting system...")
+    await sport_betting.initialize_sport_betting_tables(db_helpers)
+    # Configure Football-Data.org API provider if key is available
+    if FOOTBALL_DATA_API_KEY:
+        sport_betting.APIProviderFactory.configure("football_data", FOOTBALL_DATA_API_KEY)
+        print("Football-Data.org API configured (Champions League, Premier League, World Cup available)")
+    else:
+        print("Football-Data.org API key not set - only free leagues available")
+    # Sync matches from free APIs (OpenLigaDB - no API key required)
+    try:
+        for league_id in ["bl1", "bl2", "dfb"]:
+            await sport_betting.sync_league_matches(db_helpers, league_id)
+    except Exception as e:
+        logger.warning(f"Could not sync sport betting matches on startup: {e}")
+    print("Sport betting system ready!")
 
     # --- NEW: Clean up leftover game channels on restart ---
     print("Checking for leftover game channels...")
@@ -13118,8 +13138,68 @@ async def on_message(message):
 
 
 # ============================================================================
-# REACTION EVENT HANDLERS - Quest Progress Tracking
+# SPORT BETTING COMMAND (Consolidated)
 # ============================================================================
+
+@tree.command(name="sportbets", description="⚽ Sport Betting - Wette auf Fußballspiele!")
+async def sportbets_command(interaction: discord.Interaction):
+    """
+    Main sport betting command with highlighted games and intuitive flow.
+    Flow: Main Menu → League Select → Match Details → Bet Type → Place Bet
+    """
+    await interaction.response.defer()
+    
+    user_id = interaction.user.id
+    
+    try:
+        # Helper functions for balance management
+        async def get_user_balance(uid: int) -> int:
+            return await db_helpers.get_balance(uid)
+        
+        async def deduct_balance(uid: int, display_name: str, amount: int):
+            stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+            await db_helpers.add_balance(uid, display_name, amount, config, stat_period)
+        
+        # Sync free leagues and get highlighted matches
+        for league_id in ["bl1", "bl2", "dfb"]:
+            try:
+                await sport_betting.sync_league_matches(db_helpers, league_id)
+            except Exception as e:
+                logger.warning(f"Could not sync {league_id}: {e}")
+        
+        # Get upcoming matches for highlighting
+        matches = await sport_betting.get_upcoming_matches(db_helpers, None, limit=5)
+        
+        # Get user balance
+        balance = await get_user_balance(user_id)
+        
+        # Create main menu embed with highlighted games
+        embed = sport_betting_ui.create_highlighted_matches_embed(matches, balance)
+        
+        # Get user stats for display
+        stats = await sport_betting.get_user_betting_stats(db_helpers, user_id)
+        if stats:
+            profit = stats.get("total_won", 0) - stats.get("total_lost", 0)
+            win_rate = (stats.get("total_wins", 0) / stats.get("total_bets", 1) * 100) if stats.get("total_bets", 0) > 0 else 0
+            embed.add_field(
+                name="📊 Deine Bilanz",
+                value=f"**{profit:+d}** 🪙 • {win_rate:.0f}% Gewinnrate",
+                inline=True
+            )
+        
+        # Create main menu view
+        view = sport_betting_ui.SportBetsMainView(
+            db_helpers, get_user_balance, deduct_balance
+        )
+        
+        await interaction.followup.send(embed=embed, view=view)
+        
+    except Exception as e:
+        logger.error(f"Error in sportbets command: {e}", exc_info=True)
+        await interaction.followup.send(
+            f"❌ Ein Fehler ist aufgetreten: {str(e)}",
+            ephemeral=True
+        )
 
 @client.event
 async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
