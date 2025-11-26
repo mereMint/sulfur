@@ -785,6 +785,11 @@ async def on_ready():
     # --- NEW: Start periodic application emoji check ---
     if not check_application_emojis.is_running():
         check_application_emojis.start()
+    
+    # --- NEW: Start sport betting notifications task ---
+    if not sport_betting_notifications_task.is_running():
+        sport_betting_notifications_task.start()
+        print("  -> Sport betting notifications task started")
 
 @tasks.loop(minutes=15)
 async def update_presence_task():
@@ -1369,6 +1374,119 @@ async def manage_wrapped_event():
     except Exception as e:
         logger.error(f"Error in manage_wrapped_event task: {e}", exc_info=True)
         print(f"[Wrapped Event Task] Error: {e}")
+
+
+@tasks.loop(minutes=10)
+async def sport_betting_notifications_task():
+    """
+    Background task to notify users about their bets before matches start.
+    Runs every 10 minutes and checks for matches starting within 30 minutes.
+    """
+    try:
+        if not client.guilds:
+            return
+        
+        # Get bets that need notification (matches starting within 30 minutes)
+        bets_to_notify = await sport_betting.get_bets_to_notify(db_helpers, minutes_before=30)
+        
+        if not bets_to_notify:
+            return
+        
+        logger.info(f"Found {len(bets_to_notify)} bets to notify")
+        
+        # Group bets by user
+        user_bets = {}
+        for bet in bets_to_notify:
+            user_id = bet["user_id"]
+            if user_id not in user_bets:
+                user_bets[user_id] = []
+            user_bets[user_id].append(bet)
+        
+        # Send notifications to each user
+        notified_bet_ids = []
+        for user_id, bets in user_bets.items():
+            try:
+                user = await client.fetch_user(user_id)
+                if not user:
+                    continue
+                
+                # Create notification embed
+                embed = discord.Embed(
+                    title="⚽ Spielerinnerung!",
+                    description="Deine Wetten starten bald!",
+                    color=discord.Color.gold()
+                )
+                
+                for bet in bets[:5]:  # Max 5 bets per notification
+                    home_team = bet.get("home_team", "Heim")
+                    away_team = bet.get("away_team", "Auswärts")
+                    match_time = bet.get("match_time")
+                    bet_outcome = bet.get("bet_outcome", "")
+                    odds = bet.get("odds_at_bet", 1.0)
+                    potential_payout = bet.get("potential_payout", 0)
+                    
+                    outcome_names = {
+                        "home": f"🏠 {home_team}",
+                        "draw": "🤝 Remis",
+                        "away": f"✈️ {away_team}",
+                        "over": "⬆️ Über",
+                        "under": "⬇️ Unter",
+                        "yes": "✅ Ja",
+                        "no": "❌ Nein",
+                    }
+                    
+                    # Handle time formatting
+                    if isinstance(match_time, str):
+                        try:
+                            match_time = datetime.fromisoformat(match_time.replace("Z", "+00:00"))
+                        except ValueError:
+                            pass
+                    
+                    time_str = match_time.strftime("%H:%M") if isinstance(match_time, datetime) else "bald"
+                    
+                    embed.add_field(
+                        name=f"⚽ {home_team} vs {away_team}",
+                        value=(
+                            f"🎯 Dein Tipp: **{outcome_names.get(bet_outcome, bet_outcome)}**\n"
+                            f"📊 Quote: **{odds:.2f}x** | 💎 Gewinn: **{potential_payout}** 🪙\n"
+                            f"⏰ Start: **{time_str} Uhr**"
+                        ),
+                        inline=False
+                    )
+                    
+                    notified_bet_ids.append(bet["bet_id"])
+                
+                if len(bets) > 5:
+                    embed.set_footer(text=f"Und {len(bets) - 5} weitere Wetten...")
+                else:
+                    embed.set_footer(text="Viel Glück! 🍀")
+                
+                # Send DM to user
+                try:
+                    await user.send(embed=embed)
+                    logger.info(f"Sent betting notification to user {user_id}")
+                except discord.Forbidden:
+                    logger.warning(f"Could not send DM to user {user_id} (DMs disabled)")
+                except Exception as e:
+                    logger.warning(f"Failed to send notification to user {user_id}: {e}")
+                    
+            except discord.NotFound:
+                logger.warning(f"User {user_id} not found")
+            except Exception as e:
+                logger.error(f"Error notifying user {user_id}: {e}")
+        
+        # Mark bets as notified
+        if notified_bet_ids:
+            await sport_betting.mark_bets_notified(db_helpers, notified_bet_ids)
+            logger.info(f"Marked {len(notified_bet_ids)} bets as notified")
+            
+    except Exception as e:
+        logger.error(f"Error in sport_betting_notifications_task: {e}", exc_info=True)
+
+
+@sport_betting_notifications_task.before_loop
+async def before_sport_betting_notifications():
+    await client.wait_until_ready()
 
 async def _calculate_server_averages(all_stats):
     """Helper to calculate average stats for the server."""
@@ -13146,8 +13264,9 @@ async def sportbets_command(interaction: discord.Interaction):
     """
     Main sport betting command with highlighted games and intuitive flow.
     Flow: Main Menu → League Select → Match Details → Bet Type → Place Bet
+    Messages are ephemeral (only visible to the user).
     """
-    await interaction.response.defer()
+    await interaction.response.defer(ephemeral=True)
     
     user_id = interaction.user.id
     
@@ -13192,7 +13311,7 @@ async def sportbets_command(interaction: discord.Interaction):
             db_helpers, get_user_balance, deduct_balance
         )
         
-        await interaction.followup.send(embed=embed, view=view)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         
     except Exception as e:
         logger.error(f"Error in sportbets command: {e}", exc_info=True)
