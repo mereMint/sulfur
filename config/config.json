@@ -336,6 +336,31 @@
         "50": "Top 50% (Dabei)",
         "default": "Bottom 50%"
       }
+    },
+    "sport_betting": {
+      "enabled": true,
+      "min_bet": 10,
+      "max_bet": 10000,
+      "house_edge": 0.05,
+      "sync_interval_minutes": 30,
+      "default_leagues": ["bl1", "bl2", "dfb"],
+      "api_providers": {
+        "openligadb": {
+          "enabled": true,
+          "requires_key": false,
+          "base_url": "https://api.openligadb.de"
+        },
+        "football_data": {
+          "enabled": false,
+          "requires_key": true,
+          "base_url": "https://api.football-data.org/v4"
+        },
+        "sportmonks": {
+          "enabled": false,
+          "requires_key": true,
+          "base_url": "https://api.sportmonks.com/v3"
+        }
+      }
     }
   }
 }
