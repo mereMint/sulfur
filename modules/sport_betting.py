@@ -38,8 +38,13 @@ class MatchStatus(Enum):
 class BetType(Enum):
     """Types of bets available."""
     MATCH_WINNER = "winner"  # 1X2 - Home/Draw/Away
-    OVER_UNDER = "over_under"  # Over/Under goals
+    OVER_UNDER_2_5 = "over_under_2.5"  # Over/Under 2.5 goals
+    OVER_UNDER_1_5 = "over_under_1.5"  # Over/Under 1.5 goals
+    OVER_UNDER_3_5 = "over_under_3.5"  # Over/Under 3.5 goals
     BOTH_TEAMS_SCORE = "btts"  # Both teams to score
+    GOAL_DIFF_1 = "goal_diff_1"  # Win by 1+ goal difference
+    GOAL_DIFF_2 = "goal_diff_2"  # Win by 2+ goal difference
+    GOAL_DIFF_3 = "goal_diff_3"  # Win by 3+ goal difference
 
 
 class BetOutcome(Enum):
@@ -51,6 +56,12 @@ class BetOutcome(Enum):
     UNDER = "under"
     YES = "yes"
     NO = "no"
+    HOME_DIFF_1 = "home_diff_1"  # Home wins by 1+ goals
+    AWAY_DIFF_1 = "away_diff_1"  # Away wins by 1+ goals
+    HOME_DIFF_2 = "home_diff_2"  # Home wins by 2+ goals
+    AWAY_DIFF_2 = "away_diff_2"  # Away wins by 2+ goals
+    HOME_DIFF_3 = "home_diff_3"  # Home wins by 3+ goals
+    AWAY_DIFF_3 = "away_diff_3"  # Away wins by 3+ goals
 
 
 # League configurations with display info
@@ -622,6 +633,69 @@ class OddsCalculator:
         }
     
     @staticmethod
+    def calculate_advanced_odds(match: Dict[str, Any]) -> Dict[str, float]:
+        """
+        Calculate odds for advanced bet types.
+        Returns odds for over/under goals, BTTS, and goal difference bets.
+        """
+        # Get base odds from the match (for home/away as reference for goal diff)
+        base_home = float(match.get("odds_home", 2.0))
+        base_away = float(match.get("odds_away", 3.0))
+        
+        # Base odds for over/under bets (typical football averages)
+        # Over 2.5 goals happens in about 50% of matches
+        over_2_5 = 1.90
+        under_2_5 = 1.90
+        
+        # Over 1.5 goals happens more often (~70-75%)
+        over_1_5 = 1.35
+        under_1_5 = 3.20
+        
+        # Over 3.5 goals is less common (~30%)
+        over_3_5 = 2.80
+        under_3_5 = 1.45
+        
+        # Both teams to score (~55% on average)
+        btts_yes = 1.75
+        btts_no = 2.10
+        
+        # Goal difference odds (based on match odds)
+        # Home win by 1+ is essentially home win
+        home_diff_1 = base_home * 1.05
+        away_diff_1 = base_away * 1.05
+        
+        # Home/Away win by 2+ goals is less likely
+        home_diff_2 = base_home * 2.0
+        away_diff_2 = base_away * 2.0
+        
+        # Home/Away win by 3+ goals is rare
+        home_diff_3 = base_home * 3.5
+        away_diff_3 = base_away * 3.5
+        
+        # Add variation (±10%)
+        variation = 0.1
+        
+        def vary(odds: float) -> float:
+            return round(max(1.1, odds * random.uniform(1 - variation, 1 + variation)), 2)
+        
+        return {
+            "over_2.5": vary(over_2_5),
+            "under_2.5": vary(under_2_5),
+            "over_1.5": vary(over_1_5),
+            "under_1.5": vary(under_1_5),
+            "over_3.5": vary(over_3_5),
+            "under_3.5": vary(under_3_5),
+            "btts_yes": vary(btts_yes),
+            "btts_no": vary(btts_no),
+            "home_diff_1": vary(home_diff_1),
+            "away_diff_1": vary(away_diff_1),
+            "home_diff_2": vary(home_diff_2),
+            "away_diff_2": vary(away_diff_2),
+            "home_diff_3": vary(home_diff_3),
+            "away_diff_3": vary(away_diff_3),
+        }
+    
+    @staticmethod
     def calculate_payout(bet_amount: int, odds: float) -> int:
         """Calculate potential payout for a bet."""
         return int(bet_amount * odds)
@@ -722,6 +796,68 @@ async def initialize_sport_betting_tables(db_helpers):
                     pool_away BIGINT DEFAULT 0,
                     total_bettors INT DEFAULT 0,
                     last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    FOREIGN KEY (match_id) REFERENCES sport_matches(match_id) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """)
+            
+            # Table for bet notifications (track if users were notified)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS sport_bet_notifications (
+                    notification_id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    match_id VARCHAR(64) NOT NULL,
+                    notification_type VARCHAR(32) NOT NULL DEFAULT 'pre_match',
+                    notified_at TIMESTAMP NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_user_match (user_id, match_id),
+                    INDEX idx_notification_type (notification_type),
+                    INDEX idx_notified (notified_at),
+                    FOREIGN KEY (match_id) REFERENCES sport_matches(match_id) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """)
+            
+            # Add notified column to sport_bets if it doesn't exist
+            try:
+                cursor.execute("""
+                    ALTER TABLE sport_bets 
+                    ADD COLUMN notified_pre_match BOOLEAN DEFAULT FALSE,
+                    ADD INDEX idx_notified (notified_pre_match)
+                """)
+            except Exception:
+                pass  # Column already exists
+            
+            # Table for combination bets (accumulators/parlays)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS sport_combo_bets (
+                    combo_id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    bet_amount BIGINT NOT NULL,
+                    total_odds DECIMAL(10,2) NOT NULL,
+                    potential_payout BIGINT NOT NULL,
+                    status VARCHAR(32) NOT NULL DEFAULT 'pending',
+                    actual_payout BIGINT DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    settled_at TIMESTAMP NULL,
+                    INDEX idx_user (user_id),
+                    INDEX idx_status (status),
+                    INDEX idx_created (created_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """)
+            
+            # Table for individual selections in combo bets
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS sport_combo_selections (
+                    selection_id INT AUTO_INCREMENT PRIMARY KEY,
+                    combo_id INT NOT NULL,
+                    match_id VARCHAR(64) NOT NULL,
+                    bet_type VARCHAR(32) NOT NULL,
+                    bet_outcome VARCHAR(32) NOT NULL,
+                    odds_at_bet DECIMAL(5,2) NOT NULL,
+                    status VARCHAR(32) NOT NULL DEFAULT 'pending',
+                    INDEX idx_combo (combo_id),
+                    INDEX idx_match (match_id),
+                    INDEX idx_status (status),
+                    FOREIGN KEY (combo_id) REFERENCES sport_combo_bets(combo_id) ON DELETE CASCADE,
                     FOREIGN KEY (match_id) REFERENCES sport_matches(match_id) ON DELETE CASCADE
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
@@ -883,15 +1019,7 @@ async def place_bet(db_helpers, user_id: int, match_id: str, bet_type: str,
             if not match:
                 return False, "Dieses Spiel ist nicht mehr für Wetten verfügbar"
             
-            # Check if user already has a bet on this match
-            cursor.execute("""
-                SELECT bet_id FROM sport_bets 
-                WHERE user_id = %s AND match_id = %s AND status = 'pending'
-            """, (user_id, match_id))
-            existing_bet = cursor.fetchone()
-            
-            if existing_bet:
-                return False, "Du hast bereits eine Wette auf dieses Spiel platziert"
+            # Allow multiple bets on the same match (removed single bet restriction)
             
             # Calculate potential payout
             potential_payout = OddsCalculator.calculate_payout(amount, odds)
@@ -935,6 +1063,267 @@ async def place_bet(db_helpers, user_id: int, match_id: str, bet_type: str,
     except Exception as e:
         logger.error(f"Error placing bet: {e}", exc_info=True)
         return False, f"Fehler beim Platzieren der Wette: {str(e)}"
+
+
+async def place_combo_bet(db_helpers, user_id: int, selections: List[Dict], amount: int) -> Tuple[bool, str]:
+    """
+    Place a combination bet (accumulator/parlay) with multiple selections.
+    
+    Args:
+        db_helpers: Database helper instance
+        user_id: Discord user ID
+        selections: List of dicts with keys: match_id, bet_type, bet_outcome, odds
+        amount: Bet amount in coins
+        
+    Returns:
+        Tuple of (success, message)
+    """
+    if len(selections) < 2:
+        return False, "Eine Kombiwette braucht mindestens 2 Auswahlen"
+    
+    if len(selections) > 10:
+        return False, "Maximal 10 Auswahlen pro Kombiwette erlaubt"
+    
+    try:
+        if not db_helpers.db_pool:
+            return False, "Database nicht verfügbar"
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return False, "Datenbankverbindung fehlgeschlagen"
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            # Verify all matches are still open for betting
+            match_ids = [s["match_id"] for s in selections]
+            placeholders = ', '.join(['%s'] * len(match_ids))
+            cursor.execute(f"""
+                SELECT match_id FROM sport_matches 
+                WHERE match_id IN ({placeholders}) 
+                AND status = 'scheduled' AND match_time > NOW()
+            """, tuple(match_ids))
+            
+            valid_matches = {row["match_id"] for row in cursor.fetchall()}
+            
+            for selection in selections:
+                if selection["match_id"] not in valid_matches:
+                    return False, f"Spiel {selection['match_id']} ist nicht mehr für Wetten verfügbar"
+            
+            # Calculate total odds (multiply all individual odds)
+            total_odds = 1.0
+            for selection in selections:
+                total_odds *= float(selection["odds"])
+            
+            total_odds = round(total_odds, 2)
+            potential_payout = int(amount * total_odds)
+            
+            # Insert combo bet
+            cursor.execute("""
+                INSERT INTO sport_combo_bets 
+                (user_id, bet_amount, total_odds, potential_payout)
+                VALUES (%s, %s, %s, %s)
+            """, (user_id, amount, total_odds, potential_payout))
+            
+            combo_id = cursor.lastrowid
+            
+            # Insert selections
+            for selection in selections:
+                cursor.execute("""
+                    INSERT INTO sport_combo_selections 
+                    (combo_id, match_id, bet_type, bet_outcome, odds_at_bet)
+                    VALUES (%s, %s, %s, %s, %s)
+                """, (combo_id, selection["match_id"], selection["bet_type"], 
+                      selection["bet_outcome"], selection["odds"]))
+            
+            # Update user stats
+            cursor.execute("""
+                INSERT INTO sport_betting_stats (user_id, total_bets, total_wagered, last_bet_at)
+                VALUES (%s, 1, %s, NOW())
+                ON DUPLICATE KEY UPDATE
+                    total_bets = total_bets + 1,
+                    total_wagered = total_wagered + %s,
+                    last_bet_at = NOW()
+            """, (user_id, amount, amount))
+            
+            conn.commit()
+            return True, f"Kombiwette platziert! {len(selections)} Auswahlen @ {total_odds:.2f}x = Potentieller Gewinn: {potential_payout} 🪙"
+            
+        finally:
+            cursor.close()
+            conn.close()
+            
+    except Exception as e:
+        logger.error(f"Error placing combo bet: {e}", exc_info=True)
+        return False, f"Fehler beim Platzieren der Kombiwette: {str(e)}"
+
+
+async def get_user_combo_bets(db_helpers, user_id: int, status: Optional[str] = None,
+                              limit: int = 20) -> List[Dict]:
+    """Get combination bets for a user with their selections."""
+    try:
+        if not db_helpers.db_pool:
+            return []
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return []
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            # Get combo bets
+            if status:
+                cursor.execute("""
+                    SELECT * FROM sport_combo_bets
+                    WHERE user_id = %s AND status = %s
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                """, (user_id, status, limit))
+            else:
+                cursor.execute("""
+                    SELECT * FROM sport_combo_bets
+                    WHERE user_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                """, (user_id, limit))
+            
+            combo_bets = cursor.fetchall()
+            
+            # Get selections for each combo bet
+            for combo in combo_bets:
+                cursor.execute("""
+                    SELECT s.*, m.home_team, m.away_team, m.home_score, m.away_score,
+                           m.match_time, m.status as match_status, m.league_id
+                    FROM sport_combo_selections s
+                    JOIN sport_matches m ON s.match_id = m.match_id
+                    WHERE s.combo_id = %s
+                    ORDER BY m.match_time ASC
+                """, (combo["combo_id"],))
+                combo["selections"] = cursor.fetchall()
+            
+            return combo_bets
+            
+        finally:
+            cursor.close()
+            conn.close()
+            
+    except Exception as e:
+        logger.error(f"Error getting combo bets: {e}", exc_info=True)
+        return []
+
+
+async def settle_combo_bets_for_match(db_helpers, match_id: str, home_score: int, away_score: int) -> int:
+    """
+    Update combo bet selections for a finished match and settle combo bets if all selections are done.
+    Returns the number of combo bets settled.
+    """
+    try:
+        if not db_helpers.db_pool:
+            return 0
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return 0
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            # Get all pending selections for this match
+            cursor.execute("""
+                SELECT s.*, c.combo_id, c.user_id, c.bet_amount, c.potential_payout
+                FROM sport_combo_selections s
+                JOIN sport_combo_bets c ON s.combo_id = c.combo_id
+                WHERE s.match_id = %s AND s.status = 'pending' AND c.status = 'pending'
+            """, (match_id,))
+            
+            selections = cursor.fetchall()
+            affected_combos = set()
+            
+            for selection in selections:
+                # Check if this selection won
+                bet_won = await check_bet_outcome(
+                    selection["bet_type"], 
+                    selection["bet_outcome"], 
+                    home_score, 
+                    away_score
+                )
+                
+                new_status = "won" if bet_won else "lost"
+                cursor.execute("""
+                    UPDATE sport_combo_selections 
+                    SET status = %s
+                    WHERE selection_id = %s
+                """, (new_status, selection["selection_id"]))
+                
+                affected_combos.add(selection["combo_id"])
+            
+            # Check each affected combo bet
+            settled_count = 0
+            for combo_id in affected_combos:
+                # Get all selections for this combo
+                cursor.execute("""
+                    SELECT status FROM sport_combo_selections
+                    WHERE combo_id = %s
+                """, (combo_id,))
+                
+                all_selections = cursor.fetchall()
+                statuses = [s["status"] for s in all_selections]
+                
+                # If any selection is still pending, skip this combo
+                if "pending" in statuses:
+                    continue
+                
+                # If any selection lost, the combo loses
+                if "lost" in statuses:
+                    cursor.execute("""
+                        UPDATE sport_combo_bets 
+                        SET status = 'lost', actual_payout = 0, settled_at = NOW()
+                        WHERE combo_id = %s
+                    """, (combo_id,))
+                    
+                    # Get user_id and bet_amount for stats update
+                    cursor.execute("SELECT user_id, bet_amount FROM sport_combo_bets WHERE combo_id = %s", (combo_id,))
+                    combo_info = cursor.fetchone()
+                    if combo_info:
+                        cursor.execute("""
+                            UPDATE sport_betting_stats 
+                            SET total_losses = total_losses + 1,
+                                total_lost = total_lost + %s,
+                                current_streak = 0
+                            WHERE user_id = %s
+                        """, (combo_info["bet_amount"], combo_info["user_id"]))
+                else:
+                    # All selections won!
+                    cursor.execute("SELECT user_id, potential_payout FROM sport_combo_bets WHERE combo_id = %s", (combo_id,))
+                    combo_info = cursor.fetchone()
+                    
+                    if combo_info:
+                        cursor.execute("""
+                            UPDATE sport_combo_bets 
+                            SET status = 'won', actual_payout = %s, settled_at = NOW()
+                            WHERE combo_id = %s
+                        """, (combo_info["potential_payout"], combo_id))
+                        
+                        cursor.execute("""
+                            UPDATE sport_betting_stats 
+                            SET total_wins = total_wins + 1,
+                                total_won = total_won + %s,
+                                biggest_win = GREATEST(biggest_win, %s),
+                                current_streak = current_streak + 1,
+                                best_streak = GREATEST(best_streak, current_streak + 1)
+                            WHERE user_id = %s
+                        """, (combo_info["potential_payout"], combo_info["potential_payout"], combo_info["user_id"]))
+                
+                settled_count += 1
+            
+            conn.commit()
+            return settled_count
+            
+        finally:
+            cursor.close()
+            conn.close()
+            
+    except Exception as e:
+        logger.error(f"Error settling combo bets: {e}", exc_info=True)
+        return 0
 
 
 async def get_user_bets(db_helpers, user_id: int, status: Optional[str] = None, 
@@ -1010,6 +1399,7 @@ async def settle_match_bets(db_helpers, match_id: str, home_score: int, away_sco
     """
     Settle all bets for a finished match.
     Returns the number of bets settled.
+    Supports advanced bet types: over/under, BTTS, goal difference.
     """
     try:
         if not db_helpers.db_pool:
@@ -1021,14 +1411,6 @@ async def settle_match_bets(db_helpers, match_id: str, home_score: int, away_sco
         
         cursor = conn.cursor(dictionary=True)
         try:
-            # Determine match outcome
-            if home_score > away_score:
-                winning_outcome = "home"
-            elif home_score < away_score:
-                winning_outcome = "away"
-            else:
-                winning_outcome = "draw"
-            
             # Get all pending bets for this match
             cursor.execute("""
                 SELECT * FROM sport_bets 
@@ -1039,12 +1421,16 @@ async def settle_match_bets(db_helpers, match_id: str, home_score: int, away_sco
             settled_count = 0
             
             for bet in bets:
+                bet_type = bet["bet_type"]
                 bet_outcome = bet["bet_outcome"]
                 user_id = bet["user_id"]
                 bet_amount = bet["bet_amount"]
                 potential_payout = bet["potential_payout"]
                 
-                if bet_outcome == winning_outcome:
+                # Use the new check_bet_outcome function for all bet types
+                bet_won = await check_bet_outcome(bet_type, bet_outcome, home_score, away_score)
+                
+                if bet_won:
                     # Winner!
                     actual_payout = potential_payout
                     status = "won"
@@ -1131,6 +1517,151 @@ async def get_betting_leaderboard(db_helpers, limit: int = 10) -> List[Dict]:
     except Exception as e:
         logger.error(f"Error getting leaderboard: {e}", exc_info=True)
         return []
+
+
+async def get_bets_to_notify(db_helpers, minutes_before: int = 30) -> List[Dict]:
+    """
+    Get pending bets for matches starting within the specified minutes.
+    Returns bets that haven't been notified yet.
+    """
+    try:
+        if not db_helpers.db_pool:
+            return []
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return []
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            # Get bets for matches starting within the next X minutes that haven't been notified
+            cursor.execute("""
+                SELECT b.*, m.home_team, m.away_team, m.match_time, m.league_id,
+                       m.odds_home, m.odds_draw, m.odds_away
+                FROM sport_bets b
+                JOIN sport_matches m ON b.match_id = m.match_id
+                WHERE b.status = 'pending'
+                  AND m.status = 'scheduled'
+                  AND m.match_time > NOW()
+                  AND m.match_time <= DATE_ADD(NOW(), INTERVAL %s MINUTE)
+                  AND (b.notified_pre_match IS NULL OR b.notified_pre_match = FALSE)
+                ORDER BY m.match_time ASC
+            """, (minutes_before,))
+            
+            return cursor.fetchall()
+            
+        finally:
+            cursor.close()
+            conn.close()
+            
+    except Exception as e:
+        logger.error(f"Error getting bets to notify: {e}", exc_info=True)
+        return []
+
+
+async def mark_bets_notified(db_helpers, bet_ids: List[int]) -> bool:
+    """Mark bets as notified (pre-match notification sent)."""
+    if not bet_ids:
+        return True
+    
+    try:
+        if not db_helpers.db_pool:
+            return False
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return False
+        
+        cursor = conn.cursor()
+        try:
+            # Mark all bets as notified
+            placeholders = ', '.join(['%s'] * len(bet_ids))
+            cursor.execute(f"""
+                UPDATE sport_bets 
+                SET notified_pre_match = TRUE
+                WHERE bet_id IN ({placeholders})
+            """, tuple(bet_ids))
+            
+            conn.commit()
+            return True
+            
+        finally:
+            cursor.close()
+            conn.close()
+            
+    except Exception as e:
+        logger.error(f"Error marking bets as notified: {e}", exc_info=True)
+        return False
+
+
+async def check_bet_outcome(bet_type: str, bet_outcome: str, home_score: int, away_score: int) -> bool:
+    """
+    Check if a bet won based on bet type and match result.
+    Returns True if the bet won, False otherwise.
+    """
+    total_goals = home_score + away_score
+    goal_diff = home_score - away_score
+    
+    # Basic winner bets
+    if bet_type == "winner":
+        if bet_outcome == "home" and home_score > away_score:
+            return True
+        elif bet_outcome == "draw" and home_score == away_score:
+            return True
+        elif bet_outcome == "away" and away_score > home_score:
+            return True
+    
+    # Over/Under 2.5 goals
+    elif bet_type == "over_under_2.5":
+        if bet_outcome == "over" and total_goals > 2.5:
+            return True
+        elif bet_outcome == "under" and total_goals < 2.5:
+            return True
+    
+    # Over/Under 1.5 goals
+    elif bet_type == "over_under_1.5":
+        if bet_outcome == "over" and total_goals > 1.5:
+            return True
+        elif bet_outcome == "under" and total_goals < 1.5:
+            return True
+    
+    # Over/Under 3.5 goals
+    elif bet_type == "over_under_3.5":
+        if bet_outcome == "over" and total_goals > 3.5:
+            return True
+        elif bet_outcome == "under" and total_goals < 3.5:
+            return True
+    
+    # Both Teams To Score (BTTS)
+    elif bet_type == "btts":
+        both_scored = home_score > 0 and away_score > 0
+        if bet_outcome == "yes" and both_scored:
+            return True
+        elif bet_outcome == "no" and not both_scored:
+            return True
+    
+    # Goal difference bets (1+ goal margin)
+    elif bet_type == "goal_diff_1":
+        if bet_outcome == "home_diff_1" and goal_diff >= 1:
+            return True
+        elif bet_outcome == "away_diff_1" and goal_diff <= -1:
+            return True
+    
+    # Goal difference bets (2+ goal margin)
+    elif bet_type == "goal_diff_2":
+        if bet_outcome == "home_diff_2" and goal_diff >= 2:
+            return True
+        elif bet_outcome == "away_diff_2" and goal_diff <= -2:
+            return True
+    
+    # Goal difference bets (3+ goal margin)
+    elif bet_type == "goal_diff_3":
+        if bet_outcome == "home_diff_3" and goal_diff >= 3:
+            return True
+        elif bet_outcome == "away_diff_3" and goal_diff <= -3:
+            return True
+    
+    return False
 
 
 # ============================================================================
