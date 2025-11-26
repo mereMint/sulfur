@@ -69,6 +69,7 @@ from discord.ext import tasks as _tasks  # separate alias for new periodic clean
 DISCORD_BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "").strip().strip('"').strip("'")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+FOOTBALL_DATA_API_KEY = os.environ.get("FOOTBALL_DATA_API_KEY")  # Football-Data.org API key
 
 # --- NEW: Database Configuration ---
 # Set these as environment variables for security, or hardcode for testing.
@@ -636,6 +637,12 @@ async def on_ready():
     # --- NEW: Initialize Sport Betting system ---
     print("Initializing sport betting system...")
     await sport_betting.initialize_sport_betting_tables(db_helpers)
+    # Configure Football-Data.org API provider if key is available
+    if FOOTBALL_DATA_API_KEY:
+        sport_betting.APIProviderFactory.configure("football_data", FOOTBALL_DATA_API_KEY)
+        print("Football-Data.org API configured (Champions League, Premier League, World Cup available)")
+    else:
+        print("Football-Data.org API key not set - only free leagues available")
     # Sync matches from free APIs (OpenLigaDB - no API key required)
     try:
         for league_id in ["bl1", "bl2", "dfb"]:
@@ -13155,6 +13162,7 @@ async def on_message(message):
     app_commands.Choice(name="🏆 DFB-Pokal", value="dfb"),
     app_commands.Choice(name="🏆 Champions League", value="cl"),
     app_commands.Choice(name="🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League", value="pl"),
+    app_commands.Choice(name="🏆 FIFA World Cup", value="world_cup"),
 ])
 async def football_command(interaction: discord.Interaction, 
                           action: str = "menu",
@@ -13413,6 +13421,9 @@ async def bet_command(interaction: discord.Interaction,
     app_commands.Choice(name="🇩🇪 Bundesliga", value="bl1"),
     app_commands.Choice(name="🇩🇪 2. Bundesliga", value="bl2"),
     app_commands.Choice(name="🏆 DFB-Pokal", value="dfb"),
+    app_commands.Choice(name="🏆 Champions League", value="cl"),
+    app_commands.Choice(name="🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League", value="pl"),
+    app_commands.Choice(name="🏆 FIFA World Cup", value="world_cup"),
 ])
 async def quickbet_command(interaction: discord.Interaction, league: str = "bl1"):
     """Quick betting with match selection dropdown."""

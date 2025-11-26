@@ -103,6 +103,13 @@ LEAGUES = {
         "emoji": "🇮🇹",
         "api_id": "SA",
         "provider": "football_data"
+    },
+    "world_cup": {
+        "name": "FIFA World Cup",
+        "country": "International",
+        "emoji": "🏆",
+        "api_id": "WC",
+        "provider": "football_data"
     }
 }
 

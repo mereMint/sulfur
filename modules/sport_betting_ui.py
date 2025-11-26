@@ -610,7 +610,8 @@ def create_help_embed() -> discord.Embed:
             "🇩🇪 **2. Bundesliga** (OpenLigaDB - Kostenlos)\n"
             "🏆 **DFB-Pokal** (OpenLigaDB - Kostenlos)\n"
             "🏆 **Champions League** (API-Key erforderlich)\n"
-            "🏴󠁧󠁢󠁥󠁮󠁧󠁿 **Premier League** (API-Key erforderlich)"
+            "🏴󠁧󠁢󠁥󠁮󠁧󠁿 **Premier League** (API-Key erforderlich)\n"
+            "🏆 **FIFA World Cup** (API-Key erforderlich)"
         ),
         inline=False
     )
