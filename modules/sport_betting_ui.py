@@ -140,13 +140,14 @@ class MatchListView(View):
 class BetModal(Modal):
     """Modal for entering bet amount."""
     
-    def __init__(self, match: Dict, outcome: str, odds: float, db_helpers, balance_check_func):
+    def __init__(self, match: Dict, outcome: str, odds: float, db_helpers, balance_check_func, balance_deduct_func=None):
         super().__init__(title="🎫 Wette platzieren")
         self.match = match
         self.outcome = outcome
         self.odds = odds
         self.db_helpers = db_helpers
         self.balance_check_func = balance_check_func
+        self.balance_deduct_func = balance_deduct_func
         
         outcome_names = {"home": "Heimsieg", "draw": "Unentschieden", "away": "Auswärtssieg"}
         
@@ -193,9 +194,9 @@ class BetModal(Modal):
             )
             
             if success:
-                # Deduct balance
-                from modules import db_helpers
-                await db_helpers.add_balance(user_id, interaction.user.display_name, -amount, {}, None)
+                # Deduct balance using the provided callback
+                if self.balance_deduct_func:
+                    await self.balance_deduct_func(user_id, interaction.user.display_name, -amount)
                 
                 # Create confirmation embed
                 embed = discord.Embed(
@@ -228,11 +229,12 @@ class BetModal(Modal):
 class BetPlacementView(View):
     """View for placing a bet on a match."""
     
-    def __init__(self, match: Dict, db_helpers, balance_check_func, timeout: float = 300.0):
+    def __init__(self, match: Dict, db_helpers, balance_check_func, balance_deduct_func=None, timeout: float = 300.0):
         super().__init__(timeout=timeout)
         self.match = match
         self.db_helpers = db_helpers
         self.balance_check_func = balance_check_func
+        self.balance_deduct_func = balance_deduct_func
         
         # Get odds
         self.odds_home = float(match.get("odds_home", 2.0))
@@ -241,17 +243,17 @@ class BetPlacementView(View):
     
     @ui.button(label="🏠 Heimsieg", style=discord.ButtonStyle.primary, row=0)
     async def bet_home(self, interaction: discord.Interaction, button: Button):
-        modal = BetModal(self.match, "home", self.odds_home, self.db_helpers, self.balance_check_func)
+        modal = BetModal(self.match, "home", self.odds_home, self.db_helpers, self.balance_check_func, self.balance_deduct_func)
         await interaction.response.send_modal(modal)
     
     @ui.button(label="🤝 Unentschieden", style=discord.ButtonStyle.secondary, row=0)
     async def bet_draw(self, interaction: discord.Interaction, button: Button):
-        modal = BetModal(self.match, "draw", self.odds_draw, self.db_helpers, self.balance_check_func)
+        modal = BetModal(self.match, "draw", self.odds_draw, self.db_helpers, self.balance_check_func, self.balance_deduct_func)
         await interaction.response.send_modal(modal)
     
     @ui.button(label="✈️ Auswärtssieg", style=discord.ButtonStyle.primary, row=0)
     async def bet_away(self, interaction: discord.Interaction, button: Button):
-        modal = BetModal(self.match, "away", self.odds_away, self.db_helpers, self.balance_check_func)
+        modal = BetModal(self.match, "away", self.odds_away, self.db_helpers, self.balance_check_func, self.balance_deduct_func)
         await interaction.response.send_modal(modal)
     
     @ui.button(label="❌ Abbrechen", style=discord.ButtonStyle.danger, row=1)
@@ -494,10 +496,11 @@ class SportBettingMainView(View):
 class QuickBetMatchSelect(Select):
     """Dropdown to select a match for quick betting."""
     
-    def __init__(self, matches: List[Dict], db_helpers, balance_check_func):
+    def __init__(self, matches: List[Dict], db_helpers, balance_check_func, balance_deduct_func=None):
         self.matches_dict = {match.get("match_id", match.get("id")): match for match in matches}
         self.db_helpers = db_helpers
         self.balance_check_func = balance_check_func
+        self.balance_deduct_func = balance_deduct_func
         
         options = []
         for match in matches[:25]:  # Discord limit is 25 options
@@ -540,7 +543,7 @@ class QuickBetMatchSelect(Select):
             return
         
         embed = create_match_embed(match, show_odds=True)
-        view = BetPlacementView(match, self.db_helpers, self.balance_check_func)
+        view = BetPlacementView(match, self.db_helpers, self.balance_check_func, self.balance_deduct_func)
         
         await interaction.response.edit_message(embed=embed, view=view)
 
@@ -548,10 +551,11 @@ class QuickBetMatchSelect(Select):
 class QuickBetView(View):
     """View for quick betting with match selection."""
     
-    def __init__(self, matches: List[Dict], db_helpers, balance_check_func, timeout: float = 300.0):
+    def __init__(self, matches: List[Dict], db_helpers, balance_check_func, balance_deduct_func=None, timeout: float = 300.0):
         super().__init__(timeout=timeout)
+        self.balance_deduct_func = balance_deduct_func
         if matches:
-            self.add_item(QuickBetMatchSelect(matches, db_helpers, balance_check_func))
+            self.add_item(QuickBetMatchSelect(matches, db_helpers, balance_check_func, balance_deduct_func))
 
 
 # ============================================================================

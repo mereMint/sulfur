@@ -827,15 +827,17 @@ async def place_bet(db_helpers, user_id: int, match_id: str, bet_type: str,
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             """, (user_id, match_id, bet_type, bet_outcome, amount, odds, potential_payout))
             
-            # Update bet pool
-            pool_column = f"pool_{bet_outcome}"
-            cursor.execute(f"""
-                INSERT INTO sport_bet_pools (match_id, {pool_column}, total_bettors)
-                VALUES (%s, %s, 1)
-                ON DUPLICATE KEY UPDATE
-                    {pool_column} = {pool_column} + %s,
-                    total_bettors = total_bettors + 1
-            """, (match_id, amount, amount))
+            # Update bet pool - use whitelist for column names to prevent SQL injection
+            pool_columns = {"home": "pool_home", "draw": "pool_draw", "away": "pool_away"}
+            pool_column = pool_columns.get(bet_outcome)
+            if pool_column:
+                cursor.execute(f"""
+                    INSERT INTO sport_bet_pools (match_id, {pool_column}, total_bettors)
+                    VALUES (%s, %s, 1)
+                    ON DUPLICATE KEY UPDATE
+                        {pool_column} = {pool_column} + %s,
+                        total_bettors = total_bettors + 1
+                """, (match_id, amount, amount))
             
             # Update user stats
             cursor.execute("""
