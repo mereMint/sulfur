@@ -1547,6 +1547,11 @@ async def sport_betting_sync_and_settle_task():
             provider = sport_betting.APIProviderFactory.get_provider(league_config["provider"])
             
             try:
+                # Check if provider supports get_match method
+                if not hasattr(provider, 'get_match'):
+                    logger.debug(f"Provider {league_config['provider']} does not support get_match")
+                    continue
+                
                 # Get the match from API
                 updated_match = await provider.get_match(match_id)
                 
@@ -1563,6 +1568,9 @@ async def sport_betting_sync_and_settle_task():
                         all_settled_bets.extend(settled_bets)
                         logger.info(f"Settled {len(settled_bets)} bets for match {match_id}")
                         
+            except AttributeError as e:
+                logger.debug(f"Provider method not available for match {match_id}: {e}")
+                continue
             except Exception as e:
                 logger.warning(f"Error checking match {match_id}: {e}")
                 continue

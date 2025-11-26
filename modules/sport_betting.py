@@ -974,9 +974,9 @@ async def get_upcoming_matches(db_helpers, league_id: Optional[str] = None, limi
 
 async def get_recent_matches(db_helpers, league_id: Optional[str] = None, limit: int = 10) -> List[Dict]:
     """
-    Get recent matches including finished, live, and upcoming games.
+    Get recent matches including finished, live, and scheduled games.
     This provides a broader view of current activity in the leagues.
-    Shows matches from the last 7 days and upcoming ones.
+    Shows matches from the last 7 days (past and future from that point).
     """
     try:
         if not db_helpers.db_pool:
