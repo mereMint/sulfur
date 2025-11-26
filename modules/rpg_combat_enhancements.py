@@ -16,6 +16,12 @@ import random
 from typing import Dict, List, Tuple, Optional
 
 # =============================================================================
+# CONSTANTS
+# =============================================================================
+MAX_RAGE = 100  # Maximum rage meter value
+MAX_COMBO_DISPLAY = 15  # Maximum combo count for visual display
+
+# =============================================================================
 # COMBAT COMMENTARY SYSTEM
 # Dramatic messages that add excitement to combat
 # =============================================================================
@@ -140,7 +146,7 @@ def get_momentum_display(combo_count: int, rage_meter: int) -> str:
     
     Args:
         combo_count: Current combo counter
-        rage_meter: Current rage level (0-100)
+        rage_meter: Current rage level (0-MAX_RAGE)
     
     Returns:
         Formatted string showing the meters
@@ -163,7 +169,7 @@ def get_momentum_display(combo_count: int, rage_meter: int) -> str:
         rage_empty = 10 - rage_filled
         rage_bar = "🟥" * rage_filled + "⬛" * rage_empty
         
-        if rage_meter >= 100:
+        if rage_meter >= MAX_RAGE:
             lines.append(f"💢 **WUTMODUS BEREIT!** [{rage_bar}]")
         elif rage_meter >= 75:
             lines.append(f"😤 Wut: [{rage_bar}] {rage_meter}%")
@@ -401,9 +407,11 @@ def generate_attack_commentary(
         else:
             return f"{prefix}\n🗡️ {attacker_name} {verb} dich für **{damage}** Schaden!"
     
-    # Combo messages
+    # Combo messages - safely handle None combo_msg
     combo_bonus, combo_msg = calculate_combo_bonus(combo_count) if combo_count else (1.0, None)
-    combo_text = f"\n{combo_msg[0]} *{combo_msg[1]}*" if combo_msg else ""
+    combo_text = ""
+    if combo_msg and isinstance(combo_msg, tuple) and len(combo_msg) >= 2:
+        combo_text = f"\n{combo_msg[0]} *{combo_msg[1]}*"
     
     if is_player:
         return f"⚔️ Du {verb} {target_name} für **{damage}** Schaden!{combo_text}"
@@ -529,7 +537,7 @@ def update_combat_stats(
         combat_state['last_player_damage'] = player_damage
         combat_state['total_player_damage'] += player_damage
         # Build rage on hit
-        combat_state['player_rage'] = min(100, combat_state['player_rage'] + 5)
+        combat_state['player_rage'] = min(MAX_RAGE, combat_state['player_rage'] + 5)
     else:
         # Reset combo on miss
         if not player_dodged:
@@ -539,7 +547,7 @@ def update_combat_stats(
         combat_state['last_monster_damage'] = monster_damage
         combat_state['total_monster_damage'] += monster_damage
         # Build rage when taking damage
-        combat_state['player_rage'] = min(100, combat_state['player_rage'] + monster_damage // 5)
+        combat_state['player_rage'] = min(MAX_RAGE, combat_state['player_rage'] + monster_damage // 5)
     
     # Track crits
     if player_crit:
@@ -652,7 +660,7 @@ def check_rage_activation(combat_state: dict) -> Tuple[bool, str]:
     """
     rage = combat_state.get('player_rage', 0)
     
-    if rage >= 100:
+    if rage >= MAX_RAGE:
         return (True, "💢🔥 **WUTMODUS VERFÜGBAR!** Dein nächster Angriff verursacht 50% mehr Schaden!")
     
     return (False, "")
@@ -665,7 +673,7 @@ def consume_rage(combat_state: dict) -> Tuple[float, str]:
     Returns:
         (damage_multiplier, message)
     """
-    if combat_state.get('player_rage', 0) >= 100:
+    if combat_state.get('player_rage', 0) >= MAX_RAGE:
         combat_state['player_rage'] = 0
         return (1.5, "💢💥 **WUTAUSBRUCH!** Du entfesselst deine angestaute Wut!")
     

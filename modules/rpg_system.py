@@ -3587,8 +3587,8 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
                     )
                     result['messages'].append(attack_msg)
                     
-                    # Add combo message if applicable
-                    if combo_msg:
+                    # Add combo message if applicable - safely handle None or invalid tuple
+                    if combo_msg and isinstance(combo_msg, tuple) and len(combo_msg) >= 2:
                         result['messages'].append(f"{combo_msg[0]} *{combo_msg[1]}*")
                     
                     # Update combat stats
@@ -3660,8 +3660,8 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
                             damage_anim = combat_fx.create_damage_animation(dmg_result['damage'], False, skill_damage_type)
                             result['messages'].append(f"✨ **{skill_name}** {damage_anim}")
                         
-                        # Add combo message if applicable
-                        if combo_msg:
+                        # Add combo message if applicable - safely handle None or invalid tuple
+                        if combo_msg and isinstance(combo_msg, tuple) and len(combo_msg) >= 2:
                             result['messages'].append(f"{combo_msg[0]} *{combo_msg[1]}*")
                         
                         monster['health'] -= result['player_damage']

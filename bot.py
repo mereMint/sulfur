@@ -4110,6 +4110,8 @@ class RPGCombatView(discord.ui.View):
                 
                 self.stop()
             else:
+                # Update attack button based on rage status
+                self._update_attack_button()
                 await interaction.edit_original_response(embed=embed, view=self)
             
         except Exception as e:
@@ -4189,7 +4191,20 @@ class RPGCombatView(discord.ui.View):
         
         return health_bar
     
-    @discord.ui.button(label="⚔️ Angreifen", style=discord.ButtonStyle.danger)
+    def _update_attack_button(self):
+        """Update attack button label based on rage status."""
+        for item in self.children:
+            if isinstance(item, discord.ui.Button) and item.custom_id == "attack_button":
+                rage = self.combat_state.get('player_rage', 0)
+                if rage >= 100:
+                    item.label = "🔥💢 WUTANGRIFF! 💢🔥"
+                    item.style = discord.ButtonStyle.success
+                else:
+                    item.label = "⚔️ Angreifen"
+                    item.style = discord.ButtonStyle.danger
+                break
+    
+    @discord.ui.button(label="⚔️ Angreifen", style=discord.ButtonStyle.danger, custom_id="attack_button")
     async def attack_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Attack the monster."""
         try:
@@ -4293,6 +4308,8 @@ class RPGCombatView(discord.ui.View):
                 
                 self.stop()
             else:
+                # Update attack button based on rage status
+                self._update_attack_button()
                 await interaction.edit_original_response(embed=embed, view=self)
             
         except Exception as e:
@@ -4466,25 +4483,13 @@ class RPGCombatView(discord.ui.View):
                 
                 self.stop()
             else:
+                # Update attack button based on rage status (defending builds rage!)
+                self._update_attack_button()
                 await interaction.edit_original_response(embed=embed, view=self)
             
         except Exception as e:
             logger.error(f"Error defending in combat: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Fehler: {e}")
-    
-    def _create_health_bar(self, percentage: float) -> str:
-        """Create a visual health bar."""
-        filled = int(percentage / 10)
-        empty = 10 - filled
-        
-        if percentage > 60:
-            bar = "🟩" * filled + "⬜" * empty
-        elif percentage > 30:
-            bar = "🟨" * filled + "⬜" * empty
-        else:
-            bar = "🟥" * filled + "⬜" * empty
-        
-        return bar
 
 
 class RPGEventView(discord.ui.View):
