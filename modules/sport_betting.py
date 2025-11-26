@@ -264,6 +264,7 @@ class OpenLigaDBProvider(FootballAPIProvider):
     # Maximum retries for API calls
     MAX_RETRIES = 3
     RETRY_DELAY = 1.0  # seconds between retries
+    REQUEST_DELAY = 0.3  # delay between sequential requests (rate limiting)
     
     def get_provider_name(self) -> str:
         return "OpenLigaDB"
@@ -491,7 +492,7 @@ class OpenLigaDBProvider(FootballAPIProvider):
                 
                 # Small delay between requests to be polite to the API (skip after last request)
                 if offset < num_matchdays - 1:
-                    await asyncio.sleep(0.3)
+                    await asyncio.sleep(self.REQUEST_DELAY)
             
             # Cache the combined results
             if all_matches:
@@ -2200,12 +2201,15 @@ async def smart_sync_leagues(db_helpers, force: bool = False) -> Dict[str, int]:
     results = {}
     free_leagues = ["bl1", "bl2", "dfb"]  # OpenLigaDB supported leagues
     
+    # Get season using the provider's method for consistency
+    provider = APIProviderFactory.get_provider("openligadb")
+    season = provider._get_season()
+    
     for league_id in free_leagues:
         league_config = LEAGUES.get(league_id)
         if not league_config:
             continue
         
-        season = datetime.now().year if datetime.now().month >= 8 else datetime.now().year - 1
         cache_key = f"upcoming_{league_config['api_id']}_{season}_3"
         
         # Skip if we have cached data and not forcing
@@ -2215,7 +2219,7 @@ async def smart_sync_leagues(db_helpers, force: bool = False) -> Dict[str, int]:
             continue
         
         results[league_id] = await sync_league_matches(db_helpers, league_id)
-        await asyncio.sleep(0.5)  # Small delay between leagues
+        await asyncio.sleep(OpenLigaDBProvider.REQUEST_DELAY * 2)  # Slightly longer delay between leagues
     
     return results
 
