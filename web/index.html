@@ -1,20 +1,23 @@
 {% extends "layout.html" %}
-{% block title %}Dashboard{% endblock %}
+{% block title %}Console - Sulfur Bot{% endblock %}
 
 {% block content %}
-<!-- Quick Stats Overview -->
+<!-- System Status Header -->
 <div class="row mb-4 fade-in">
     <div class="col-md-12 mb-3">
-        <h3 class="gradient-text"><i class="bi bi-speedometer2"></i> Dashboard Overview</h3>
+        <h3 class="matrix-text"><i class="bi bi-terminal"></i> SYSTEM_CONSOLE</h3>
+        <p class="text-muted" style="font-family: 'Courier New', monospace;">
+            > Real-time bot monitoring and control interface
+        </p>
     </div>
     <div class="col-lg-3 col-md-6 mb-3">
         <div class="stat-card">
             <div class="d-flex align-items-center justify-content-between">
                 <div>
-                    <h6 class="text-muted mb-1">Bot Status</h6>
-                    <div class="stat-value" id="quick-status">-</div>
+                    <h6 class="text-muted mb-1">STATUS</h6>
+                    <div class="stat-value" id="quick-status" style="font-size: 1.5rem;">INIT</div>
                 </div>
-                <i class="bi bi-robot" style="font-size: 2.5rem; color: var(--accent-primary);"></i>
+                <i class="bi bi-circle-fill" id="status-indicator" style="font-size: 2rem; color: var(--matrix-green);"></i>
             </div>
         </div>
     </div>
@@ -22,10 +25,10 @@
         <div class="stat-card">
             <div class="d-flex align-items-center justify-content-between">
                 <div>
-                    <h6 class="text-muted mb-1">AI Calls (30d)</h6>
-                    <div class="stat-value" id="quick-ai-calls">0</div>
+                    <h6 class="text-muted mb-1">AI_CALLS</h6>
+                    <div class="stat-value" id="quick-ai-calls" style="font-size: 1.5rem;">0</div>
                 </div>
-                <i class="bi bi-cpu" style="font-size: 2.5rem; color: var(--accent-tertiary);"></i>
+                <i class="bi bi-cpu" style="font-size: 2rem; color: var(--matrix-cyan);"></i>
             </div>
         </div>
     </div>
@@ -33,10 +36,10 @@
         <div class="stat-card">
             <div class="d-flex align-items-center justify-content-between">
                 <div>
-                    <h6 class="text-muted mb-1">Total Wealth</h6>
-                    <div class="stat-value" id="quick-wealth">0 🪙</div>
+                    <h6 class="text-muted mb-1">ECONOMY</h6>
+                    <div class="stat-value" id="quick-wealth" style="font-size: 1.5rem;">0</div>
                 </div>
-                <i class="bi bi-coin" style="font-size: 2.5rem; color: #FFD700;"></i>
+                <i class="bi bi-coin" style="font-size: 2rem; color: var(--warning);"></i>
             </div>
         </div>
     </div>
@@ -44,10 +47,10 @@
         <div class="stat-card">
             <div class="d-flex align-items-center justify-content-between">
                 <div>
-                    <h6 class="text-muted mb-1">Games Played</h6>
-                    <div class="stat-value" id="quick-games">0</div>
+                    <h6 class="text-muted mb-1">GAMES</h6>
+                    <div class="stat-value" id="quick-games" style="font-size: 1.5rem;">0</div>
                 </div>
-                <i class="bi bi-controller" style="font-size: 2.5rem; color: var(--accent-secondary);"></i>
+                <i class="bi bi-controller" style="font-size: 2rem; color: var(--danger);"></i>
             </div>
         </div>
     </div>
@@ -57,8 +60,8 @@
     <div class="col-md-8">
         <div class="card mb-4">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">Bot Status & Controls</h5>
-                <span id="bot-status-badge" class="badge bg-secondary">Status: Unknown</span>
+                <span><i class="bi bi-terminal"></i> BOT_CONTROL</span>
+                <span id="bot-status-badge" class="badge bg-secondary">STATUS: UNKNOWN</span>
             </div>
             <div class="card-body">
                 <div class="btn-toolbar mb-3" role="toolbar">
@@ -419,20 +422,20 @@
     <div class="col-md-4">
         <div class="card mb-4">
             <div class="card-header">
-                <h5 class="mb-0">Quick Settings</h5>
+                <span><i class="bi bi-gear"></i> QUICK_CONFIG</span>
             </div>
             <div class="card-body">
-                <h6 class="text-muted mb-3">AI Model</h6>
+                <h6 class="matrix-text mb-3" style="font-size: 0.85rem;">AI_MODEL</h6>
                 <div class="mb-3">
-                    <label for="provider-select" class="form-label">Provider</label>
-                    <select class="form-select" id="provider-select" onchange="updateModelOptions()">
+                    <label for="provider-select" class="form-label" style="font-size: 0.75rem;">Provider</label>
+                    <select class="form-select form-select-sm" id="provider-select" onchange="updateModelOptions()">
                         <option value="gemini">Gemini</option>
                         <option value="openai">OpenAI</option>
                     </select>
                 </div>
                 <div class="mb-3">
-                    <label for="model-select" class="form-label">Model</label>
-                    <select class="form-select" id="model-select">
+                    <label for="model-select" class="form-label" style="font-size: 0.75rem;">Model</label>
+                    <select class="form-select form-select-sm" id="model-select">
                         <!-- Gemini Models -->
                         <option value="gemini-2.5-pro">gemini-2.5-pro</option>
                         <option value="gemini-2.5-flash">gemini-2.5-flash</option>
@@ -450,37 +453,40 @@
                         <option value="o3-mini">o3-mini</option>
                     </select>
                 </div>
-                <button class="btn btn-primary w-100 mb-3" onclick="changeModel()">
-                    <i class="bi bi-check-circle"></i> Apply Model Change
+                <button class="btn btn-primary btn-sm w-100 mb-3" onclick="changeModel()">
+                    <i class="bi bi-check-circle"></i> APPLY
                 </button>
 
-                <hr>
+                <hr style="border-color: var(--border-color);">
 
-                <h6 class="text-muted mb-3">Temperature</h6>
+                <h6 class="matrix-text mb-3" style="font-size: 0.85rem;">TEMPERATURE</h6>
                 <div class="mb-3">
-                    <label for="temperature-slider" class="form-label">
-                        Chat Temperature: <span id="temperature-value">0.7</span>
+                    <label for="temperature-slider" class="form-label" style="font-size: 0.75rem;">
+                        Value: <span id="temperature-value" class="matrix-text">0.7</span>
                     </label>
                     <input type="range" class="form-range" id="temperature-slider" 
                            min="0" max="2" step="0.1" value="0.7" 
                            oninput="updateTemperatureLabel()">
-                    <button class="btn btn-sm btn-outline-primary w-100 mt-2" onclick="updateTemperature()">
-                        Apply Temperature
+                    <button class="btn btn-sm btn-outline-secondary w-100 mt-2" onclick="updateTemperature()">
+                        SET
                     </button>
                 </div>
 
-                <hr>
+                <hr style="border-color: var(--border-color);">
 
-                <h6 class="text-muted mb-3">Quick Links</h6>
+                <h6 class="matrix-text mb-3" style="font-size: 0.85rem;">NAVIGATION</h6>
                 <div class="d-grid gap-2">
-                    <a href="/config" class="btn btn-outline-primary">
-                        <i class="bi bi-gear"></i> Full Config Editor
+                    <a href="/activity" class="btn btn-primary btn-sm">
+                        <i class="bi bi-activity"></i> ACTIVITY_FEED
                     </a>
-                    <a href="/database" class="btn btn-outline-info">
-                        <i class="bi bi-table"></i> Database Viewer
+                    <a href="/database" class="btn btn-info btn-sm">
+                        <i class="bi bi-database"></i> DATABASE
                     </a>
-                    <a href="/ai_dashboard" class="btn btn-outline-success">
-                        <i class="bi bi-graph-up"></i> AI Dashboard
+                    <a href="/ai_dashboard" class="btn btn-success btn-sm">
+                        <i class="bi bi-cpu"></i> AI_ANALYTICS
+                    </a>
+                    <a href="/config" class="btn btn-warning btn-sm">
+                        <i class="bi bi-gear"></i> CONFIG_EDITOR
                     </a>
                 </div>
             </div>
@@ -488,13 +494,13 @@
 
         <div class="card">
             <div class="card-header">
-                <h6 class="mb-0">System Info</h6>
+                <span><i class="bi bi-info-circle"></i> SYSTEM_INFO</span>
             </div>
-            <div class="card-body">
+            <div class="card-body" style="font-size: 0.8rem;">
                 <div id="system-info">
-                    <p class="mb-1"><small><strong>PID:</strong> <span id="bot-pid">-</span></small></p>
-                    <p class="mb-1"><small><strong>Last Update:</strong> <span id="last-update">-</span></small></p>
-                    <p class="mb-0"><small><strong>Current Model:</strong> <span id="current-model">-</span></small></p>
+                    <p class="mb-1"><span class="text-muted">PID:</span> <span id="bot-pid" class="matrix-text">-</span></p>
+                    <p class="mb-1"><span class="text-muted">UPDATED:</span> <span id="last-update" class="matrix-text">-</span></p>
+                    <p class="mb-0"><span class="text-muted">MODEL:</span> <span id="current-model" class="matrix-text">-</span></p>
                 </div>
             </div>
         </div>
@@ -516,6 +522,7 @@
 
         socket.on('connect', function() {
             console.log('Connected to WebSocket server.');
+            appendToConsole('> WEBSOCKET_CONNECTED\n');
         });
 
         socket.on('log_update', function(msg) {
@@ -524,6 +531,7 @@
 
         // Bot Status Polling
         const statusBadge = document.getElementById('bot-status-badge');
+        const statusIndicator = document.getElementById('status-indicator');
 
         function updateBotStatus() {
             fetch('/api/bot-status')
@@ -531,22 +539,30 @@
                 .then(data => {
                     let status = data.status || 'Unknown';
                     let badgeClass = 'bg-secondary';
+                    let indicatorColor = 'var(--matrix-gray)';
 
                     if (status.toLowerCase() === 'running') {
                         badgeClass = 'bg-success';
+                        indicatorColor = 'var(--matrix-green)';
                     } else if (status.toLowerCase() === 'stopped' || status.toLowerCase() === 'shutdown') {
                         badgeClass = 'bg-danger';
+                        indicatorColor = 'var(--danger)';
                     } else if (status.toLowerCase().includes('updating') || status.toLowerCase().includes('starting')) {
-                        badgeClass = 'bg-warning text-dark';
+                        badgeClass = 'bg-warning';
+                        indicatorColor = 'var(--warning)';
                     } else if (status.toLowerCase() === 'error') {
                         badgeClass = 'bg-danger';
+                        indicatorColor = 'var(--danger)';
                     }
 
-                    statusBadge.textContent = `Status: ${status}`;
+                    statusBadge.textContent = `STATUS: ${status.toUpperCase()}`;
                     statusBadge.className = `badge ${badgeClass}`;
                     
                     // Update quick status
-                    document.getElementById('quick-status').textContent = status;
+                    document.getElementById('quick-status').textContent = status.toUpperCase();
+                    if (statusIndicator) {
+                        statusIndicator.style.color = indicatorColor;
+                    }
 
                     // Update system info
                     if (data.pid) {
@@ -554,11 +570,11 @@
                     }
                     if (data.timestamp) {
                         const date = new Date(data.timestamp);
-                        document.getElementById('last-update').textContent = date.toLocaleString();
+                        document.getElementById('last-update').textContent = date.toLocaleTimeString();
                     }
                 })
                 .catch(error => {
-                    statusBadge.textContent = 'Status: Error';
+                    statusBadge.textContent = 'STATUS: ERROR';
                     statusBadge.className = 'badge bg-danger';
                 });
         }

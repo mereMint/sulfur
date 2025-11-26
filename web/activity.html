@@ -1,0 +1,418 @@
+{% extends "layout.html" %}
+
+{% block title %}Activity Feed - Sulfur Bot{% endblock %}
+
+{% block extra_styles %}
+<style>
+    .activity-item {
+        padding: 1rem;
+        border-bottom: 1px solid var(--border-color);
+        transition: all 0.2s ease;
+        font-family: 'Courier New', monospace;
+    }
+    
+    .activity-item:hover {
+        background: rgba(0, 255, 65, 0.05);
+    }
+    
+    .activity-item:last-child {
+        border-bottom: none;
+    }
+    
+    .activity-icon {
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--matrix-green);
+        font-size: 1.2rem;
+        color: var(--matrix-green);
+    }
+    
+    .activity-icon.ai { border-color: var(--matrix-cyan); color: var(--matrix-cyan); }
+    .activity-icon.economy { border-color: var(--warning); color: var(--warning); }
+    .activity-icon.game { border-color: var(--danger); color: var(--danger); }
+    .activity-icon.level { border-color: var(--matrix-green); color: var(--matrix-green); }
+    
+    .activity-time {
+        color: var(--matrix-green-dark);
+        font-size: 0.75rem;
+        text-transform: uppercase;
+    }
+    
+    .activity-user {
+        color: var(--matrix-green);
+        font-weight: bold;
+    }
+    
+    .activity-preview {
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        max-width: 400px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    
+    .activity-category {
+        display: inline-block;
+        padding: 0.2em 0.6em;
+        border: 1px solid var(--matrix-green);
+        color: var(--matrix-green);
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    
+    .stat-panel {
+        background: rgba(0, 255, 65, 0.05);
+        border: 1px solid var(--border-color);
+        padding: 1rem;
+        text-align: center;
+    }
+    
+    .stat-panel:hover {
+        border-color: var(--matrix-green);
+    }
+    
+    .stat-number {
+        font-size: 2rem;
+        font-weight: bold;
+        color: var(--matrix-green);
+        text-shadow: 0 0 10px var(--matrix-green);
+    }
+    
+    .stat-label {
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    
+    .filter-btn {
+        padding: 0.5rem 1rem;
+        border: 1px solid var(--border-color);
+        background: transparent;
+        color: var(--text-secondary);
+        font-family: 'Courier New', monospace;
+        text-transform: uppercase;
+        font-size: 0.75rem;
+        transition: all 0.2s ease;
+    }
+    
+    .filter-btn:hover, .filter-btn.active {
+        border-color: var(--matrix-green);
+        color: var(--matrix-green);
+        background: rgba(0, 255, 65, 0.1);
+    }
+    
+    .activity-feed-container {
+        max-height: 70vh;
+        overflow-y: auto;
+    }
+    
+    .activity-feed-container::-webkit-scrollbar {
+        width: 8px;
+    }
+    
+    .activity-feed-container::-webkit-scrollbar-track {
+        background: rgba(0, 0, 0, 0.3);
+    }
+    
+    .activity-feed-container::-webkit-scrollbar-thumb {
+        background: var(--matrix-green-dark);
+    }
+    
+    .live-indicator {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        background: var(--matrix-green);
+        border-radius: 50%;
+        animation: pulse 2s infinite;
+        margin-right: 0.5rem;
+    }
+    
+    @keyframes pulse {
+        0%, 100% { opacity: 1; box-shadow: 0 0 5px var(--matrix-green); }
+        50% { opacity: 0.5; box-shadow: 0 0 15px var(--matrix-green); }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4 fade-in">
+    <div class="col-12">
+        <h2 class="matrix-text mb-4">
+            <span class="live-indicator"></span>
+            <i class="bi bi-activity"></i> ACTIVITY_FEED
+        </h2>
+        <p class="text-muted" style="font-family: 'Courier New', monospace;">
+            > Real-time monitoring of all bot interactions and events
+        </p>
+    </div>
+</div>
+
+<!-- Activity Stats -->
+<div class="row mb-4 fade-in">
+    <div class="col-md-3 col-6 mb-3">
+        <div class="stat-panel">
+            <div class="stat-number" id="stat-ai-today">0</div>
+            <div class="stat-label">AI Chats Today</div>
+        </div>
+    </div>
+    <div class="col-md-3 col-6 mb-3">
+        <div class="stat-panel">
+            <div class="stat-number" id="stat-transactions-today">0</div>
+            <div class="stat-label">Transactions Today</div>
+        </div>
+    </div>
+    <div class="col-md-3 col-6 mb-3">
+        <div class="stat-panel">
+            <div class="stat-number" id="stat-games-today">0</div>
+            <div class="stat-label">Games Today</div>
+        </div>
+    </div>
+    <div class="col-md-3 col-6 mb-3">
+        <div class="stat-panel">
+            <div class="stat-number" id="stat-users-today">0</div>
+            <div class="stat-label">Active Users</div>
+        </div>
+    </div>
+</div>
+
+<!-- Filters -->
+<div class="row mb-4 fade-in">
+    <div class="col-12">
+        <div class="card p-3">
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+                <span class="text-muted me-2" style="font-size: 0.8rem;">FILTER:</span>
+                <button class="filter-btn active" onclick="filterActivity('all')" data-filter="all">
+                    <i class="bi bi-grid"></i> All
+                </button>
+                <button class="filter-btn" onclick="filterActivity('ai')" data-filter="ai">
+                    <i class="bi bi-cpu"></i> AI
+                </button>
+                <button class="filter-btn" onclick="filterActivity('economy')" data-filter="economy">
+                    <i class="bi bi-coin"></i> Economy
+                </button>
+                <button class="filter-btn" onclick="filterActivity('games')" data-filter="games">
+                    <i class="bi bi-controller"></i> Games
+                </button>
+                <button class="filter-btn" onclick="filterActivity('leveling')" data-filter="leveling">
+                    <i class="bi bi-graph-up"></i> Leveling
+                </button>
+                <div class="ms-auto">
+                    <button class="btn btn-sm btn-primary" onclick="refreshActivity()">
+                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Activity Feed -->
+<div class="row fade-in">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-list-ul"></i> RECENT_ACTIVITY</span>
+                <span class="text-muted" style="font-size: 0.75rem;">
+                    <span id="activity-count">0</span> events loaded
+                </span>
+            </div>
+            <div class="card-body p-0">
+                <div class="activity-feed-container" id="activity-feed">
+                    <div class="text-center p-4 text-muted">
+                        <div class="spinner-border text-success" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-2">Loading activity feed...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Total Stats -->
+<div class="row mt-4 fade-in">
+    <div class="col-12">
+        <div class="card p-3">
+            <h6 class="matrix-text mb-3"><i class="bi bi-bar-chart"></i> TOTAL_STATISTICS</h6>
+            <div class="row text-center">
+                <div class="col-md-4 mb-2">
+                    <div class="text-muted" style="font-size: 0.75rem;">Total AI Chats</div>
+                    <div class="matrix-text" id="stat-total-ai" style="font-size: 1.5rem;">0</div>
+                </div>
+                <div class="col-md-4 mb-2">
+                    <div class="text-muted" style="font-size: 0.75rem;">Total Transactions</div>
+                    <div class="matrix-text" id="stat-total-transactions" style="font-size: 1.5rem;">0</div>
+                </div>
+                <div class="col-md-4 mb-2">
+                    <div class="text-muted" style="font-size: 0.75rem;">Total Users</div>
+                    <div class="matrix-text" id="stat-total-users" style="font-size: 1.5rem;">0</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let currentFilter = 'all';
+    
+    document.addEventListener('DOMContentLoaded', function() {
+        loadActivityStats();
+        loadActivityFeed();
+        
+        // Auto-refresh every 30 seconds
+        setInterval(loadActivityStats, 30000);
+        setInterval(loadActivityFeed, 30000);
+    });
+    
+    function filterActivity(type) {
+        currentFilter = type;
+        
+        // Update button states
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.classList.remove('active');
+            if (btn.dataset.filter === type) {
+                btn.classList.add('active');
+            }
+        });
+        
+        loadActivityFeed();
+    }
+    
+    function refreshActivity() {
+        loadActivityStats();
+        loadActivityFeed();
+    }
+    
+    async function loadActivityStats() {
+        try {
+            const response = await fetch('/api/activity/stats');
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                // Today stats
+                document.getElementById('stat-ai-today').textContent = 
+                    (data.stats.today.ai_chats || 0).toLocaleString();
+                document.getElementById('stat-transactions-today').textContent = 
+                    (data.stats.today.transactions || 0).toLocaleString();
+                document.getElementById('stat-games-today').textContent = 
+                    (data.stats.today.games || 0).toLocaleString();
+                document.getElementById('stat-users-today').textContent = 
+                    (data.stats.today.active_users || 0).toLocaleString();
+                
+                // Total stats
+                document.getElementById('stat-total-ai').textContent = 
+                    (data.stats.total.ai_chats || 0).toLocaleString();
+                document.getElementById('stat-total-transactions').textContent = 
+                    (data.stats.total.transactions || 0).toLocaleString();
+                document.getElementById('stat-total-users').textContent = 
+                    (data.stats.total.users || 0).toLocaleString();
+            }
+        } catch (error) {
+            console.error('Error loading activity stats:', error);
+        }
+    }
+    
+    async function loadActivityFeed() {
+        try {
+            const response = await fetch(`/api/activity/recent?limit=50&type=${currentFilter}`);
+            const data = await response.json();
+            
+            const feed = document.getElementById('activity-feed');
+            const countEl = document.getElementById('activity-count');
+            
+            if (data.status === 'success' && data.activities && data.activities.length > 0) {
+                let html = '';
+                
+                data.activities.forEach(activity => {
+                    const icon = getActivityIcon(activity.activity_type);
+                    const iconClass = getActivityIconClass(activity.activity_type);
+                    const timeAgo = formatTimeAgo(activity.activity_time);
+                    
+                    html += `
+                        <div class="activity-item">
+                            <div class="d-flex align-items-start">
+                                <div class="activity-icon ${iconClass} me-3">
+                                    <i class="bi ${icon}"></i>
+                                </div>
+                                <div class="flex-grow-1">
+                                    <div class="d-flex justify-content-between align-items-start mb-1">
+                                        <div>
+                                            <span class="activity-user">${activity.display_name}</span>
+                                            <span class="activity-category ms-2">${activity.category}</span>
+                                        </div>
+                                        <span class="activity-time">${timeAgo}</span>
+                                    </div>
+                                    <div class="activity-preview">${activity.preview || 'No details'}</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                feed.innerHTML = html;
+                countEl.textContent = data.activities.length;
+            } else {
+                feed.innerHTML = `
+                    <div class="text-center p-4 text-muted">
+                        <i class="bi bi-inbox" style="font-size: 3rem;"></i>
+                        <p class="mt-2">No recent activity found</p>
+                    </div>
+                `;
+                countEl.textContent = '0';
+            }
+        } catch (error) {
+            console.error('Error loading activity feed:', error);
+            document.getElementById('activity-feed').innerHTML = `
+                <div class="text-center p-4 text-danger">
+                    <i class="bi bi-exclamation-triangle" style="font-size: 3rem;"></i>
+                    <p class="mt-2">Error loading activity feed</p>
+                </div>
+            `;
+        }
+    }
+    
+    function getActivityIcon(type) {
+        const icons = {
+            'ai_chat': 'bi-chat-dots',
+            'transaction': 'bi-coin',
+            'game_detective': 'bi-search',
+            'game_werwolf': 'bi-moon',
+            'level_up': 'bi-graph-up-arrow'
+        };
+        return icons[type] || 'bi-activity';
+    }
+    
+    function getActivityIconClass(type) {
+        if (type.startsWith('ai')) return 'ai';
+        if (type === 'transaction') return 'economy';
+        if (type.startsWith('game')) return 'game';
+        if (type === 'level_up') return 'level';
+        return '';
+    }
+    
+    function formatTimeAgo(timestamp) {
+        if (!timestamp) return 'Unknown';
+        
+        const now = new Date();
+        const time = new Date(timestamp);
+        const diff = Math.floor((now - time) / 1000);
+        
+        if (diff < 60) return `${diff}s ago`;
+        if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+        if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+        if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+        
+        return time.toLocaleDateString();
+    }
+</script>
+{% endblock %}

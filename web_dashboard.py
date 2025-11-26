@@ -81,13 +81,14 @@ def get_latest_log_file():
 
 # --- Database Query Helpers ---
 
-def safe_db_query(cursor, query, default=None, fetch_all=False):
+def safe_db_query(cursor, query, params=None, default=None, fetch_all=False):
     """
     Safely execute a database query with error handling.
     
     Args:
         cursor: Database cursor to execute query on
         query: SQL query string
+        params: Query parameters (tuple or list) for parameterized queries
         default: Default value to return on error (None, 0, [], etc.)
         fetch_all: If True, fetchall(); otherwise fetchone()
     
@@ -95,7 +96,10 @@ def safe_db_query(cursor, query, default=None, fetch_all=False):
         Query result or default value on error
     """
     try:
-        cursor.execute(query)
+        if params:
+            cursor.execute(query, params)
+        else:
+            cursor.execute(query)
         if fetch_all:
             return cursor.fetchall()
         else:
@@ -630,6 +634,236 @@ def api_ww_leaderboard():
     except Exception as e:
         print(f"[API] Error fetching werwolf leaderboard: {e}")
         return jsonify({'error': str(e), 'leaderboard': []}), 500
+
+
+# ========== Activity Feed Routes ==========
+
+@app.route('/activity', methods=['GET'])
+def activity_page():
+    """Renders the activity feed page showing recent bot activity."""
+    return render_template('activity.html')
+
+
+@app.route('/api/activity/recent', methods=['GET'])
+def api_recent_activity():
+    """API endpoint to get recent bot activity from various sources."""
+    try:
+        limit = int(request.args.get('limit', 50))
+        activity_type = request.args.get('type', 'all')
+        
+        if not db_helpers.db_pool:
+            return jsonify({'error': 'Database not available', 'activities': []}), 500
+        
+        conn = db_helpers.db_pool.get_connection()
+        cursor = conn.cursor(dictionary=True)
+        activities = []
+        
+        try:
+            # Validate and sanitize limit (must be positive integer, max 100)
+            limit = max(1, min(100, int(limit)))
+            
+            # Get recent AI conversations
+            if activity_type in ['all', 'ai']:
+                ai_activity = safe_db_query(cursor, """
+                    SELECT 
+                        'ai_chat' as activity_type,
+                        user_id,
+                        channel_id,
+                        LEFT(content, 100) as preview,
+                        timestamp as activity_time,
+                        'AI Chat' as category
+                    FROM ai_conversation_history
+                    ORDER BY timestamp DESC
+                    LIMIT %s
+                """, params=(limit,), default=[], fetch_all=True)
+                activities.extend(ai_activity or [])
+            
+            # Get recent economy transactions
+            if activity_type in ['all', 'economy']:
+                econ_activity = safe_db_query(cursor, """
+                    SELECT 
+                        'transaction' as activity_type,
+                        user_id,
+                        NULL as channel_id,
+                        CONCAT(transaction_type, ': ', amount, ' coins') as preview,
+                        created_at as activity_time,
+                        'Economy' as category
+                    FROM transaction_history
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                """, params=(limit,), default=[], fetch_all=True)
+                activities.extend(econ_activity or [])
+            
+            # Get recent game activity - Detective
+            if activity_type in ['all', 'games']:
+                detective_activity = safe_db_query(cursor, """
+                    SELECT 
+                        'game_detective' as activity_type,
+                        user_id,
+                        NULL as channel_id,
+                        CONCAT('Cases solved: ', cases_solved) as preview,
+                        last_played as activity_time,
+                        'Detective Game' as category
+                    FROM detective_user_stats
+                    WHERE last_played IS NOT NULL
+                    ORDER BY last_played DESC
+                    LIMIT %s
+                """, params=(limit,), default=[], fetch_all=True)
+                activities.extend(detective_activity or [])
+            
+            # Get recent Werwolf games
+            if activity_type in ['all', 'games']:
+                ww_activity = safe_db_query(cursor, """
+                    SELECT 
+                        'game_werwolf' as activity_type,
+                        user_id,
+                        NULL as channel_id,
+                        CONCAT('Wins: ', wins, ' | Losses: ', losses) as preview,
+                        last_played as activity_time,
+                        'Werwolf' as category
+                    FROM werwolf_user_stats
+                    WHERE last_played IS NOT NULL
+                    ORDER BY last_played DESC
+                    LIMIT %s
+                """, params=(limit,), default=[], fetch_all=True)
+                activities.extend(ww_activity or [])
+            
+            # Get recent user level ups from user_stats
+            if activity_type in ['all', 'leveling']:
+                level_activity = safe_db_query(cursor, """
+                    SELECT 
+                        'level_up' as activity_type,
+                        user_id,
+                        NULL as channel_id,
+                        CONCAT('Level ', level, ' (', xp, ' XP)') as preview,
+                        updated_at as activity_time,
+                        'Leveling' as category
+                    FROM user_stats
+                    WHERE stat_period = DATE_FORMAT(NOW(), '%Y-%m')
+                    AND level > 1
+                    ORDER BY updated_at DESC
+                    LIMIT %s
+                """, params=(limit,), default=[], fetch_all=True)
+                activities.extend(level_activity or [])
+            
+            # Get user display names
+            user_ids = list(set([a.get('user_id') for a in activities if a.get('user_id')]))
+            user_names = {}
+            if user_ids:
+                # Get from players table using parameterized IN clause
+                # Note: placeholders is safe as it only contains '%s' characters
+                # The actual user_ids are passed as parameters to prevent SQL injection
+                placeholders = ','.join(['%s'] * len(user_ids))
+                cursor.execute(
+                    f"SELECT discord_id, display_name FROM players WHERE discord_id IN ({placeholders})",
+                    tuple(user_ids)
+                )
+                for row in cursor.fetchall():
+                    user_names[row['discord_id']] = row['display_name']
+            
+            # Add display names to activities
+            for activity in activities:
+                uid = activity.get('user_id')
+                activity['display_name'] = user_names.get(uid, f'User {uid}') if uid else 'Unknown'
+                # Convert datetime to string for JSON
+                if activity.get('activity_time'):
+                    activity['activity_time'] = str(activity['activity_time'])
+            
+            # Sort by time (most recent first)
+            activities.sort(key=lambda x: x.get('activity_time', ''), reverse=True)
+            activities = activities[:limit]
+            
+            return jsonify({
+                'status': 'success',
+                'activities': activities,
+                'count': len(activities)
+            })
+            
+        finally:
+            cursor.close()
+            conn.close()
+            
+    except Exception as e:
+        logger.error(f"Error fetching recent activity: {e}")
+        return jsonify({'error': str(e), 'activities': []}), 500
+
+
+@app.route('/api/activity/stats', methods=['GET'])
+def api_activity_stats():
+    """API endpoint to get activity statistics."""
+    try:
+        if not db_helpers.db_pool:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        conn = db_helpers.db_pool.get_connection()
+        cursor = conn.cursor(dictionary=True)
+        
+        try:
+            stats = {
+                'today': {},
+                'week': {},
+                'total': {}
+            }
+            
+            # AI calls today
+            result = safe_db_query(cursor, """
+                SELECT COUNT(*) as count FROM ai_conversation_history 
+                WHERE DATE(timestamp) = CURDATE()
+            """)
+            stats['today']['ai_chats'] = result.get('count', 0) if result else 0
+            
+            # Transactions today  
+            result = safe_db_query(cursor, """
+                SELECT COUNT(*) as count FROM transaction_history 
+                WHERE DATE(created_at) = CURDATE()
+            """)
+            stats['today']['transactions'] = result.get('count', 0) if result else 0
+            
+            # Games played today - use UNION to combine queries efficiently
+            # Note: Using hardcoded table names as they are known safe values
+            games_query = """
+                SELECT COALESCE(SUM(cnt), 0) as total FROM (
+                    SELECT COUNT(*) as cnt FROM wordle_games WHERE DATE(created_at) = CURDATE()
+                    UNION ALL
+                    SELECT COUNT(*) as cnt FROM blackjack_games WHERE DATE(created_at) = CURDATE()
+                    UNION ALL
+                    SELECT COUNT(*) as cnt FROM roulette_games WHERE DATE(created_at) = CURDATE()
+                    UNION ALL
+                    SELECT COUNT(*) as cnt FROM mines_games WHERE DATE(created_at) = CURDATE()
+                ) as game_counts
+            """
+            result = safe_db_query(cursor, games_query)
+            stats['today']['games'] = int(result.get('total', 0)) if result else 0
+            
+            # Active users today
+            result = safe_db_query(cursor, """
+                SELECT COUNT(DISTINCT user_id) as count FROM ai_conversation_history 
+                WHERE DATE(timestamp) = CURDATE()
+            """)
+            stats['today']['active_users'] = result.get('count', 0) if result else 0
+            
+            # Total counts
+            result = safe_db_query(cursor, "SELECT COUNT(*) as count FROM ai_conversation_history")
+            stats['total']['ai_chats'] = result.get('count', 0) if result else 0
+            
+            result = safe_db_query(cursor, "SELECT COUNT(*) as count FROM transaction_history")
+            stats['total']['transactions'] = result.get('count', 0) if result else 0
+            
+            result = safe_db_query(cursor, "SELECT COUNT(*) as count FROM players")
+            stats['total']['users'] = result.get('count', 0) if result else 0
+            
+            return jsonify({
+                'status': 'success',
+                'stats': stats
+            })
+            
+        finally:
+            cursor.close()
+            conn.close()
+            
+    except Exception as e:
+        logger.error(f"Error fetching activity stats: {e}")
+        return jsonify({'error': str(e)}), 500
 
 def restart_bot():
     """Creates a flag file to signal the maintenance script to restart the bot."""
