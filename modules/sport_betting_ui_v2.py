@@ -978,7 +978,12 @@ class ComboBetSelection:
         return f"{home_team} vs {away_team}: {outcome_names.get(self.bet_outcome, self.bet_outcome)} @ {self.odds:.2f}x"
 
 
-# Global storage for combo bet selections (per user)
+# In-memory storage for combo bet selections during the building phase.
+# NOTE: This is intentionally stored in memory rather than the database because:
+# 1. Selections are temporary and only used while actively building a combo bet
+# 2. Once a combo bet is placed, it's persisted to the database (sport_combo_bets table)
+# 3. If the bot restarts, users simply need to rebuild their combo - this is acceptable UX
+# 4. For high-availability deployments, consider moving to Redis or database-backed sessions
 _combo_selections: Dict[int, List[ComboBetSelection]] = {}
 
 

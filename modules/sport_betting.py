@@ -1019,7 +1019,8 @@ async def place_bet(db_helpers, user_id: int, match_id: str, bet_type: str,
             if not match:
                 return False, "Dieses Spiel ist nicht mehr für Wetten verfügbar"
             
-            # Allow multiple bets on the same match (removed single bet restriction)
+            # Users can place multiple bets on the same match with different bet types
+            # This enables strategies like betting on both Over 2.5 and Home Win
             
             # Calculate potential payout
             potential_payout = OddsCalculator.calculate_payout(amount, odds)
