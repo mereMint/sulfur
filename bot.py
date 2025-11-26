@@ -48,7 +48,7 @@ from modules import themes  # NEW: Theme system
 from modules import horse_racing  # NEW: Horse racing game
 from modules import rpg_system  # NEW: RPG system
 from modules import sport_betting  # NEW: Sport betting system
-from modules import sport_betting_ui  # NEW: Sport betting UI components
+from modules import sport_betting_ui_v2 as sport_betting_ui  # NEW: Sport betting UI components (v2)
 from modules.bot_enhancements import (
     handle_image_attachment,
     handle_unknown_emojis_in_message,
@@ -13138,330 +13138,64 @@ async def on_message(message):
 
 
 # ============================================================================
-# SPORT BETTING COMMANDS
+# SPORT BETTING COMMAND (Consolidated)
 # ============================================================================
 
-@tree.command(name="football", description="⚽ Sport Betting - Wette auf Fußballspiele!")
-@app_commands.describe(
-    action="Aktion auswählen",
-    league="Liga für die Spiele (optional)",
-    match_id="Match ID zum Wetten (für 'bet' Aktion)"
-)
-@app_commands.choices(action=[
-    app_commands.Choice(name="📋 Menü öffnen", value="menu"),
-    app_commands.Choice(name="⚽ Spiele anzeigen", value="matches"),
-    app_commands.Choice(name="🎫 Meine Wetten", value="mybets"),
-    app_commands.Choice(name="📊 Statistiken", value="stats"),
-    app_commands.Choice(name="🏆 Bestenliste", value="leaderboard"),
-    app_commands.Choice(name="🔄 Spiele aktualisieren", value="sync"),
-    app_commands.Choice(name="❓ Hilfe", value="help")
-])
-@app_commands.choices(league=[
-    app_commands.Choice(name="🇩🇪 Bundesliga", value="bl1"),
-    app_commands.Choice(name="🇩🇪 2. Bundesliga", value="bl2"),
-    app_commands.Choice(name="🏆 DFB-Pokal", value="dfb"),
-    app_commands.Choice(name="🏆 Champions League", value="cl"),
-    app_commands.Choice(name="🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League", value="pl"),
-    app_commands.Choice(name="🏆 FIFA World Cup", value="world_cup"),
-])
-async def football_command(interaction: discord.Interaction, 
-                          action: str = "menu",
-                          league: str = None,
-                          match_id: str = None):
-    """Main sport betting command with various actions."""
+@tree.command(name="sportbets", description="⚽ Sport Betting - Wette auf Fußballspiele!")
+async def sportbets_command(interaction: discord.Interaction):
+    """
+    Main sport betting command with highlighted games and intuitive flow.
+    Flow: Main Menu → League Select → Match Details → Bet Type → Place Bet
+    """
+    await interaction.response.defer()
     
     user_id = interaction.user.id
     
-    # Helper function to check balance
-    async def get_user_balance(uid: int) -> int:
-        return await db_helpers.get_balance(uid)
-    
     try:
-        if action == "menu":
-            # Show main menu
-            embed = discord.Embed(
-                title="⚽ Sport Betting",
-                description=(
-                    "Willkommen bei Sport Betting!\n\n"
-                    "Wette auf echte Fußballspiele und gewinne Coins!\n\n"
-                    "**Verfügbare Ligen (kostenlos):**\n"
-                    "🇩🇪 Bundesliga\n"
-                    "🇩🇪 2. Bundesliga\n"
-                    "🏆 DFB-Pokal\n\n"
-                    "Nutze die Buttons unten, um zu navigieren."
-                ),
-                color=discord.Color.green()
-            )
-            
-            # Get user balance
-            balance = await get_user_balance(user_id)
-            embed.add_field(name="💰 Dein Guthaben", value=f"**{balance}** 🪙", inline=True)
-            
-            # Get user stats
-            stats = await sport_betting.get_user_betting_stats(db_helpers, user_id)
-            if stats:
-                profit = stats.get("total_won", 0) - stats.get("total_lost", 0)
-                embed.add_field(
-                    name="📊 Deine Bilanz", 
-                    value=f"**{profit:+d}** 🪙", 
-                    inline=True
-                )
-            
-            view = sport_betting_ui.SportBettingMainView(db_helpers)
-            await interaction.response.send_message(embed=embed, view=view)
-        
-        elif action == "matches":
-            await interaction.response.defer()
-            
-            # Sync matches first
-            if league:
-                await sport_betting.sync_league_matches(db_helpers, league)
-                matches = await sport_betting.get_upcoming_matches(db_helpers, league, limit=50)
-            else:
-                # Sync all free leagues
-                for lid in ["bl1", "bl2", "dfb"]:
-                    await sport_betting.sync_league_matches(db_helpers, lid)
-                matches = await sport_betting.get_upcoming_matches(db_helpers, None, limit=50)
-            
-            view = sport_betting_ui.MatchListView(db_helpers, matches, league)
-            await interaction.followup.send(embed=view.get_embed(), view=view)
-        
-        elif action == "mybets":
-            bets = await sport_betting.get_user_bets(db_helpers, user_id)
-            view = sport_betting_ui.UserBetsView(
-                db_helpers, user_id, interaction.user.display_name, bets
-            )
-            await interaction.response.send_message(embed=view.get_embed(), view=view)
-        
-        elif action == "stats":
-            stats = await sport_betting.get_user_betting_stats(db_helpers, user_id)
-            embed = sport_betting.create_stats_embed(stats, interaction.user.display_name)
-            await interaction.response.send_message(embed=embed)
-        
-        elif action == "leaderboard":
-            leaderboard = await sport_betting.get_betting_leaderboard(db_helpers)
-            embed = sport_betting.create_leaderboard_embed(leaderboard)
-            await interaction.response.send_message(embed=embed)
-        
-        elif action == "sync":
-            await interaction.response.defer()
-            
-            # Sync free leagues only
-            synced_total = 0
-            leagues_synced = []
-            
-            if league:
-                synced = await sport_betting.sync_league_matches(db_helpers, league)
-                synced_total = synced
-                leagues_synced.append(sport_betting.get_league_name(league))
-            else:
-                for lid in ["bl1", "bl2", "dfb"]:
-                    synced = await sport_betting.sync_league_matches(db_helpers, lid)
-                    synced_total += synced
-                    if synced > 0:
-                        leagues_synced.append(sport_betting.get_league_name(lid))
-            
-            embed = discord.Embed(
-                title="✅ Spieldaten aktualisiert",
-                description=(
-                    f"**{synced_total}** Spiele synchronisiert.\n\n"
-                    f"**Ligen:** {', '.join(leagues_synced) if leagues_synced else 'Keine'}"
-                ),
-                color=discord.Color.green()
-            )
-            
-            await interaction.followup.send(embed=embed)
-        
-        elif action == "help":
-            embed = sport_betting_ui.create_help_embed()
-            await interaction.response.send_message(embed=embed)
-        
-        else:
-            await interaction.response.send_message(
-                "❌ Unbekannte Aktion. Nutze `/football help` für Hilfe.",
-                ephemeral=True
-            )
-    
-    except Exception as e:
-        logger.error(f"Error in football command: {e}", exc_info=True)
-        if interaction.response.is_done():
-            await interaction.followup.send(
-                f"❌ Ein Fehler ist aufgetreten: {str(e)}",
-                ephemeral=True
-            )
-        else:
-            await interaction.response.send_message(
-                f"❌ Ein Fehler ist aufgetreten: {str(e)}",
-                ephemeral=True
-            )
-
-
-@tree.command(name="bet", description="🎫 Platziere eine Wette auf ein Fußballspiel")
-@app_commands.describe(
-    match_id="Die Match ID (findest du bei /football matches)",
-    amount="Dein Einsatz in Coins",
-    outcome="Dein Tipp für das Spiel"
-)
-@app_commands.choices(outcome=[
-    app_commands.Choice(name="🏠 Heimsieg (1)", value="home"),
-    app_commands.Choice(name="🤝 Unentschieden (X)", value="draw"),
-    app_commands.Choice(name="✈️ Auswärtssieg (2)", value="away")
-])
-async def bet_command(interaction: discord.Interaction, 
-                      match_id: str,
-                      amount: int,
-                      outcome: str):
-    """Place a bet on a specific match."""
-    user_id = interaction.user.id
-    
-    try:
-        # Validate amount
-        if amount <= 0:
-            await interaction.response.send_message(
-                "❌ Der Einsatz muss größer als 0 sein!",
-                ephemeral=True
-            )
-            return
-        
-        # Check balance
-        balance = await db_helpers.get_balance(user_id)
-        if balance < amount:
-            await interaction.response.send_message(
-                f"❌ Nicht genug Geld! Du hast **{balance}** 🪙, brauchst aber **{amount}** 🪙.",
-                ephemeral=True
-            )
-            return
-        
-        # Get match
-        match = await sport_betting.get_match_from_db(db_helpers, match_id)
-        if not match:
-            await interaction.response.send_message(
-                f"❌ Spiel mit ID `{match_id}` nicht gefunden!\n"
-                "Nutze `/football matches` um verfügbare Spiele zu sehen.",
-                ephemeral=True
-            )
-            return
-        
-        # Check if match is still open for betting
-        if match.get("status") != "scheduled":
-            await interaction.response.send_message(
-                "❌ Dieses Spiel ist nicht mehr für Wetten verfügbar!",
-                ephemeral=True
-            )
-            return
-        
-        # Get the appropriate odds
-        odds_map = {
-            "home": float(match.get("odds_home", 2.0)),
-            "draw": float(match.get("odds_draw", 3.5)),
-            "away": float(match.get("odds_away", 3.0))
-        }
-        odds = odds_map.get(outcome, 2.0)
-        
-        # Place the bet
-        success, message = await sport_betting.place_bet(
-            db_helpers, user_id, match_id, "winner", outcome, amount, odds
-        )
-        
-        if success:
-            # Deduct balance
-            stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
-            await db_helpers.add_balance(
-                user_id, interaction.user.display_name, -amount, config, stat_period
-            )
-            
-            # Create confirmation embed
-            potential_payout = int(amount * odds)
-            outcome_names = {"home": "Heimsieg", "draw": "Unentschieden", "away": "Auswärtssieg"}
-            
-            embed = discord.Embed(
-                title="✅ Wette platziert!",
-                color=discord.Color.green()
-            )
-            
-            embed.add_field(
-                name="⚽ Spiel",
-                value=f"{match.get('home_team')} vs {match.get('away_team')}",
-                inline=False
-            )
-            embed.add_field(
-                name="🎯 Tipp",
-                value=f"{sport_betting.get_outcome_emoji(outcome)} {outcome_names.get(outcome)}",
-                inline=True
-            )
-            embed.add_field(name="💰 Einsatz", value=f"{amount} 🪙", inline=True)
-            embed.add_field(name="📊 Quote", value=f"{odds:.2f}x", inline=True)
-            embed.add_field(
-                name="💎 Möglicher Gewinn",
-                value=f"**{potential_payout}** 🪙",
-                inline=True
-            )
-            
-            # Show remaining balance
-            new_balance = balance - amount
-            embed.set_footer(text=f"Neues Guthaben: {new_balance} 🪙")
-            
-            await interaction.response.send_message(embed=embed)
-        else:
-            await interaction.response.send_message(f"❌ {message}", ephemeral=True)
-    
-    except Exception as e:
-        logger.error(f"Error in bet command: {e}", exc_info=True)
-        await interaction.response.send_message(
-            f"❌ Ein Fehler ist aufgetreten: {str(e)}",
-            ephemeral=True
-        )
-
-
-@tree.command(name="quickbet", description="🎫 Schnell wetten - Spiel aus Liste wählen")
-@app_commands.describe(
-    league="Liga auswählen"
-)
-@app_commands.choices(league=[
-    app_commands.Choice(name="🇩🇪 Bundesliga", value="bl1"),
-    app_commands.Choice(name="🇩🇪 2. Bundesliga", value="bl2"),
-    app_commands.Choice(name="🏆 DFB-Pokal", value="dfb"),
-    app_commands.Choice(name="🏆 Champions League", value="cl"),
-    app_commands.Choice(name="🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League", value="pl"),
-    app_commands.Choice(name="🏆 FIFA World Cup", value="world_cup"),
-])
-async def quickbet_command(interaction: discord.Interaction, league: str = "bl1"):
-    """Quick betting with match selection dropdown."""
-    
-    try:
-        await interaction.response.defer()
-        
-        # Sync and get matches
-        await sport_betting.sync_league_matches(db_helpers, league)
-        matches = await sport_betting.get_upcoming_matches(db_helpers, league, limit=25)
-        
-        if not matches:
-            await interaction.followup.send(
-                f"❌ Keine kommenden Spiele in der {sport_betting.get_league_name(league)} gefunden.\n"
-                "Versuche `/football sync` um Spieldaten zu aktualisieren.",
-                ephemeral=True
-            )
-            return
-        
-        # Helper function to check balance
+        # Helper functions for balance management
         async def get_user_balance(uid: int) -> int:
             return await db_helpers.get_balance(uid)
         
-        embed = discord.Embed(
-            title=f"⚽ Schnell Wetten - {sport_betting.get_league_name(league)}",
-            description="Wähle ein Spiel aus dem Dropdown, um zu wetten.",
-            color=discord.Color.blue()
+        async def deduct_balance(uid: int, display_name: str, amount: int):
+            stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
+            await db_helpers.add_balance(uid, display_name, amount, config, stat_period)
+        
+        # Sync free leagues and get highlighted matches
+        for league_id in ["bl1", "bl2", "dfb"]:
+            try:
+                await sport_betting.sync_league_matches(db_helpers, league_id)
+            except Exception as e:
+                logger.warning(f"Could not sync {league_id}: {e}")
+        
+        # Get upcoming matches for highlighting
+        matches = await sport_betting.get_upcoming_matches(db_helpers, None, limit=5)
+        
+        # Get user balance
+        balance = await get_user_balance(user_id)
+        
+        # Create main menu embed with highlighted games
+        embed = sport_betting_ui.create_highlighted_matches_embed(matches, balance)
+        
+        # Get user stats for display
+        stats = await sport_betting.get_user_betting_stats(db_helpers, user_id)
+        if stats:
+            profit = stats.get("total_won", 0) - stats.get("total_lost", 0)
+            win_rate = (stats.get("total_wins", 0) / stats.get("total_bets", 1) * 100) if stats.get("total_bets", 0) > 0 else 0
+            embed.add_field(
+                name="📊 Deine Bilanz",
+                value=f"**{profit:+d}** 🪙 • {win_rate:.0f}% Gewinnrate",
+                inline=True
+            )
+        
+        # Create main menu view
+        view = sport_betting_ui.SportBetsMainView(
+            db_helpers, get_user_balance, deduct_balance
         )
         
-        # Show user balance
-        balance = await get_user_balance(interaction.user.id)
-        embed.add_field(name="💰 Dein Guthaben", value=f"**{balance}** 🪙", inline=True)
-        
-        view = sport_betting_ui.QuickBetView(matches, db_helpers, get_user_balance)
         await interaction.followup.send(embed=embed, view=view)
-    
+        
     except Exception as e:
-        logger.error(f"Error in quickbet command: {e}", exc_info=True)
+        logger.error(f"Error in sportbets command: {e}", exc_info=True)
         await interaction.followup.send(
             f"❌ Ein Fehler ist aufgetreten: {str(e)}",
             ephemeral=True
