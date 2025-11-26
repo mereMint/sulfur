@@ -4,6 +4,14 @@ Core RPG system with combat, items, skills, and progression.
 
 NOTE: Items, skills, and monsters are stored in the DATABASE, not hardcoded.
 The generation logic in rpg_items_data.py is used only to seed the database on first run.
+
+ENHANCED: Combat system now includes strategic elements, animations, and entertainment features:
+- Combo system with damage bonuses
+- Rage meter for powerful attacks
+- Enemy telegraph warnings
+- Close-call dramatic moments
+- Special finishing moves
+- Enhanced visual feedback
 """
 
 import discord
@@ -13,6 +21,7 @@ from datetime import datetime, timezone
 from typing import Optional, Dict, List, Tuple
 from modules.logger_utils import bot_logger as logger
 from modules.rpg_items_data import EXTENDED_WEAPONS, EXTENDED_SKILLS
+from modules import rpg_combat_enhancements as combat_fx
 
 
 # Status Effects - Applied during combat
@@ -3397,23 +3406,36 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
         # Get equipped weapon for damage boost
         equipped = await get_equipped_items(db_helpers, user_id)
         weapon_damage_bonus = 0
+        weapon_damage_type = 'physical'
         if equipped and equipped.get('weapon_id'):
             weapon = await get_item_by_id(db_helpers, equipped['weapon_id'])
             if weapon:
                 weapon_damage_bonus = weapon.get('damage', 0)
+                weapon_damage_type = weapon.get('damage_type', 'physical')
         
         # Get skill tree stat bonuses
         skill_tree_bonuses = await calculate_skill_tree_bonuses(db_helpers, user_id)
         
-        # Initialize combat state if not provided
+        # Initialize combat state if not provided - now with enhanced tracking
         if combat_state is None:
-            combat_state = {
-                'player_effects': {},
-                'monster_effects': {},
-                'turn_count': 0
-            }
+            combat_state = combat_fx.create_enhanced_combat_state()
+        else:
+            # Ensure enhanced fields exist in existing combat state
+            combat_state.setdefault('combo_count', 0)
+            combat_state.setdefault('player_rage', 0)
+            combat_state.setdefault('monster_enraged', False)
+            combat_state.setdefault('total_player_damage', 0)
+            combat_state.setdefault('total_monster_damage', 0)
+            combat_state.setdefault('critical_hits_player', 0)
+            combat_state.setdefault('close_calls', 0)
         
         combat_state['turn_count'] = combat_state.get('turn_count', 0) + 1
+        turn_count = combat_state['turn_count']
+        
+        # Store previous health for close-call detection
+        previous_player_health = player['health']
+        monster_health_before = monster['health']
+        monster_max_health = monster.get('max_health', monster['health'])
         
         result = {
             'player_action': action,
@@ -3429,6 +3451,7 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
             'monster_ability_used': None,
             'status_applied': [],
             'weapon_bonus': weapon_damage_bonus,  # Track weapon bonus for display
+            'weapon_damage_type': weapon_damage_type,  # Track damage type
             'skill_tree_bonuses': skill_tree_bonuses  # Track skill tree bonuses
         }
         
@@ -3516,36 +3539,87 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
         if player_immobilized and action != 'run':
             result['messages'].append(f"⚠️ {immob_msg}")
             action = 'skip'  # Force skip turn
+            combat_state['combo_count'] = 0  # Reset combo on forced skip
         
-        # Define player action function
+        # Define player action function with enhanced combat
         def do_player_action():
             nonlocal action
             if action == 'skip':
                 result['messages'].append("⏭️ Du kannst dich nicht bewegen!")
+                combat_state['combo_count'] = 0
                 return
             
             if action == 'attack':
+                # Calculate combo bonus
+                combo_bonus, combo_msg = combat_fx.calculate_combo_bonus(combat_state.get('combo_count', 0))
+                
+                # Check for rage mode activation
+                rage_multiplier, rage_msg = combat_fx.consume_rage(combat_state)
+                if rage_msg:
+                    result['messages'].append(rage_msg)
+                
+                # Calculate total damage multiplier
+                total_multiplier = combo_bonus * rage_multiplier
+                
+                # Calculate damage with enhanced formula
                 dmg_result = calculate_damage(
-                    player_stats['strength'],
+                    int(player_stats['strength'] * total_multiplier),
                     monster_stats['defense'],
                     player_stats.get('dexterity', DEFAULT_DEXTERITY)
                 )
                 
                 if dmg_result['dodged']:
                     result['messages'].append("❌ Dein Angriff wurde ausgewichen!")
-                elif dmg_result['crit']:
-                    result['player_damage'] = dmg_result['damage']
-                    result['messages'].append(f"💥 **KRITISCHER TREFFER!** Du fügst {dmg_result['damage']} Schaden zu!")
+                    combat_state['combo_count'] = 0  # Reset combo on miss
+                    combat_fx.update_combat_stats(combat_state, monster_dodged=True)
                 else:
                     result['player_damage'] = dmg_result['damage']
-                    result['messages'].append(f"⚔️ Du fügst {dmg_result['damage']} Schaden zu!")
+                    
+                    # Generate dynamic combat commentary
+                    attack_msg = combat_fx.generate_attack_commentary(
+                        "Du",
+                        monster['name'],
+                        dmg_result['damage'],
+                        weapon_damage_type,
+                        is_player=True,
+                        is_critical=dmg_result['crit'],
+                        combo_count=combat_state.get('combo_count', 0)
+                    )
+                    result['messages'].append(attack_msg)
+                    
+                    # Add combo message if applicable - safely handle None or invalid tuple
+                    if combo_msg and isinstance(combo_msg, tuple) and len(combo_msg) >= 2:
+                        result['messages'].append(f"{combo_msg[0]} *{combo_msg[1]}*")
+                    
+                    # Update combat stats
+                    combat_fx.update_combat_stats(
+                        combat_state, 
+                        player_damage=dmg_result['damage'],
+                        player_crit=dmg_result['crit']
+                    )
+                    
+                    if dmg_result['crit']:
+                        combat_state['critical_hits_player'] = combat_state.get('critical_hits_player', 0) + 1
                 
                 monster['health'] -= result['player_damage']
+                
+                # Check for finishing move
+                if result['player_damage'] > 0:
+                    finish_msg = combat_fx.check_finishing_move(
+                        monster_health_before, 
+                        monster['health'], 
+                        result['player_damage'],
+                        dmg_result['crit']
+                    )
+                    if finish_msg:
+                        result['messages'].append(finish_msg)
             
             elif action == 'defend':
-                # Defensive stance - reduce incoming damage
+                # Defensive stance - reduce incoming damage and build rage
                 combat_state['player_defending'] = True
+                combat_state['player_rage'] = min(100, combat_state.get('player_rage', 0) + 15)
                 result['messages'].append("🛡️ Du nimmst eine defensive Haltung ein!")
+                result['messages'].append(f"💢 *Wut: +15 (Jetzt: {combat_state['player_rage']}%)*")
             
             elif action == 'skill':
                 if not skill_data:
@@ -3553,6 +3627,7 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
                 else:
                     skill_name = skill_data.get('name', 'Unknown Skill')
                     skill_damage = skill_data.get('damage', 0)
+                    skill_damage_type = skill_data.get('damage_type', 'magic')
                     
                     effects_json = skill_data.get('effects')
                     effects = {}
@@ -3566,20 +3641,47 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
                             pass
                     
                     if skill_damage > 0:
+                        # Calculate combo bonus for skills too
+                        combo_bonus, combo_msg = combat_fx.calculate_combo_bonus(combat_state.get('combo_count', 0))
+                        
                         dmg_result = calculate_damage(
-                            skill_damage,
+                            int(skill_damage * combo_bonus),
                             monster_stats['defense'],
                             player_stats.get('dexterity', DEFAULT_DEXTERITY)
                         )
                         
                         if dmg_result['crit']:
                             result['player_damage'] = dmg_result['damage']
-                            result['messages'].append(f"✨💥 **{skill_name}** - KRITISCHER TREFFER! {dmg_result['damage']} Schaden!")
+                            crit_msg = random.choice(combat_fx.CRITICAL_MESSAGES)
+                            result['messages'].append(f"{crit_msg}\n✨💥 **{skill_name}** - {dmg_result['damage']} Schaden!")
+                            combat_state['critical_hits_player'] = combat_state.get('critical_hits_player', 0) + 1
                         else:
                             result['player_damage'] = dmg_result['damage']
-                            result['messages'].append(f"✨ **{skill_name}** fügt {dmg_result['damage']} Schaden zu!")
+                            damage_anim = combat_fx.create_damage_animation(dmg_result['damage'], False, skill_damage_type)
+                            result['messages'].append(f"✨ **{skill_name}** {damage_anim}")
+                        
+                        # Add combo message if applicable - safely handle None or invalid tuple
+                        if combo_msg and isinstance(combo_msg, tuple) and len(combo_msg) >= 2:
+                            result['messages'].append(f"{combo_msg[0]} *{combo_msg[1]}*")
                         
                         monster['health'] -= result['player_damage']
+                        
+                        # Update combat stats
+                        combat_fx.update_combat_stats(
+                            combat_state,
+                            player_damage=dmg_result['damage'],
+                            player_crit=dmg_result['crit']
+                        )
+                        
+                        # Check for finishing move
+                        finish_msg = combat_fx.check_finishing_move(
+                            monster_health_before, 
+                            monster['health'], 
+                            result['player_damage'],
+                            dmg_result['crit']
+                        )
+                        if finish_msg:
+                            result['messages'].append(finish_msg)
                     
                     # Apply healing
                     if effects.get('heal'):
@@ -3589,7 +3691,7 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
                         if actual_heal > 0:
                             player['health'] = new_health
                             result['player_health'] = new_health
-                            result['messages'].append(f"💚 **{skill_name}** heilt dich um {actual_heal} HP!")
+                            result['messages'].append(f"💚✨ **{skill_name}** heilt dich um {actual_heal} HP!")
                     
                     # Apply status effects from skill
                     status_effects_to_apply = ['burn', 'freeze', 'poison', 'static', 'darkness', 'slow', 'weakness', 'curse']
@@ -3609,14 +3711,17 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
                 
                 if random.random() < run_chance:
                     result['combat_over'] = True
-                    result['messages'].append("🏃 Du bist erfolgreich geflohen!")
+                    result['messages'].append("🏃💨 Du bist erfolgreich geflohen!")
                 else:
-                    result['messages'].append("❌ Flucht gescheitert!")
+                    result['messages'].append("❌ Flucht gescheitert! Das Monster versperrt den Weg!")
+                    combat_state['combo_count'] = 0  # Reset combo on failed run
         
-        # Define monster action function
+        # Define monster action function with enhanced features
         def do_monster_action():
             if monster['health'] <= 0:
                 return
+            
+            monster_health_pct = monster['health'] / monster_max_health if monster_max_health > 0 else 1.0
             
             # Check if monster is immobilized
             monster_immobilized, monster_immob_msg = is_immobilized(combat_state.get('monster_effects', {}))
@@ -3624,7 +3729,19 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
                 result['messages'].append(f"🎯 {monster['name']}: {monster_immob_msg}")
                 return
             
-            # Try to use an ability
+            # Check for monster enrage trigger (at 30% health)
+            if not combat_state.get('monster_enraged') and monster_health_pct <= 0.30:
+                combat_state['monster_enraged'] = True
+                enrage_msg = combat_fx.get_enemy_enrage_message(monster, monster_health_pct)
+                if enrage_msg:
+                    result['messages'].append(f"\n{enrage_msg}")
+            
+            # Add telegraph warning for next turn's special attack
+            telegraph_msg = combat_fx.should_telegraph_attack(monster, monster_health_pct, turn_count)
+            if telegraph_msg:
+                result['messages'].append(f"\n{telegraph_msg}")
+            
+            # Try to use an ability (with enrage bonus)
             ability = try_monster_ability(monster, player, combat_state)
             
             if ability:
@@ -3633,6 +3750,7 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
                 ability_name = ability.get('name', 'Spezialfähigkeit')
                 
                 result['messages'].append(f"\n🔥 **{monster['name']} benutzt {ability_emoji} {ability_name}!**")
+                combat_fx.update_combat_stats(combat_state, ability_used=ability_name)
                 
                 effect_type = ability.get('effect_type')
                 
@@ -3653,8 +3771,10 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
                             result['messages'].append(f"→ {monster['name']}: {msg}")
                 
                 elif effect_type == 'damage_boost':
-                    # Enhanced damage attack
+                    # Enhanced damage attack (with enrage bonus)
                     multiplier = ability.get('damage_multiplier', 2.0)
+                    if combat_state.get('monster_enraged'):
+                        multiplier *= 1.2  # 20% extra damage when enraged
                     boosted_strength = int(monster_stats['strength'] * multiplier)
                     
                     dmg_result = calculate_damage(
@@ -3669,9 +3789,13 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
                         damage = dmg_result['damage']
                         result['monster_damage'] += damage
                         crit_text = " 💀**KRITISCH!**" if dmg_result['crit'] else ""
-                        result['messages'].append(f"→ {ability_emoji} Fügt {damage} verstärkten Schaden zu!{crit_text}")
+                        enrage_text = " 😤" if combat_state.get('monster_enraged') else ""
+                        damage_anim = combat_fx.create_damage_animation(damage, dmg_result['crit'], 'physical')
+                        result['messages'].append(f"→ {ability_emoji} {damage_anim} verstärkter Schaden!{crit_text}{enrage_text}")
+                        combat_fx.update_combat_stats(combat_state, monster_damage=damage, monster_crit=dmg_result['crit'])
                     else:
-                        result['messages'].append("→ Du weichst dem verstärkten Angriff aus!")
+                        result['messages'].append("→ ✨ Du weichst dem verstärkten Angriff aus!")
+                        combat_fx.update_combat_stats(combat_state, player_dodged=True)
                     return  # Ability replaces normal attack
                 
                 elif effect_type == 'lifesteal':
@@ -3781,6 +3905,17 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
                 player['health'] = max(0, player['health'] - result['monster_damage'])
                 result['player_health'] = player['health']
                 
+                # Check for close call
+                close_call_msg = combat_fx.check_close_call(previous_player_health, player['health'], player['max_health'])
+                if close_call_msg:
+                    result['messages'].append(close_call_msg)
+                    combat_state['close_calls'] = combat_state.get('close_calls', 0) + 1
+                
+                # Check for near death message
+                near_death_msg = combat_fx.get_near_death_message(player['health'], player['max_health'])
+                if near_death_msg:
+                    result['messages'].append(near_death_msg)
+                
                 if player['health'] <= 0:
                     result['combat_over'] = True
                     result['player_won'] = False
@@ -3795,6 +3930,18 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
             # Update player health in DB
             new_health = max(0, player['health'] - result['monster_damage']) if player_goes_first else player['health']
             result['player_health'] = new_health
+            
+            # Check for close call on player's turn damage
+            if player_goes_first and result['monster_damage'] > 0:
+                close_call_msg = combat_fx.check_close_call(previous_player_health, new_health, player['max_health'])
+                if close_call_msg:
+                    result['messages'].append(close_call_msg)
+                    combat_state['close_calls'] = combat_state.get('close_calls', 0) + 1
+                
+                # Check for near death message
+                near_death_msg = combat_fx.get_near_death_message(new_health, player['max_health'])
+                if near_death_msg:
+                    result['messages'].append(near_death_msg)
             
             conn = db_helpers.db_pool.get_connection()
             cursor = conn.cursor()
@@ -3816,6 +3963,13 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
                 conn.commit()
                 cursor.close()
                 conn.close()
+            
+            # Show rage meter status if building up
+            can_rage, rage_msg = combat_fx.check_rage_activation(combat_state)
+            if can_rage:
+                result['messages'].append(f"\n{rage_msg}")
+            elif combat_state.get('player_rage', 0) >= 50:
+                result['messages'].append(f"\n💢 *Wut: {combat_state['player_rage']}%*")
         
         # Check monster defeat and handle rewards
         if monster['health'] <= 0 and not result.get('player_won'):
@@ -3836,9 +3990,13 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
             player_level = player_profile['level'] if player_profile else 1
             loot_drops = await roll_loot_drops(db_helpers, monster, player_level)
             loot_names = []
+            loot_rarities = []
             
             if loot_drops:
                 success, loot_names = await add_loot_to_inventory(db_helpers, user_id, loot_drops, monster['name'])
+                # Get loot rarities for celebration messages
+                for drop in loot_drops:
+                    loot_rarities.append(drop.get('rarity', 'common'))
             
             result['rewards'] = {
                 'xp': monster['xp_reward'],
@@ -3848,11 +4006,27 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
                 'loot': loot_names
             }
             
-            msg = f"\n🎉 **{monster['name']} besiegt!**\n"
+            # Enhanced victory message with celebration
+            victory_celebration = combat_fx.get_victory_celebration()
+            msg = f"\n{victory_celebration} **{monster['name']} besiegt!**\n"
             msg += f"💰 +{monster['gold_reward']} Gold\n"
             msg += f"⭐ +{monster['xp_reward']} XP"
+            
+            # Enhanced loot display with rarity celebrations
             if loot_names:
-                msg += f"\n📦 **Loot:** {', '.join(loot_names)}"
+                # Find highest rarity for celebration
+                rarity_order = ['common', 'uncommon', 'rare', 'epic', 'legendary']
+                highest_rarity = 'common'
+                for r in loot_rarities:
+                    if r in rarity_order and rarity_order.index(r) > rarity_order.index(highest_rarity):
+                        highest_rarity = r
+                
+                if highest_rarity in ['epic', 'legendary']:
+                    loot_celebration = combat_fx.get_loot_celebration(highest_rarity, ', '.join(loot_names))
+                    msg += f"\n\n{loot_celebration}"
+                else:
+                    msg += f"\n📦 **Loot:** {', '.join(loot_names)}"
+            
             if result['rewards']['leveled_up']:
                 msg += f"\n\n🎊 **LEVEL UP!** Du bist jetzt Level {result['rewards']['new_level']}!"
             result['messages'].append(msg)
