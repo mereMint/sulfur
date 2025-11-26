@@ -125,6 +125,11 @@ DISCORD_BOT_TOKEN=""
 GEMINI_API_KEY=""
 OPENAI_API_KEY=""
 
+# Football Data API (for Sport Betting - Optional)
+# Get from: https://www.football-data.org/client/register
+# Enables: Champions League, Premier League, La Liga, Serie A, FIFA World Cup
+FOOTBALL_DATA_API_KEY=""
+
 # Database Configuration
 DB_HOST="localhost"
 DB_USER="sulfur_bot_user"
@@ -143,6 +148,10 @@ EOF
     echo -e "  1. DISCORD_BOT_TOKEN - Get from: https://discord.com/developers/applications"
     echo -e "  2. GEMINI_API_KEY - Get from: https://aistudio.google.com/"
     echo -e "     OR OPENAI_API_KEY - Get from: https://platform.openai.com/"
+    echo ""
+    echo -e "${CYAN}Optional (for Sport Betting):${NC}"
+    echo -e "  3. FOOTBALL_DATA_API_KEY - Get from: https://www.football-data.org/"
+    echo -e "     Enables: Champions League, Premier League, La Liga, Serie A, FIFA World Cup"
     echo ""
     
     # Try to open in editor

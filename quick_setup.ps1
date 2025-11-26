@@ -82,6 +82,11 @@ DISCORD_BOT_TOKEN=""
 GEMINI_API_KEY=""
 OPENAI_API_KEY=""
 
+# Football Data API (for Sport Betting - Optional)
+# Get from: https://www.football-data.org/client/register
+# Enables: Champions League, Premier League, La Liga, Serie A, FIFA World Cup
+FOOTBALL_DATA_API_KEY=""
+
 # Database Configuration
 DB_HOST="localhost"
 DB_USER="sulfur_bot_user"
@@ -101,6 +106,10 @@ BOT_PREFIX="!"
     Write-Host "  1. DISCORD_BOT_TOKEN - Get from: https://discord.com/developers/applications" -ForegroundColor White
     Write-Host "  2. GEMINI_API_KEY - Get from: https://aistudio.google.com/" -ForegroundColor White
     Write-Host "     OR OPENAI_API_KEY - Get from: https://platform.openai.com/" -ForegroundColor White
+    Write-Host ""
+    Write-Host "Optional (for Sport Betting):" -ForegroundColor Cyan
+    Write-Host "  3. FOOTBALL_DATA_API_KEY - Get from: https://www.football-data.org/" -ForegroundColor White
+    Write-Host "     Enables: Champions League, Premier League, La Liga, Serie A, FIFA World Cup" -ForegroundColor White
     Write-Host ""
     
     # Open .env in notepad
