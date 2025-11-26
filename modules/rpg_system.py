@@ -291,14 +291,14 @@ STATUS_EFFECTS = {
 # These are triggered during combat and can apply status effects or modify combat
 # AI uses these strategically based on situation (health, buffs, etc.)
 MONSTER_ABILITIES = {
-    # BASIC ELEMENTAL ABILITIES
+    # BASIC ELEMENTAL ABILITIES - Increased trigger chances for more dynamic combat
     'fire_breath': {
         'name': 'Feueratem',
         'emoji': '🔥',
         'description': 'Speit Flammen und verursacht brennenden Schaden',
         'effect_type': 'status',
         'status_effect': 'burn',
-        'trigger_chance': 0.3,
+        'trigger_chance': 0.45,  # Increased from 0.3
         'ai_condition': 'always'
     },
     'poison_spit': {
@@ -307,7 +307,7 @@ MONSTER_ABILITIES = {
         'description': 'Spuckt Gift und vergiftet das Ziel',
         'effect_type': 'status',
         'status_effect': 'poison',
-        'trigger_chance': 0.25,
+        'trigger_chance': 0.40,  # Increased from 0.25
         'ai_condition': 'always'
     },
     'shadow_cloak': {
@@ -316,7 +316,7 @@ MONSTER_ABILITIES = {
         'description': 'Hüllt sich in Schatten und erschwert das Treffen',
         'effect_type': 'status',
         'status_effect': 'darkness',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.35,  # Increased from 0.2
         'ai_condition': 'player_high_accuracy'
     },
     'lightning_strike': {
@@ -325,7 +325,7 @@ MONSTER_ABILITIES = {
         'description': 'Schlägt mit Blitzen zu und kann lähmen',
         'effect_type': 'status',
         'status_effect': 'static',
-        'trigger_chance': 0.3,
+        'trigger_chance': 0.45,  # Increased from 0.3
         'ai_condition': 'always'
     },
     'frost_nova': {
@@ -334,18 +334,18 @@ MONSTER_ABILITIES = {
         'description': 'Erzeugt eisige Kälte und friert das Ziel ein',
         'effect_type': 'status',
         'status_effect': 'freeze',
-        'trigger_chance': 0.15,
+        'trigger_chance': 0.30,  # Increased from 0.15
         'ai_condition': 'player_high_speed'
     },
     
-    # TACTICAL ABILITIES (AI uses strategically)
+    # TACTICAL ABILITIES (AI uses strategically) - Higher chances for strategic use
     'battle_roar': {
         'name': 'Kriegsschrei',
         'emoji': '😡',
         'description': 'Brüllt wütend und erhöht die eigene Stärke',
         'effect_type': 'self_buff',
         'status_effect': 'rage',
-        'trigger_chance': 0.25,
+        'trigger_chance': 0.45,  # Increased from 0.25
         'ai_condition': 'low_health_or_start'
     },
     'regeneration': {
@@ -354,7 +354,7 @@ MONSTER_ABILITIES = {
         'description': 'Heilt sich selbst über mehrere Runden',
         'effect_type': 'self_buff',
         'status_effect': 'heal',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.50,  # Increased from 0.2
         'ai_condition': 'low_health'
     },
     'armor_up': {
@@ -363,18 +363,18 @@ MONSTER_ABILITIES = {
         'description': 'Verstärkt die Rüstung und reduziert Schaden',
         'effect_type': 'self_buff',
         'status_effect': 'shield',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.40,  # Increased from 0.2
         'ai_condition': 'player_high_damage'
     },
     
-    # DAMAGE ABILITIES
+    # DAMAGE ABILITIES - Increased for more impactful combat
     'critical_strike': {
         'name': 'Kritischer Schlag',
         'emoji': '💥',
         'description': 'Führt einen verheerenden kritischen Angriff aus',
         'effect_type': 'damage_boost',
         'damage_multiplier': 2.5,
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.35,  # Increased from 0.2
         'ai_condition': 'always'
     },
     'life_drain': {
@@ -383,18 +383,18 @@ MONSTER_ABILITIES = {
         'description': 'Stiehlt Leben vom Ziel und heilt sich selbst',
         'effect_type': 'lifesteal',
         'lifesteal_percent': 0.5,
-        'trigger_chance': 0.25,
+        'trigger_chance': 0.45,  # Increased from 0.25
         'ai_condition': 'low_health'
     },
     
-    # NEW TURN ORDER MANIPULATION ABILITIES
+    # NEW TURN ORDER MANIPULATION ABILITIES - Higher chances for tactical depth
     'terrifying_roar': {
         'name': 'Schrecklicher Schrei',
         'emoji': '😱',
         'description': 'Erschreckt den Gegner, der langsamer wird',
         'effect_type': 'status',
         'status_effect': 'startled',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.35,  # Increased from 0.2
         'ai_condition': 'player_faster'
     },
     'time_warp': {
@@ -403,7 +403,7 @@ MONSTER_ABILITIES = {
         'description': 'Verzerrt die Zeit und wird schneller',
         'effect_type': 'self_buff',
         'status_effect': 'haste',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.35,  # Increased from 0.2
         'ai_condition': 'player_faster'
     },
     'crippling_strike': {
@@ -412,7 +412,7 @@ MONSTER_ABILITIES = {
         'description': 'Verlangsamt den Gegner mit einem Schlag',
         'effect_type': 'status',
         'status_effect': 'slow',
-        'trigger_chance': 0.25,
+        'trigger_chance': 0.40,  # Increased from 0.25
         'ai_condition': 'always'
     },
     'stunning_blow': {
@@ -421,18 +421,18 @@ MONSTER_ABILITIES = {
         'description': 'Betäubt den Gegner für eine Runde',
         'effect_type': 'status',
         'status_effect': 'stun',
-        'trigger_chance': 0.15,
+        'trigger_chance': 0.30,  # Increased from 0.15
         'ai_condition': 'player_low_health'
     },
     
-    # NEW COMPLEX ABILITIES
+    # NEW COMPLEX ABILITIES - Strategic combat abilities
     'savage_bite': {
         'name': 'Wilder Biss',
         'emoji': '🦷',
         'description': 'Beißt zu und verursacht starke Blutung',
         'effect_type': 'status',
         'status_effect': 'bleed',
-        'trigger_chance': 0.3,
+        'trigger_chance': 0.45,  # Increased from 0.3
         'ai_condition': 'always'
     },
     'dark_curse': {
@@ -441,7 +441,7 @@ MONSTER_ABILITIES = {
         'description': 'Verflucht den Gegner mit dunkler Magie',
         'effect_type': 'status',
         'status_effect': 'curse',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.35,  # Increased from 0.2
         'ai_condition': 'player_high_stats'
     },
     'arcane_barrier': {
@@ -450,7 +450,7 @@ MONSTER_ABILITIES = {
         'description': 'Erschafft eine magische Schutzbarriere',
         'effect_type': 'self_buff',
         'status_effect': 'barrier',
-        'trigger_chance': 0.15,
+        'trigger_chance': 0.35,  # Increased from 0.15
         'ai_condition': 'low_health'
     },
     'berserk_fury': {
@@ -459,7 +459,7 @@ MONSTER_ABILITIES = {
         'description': 'Verfällt in Berserker-Wut',
         'effect_type': 'self_buff',
         'status_effect': 'berserk',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.40,  # Increased from 0.2
         'ai_condition': 'low_health'
     },
     'stone_skin': {
@@ -468,7 +468,7 @@ MONSTER_ABILITIES = {
         'description': 'Verhärtet die Haut zu Stein',
         'effect_type': 'self_buff',
         'status_effect': 'fortify',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.40,  # Increased from 0.2
         'ai_condition': 'player_high_damage'
     },
     'enfeeble': {
@@ -477,7 +477,7 @@ MONSTER_ABILITIES = {
         'description': 'Schwächt den Gegner erheblich',
         'effect_type': 'status',
         'status_effect': 'weakness',
-        'trigger_chance': 0.25,
+        'trigger_chance': 0.40,  # Increased from 0.25
         'ai_condition': 'player_high_damage'
     },
     'divine_blessing': {
@@ -486,7 +486,7 @@ MONSTER_ABILITIES = {
         'description': 'Segnet sich selbst mit göttlicher Kraft',
         'effect_type': 'self_buff',
         'status_effect': 'blessed',
-        'trigger_chance': 0.15,
+        'trigger_chance': 0.35,  # Increased from 0.15
         'ai_condition': 'low_health'
     },
     'death_mark': {
@@ -495,7 +495,7 @@ MONSTER_ABILITIES = {
         'description': 'Markiert den Gegner für den Tod',
         'effect_type': 'status',
         'status_effect': 'doomed',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.35,  # Increased from 0.2
         'ai_condition': 'player_low_health'
     },
     'thorn_armor': {
@@ -504,7 +504,7 @@ MONSTER_ABILITIES = {
         'description': 'Bedeckt sich mit schmerzhaften Dornen',
         'effect_type': 'self_buff',
         'status_effect': 'thorns',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.40,  # Increased from 0.2
         'ai_condition': 'player_high_damage'
     },
     'expose_weakness': {
@@ -513,7 +513,7 @@ MONSTER_ABILITIES = {
         'description': 'Deckt Schwachstellen des Gegners auf',
         'effect_type': 'status',
         'status_effect': 'vulnerable',
-        'trigger_chance': 0.25,
+        'trigger_chance': 0.40,  # Increased from 0.25
         'ai_condition': 'always'
     },
     'shadow_step': {
@@ -522,7 +522,7 @@ MONSTER_ABILITIES = {
         'description': 'Wird schwer zu treffen',
         'effect_type': 'self_buff',
         'status_effect': 'evasive',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.35,  # Increased from 0.2
         'ai_condition': 'player_high_accuracy'
     },
     'hunters_focus': {
@@ -531,7 +531,7 @@ MONSTER_ABILITIES = {
         'description': 'Fokussiert sich auf das Ziel',
         'effect_type': 'self_buff',
         'status_effect': 'focus',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.35,  # Increased from 0.2
         'ai_condition': 'always'
     },
     'mind_blast': {
@@ -540,7 +540,7 @@ MONSTER_ABILITIES = {
         'description': 'Verwirrt den Geist des Gegners',
         'effect_type': 'status',
         'status_effect': 'confusion',
-        'trigger_chance': 0.15,
+        'trigger_chance': 0.30,  # Increased from 0.15
         'ai_condition': 'player_high_accuracy'
     },
     'petrifying_gaze': {
@@ -549,7 +549,7 @@ MONSTER_ABILITIES = {
         'description': 'Versteinert den Gegner kurzzeitig',
         'effect_type': 'status',
         'status_effect': 'petrify',
-        'trigger_chance': 0.1,
+        'trigger_chance': 0.25,  # Increased from 0.1
         'ai_condition': 'player_low_health'
     },
     'vampiric_aura': {
@@ -558,11 +558,11 @@ MONSTER_ABILITIES = {
         'description': 'Umgibt sich mit lebensentziehender Aura',
         'effect_type': 'self_buff',
         'status_effect': 'lifesteal',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.40,  # Increased from 0.2
         'ai_condition': 'low_health'
     },
     
-    # MULTI-HIT ABILITIES
+    # MULTI-HIT ABILITIES - Higher chances for variety
     'flurry': {
         'name': 'Hagel',
         'emoji': '🌪️',
@@ -570,7 +570,7 @@ MONSTER_ABILITIES = {
         'effect_type': 'multi_hit',
         'hit_count': 3,
         'damage_per_hit': 0.4,
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.35,  # Increased from 0.2
         'ai_condition': 'always'
     },
     'whirlwind_attack': {
@@ -580,17 +580,17 @@ MONSTER_ABILITIES = {
         'effect_type': 'multi_hit',
         'hit_count': 2,
         'damage_per_hit': 0.6,
-        'trigger_chance': 0.25,
+        'trigger_chance': 0.40,  # Increased from 0.25
         'ai_condition': 'always'
     },
     
-    # UTILITY ABILITIES
+    # UTILITY ABILITIES - Strategic use
     'cleanse': {
         'name': 'Reinigung',
         'emoji': '✨',
         'description': 'Entfernt negative Statuseffekte',
         'effect_type': 'cleanse',
-        'trigger_chance': 0.2,
+        'trigger_chance': 0.50,  # Increased from 0.2
         'ai_condition': 'has_debuff'
     },
     'enrage': {
@@ -600,7 +600,7 @@ MONSTER_ABILITIES = {
         'effect_type': 'triggered',
         'status_effect': 'berserk',
         'trigger_condition': 'below_50_hp',
-        'trigger_chance': 1.0,
+        'trigger_chance': 1.0,  # Always triggers when condition met
         'ai_condition': 'low_health'
     },
     'last_stand': {
@@ -3866,56 +3866,58 @@ async def process_combat_turn(db_helpers, user_id: int, monster: dict, action: s
 
 
 # Default Shop Items - Expanded (100+ items)
+# BALANCED: Weapons add to strength, skills use direct damage
 DEFAULT_SHOP_ITEMS = [
-    # ===== COMMON WEAPONS (Level 1-3) =====
-    {'name': 'Rostiges Schwert', 'type': 'weapon', 'rarity': 'common', 'description': 'Ein altes, rostiges Schwert', 'damage': 15, 'damage_type': 'physical', 'price': 50, 'required_level': 1},
-    {'name': 'Holzstab', 'type': 'weapon', 'rarity': 'common', 'description': 'Ein einfacher Holzstab', 'damage': 12, 'damage_type': 'physical', 'price': 40, 'required_level': 1},
-    {'name': 'Kurzschwert', 'type': 'weapon', 'rarity': 'common', 'description': 'Ein kleines, aber scharfes Schwert', 'damage': 18, 'damage_type': 'physical', 'price': 60, 'required_level': 1},
-    {'name': 'Steinaxt', 'type': 'weapon', 'rarity': 'common', 'description': 'Eine primitive Steinaxt', 'damage': 14, 'damage_type': 'physical', 'price': 45, 'required_level': 1},
-    {'name': 'Wurfmesser', 'type': 'weapon', 'rarity': 'common', 'description': 'Kleine Wurfmesser', 'damage': 16, 'damage_type': 'physical', 'price': 55, 'required_level': 1},
-    {'name': 'Holzkeule', 'type': 'weapon', 'rarity': 'common', 'description': 'Eine schwere Holzkeule', 'damage': 17, 'damage_type': 'physical', 'price': 48, 'required_level': 1},
-    {'name': 'Dolch', 'type': 'weapon', 'rarity': 'common', 'description': 'Ein einfacher Dolch', 'damage': 13, 'damage_type': 'physical', 'price': 42, 'required_level': 1},
-    {'name': 'Speer', 'type': 'weapon', 'rarity': 'common', 'description': 'Ein Holzspeer mit Eisenspitze', 'damage': 16, 'damage_type': 'physical', 'price': 52, 'required_level': 2},
-    {'name': 'Kurzbogen', 'type': 'weapon', 'rarity': 'common', 'description': 'Ein kleiner Bogen', 'damage': 15, 'damage_type': 'physical', 'price': 58, 'required_level': 2},
-    {'name': 'Streitkolben', 'type': 'weapon', 'rarity': 'common', 'description': 'Ein schwerer Kolben', 'damage': 19, 'damage_type': 'physical', 'price': 65, 'required_level': 3},
+    # ===== COMMON WEAPONS (Level 1-3) - Add +4-7 to strength =====
+    {'name': 'Rostiges Schwert', 'type': 'weapon', 'rarity': 'common', 'description': 'Ein altes, rostiges Schwert', 'damage': 5, 'damage_type': 'physical', 'price': 50, 'required_level': 1},
+    {'name': 'Holzstab', 'type': 'weapon', 'rarity': 'common', 'description': 'Ein einfacher Holzstab', 'damage': 4, 'damage_type': 'physical', 'price': 40, 'required_level': 1},
+    {'name': 'Kurzschwert', 'type': 'weapon', 'rarity': 'common', 'description': 'Ein kleines, aber scharfes Schwert', 'damage': 6, 'damage_type': 'physical', 'price': 60, 'required_level': 1},
+    {'name': 'Steinaxt', 'type': 'weapon', 'rarity': 'common', 'description': 'Eine primitive Steinaxt', 'damage': 5, 'damage_type': 'physical', 'price': 45, 'required_level': 1},
+    {'name': 'Wurfmesser', 'type': 'weapon', 'rarity': 'common', 'description': 'Kleine Wurfmesser', 'damage': 5, 'damage_type': 'physical', 'price': 55, 'required_level': 1},
+    {'name': 'Holzkeule', 'type': 'weapon', 'rarity': 'common', 'description': 'Eine schwere Holzkeule', 'damage': 6, 'damage_type': 'physical', 'price': 48, 'required_level': 1},
+    {'name': 'Dolch', 'type': 'weapon', 'rarity': 'common', 'description': 'Ein einfacher Dolch', 'damage': 4, 'damage_type': 'physical', 'price': 42, 'required_level': 1},
+    {'name': 'Speer', 'type': 'weapon', 'rarity': 'common', 'description': 'Ein Holzspeer mit Eisenspitze', 'damage': 6, 'damage_type': 'physical', 'price': 52, 'required_level': 2},
+    {'name': 'Kurzbogen', 'type': 'weapon', 'rarity': 'common', 'description': 'Ein kleiner Bogen', 'damage': 5, 'damage_type': 'physical', 'price': 58, 'required_level': 2},
+    {'name': 'Streitkolben', 'type': 'weapon', 'rarity': 'common', 'description': 'Ein schwerer Kolben', 'damage': 7, 'damage_type': 'physical', 'price': 65, 'required_level': 3},
     
-    # ===== UNCOMMON WEAPONS (Level 3-6) =====
-    {'name': 'Stahlschwert', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Ein gut geschmiedetes Stahlschwert', 'damage': 25, 'damage_type': 'physical', 'price': 200, 'required_level': 3},
-    {'name': 'Kampfaxt', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Eine schwere Kampfaxt', 'damage': 30, 'damage_type': 'physical', 'price': 250, 'required_level': 4},
-    {'name': 'Langbogen', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Ein präziser Langbogen', 'damage': 22, 'damage_type': 'physical', 'price': 180, 'required_level': 3},
-    {'name': 'Kriegshammer', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Ein zweihändiger Hammer', 'damage': 32, 'damage_type': 'physical', 'price': 270, 'required_level': 5},
-    {'name': 'Rapier', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Ein schnelles Rapier', 'damage': 23, 'damage_type': 'physical', 'price': 190, 'required_level': 4},
-    {'name': 'Glefe', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Eine lange Stangenwaffe', 'damage': 26, 'damage_type': 'physical', 'price': 210, 'required_level': 4},
-    {'name': 'Zweihänder', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Ein riesiges Schwert', 'damage': 28, 'damage_type': 'physical', 'price': 230, 'required_level': 5},
-    {'name': 'Armbrust', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Eine kraftvolle Armbrust', 'damage': 24, 'damage_type': 'physical', 'price': 195, 'required_level': 4},
-    {'name': 'Katana', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Ein scharfes Katana', 'damage': 27, 'damage_type': 'physical', 'price': 220, 'required_level': 5},
-    {'name': 'Streitaxt', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Eine zweischneidige Streitaxt', 'damage': 29, 'damage_type': 'physical', 'price': 240, 'required_level': 5},
-    {'name': 'Säbel', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Ein gebogener Säbel', 'damage': 24, 'damage_type': 'physical', 'price': 200, 'required_level': 4},
-    {'name': 'Morgenstern', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Eine Keule mit Spitzen', 'damage': 31, 'damage_type': 'physical', 'price': 260, 'required_level': 6},
+    # ===== UNCOMMON WEAPONS (Level 3-6) - Add +7-11 to strength =====
+    {'name': 'Stahlschwert', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Ein gut geschmiedetes Stahlschwert', 'damage': 8, 'damage_type': 'physical', 'price': 200, 'required_level': 3},
+    {'name': 'Kampfaxt', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Eine schwere Kampfaxt', 'damage': 10, 'damage_type': 'physical', 'price': 250, 'required_level': 4},
+    {'name': 'Langbogen', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Ein präziser Langbogen', 'damage': 8, 'damage_type': 'physical', 'price': 180, 'required_level': 3},
+    {'name': 'Kriegshammer', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Ein zweihändiger Hammer', 'damage': 11, 'damage_type': 'physical', 'price': 270, 'required_level': 5},
+    {'name': 'Rapier', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Ein schnelles Rapier', 'damage': 8, 'damage_type': 'physical', 'price': 190, 'required_level': 4},
+    {'name': 'Glefe', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Eine lange Stangenwaffe', 'damage': 9, 'damage_type': 'physical', 'price': 210, 'required_level': 4},
+    {'name': 'Zweihänder', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Ein riesiges Schwert', 'damage': 10, 'damage_type': 'physical', 'price': 230, 'required_level': 5},
+    {'name': 'Armbrust', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Eine kraftvolle Armbrust', 'damage': 9, 'damage_type': 'physical', 'price': 195, 'required_level': 4},
+    {'name': 'Katana', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Ein scharfes Katana', 'damage': 9, 'damage_type': 'physical', 'price': 220, 'required_level': 5},
+    {'name': 'Streitaxt', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Eine zweischneidige Streitaxt', 'damage': 10, 'damage_type': 'physical', 'price': 240, 'required_level': 5},
+    {'name': 'Säbel', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Ein gebogener Säbel', 'damage': 8, 'damage_type': 'physical', 'price': 200, 'required_level': 4},
+    {'name': 'Morgenstern', 'type': 'weapon', 'rarity': 'uncommon', 'description': 'Eine Keule mit Spitzen', 'damage': 11, 'damage_type': 'physical', 'price': 260, 'required_level': 6},
     
-    # ===== RARE WEAPONS (Level 6-10) =====
-    {'name': 'Flammenschwert', 'type': 'weapon', 'rarity': 'rare', 'description': 'Ein mit Flammen verzaubertes Schwert', 'damage': 40, 'damage_type': 'fire', 'price': 500, 'required_level': 6},
-    {'name': 'Frosthammer', 'type': 'weapon', 'rarity': 'rare', 'description': 'Ein eiskalter Kriegshammer', 'damage': 45, 'damage_type': 'ice', 'price': 550, 'required_level': 7},
-    {'name': 'Giftdolch', 'type': 'weapon', 'rarity': 'rare', 'description': 'Ein mit Gift beschichteter Dolch', 'damage': 35, 'damage_type': 'poison', 'price': 450, 'required_level': 5},
-    {'name': 'Donnerspeer', 'type': 'weapon', 'rarity': 'rare', 'description': 'Ein Speer der Blitze schleudert', 'damage': 42, 'damage_type': 'lightning', 'price': 520, 'required_level': 7},
-    {'name': 'Schattenklinge', 'type': 'weapon', 'rarity': 'rare', 'description': 'Eine Klinge aus purer Dunkelheit', 'damage': 38, 'damage_type': 'dark', 'price': 480, 'required_level': 6},
-    {'name': 'Lichtbogen', 'type': 'weapon', 'rarity': 'rare', 'description': 'Ein Bogen aus heiligem Licht', 'damage': 36, 'damage_type': 'light', 'price': 470, 'required_level': 6},
-    {'name': 'Windsäbel', 'type': 'weapon', 'rarity': 'rare', 'description': 'Ein Säbel schnell wie der Wind', 'damage': 39, 'damage_type': 'wind', 'price': 490, 'required_level': 7},
-    {'name': 'Erdenhammer', 'type': 'weapon', 'rarity': 'rare', 'description': 'Ein Hammer der Erde bebt', 'damage': 44, 'damage_type': 'earth', 'price': 540, 'required_level': 8},
-    {'name': 'Seelensense', 'type': 'weapon', 'rarity': 'rare', 'description': 'Eine Sense die Seelen erntet', 'damage': 41, 'damage_type': 'dark', 'price': 510, 'required_level': 7},
-    {'name': 'Kristallstab', 'type': 'weapon', 'rarity': 'rare', 'description': 'Ein magischer Kristallstab', 'damage': 37, 'damage_type': 'magic', 'price': 475, 'required_level': 6},
-    {'name': 'Runenschwert', 'type': 'weapon', 'rarity': 'rare', 'description': 'Ein mit Runen verziertes Schwert', 'damage': 43, 'damage_type': 'magic', 'price': 530, 'required_level': 8},
-    {'name': 'Drachenklauen', 'type': 'weapon', 'rarity': 'rare', 'description': 'Klauen aus Drachenzähnen', 'damage': 40, 'damage_type': 'fire', 'price': 505, 'required_level': 8},
+    # ===== RARE WEAPONS (Level 6-10) - Add +12-18 to strength =====
+    {'name': 'Flammenschwert', 'type': 'weapon', 'rarity': 'rare', 'description': 'Ein mit Flammen verzaubertes Schwert', 'damage': 14, 'damage_type': 'fire', 'price': 500, 'required_level': 6},
+    {'name': 'Frosthammer', 'type': 'weapon', 'rarity': 'rare', 'description': 'Ein eiskalter Kriegshammer', 'damage': 16, 'damage_type': 'ice', 'price': 550, 'required_level': 7},
+    {'name': 'Giftdolch', 'type': 'weapon', 'rarity': 'rare', 'description': 'Ein mit Gift beschichteter Dolch', 'damage': 12, 'damage_type': 'poison', 'price': 450, 'required_level': 5},
+    {'name': 'Donnerspeer', 'type': 'weapon', 'rarity': 'rare', 'description': 'Ein Speer der Blitze schleudert', 'damage': 15, 'damage_type': 'lightning', 'price': 520, 'required_level': 7},
+    {'name': 'Schattenklinge', 'type': 'weapon', 'rarity': 'rare', 'description': 'Eine Klinge aus purer Dunkelheit', 'damage': 13, 'damage_type': 'dark', 'price': 480, 'required_level': 6},
+    {'name': 'Lichtbogen', 'type': 'weapon', 'rarity': 'rare', 'description': 'Ein Bogen aus heiligem Licht', 'damage': 13, 'damage_type': 'light', 'price': 470, 'required_level': 6},
+    {'name': 'Windsäbel', 'type': 'weapon', 'rarity': 'rare', 'description': 'Ein Säbel schnell wie der Wind', 'damage': 14, 'damage_type': 'wind', 'price': 490, 'required_level': 7},
+    {'name': 'Erdenhammer', 'type': 'weapon', 'rarity': 'rare', 'description': 'Ein Hammer der Erde bebt', 'damage': 16, 'damage_type': 'earth', 'price': 540, 'required_level': 8},
+    {'name': 'Seelensense', 'type': 'weapon', 'rarity': 'rare', 'description': 'Eine Sense die Seelen erntet', 'damage': 15, 'damage_type': 'dark', 'price': 510, 'required_level': 7},
+    {'name': 'Kristallstab', 'type': 'weapon', 'rarity': 'rare', 'description': 'Ein magischer Kristallstab', 'damage': 14, 'damage_type': 'magic', 'price': 475, 'required_level': 6},
+    {'name': 'Runenschwert', 'type': 'weapon', 'rarity': 'rare', 'description': 'Ein mit Runen verziertes Schwert', 'damage': 16, 'damage_type': 'magic', 'price': 530, 'required_level': 8},
+    {'name': 'Drachenklauen', 'type': 'weapon', 'rarity': 'rare', 'description': 'Klauen aus Drachenzähnen', 'damage': 15, 'damage_type': 'fire', 'price': 505, 'required_level': 8},
     
-    # ===== EPIC WEAPONS (Level 10+) =====
-    {'name': 'Blitzklinge', 'type': 'weapon', 'rarity': 'epic', 'description': 'Eine mit Blitzen geladene Klinge', 'damage': 60, 'damage_type': 'lightning', 'price': 1000, 'required_level': 10},
-    {'name': 'Heilige Lanze', 'type': 'weapon', 'rarity': 'epic', 'description': 'Eine von Licht durchdrungene Lanze', 'damage': 55, 'damage_type': 'light', 'price': 950, 'required_level': 9},
-    {'name': 'Chaosschwert', 'type': 'weapon', 'rarity': 'epic', 'description': 'Ein Schwert aus reinem Chaos', 'damage': 65, 'damage_type': 'dark', 'price': 1100, 'required_level': 11},
-    {'name': 'Phönixbogen', 'type': 'weapon', 'rarity': 'epic', 'description': 'Ein Bogen der wie ein Phönix brennt', 'damage': 58, 'damage_type': 'fire', 'price': 980, 'required_level': 10},
-    {'name': 'Leviathan', 'type': 'weapon', 'rarity': 'epic', 'description': 'Ein Dreizack der Meerestiefe', 'damage': 62, 'damage_type': 'water', 'price': 1050, 'required_level': 11},
-    {'name': 'Excalibur', 'type': 'weapon', 'rarity': 'legendary', 'description': 'Das legendäre Schwert', 'damage': 80, 'damage_type': 'light', 'price': 2000, 'required_level': 15},
-    {'name': 'Mjölnir', 'type': 'weapon', 'rarity': 'legendary', 'description': 'Der Hammer des Donnergottes', 'damage': 85, 'damage_type': 'lightning', 'price': 2200, 'required_level': 16},
-    {'name': 'Gramfang', 'type': 'weapon', 'rarity': 'legendary', 'description': 'Die Klinge des Drachentöters', 'damage': 82, 'damage_type': 'fire', 'price': 2100, 'required_level': 15},
+    # ===== EPIC WEAPONS (Level 10+) - Add +20-28 to strength =====
+    {'name': 'Blitzklinge', 'type': 'weapon', 'rarity': 'epic', 'description': 'Eine mit Blitzen geladene Klinge', 'damage': 22, 'damage_type': 'lightning', 'price': 1000, 'required_level': 10},
+    {'name': 'Heilige Lanze', 'type': 'weapon', 'rarity': 'epic', 'description': 'Eine von Licht durchdrungene Lanze', 'damage': 20, 'damage_type': 'light', 'price': 950, 'required_level': 9},
+    {'name': 'Chaosschwert', 'type': 'weapon', 'rarity': 'epic', 'description': 'Ein Schwert aus reinem Chaos', 'damage': 24, 'damage_type': 'dark', 'price': 1100, 'required_level': 11},
+    {'name': 'Phönixbogen', 'type': 'weapon', 'rarity': 'epic', 'description': 'Ein Bogen der wie ein Phönix brennt', 'damage': 21, 'damage_type': 'fire', 'price': 980, 'required_level': 10},
+    {'name': 'Leviathan', 'type': 'weapon', 'rarity': 'epic', 'description': 'Ein Dreizack der Meerestiefe', 'damage': 23, 'damage_type': 'water', 'price': 1050, 'required_level': 11},
+    # ===== LEGENDARY WEAPONS - Add +30-40 to strength =====
+    {'name': 'Excalibur', 'type': 'weapon', 'rarity': 'legendary', 'description': 'Das legendäre Schwert', 'damage': 35, 'damage_type': 'light', 'price': 2000, 'required_level': 15},
+    {'name': 'Mjölnir', 'type': 'weapon', 'rarity': 'legendary', 'description': 'Der Hammer des Donnergottes', 'damage': 38, 'damage_type': 'lightning', 'price': 2200, 'required_level': 16},
+    {'name': 'Gramfang', 'type': 'weapon', 'rarity': 'legendary', 'description': 'Die Klinge des Drachentöters', 'damage': 36, 'damage_type': 'fire', 'price': 2100, 'required_level': 15},
     
     # ===== HEALING SKILLS =====
     {'name': 'Kleine Heilung', 'type': 'skill', 'rarity': 'common', 'description': 'Heilt 30 HP', 'price': 100, 'required_level': 2, 'effects': json.dumps({'heal': 30})},
@@ -3925,37 +3927,38 @@ DEFAULT_SHOP_ITEMS = [
     {'name': 'Göttliche Heilung', 'type': 'skill', 'rarity': 'epic', 'description': 'Heilt 150 HP sofort', 'price': 800, 'required_level': 10, 'effects': json.dumps({'heal': 150})},
     {'name': 'Lebenselixier', 'type': 'skill', 'rarity': 'epic', 'description': 'Regeneriert 50 HP pro Runde für 3 Runden', 'price': 900, 'required_level': 12, 'effects': json.dumps({'regen': 3, 'heal_per_turn': 50})},
     
-    # ===== FIRE ATTACK SKILLS =====
-    {'name': 'Feuerball', 'type': 'skill', 'rarity': 'common', 'description': 'Wirft einen Feuerball', 'damage': 20, 'damage_type': 'fire', 'price': 100, 'required_level': 2, 'effects': json.dumps({'burn': 0.3})},
-    {'name': 'Feuersturm', 'type': 'skill', 'rarity': 'epic', 'description': 'Ein verheerender Feuersturm', 'damage': 70, 'damage_type': 'fire', 'price': 1000, 'required_level': 10, 'effects': json.dumps({'burn': 0.6})},
-    {'name': 'Flammenwelle', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Welle aus Flammen', 'damage': 30, 'damage_type': 'fire', 'price': 250, 'required_level': 4, 'effects': json.dumps({'burn': 0.4})},
-    {'name': 'Inferno', 'type': 'skill', 'rarity': 'rare', 'description': 'Entfesselt ein Inferno', 'damage': 55, 'damage_type': 'fire', 'price': 650, 'required_level': 9, 'effects': json.dumps({'burn': 0.5})},
-    {'name': 'Meteorregen', 'type': 'skill', 'rarity': 'epic', 'description': 'Ruft brennende Meteore', 'damage': 75, 'damage_type': 'fire', 'price': 1100, 'required_level': 11, 'effects': json.dumps({'burn': 0.7})},
+    # ===== FIRE ATTACK SKILLS - BALANCED =====
+    # Skills now competitive with basic attacks (STR 10 + weapon 4-40 = 14-50 total)
+    {'name': 'Feuerball', 'type': 'skill', 'rarity': 'common', 'description': 'Wirft einen Feuerball', 'damage': 22, 'damage_type': 'fire', 'price': 100, 'required_level': 2, 'effects': json.dumps({'burn': 0.3})},
+    {'name': 'Feuersturm', 'type': 'skill', 'rarity': 'epic', 'description': 'Ein verheerender Feuersturm', 'damage': 75, 'damage_type': 'fire', 'price': 1000, 'required_level': 10, 'effects': json.dumps({'burn': 0.6})},
+    {'name': 'Flammenwelle', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Welle aus Flammen', 'damage': 38, 'damage_type': 'fire', 'price': 250, 'required_level': 4, 'effects': json.dumps({'burn': 0.4})},
+    {'name': 'Inferno', 'type': 'skill', 'rarity': 'rare', 'description': 'Entfesselt ein Inferno', 'damage': 58, 'damage_type': 'fire', 'price': 650, 'required_level': 9, 'effects': json.dumps({'burn': 0.5})},
+    {'name': 'Meteorregen', 'type': 'skill', 'rarity': 'epic', 'description': 'Ruft brennende Meteore', 'damage': 82, 'damage_type': 'fire', 'price': 1100, 'required_level': 11, 'effects': json.dumps({'burn': 0.7})},
     
-    # ===== ICE/FROST SKILLS =====
-    {'name': 'Eissturm', 'type': 'skill', 'rarity': 'rare', 'description': 'Entfesselt einen Eissturm', 'damage': 50, 'damage_type': 'ice', 'price': 550, 'required_level': 8, 'effects': json.dumps({'freeze': 0.5})},
-    {'name': 'Frostlanze', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Schießt eine Eislanze', 'damage': 28, 'damage_type': 'ice', 'price': 220, 'required_level': 4, 'effects': json.dumps({'freeze': 0.3})},
+    # ===== ICE/FROST SKILLS - BALANCED =====
+    {'name': 'Eissturm', 'type': 'skill', 'rarity': 'rare', 'description': 'Entfesselt einen Eissturm', 'damage': 55, 'damage_type': 'ice', 'price': 550, 'required_level': 8, 'effects': json.dumps({'freeze': 0.5})},
+    {'name': 'Frostlanze', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Schießt eine Eislanze', 'damage': 35, 'damage_type': 'ice', 'price': 220, 'required_level': 4, 'effects': json.dumps({'freeze': 0.3})},
     {'name': 'Eiswand', 'type': 'skill', 'rarity': 'rare', 'description': 'Erschafft schützende Eiswand', 'price': 480, 'required_level': 7, 'effects': json.dumps({'shield': 3, 'defense_bonus': 20})},
-    {'name': 'Frosthauch', 'type': 'skill', 'rarity': 'common', 'description': 'Kalter Hauch', 'damage': 18, 'damage_type': 'ice', 'price': 110, 'required_level': 3, 'effects': json.dumps({'freeze': 0.2})},
-    {'name': 'Gletscherspalte', 'type': 'skill', 'rarity': 'epic', 'description': 'Spaltet die Erde mit Eis', 'damage': 65, 'damage_type': 'ice', 'price': 950, 'required_level': 10, 'effects': json.dumps({'freeze': 0.6})},
+    {'name': 'Frosthauch', 'type': 'skill', 'rarity': 'common', 'description': 'Kalter Hauch', 'damage': 20, 'damage_type': 'ice', 'price': 110, 'required_level': 3, 'effects': json.dumps({'freeze': 0.2})},
+    {'name': 'Gletscherspalte', 'type': 'skill', 'rarity': 'epic', 'description': 'Spaltet die Erde mit Eis', 'damage': 70, 'damage_type': 'ice', 'price': 950, 'required_level': 10, 'effects': json.dumps({'freeze': 0.6})},
     
-    # ===== LIGHTNING SKILLS =====
-    {'name': 'Blitzstoß', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Schleudert einen Blitz', 'damage': 35, 'damage_type': 'lightning', 'price': 300, 'required_level': 5, 'effects': json.dumps({'static': 0.4})},
-    {'name': 'Kettenlblitz', 'type': 'skill', 'rarity': 'rare', 'description': 'Blitz der springt', 'damage': 48, 'damage_type': 'lightning', 'price': 580, 'required_level': 8, 'effects': json.dumps({'static': 0.5})},
-    {'name': 'Donnerschlag', 'type': 'skill', 'rarity': 'common', 'description': 'Elektrischer Schlag', 'damage': 22, 'damage_type': 'lightning', 'price': 130, 'required_level': 3, 'effects': json.dumps({'static': 0.3})},
-    {'name': 'Gewittersturm', 'type': 'skill', 'rarity': 'epic', 'description': 'Beschwört Gewittersturm', 'damage': 68, 'damage_type': 'lightning', 'price': 1000, 'required_level': 11, 'effects': json.dumps({'static': 0.7})},
+    # ===== LIGHTNING SKILLS - BALANCED =====
+    {'name': 'Blitzstoß', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Schleudert einen Blitz', 'damage': 42, 'damage_type': 'lightning', 'price': 300, 'required_level': 5, 'effects': json.dumps({'static': 0.4})},
+    {'name': 'Kettenlblitz', 'type': 'skill', 'rarity': 'rare', 'description': 'Blitz der springt', 'damage': 55, 'damage_type': 'lightning', 'price': 580, 'required_level': 8, 'effects': json.dumps({'static': 0.5})},
+    {'name': 'Donnerschlag', 'type': 'skill', 'rarity': 'common', 'description': 'Elektrischer Schlag', 'damage': 25, 'damage_type': 'lightning', 'price': 130, 'required_level': 3, 'effects': json.dumps({'static': 0.3})},
+    {'name': 'Gewittersturm', 'type': 'skill', 'rarity': 'epic', 'description': 'Beschwört Gewittersturm', 'damage': 72, 'damage_type': 'lightning', 'price': 1000, 'required_level': 11, 'effects': json.dumps({'static': 0.7})},
     
-    # ===== DARK/SHADOW SKILLS =====
-    {'name': 'Schattenpfeil', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Pfeil aus Schatten', 'damage': 32, 'damage_type': 'dark', 'price': 270, 'required_level': 5, 'effects': json.dumps({'darkness': 0.4})},
-    {'name': 'Seelenraub', 'type': 'skill', 'rarity': 'rare', 'description': 'Stiehlt Lebensenergie', 'damage': 45, 'damage_type': 'dark', 'price': 600, 'required_level': 9, 'effects': json.dumps({'lifesteal': 0.5})},
-    {'name': 'Dunkler Puls', 'type': 'skill', 'rarity': 'common', 'description': 'Welle dunkler Energie', 'damage': 24, 'damage_type': 'dark', 'price': 140, 'required_level': 3, 'effects': json.dumps({'darkness': 0.3})},
-    {'name': 'Schattenumarmung', 'type': 'skill', 'rarity': 'epic', 'description': 'Verschlingt in Schatten', 'damage': 72, 'damage_type': 'dark', 'price': 1150, 'required_level': 12, 'effects': json.dumps({'darkness': 0.7, 'lifesteal': 0.3})},
+    # ===== DARK/SHADOW SKILLS - BALANCED =====
+    {'name': 'Schattenpfeil', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Pfeil aus Schatten', 'damage': 40, 'damage_type': 'dark', 'price': 270, 'required_level': 5, 'effects': json.dumps({'darkness': 0.4})},
+    {'name': 'Seelenraub', 'type': 'skill', 'rarity': 'rare', 'description': 'Stiehlt Lebensenergie', 'damage': 52, 'damage_type': 'dark', 'price': 600, 'required_level': 9, 'effects': json.dumps({'lifesteal': 0.5})},
+    {'name': 'Dunkler Puls', 'type': 'skill', 'rarity': 'common', 'description': 'Welle dunkler Energie', 'damage': 28, 'damage_type': 'dark', 'price': 140, 'required_level': 3, 'effects': json.dumps({'darkness': 0.3})},
+    {'name': 'Schattenumarmung', 'type': 'skill', 'rarity': 'epic', 'description': 'Verschlingt in Schatten', 'damage': 78, 'damage_type': 'dark', 'price': 1150, 'required_level': 12, 'effects': json.dumps({'darkness': 0.7, 'lifesteal': 0.3})},
     
-    # ===== LIGHT/HOLY SKILLS =====
-    {'name': 'Heiliges Licht', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Strahlendes Licht', 'damage': 30, 'damage_type': 'light', 'price': 260, 'required_level': 4, 'effects': json.dumps({'light': 0.3})},
-    {'name': 'Göttlicher Zorn', 'type': 'skill', 'rarity': 'rare', 'description': 'Göttliche Strafe', 'damage': 52, 'damage_type': 'light', 'price': 620, 'required_level': 9, 'effects': json.dumps({'light': 0.5})},
-    {'name': 'Lichtstrahl', 'type': 'skill', 'rarity': 'common', 'description': 'Strahl göttlichen Lichts', 'damage': 26, 'damage_type': 'light', 'price': 150, 'required_level': 3, 'effects': json.dumps({'light': 0.2})},
-    {'name': 'Himmlisches Gericht', 'type': 'skill', 'rarity': 'epic', 'description': 'Endgültiges Urteil', 'damage': 78, 'damage_type': 'light', 'price': 1200, 'required_level': 13, 'effects': json.dumps({'light': 0.8})},
+    # ===== LIGHT/HOLY SKILLS - BALANCED =====
+    {'name': 'Heiliges Licht', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Strahlendes Licht', 'damage': 38, 'damage_type': 'light', 'price': 260, 'required_level': 4, 'effects': json.dumps({'light': 0.3})},
+    {'name': 'Göttlicher Zorn', 'type': 'skill', 'rarity': 'rare', 'description': 'Göttliche Strafe', 'damage': 58, 'damage_type': 'light', 'price': 620, 'required_level': 9, 'effects': json.dumps({'light': 0.5})},
+    {'name': 'Lichtstrahl', 'type': 'skill', 'rarity': 'common', 'description': 'Strahl göttlichen Lichts', 'damage': 30, 'damage_type': 'light', 'price': 150, 'required_level': 3, 'effects': json.dumps({'light': 0.2})},
+    {'name': 'Himmlisches Gericht', 'type': 'skill', 'rarity': 'epic', 'description': 'Endgültiges Urteil', 'damage': 85, 'damage_type': 'light', 'price': 1200, 'required_level': 13, 'effects': json.dumps({'light': 0.8})},
     
     # ===== DEFENSIVE SKILLS =====
     {'name': 'Schildwall', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Erhöht die Verteidigung für 2 Runden', 'price': 250, 'required_level': 4, 'effects': json.dumps({'shield': 2})},
@@ -3974,7 +3977,7 @@ DEFAULT_SHOP_ITEMS = [
     {'name': 'Kampfgeist', 'type': 'skill', 'rarity': 'epic', 'description': 'Alle Stats erhöht', 'price': 950, 'required_level': 11, 'effects': json.dumps({'all_stats_boost': 2, 'stat_bonus': 0.3})},
     
     # ===== DEBUFF SKILLS =====
-    {'name': 'Gift werfen', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Vergiftet den Gegner', 'damage': 15, 'damage_type': 'poison', 'price': 180, 'required_level': 3, 'effects': json.dumps({'poison': 0.5})},
+    {'name': 'Gift werfen', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Vergiftet den Gegner', 'damage': 20, 'damage_type': 'poison', 'price': 180, 'required_level': 3, 'effects': json.dumps({'poison': 0.5})},
     {'name': 'Blenden', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Verringert Genauigkeit des Gegners', 'price': 150, 'required_level': 3, 'effects': json.dumps({'darkness': 0.6})},
     {'name': 'Verlangsamen', 'type': 'skill', 'rarity': 'common', 'description': 'Reduziert Gegner-Geschwindigkeit', 'price': 120, 'required_level': 2, 'effects': json.dumps({'slow': 0.4})},
     {'name': 'Schwächen', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Senkt Angriff des Gegners', 'price': 200, 'required_level': 4, 'effects': json.dumps({'weaken': 3, 'attack_reduction': 0.3})},
@@ -3984,7 +3987,7 @@ DEFAULT_SHOP_ITEMS = [
     # ===== UTILITY/SPECIAL SKILLS =====
     {'name': 'Teleportation', 'type': 'skill', 'rarity': 'rare', 'description': 'Teleportiert aus dem Kampf', 'price': 600, 'required_level': 9, 'effects': json.dumps({'escape': 1.0})},
     {'name': 'Zeitverzerrung', 'type': 'skill', 'rarity': 'epic', 'description': 'Verzerrt die Zeit', 'price': 1000, 'required_level': 12, 'effects': json.dumps({'time_stop': 1, 'extra_turn': True})},
-    {'name': 'Manaentzug', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Entzieht Gegner Energie', 'damage': 25, 'damage_type': 'magic', 'price': 230, 'required_level': 4, 'effects': json.dumps({'mana_drain': 0.3})},
+    {'name': 'Manaentzug', 'type': 'skill', 'rarity': 'uncommon', 'description': 'Entzieht Gegner Energie', 'damage': 32, 'damage_type': 'magic', 'price': 230, 'required_level': 4, 'effects': json.dumps({'mana_drain': 0.3})},
     {'name': 'Gegenangriff', 'type': 'skill', 'rarity': 'rare', 'description': 'Konter bei Angriffen', 'price': 480, 'required_level': 7, 'effects': json.dumps({'counter': 3, 'counter_damage': 0.8})},
     {'name': 'Doppelangriff', 'type': 'skill', 'rarity': 'epic', 'description': 'Greift zweimal an', 'price': 850, 'required_level': 10, 'effects': json.dumps({'double_attack': 2})},
 ]
