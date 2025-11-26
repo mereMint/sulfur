@@ -972,6 +972,49 @@ async def get_upcoming_matches(db_helpers, league_id: Optional[str] = None, limi
         return []
 
 
+async def get_recent_matches(db_helpers, league_id: Optional[str] = None, limit: int = 10) -> List[Dict]:
+    """
+    Get recent matches including finished, live, and upcoming games.
+    This provides a broader view of current activity in the leagues.
+    Shows matches from the last 7 days and upcoming ones.
+    """
+    try:
+        if not db_helpers.db_pool:
+            return []
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return []
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            if league_id:
+                cursor.execute("""
+                    SELECT * FROM sport_matches 
+                    WHERE league_id = %s 
+                      AND match_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                    ORDER BY match_time DESC
+                    LIMIT %s
+                """, (league_id, limit))
+            else:
+                cursor.execute("""
+                    SELECT * FROM sport_matches 
+                    WHERE match_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                    ORDER BY match_time DESC
+                    LIMIT %s
+                """, (limit,))
+            
+            return cursor.fetchall()
+            
+        finally:
+            cursor.close()
+            conn.close()
+            
+    except Exception as e:
+        logger.error(f"Error getting recent matches: {e}", exc_info=True)
+        return []
+
+
 async def get_match_from_db(db_helpers, match_id: str) -> Optional[Dict]:
     """Get a specific match from the database."""
     try:
@@ -1486,6 +1529,148 @@ async def settle_match_bets(db_helpers, match_id: str, home_score: int, away_sco
     except Exception as e:
         logger.error(f"Error settling bets: {e}", exc_info=True)
         return 0
+
+
+async def settle_match_bets_with_details(db_helpers, match_id: str, home_score: int, away_score: int) -> List[Dict]:
+    """
+    Settle all bets for a finished match and return details for notifications.
+    Returns a list of settled bet details including user_id, won/lost status, amounts, etc.
+    """
+    settled_bets = []
+    try:
+        if not db_helpers.db_pool:
+            return []
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return []
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            # Get all pending bets for this match with match details
+            cursor.execute("""
+                SELECT b.*, m.home_team, m.away_team, m.league_id
+                FROM sport_bets b
+                JOIN sport_matches m ON b.match_id = m.match_id
+                WHERE b.match_id = %s AND b.status = 'pending'
+            """, (match_id,))
+            bets = cursor.fetchall()
+            
+            for bet in bets:
+                bet_type = bet["bet_type"]
+                bet_outcome = bet["bet_outcome"]
+                user_id = bet["user_id"]
+                bet_amount = bet["bet_amount"]
+                potential_payout = bet["potential_payout"]
+                
+                # Check if bet won
+                bet_won = await check_bet_outcome(bet_type, bet_outcome, home_score, away_score)
+                
+                if bet_won:
+                    actual_payout = potential_payout
+                    status = "won"
+                    
+                    # Update user stats
+                    cursor.execute("""
+                        UPDATE sport_betting_stats 
+                        SET total_wins = total_wins + 1,
+                            total_won = total_won + %s,
+                            biggest_win = GREATEST(biggest_win, %s),
+                            current_streak = current_streak + 1,
+                            best_streak = GREATEST(best_streak, current_streak + 1)
+                        WHERE user_id = %s
+                    """, (actual_payout, actual_payout, user_id))
+                else:
+                    actual_payout = 0
+                    status = "lost"
+                    
+                    # Update user stats
+                    cursor.execute("""
+                        UPDATE sport_betting_stats 
+                        SET total_losses = total_losses + 1,
+                            total_lost = total_lost + %s,
+                            current_streak = 0
+                        WHERE user_id = %s
+                    """, (bet_amount, user_id))
+                
+                # Update bet status
+                cursor.execute("""
+                    UPDATE sport_bets 
+                    SET status = %s, actual_payout = %s, settled_at = NOW()
+                    WHERE bet_id = %s
+                """, (status, actual_payout, bet["bet_id"]))
+                
+                # Add to settled bets list for notifications
+                settled_bets.append({
+                    "user_id": user_id,
+                    "bet_id": bet["bet_id"],
+                    "match_id": match_id,
+                    "home_team": bet.get("home_team", "Heim"),
+                    "away_team": bet.get("away_team", "Auswärts"),
+                    "home_score": home_score,
+                    "away_score": away_score,
+                    "bet_type": bet_type,
+                    "bet_outcome": bet_outcome,
+                    "bet_amount": bet_amount,
+                    "odds_at_bet": bet.get("odds_at_bet", 1.0),
+                    "potential_payout": potential_payout,
+                    "actual_payout": actual_payout,
+                    "status": status,
+                    "league_id": bet.get("league_id", "bl1")
+                })
+            
+            # Update match status
+            cursor.execute("""
+                UPDATE sport_matches 
+                SET status = 'finished', home_score = %s, away_score = %s
+                WHERE match_id = %s
+            """, (home_score, away_score, match_id))
+            
+            conn.commit()
+            return settled_bets
+            
+        finally:
+            cursor.close()
+            conn.close()
+            
+    except Exception as e:
+        logger.error(f"Error settling bets with details: {e}", exc_info=True)
+        return []
+
+
+async def get_matches_to_check(db_helpers) -> List[Dict]:
+    """
+    Get matches that should be checked for finished status.
+    Returns matches that are scheduled and have start time in the past (by at least 2 hours).
+    """
+    try:
+        if not db_helpers.db_pool:
+            return []
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return []
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            # Get matches that started more than 2 hours ago but are still marked as scheduled
+            cursor.execute("""
+                SELECT * FROM sport_matches 
+                WHERE status = 'scheduled' 
+                  AND match_time < DATE_SUB(NOW(), INTERVAL 2 HOUR)
+                ORDER BY match_time ASC
+                LIMIT 50
+            """)
+            
+            return cursor.fetchall()
+            
+        finally:
+            cursor.close()
+            conn.close()
+            
+    except Exception as e:
+        logger.error(f"Error getting matches to check: {e}", exc_info=True)
+        return []
 
 
 async def get_betting_leaderboard(db_helpers, limit: int = 10) -> List[Dict]:
