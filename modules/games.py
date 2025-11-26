@@ -326,7 +326,7 @@ class MinesGame:
         progress = self.revealed_count / safe_cells
         
         # Multiplier increases exponentially
-        multiplier = 1.0 + (progress ** 2) * 5
+        multiplier = 1.0 + (progress ** 2) * 7
         return round(multiplier, 2)
     
     def cashout(self):
