@@ -9,7 +9,7 @@ import discord
 from discord import ui
 from discord.ui import View, Button, Select, Modal, TextInput
 from typing import Optional, List, Dict, Any, Callable
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from modules.sport_betting import (
     LEAGUES, MatchStatus, BetOutcome, BetType,
@@ -50,21 +50,28 @@ def format_match_time_detailed(match_time) -> str:
         except ValueError:
             return match_time
     
-    now = datetime.now()
-    if match_time.tzinfo:
-        now = datetime.now(match_time.tzinfo)
+    # Handle timezone-naive datetimes from database by treating them as UTC
+    if match_time.tzinfo is None:
+        match_time = match_time.replace(tzinfo=timezone.utc)
     
+    now = datetime.now(timezone.utc)
     delta = match_time - now
     
-    if delta.days == 0:
-        return f"🔴 Heute {match_time.strftime('%H:%M')}"
-    elif delta.days == 1:
-        return f"📅 Morgen {match_time.strftime('%H:%M')}"
-    elif delta.days < 7:
+    # Convert to local display time (approximate, UTC+1 for Germany)
+    local_time = match_time + timedelta(hours=1)
+    
+    if delta.days == 0 and delta.seconds >= 0:
+        return f"🔴 Heute {local_time.strftime('%H:%M')}"
+    elif delta.days == 1 or (delta.days == 0 and delta.seconds < 0 and delta.seconds > -86400):
+        return f"📅 Morgen {local_time.strftime('%H:%M')}"
+    elif 0 < delta.days < 7:
         weekdays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
-        return f"📆 {weekdays[match_time.weekday()]} {match_time.strftime('%H:%M')}"
+        return f"📆 {weekdays[match_time.weekday()]} {local_time.strftime('%H:%M')}"
+    elif delta.days >= 7:
+        return f"📅 {local_time.strftime('%d.%m. %H:%M')}"
     else:
-        return f"📅 {match_time.strftime('%d.%m. %H:%M')}"
+        # Match is in the past
+        return f"📅 {local_time.strftime('%d.%m. %H:%M')}"
 
 
 def create_match_detail_embed(match: Dict, show_probabilities: bool = True) -> discord.Embed:
