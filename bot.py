@@ -13522,12 +13522,11 @@ async def sportbets_command(interaction: discord.Interaction):
             stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
             await db_helpers.add_balance(uid, display_name, amount, config, stat_period)
         
-        # Sync free leagues and get highlighted matches
-        for league_id in ["bl1", "bl2", "dfb"]:
-            try:
-                await sport_betting.sync_league_matches(db_helpers, league_id)
-            except Exception as e:
-                logger.warning(f"Could not sync {league_id}: {e}")
+        # Use smart sync to avoid unnecessary API calls (uses caching)
+        try:
+            await sport_betting.smart_sync_leagues(db_helpers, force=False)
+        except Exception as e:
+            logger.warning(f"Could not sync leagues: {e}")
         
         # Get recent matches for highlighting (including recently finished games)
         matches = await sport_betting.get_recent_matches(db_helpers, None, limit=5)

@@ -15,11 +15,84 @@ import aiohttp
 import asyncio
 import json
 import random
+import time
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any, Tuple
 from enum import Enum
 from modules.logger_utils import bot_logger as logger
+
+
+# ============================================================================
+# API RESPONSE CACHE
+# ============================================================================
+
+class APICache:
+    """
+    Simple in-memory cache for API responses to reduce API calls.
+    Caches responses with a TTL (time-to-live) in seconds.
+    """
+    
+    def __init__(self, default_ttl: int = 300):
+        """
+        Initialize the cache.
+        
+        Args:
+            default_ttl: Default time-to-live for cached items in seconds (default 5 minutes)
+        """
+        self._cache: Dict[str, Tuple[Any, float]] = {}
+        self._default_ttl = default_ttl
+    
+    def get(self, key: str) -> Optional[Any]:
+        """
+        Get a cached value if it exists and hasn't expired.
+        
+        Args:
+            key: Cache key
+            
+        Returns:
+            Cached value or None if not found/expired
+        """
+        if key in self._cache:
+            value, expiry = self._cache[key]
+            if time.time() < expiry:
+                return value
+            else:
+                # Clean up expired entry
+                del self._cache[key]
+        return None
+    
+    def set(self, key: str, value: Any, ttl: Optional[int] = None):
+        """
+        Set a cached value.
+        
+        Args:
+            key: Cache key
+            value: Value to cache
+            ttl: Optional TTL override in seconds
+        """
+        expiry = time.time() + (ttl if ttl is not None else self._default_ttl)
+        self._cache[key] = (value, expiry)
+    
+    def invalidate(self, key: str):
+        """Remove a specific key from cache."""
+        if key in self._cache:
+            del self._cache[key]
+    
+    def clear(self):
+        """Clear all cached entries."""
+        self._cache.clear()
+    
+    def cleanup_expired(self):
+        """Remove all expired entries from cache."""
+        current_time = time.time()
+        expired_keys = [k for k, (_, expiry) in self._cache.items() if current_time >= expiry]
+        for key in expired_keys:
+            del self._cache[key]
+
+
+# Global API cache instance
+_api_cache = APICache(default_ttl=300)  # 5 minute default TTL
 
 
 # ============================================================================
@@ -177,52 +250,195 @@ class OpenLigaDBProvider(FootballAPIProvider):
     OpenLigaDB API provider - completely free, no API key required.
     Supports German leagues: Bundesliga, 2. Bundesliga, DFB-Pokal
     API Documentation: https://www.openligadb.de/
+    
+    Important: OpenLigaDB uses season year format (e.g., 2024 for 2024/2025 season).
+    The season starts in August and ends in May/June of the following year.
     """
     
     BASE_URL = "https://api.openligadb.de"
+    
+    # Cache TTL for different data types (in seconds)
+    CACHE_TTL_MATCHES = 300      # 5 minutes for match data
+    CACHE_TTL_MATCHDAY = 1800    # 30 minutes for current matchday
+    
+    # Maximum retries for API calls
+    MAX_RETRIES = 3
+    RETRY_DELAY = 1.0  # seconds between retries
+    REQUEST_DELAY = 0.3  # delay between sequential requests (rate limiting)
     
     def get_provider_name(self) -> str:
         return "OpenLigaDB"
     
     def _get_season(self) -> int:
-        """Get the current football season year."""
+        """
+        Get the current football season year.
+        
+        Football seasons run from August to May/June.
+        The season year is the year when the season started.
+        For example:
+        - August 2024 to July 2025 = season 2024
+        - August 2025 to July 2026 = season 2025
+        
+        Returns:
+            The season year as an integer
+        """
         now = datetime.now()
         # Football season starts in August
+        # If we're in August or later, we're in a new season (current year)
+        # If we're before August, we're still in the previous season (previous year)
         if now.month >= 8:
             return now.year
         return now.year - 1
     
+    async def _make_api_request(self, url: str, cache_key: Optional[str] = None, 
+                                 cache_ttl: Optional[int] = None) -> Optional[Any]:
+        """
+        Make an API request with caching and retry logic.
+        
+        Args:
+            url: The API URL to call
+            cache_key: Optional cache key. If provided, will check cache first.
+            cache_ttl: Optional TTL for cache entry in seconds.
+            
+        Returns:
+            API response data (parsed JSON) or None on failure
+        """
+        # Check cache first
+        if cache_key:
+            cached = _api_cache.get(cache_key)
+            if cached is not None:
+                logger.debug(f"Cache hit for {cache_key}")
+                return cached
+        
+        session = await self.get_session()
+        last_error = None
+        
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        
+                        # Cache successful response
+                        if cache_key and data:
+                            _api_cache.set(cache_key, data, cache_ttl)
+                        
+                        return data
+                    elif response.status == 404:
+                        # Not found - no point retrying
+                        logger.debug(f"OpenLigaDB 404 for URL: {url}")
+                        return None
+                    elif response.status == 429:
+                        # Rate limited - wait longer before retry
+                        logger.warning(f"OpenLigaDB rate limit hit, waiting before retry...")
+                        await asyncio.sleep(self.RETRY_DELAY * (attempt + 2))
+                        continue
+                    else:
+                        logger.warning(f"OpenLigaDB API error {response.status} for URL: {url}")
+                        last_error = f"HTTP {response.status}"
+                        
+            except asyncio.TimeoutError:
+                logger.warning(f"OpenLigaDB timeout (attempt {attempt + 1}/{self.MAX_RETRIES}) for URL: {url}")
+                last_error = "Timeout"
+            except aiohttp.ClientError as e:
+                logger.warning(f"OpenLigaDB client error (attempt {attempt + 1}/{self.MAX_RETRIES}): {e}")
+                last_error = str(e)
+            except Exception as e:
+                logger.error(f"OpenLigaDB unexpected error: {e}", exc_info=True)
+                last_error = str(e)
+                break  # Don't retry on unexpected errors
+            
+            # Wait before retry
+            if attempt < self.MAX_RETRIES - 1:
+                await asyncio.sleep(self.RETRY_DELAY * (attempt + 1))
+        
+        logger.error(f"OpenLigaDB API failed after {self.MAX_RETRIES} attempts: {last_error}")
+        return None
+    
     async def get_matches(self, league_id: str, matchday: Optional[int] = None) -> List[Dict[str, Any]]:
-        """Get matches from OpenLigaDB."""
-        try:
-            session = await self.get_session()
+        """
+        Get matches from OpenLigaDB.
+        
+        Args:
+            league_id: The league identifier (e.g., 'bl1' for Bundesliga)
+            matchday: Optional specific matchday number
+            
+        Returns:
+            List of parsed match data dictionaries
+        """
+        season = self._get_season()
+        
+        if matchday:
+            url = f"{self.BASE_URL}/getmatchdata/{league_id}/{season}/{matchday}"
+            cache_key = f"matches_{league_id}_{season}_{matchday}"
+        else:
+            # Get current matchday matches
+            url = f"{self.BASE_URL}/getmatchdata/{league_id}/{season}"
+            cache_key = f"matches_{league_id}_{season}_current"
+        
+        data = await self._make_api_request(url, cache_key, self.CACHE_TTL_MATCHES)
+        
+        if data is None:
+            return []
+        
+        # Handle both single match (dict) and multiple matches (list)
+        if isinstance(data, dict):
+            data = [data]
+        
+        return self._parse_matches(data)
+    
+    async def get_matches_by_season(self, league_id: str, season: int) -> List[Dict[str, Any]]:
+        """
+        Get all matches for a specific season.
+        Useful for getting the complete season data.
+        
+        Args:
+            league_id: The league identifier
+            season: The season year (e.g., 2024 for 2024/2025 season)
+            
+        Returns:
+            List of all matches for the season
+        """
+        url = f"{self.BASE_URL}/getmatchdata/{league_id}/{season}"
+        cache_key = f"season_matches_{league_id}_{season}"
+        
+        data = await self._make_api_request(url, cache_key, self.CACHE_TTL_MATCHES)
+        
+        if data is None:
+            return []
+        
+        if isinstance(data, dict):
+            data = [data]
+        
+        return self._parse_matches(data)
+    
+    async def get_available_groups(self, league_id: str, season: Optional[int] = None) -> List[Dict]:
+        """
+        Get available groups/matchdays for a league and season.
+        
+        Args:
+            league_id: The league identifier
+            season: Optional season year (defaults to current)
+            
+        Returns:
+            List of available matchday/group information
+        """
+        if season is None:
             season = self._get_season()
-            
-            if matchday:
-                url = f"{self.BASE_URL}/getmatchdata/{league_id}/{season}/{matchday}"
-            else:
-                # Get current matchday
-                url = f"{self.BASE_URL}/getmatchdata/{league_id}"
-            
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as response:
-                if response.status != 200:
-                    logger.error(f"OpenLigaDB API error: {response.status}")
-                    return []
-                
-                data = await response.json()
-                return self._parse_matches(data)
-                
-        except asyncio.TimeoutError:
-            logger.error("OpenLigaDB API timeout")
-            return []
-        except Exception as e:
-            logger.error(f"OpenLigaDB API error: {e}", exc_info=True)
-            return []
+        
+        url = f"{self.BASE_URL}/getavailablegroups/{league_id}/{season}"
+        cache_key = f"groups_{league_id}_{season}"
+        
+        data = await self._make_api_request(url, cache_key, self.CACHE_TTL_MATCHDAY)
+        
+        return data if data else []
     
     async def get_upcoming_matches(self, league_id: str, num_matchdays: int = 3) -> List[Dict[str, Any]]:
         """
         Get matches from current and upcoming matchdays.
         This ensures we always have upcoming matches to bet on, even if the current matchday is complete.
+        
+        Uses caching to avoid repeated API calls for the same data.
         
         Args:
             league_id: The league identifier (e.g., 'bl1' for Bundesliga)
@@ -231,98 +447,133 @@ class OpenLigaDBProvider(FootballAPIProvider):
         Returns:
             List of parsed match data dictionaries
         """
+        # Check cache for upcoming matches
+        season = self._get_season()
+        cache_key = f"upcoming_{league_id}_{season}_{num_matchdays}"
+        
+        cached = _api_cache.get(cache_key)
+        if cached is not None:
+            logger.debug(f"Using cached upcoming matches for {league_id}")
+            return cached
+        
         all_matches = []
         seen_ids = set()
         
         try:
-            # Establish session early for reuse
-            session = await self.get_session()
-            
-            # Get current matchday number and season
+            # Get current matchday number
             current_matchday = await self.get_current_matchday(league_id)
-            season = self._get_season()
             
             # Fetch current and next matchdays
             for offset in range(num_matchdays):
                 matchday = current_matchday + offset
                 url = f"{self.BASE_URL}/getmatchdata/{league_id}/{season}/{matchday}"
+                matchday_cache_key = f"matches_{league_id}_{season}_{matchday}"
                 
-                try:
-                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as response:
-                        if response.status != 200:
-                            # May have reached end of season - log at info level for monitoring
-                            if offset > 0:
-                                logger.info(f"No data for matchday {matchday} (end of season or future matchday)")
-                            else:
-                                logger.debug(f"No data for matchday {matchday}: status {response.status}")
-                            continue
-                        
-                        data = await response.json()
-                        if not data:
-                            continue
-                            
-                        matches = self._parse_matches(data)
-                        
-                        # Add matches we haven't seen yet (avoid duplicates)
-                        for match in matches:
-                            match_id = match.get("id")
-                            if match_id and match_id not in seen_ids:
-                                seen_ids.add(match_id)
-                                all_matches.append(match)
-                                
-                except asyncio.TimeoutError:
-                    logger.warning(f"Timeout fetching matchday {matchday}")
+                data = await self._make_api_request(url, matchday_cache_key, self.CACHE_TTL_MATCHES)
+                
+                if not data:
+                    # May have reached end of season
+                    if offset > 0:
+                        logger.info(f"No data for matchday {matchday} (end of season or future matchday)")
                     continue
-                except Exception as e:
-                    logger.warning(f"Error fetching matchday {matchday}: {e}")
-                    continue
+                
+                # Handle single match returned as dict
+                if isinstance(data, dict):
+                    data = [data]
+                
+                matches = self._parse_matches(data)
+                
+                # Add matches we haven't seen yet (avoid duplicates)
+                for match in matches:
+                    match_id = match.get("id")
+                    if match_id and match_id not in seen_ids:
+                        seen_ids.add(match_id)
+                        all_matches.append(match)
                 
                 # Small delay between requests to be polite to the API (skip after last request)
                 if offset < num_matchdays - 1:
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(self.REQUEST_DELAY)
+            
+            # Cache the combined results
+            if all_matches:
+                _api_cache.set(cache_key, all_matches, self.CACHE_TTL_MATCHES)
             
             logger.info(f"Fetched {len(all_matches)} matches from {num_matchdays} matchdays for {league_id}")
             return all_matches
             
         except Exception as e:
-            logger.error(f"Error getting upcoming matches: {e}", exc_info=True)
+            logger.error(f"Error getting upcoming matches for {league_id}: {e}", exc_info=True)
             return []
     
     async def get_match(self, match_id: str) -> Optional[Dict[str, Any]]:
-        """Get a specific match by ID."""
-        try:
-            session = await self.get_session()
-            url = f"{self.BASE_URL}/getmatchdata/{match_id}"
+        """
+        Get a specific match by ID.
+        
+        Args:
+            match_id: The match ID
             
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as response:
-                if response.status != 200:
-                    return None
-                
-                data = await response.json()
-                matches = self._parse_matches([data] if isinstance(data, dict) else data)
-                return matches[0] if matches else None
-                
-        except Exception as e:
-            logger.error(f"Error getting match {match_id}: {e}", exc_info=True)
+        Returns:
+            Match data dictionary or None
+        """
+        url = f"{self.BASE_URL}/getmatchdata/{match_id}"
+        cache_key = f"match_{match_id}"
+        
+        data = await self._make_api_request(url, cache_key, self.CACHE_TTL_MATCHES)
+        
+        if data is None:
             return None
+        
+        # Handle single match or list
+        if isinstance(data, dict):
+            data = [data]
+        
+        matches = self._parse_matches(data)
+        return matches[0] if matches else None
     
     async def get_current_matchday(self, league_id: str) -> int:
-        """Get the current matchday for a league."""
-        try:
-            session = await self.get_session()
-            season = self._get_season()
-            url = f"{self.BASE_URL}/getcurrentgroup/{league_id}"
+        """
+        Get the current matchday for a league.
+        
+        This method uses the getcurrentgroup endpoint which returns
+        information about the current matchday.
+        
+        Args:
+            league_id: The league identifier
             
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as response:
-                if response.status != 200:
-                    return 1
-                
-                data = await response.json()
-                return data.get("groupOrderID", 1)
-                
+        Returns:
+            Current matchday number, defaults to 1 if not available
+        """
+        season = self._get_season()
+        
+        # First try the getcurrentgroup endpoint
+        url = f"{self.BASE_URL}/getcurrentgroup/{league_id}"
+        cache_key = f"currentgroup_{league_id}"
+        
+        data = await self._make_api_request(url, cache_key, self.CACHE_TTL_MATCHDAY)
+        
+        if data and isinstance(data, dict):
+            group_order = data.get("groupOrderID")
+            if group_order:
+                return int(group_order)
+        
+        # Fallback: try to get available groups and find current one
+        try:
+            groups = await self.get_available_groups(league_id, season)
+            if groups:
+                # Find the most recent group that has started
+                now = datetime.now(timezone.utc)
+                best_group = 1
+                for group in groups:
+                    group_order = group.get("groupOrderID", 1)
+                    # Groups are typically numbered 1-34 for Bundesliga
+                    best_group = max(best_group, group_order)
+                return best_group
         except Exception as e:
-            logger.error(f"Error getting current matchday: {e}", exc_info=True)
-            return 1
+            logger.warning(f"Error getting groups for {league_id}: {e}")
+        
+        # Default to matchday 1
+        logger.warning(f"Could not determine current matchday for {league_id}, defaulting to 1")
+        return 1
     
     def _parse_matches(self, data: List[Dict]) -> List[Dict[str, Any]]:
         """Parse OpenLigaDB match data into standardized format."""
@@ -1906,6 +2157,69 @@ async def sync_all_leagues(db_helpers) -> Dict[str, int]:
         results[league_id] = await sync_league_matches(db_helpers, league_id)
         # Small delay to avoid rate limiting
         await asyncio.sleep(1)
+    
+    return results
+
+
+def clear_api_cache():
+    """
+    Clear the API cache.
+    Useful when you want to force fresh data from the API.
+    """
+    _api_cache.clear()
+    logger.info("API cache cleared")
+
+
+def get_api_cache_stats() -> Dict[str, Any]:
+    """
+    Get statistics about the API cache.
+    
+    Returns:
+        Dictionary with cache statistics
+    """
+    _api_cache.cleanup_expired()  # Clean up first
+    return {
+        "total_entries": len(_api_cache._cache),
+        "default_ttl": _api_cache._default_ttl
+    }
+
+
+async def smart_sync_leagues(db_helpers, force: bool = False) -> Dict[str, int]:
+    """
+    Smart sync that only refreshes leagues that need updating.
+    
+    This function checks if there's cached data available and only
+    makes API calls when necessary or when forced.
+    
+    Args:
+        db_helpers: Database helper instance
+        force: If True, bypasses cache and forces API calls
+        
+    Returns:
+        Dictionary of league_id -> number of matches synced
+    """
+    results = {}
+    free_leagues = ["bl1", "bl2", "dfb"]  # OpenLigaDB supported leagues
+    
+    # Get season using the provider's method for consistency
+    provider = APIProviderFactory.get_provider("openligadb")
+    season = provider._get_season()
+    
+    for league_id in free_leagues:
+        league_config = LEAGUES.get(league_id)
+        if not league_config:
+            continue
+        
+        cache_key = f"upcoming_{league_config['api_id']}_{season}_3"
+        
+        # Skip if we have cached data and not forcing
+        if not force and _api_cache.get(cache_key) is not None:
+            logger.debug(f"Skipping sync for {league_id} - using cached data")
+            results[league_id] = 0
+            continue
+        
+        results[league_id] = await sync_league_matches(db_helpers, league_id)
+        await asyncio.sleep(OpenLigaDBProvider.REQUEST_DELAY * 2)  # Slightly longer delay between leagues
     
     return results
 
