@@ -603,7 +603,8 @@ class OpenLigaDBProvider(FootballAPIProvider):
                             time_diff = abs((match_time - now).total_seconds())
                             matchday = match.get("group", {}).get("groupOrderID", 1)
                             
-                            # Prioritize upcoming matches (within 7 days) or recently finished
+                            # Find the match closest to now (smallest time difference)
+                            # This naturally prioritizes recent/upcoming matches
                             if time_diff < best_time_diff:
                                 best_time_diff = time_diff
                                 current_matchday = matchday

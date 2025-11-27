@@ -39,8 +39,20 @@ def create_probability_bar(probability: float, width: int = 10) -> str:
     return "█" * filled + "░" * empty
 
 
+# Constants
+SECONDS_IN_DAY = 86400
+
+# German timezone handling
+try:
+    from zoneinfo import ZoneInfo
+    GERMAN_TZ = ZoneInfo("Europe/Berlin")
+except ImportError:
+    # Fallback for Python < 3.9 or if tzdata is not available
+    GERMAN_TZ = None
+
+
 def format_match_time_detailed(match_time) -> str:
-    """Format match time with date and time."""
+    """Format match time with date and time in German local time."""
     if match_time is None:
         return "TBD"
     
@@ -57,16 +69,23 @@ def format_match_time_detailed(match_time) -> str:
     now = datetime.now(timezone.utc)
     delta = match_time - now
     
-    # Convert to local display time (approximate, UTC+1 for Germany)
-    local_time = match_time + timedelta(hours=1)
+    # Convert to German local time for display
+    if GERMAN_TZ:
+        local_time = match_time.astimezone(GERMAN_TZ)
+    else:
+        # Fallback: approximate CET/CEST (UTC+1 in winter, UTC+2 in summer)
+        # Simple DST approximation: summer is roughly April-October
+        month = match_time.month
+        offset_hours = 2 if 4 <= month <= 10 else 1
+        local_time = match_time + timedelta(hours=offset_hours)
     
-    if delta.days == 0 and delta.seconds >= 0:
+    if delta.days == 0 and delta.total_seconds() >= 0:
         return f"🔴 Heute {local_time.strftime('%H:%M')}"
-    elif delta.days == 1 or (delta.days == 0 and delta.seconds < 0 and delta.seconds > -86400):
+    elif delta.days == 1 or (delta.days == 0 and -SECONDS_IN_DAY < delta.total_seconds() < 0):
         return f"📅 Morgen {local_time.strftime('%H:%M')}"
     elif 0 < delta.days < 7:
         weekdays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
-        return f"📆 {weekdays[match_time.weekday()]} {local_time.strftime('%H:%M')}"
+        return f"📆 {weekdays[local_time.weekday()]} {local_time.strftime('%H:%M')}"
     elif delta.days >= 7:
         return f"📅 {local_time.strftime('%d.%m. %H:%M')}"
     else:
