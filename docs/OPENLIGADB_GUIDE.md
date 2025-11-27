@@ -215,10 +215,10 @@ The season year is automatically calculated based on the current date:
 - If the current month is August or later, the season year is the current year
 - If the current month is before August, the season year is the previous year
 
-For example:
-- November 2025 → Season 2025 (2025/2026)
-- March 2026 → Season 2025 (2025/2026)
-- August 2026 → Season 2026 (2026/2027)
+For example (if current date is November):
+- November 2024 → Season 2024 (2024/2025)
+- March 2024 → Season 2023 (2023/2024)
+- August 2024 → Season 2024 (2024/2025)
 
 ## Discord Bot Commands
 
