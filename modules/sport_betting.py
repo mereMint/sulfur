@@ -249,7 +249,22 @@ class OpenLigaDBProvider(FootballAPIProvider):
     """
     OpenLigaDB API provider - completely free, no API key required.
     Supports German leagues: Bundesliga, 2. Bundesliga, DFB-Pokal
-    API Documentation: https://www.openligadb.de/
+    
+    API Documentation: https://api.openligadb.de/index.html
+    
+    Available Endpoints:
+        - getmatchdata/{leagueshortcut}/{season} - All matches for a season
+        - getmatchdata/{leagueshortcut}/{season}/{grouporderid} - Matches for specific matchday
+        - getmatchdata/{matchid} - Single match by ID
+        - getcurrentgroup/{leagueshortcut} - Current matchday info
+        - getavailablegroups/{leagueshortcut}/{season} - All matchdays for a season
+        - getavailableteams/{leagueshortcut}/{season} - All teams in a league
+        - getbltable/{leagueshortcut}/{season} - League standings/table
+        - getgoalgetters/{leagueshortcut}/{season} - Top scorers
+        - getlastmatchbyleagueteam/{leagueid}/{teamid} - Last match for a team
+        - getnextmatchbyleagueteam/{leagueid}/{teamid} - Next match for a team
+        - getavailableleagues - All available leagues
+        - getavailablesports - All available sports
     
     Important: OpenLigaDB uses season year format (e.g., 2024 for 2024/2025 season).
     The season starts in August and ends in May/June of the following year.
@@ -260,6 +275,8 @@ class OpenLigaDBProvider(FootballAPIProvider):
     # Cache TTL for different data types (in seconds)
     CACHE_TTL_MATCHES = 300      # 5 minutes for match data
     CACHE_TTL_MATCHDAY = 1800    # 30 minutes for current matchday
+    CACHE_TTL_TABLE = 3600       # 1 hour for league table
+    CACHE_TTL_TEAMS = 86400      # 24 hours for teams (rarely changes)
     
     # Maximum retries for API calls
     MAX_RETRIES = 3
@@ -620,6 +637,8 @@ class OpenLigaDBProvider(FootballAPIProvider):
                     "id": str(match.get("matchID")),
                     "home_team": team1.get("teamName", "Unknown"),
                     "away_team": team2.get("teamName", "Unknown"),
+                    "home_team_id": team1.get("teamId"),
+                    "away_team_id": team2.get("teamId"),
                     "home_team_short": team1.get("shortName", team1.get("teamName", "UNK")[:3].upper()),
                     "away_team_short": team2.get("shortName", team2.get("teamName", "UNK")[:3].upper()),
                     "home_logo": team1.get("teamIconUrl"),
@@ -640,6 +659,256 @@ class OpenLigaDBProvider(FootballAPIProvider):
                 continue
         
         return matches
+    
+    # =========================================================================
+    # Additional OpenLigaDB Endpoints
+    # =========================================================================
+    
+    async def get_available_leagues(self) -> List[Dict]:
+        """
+        Get all available leagues from OpenLigaDB.
+        
+        Returns:
+            List of available league information with standardized keys
+            
+        Example response:
+            [{"league_id": 4442, "league_name": "1. Fußball-Bundesliga", 
+              "league_shortcut": "bl1", "league_season": "2024"}]
+        """
+        url = f"{self.BASE_URL}/getavailableleagues"
+        cache_key = "available_leagues"
+        
+        data = await self._make_api_request(url, cache_key, self.CACHE_TTL_TEAMS)
+        
+        if not data:
+            return []
+        
+        # Standardize the response format
+        leagues = []
+        for league in data:
+            leagues.append({
+                "league_id": league.get("leagueId"),
+                "league_name": league.get("leagueName", "Unknown"),
+                "league_shortcut": league.get("leagueShortcut", ""),
+                "league_season": league.get("leagueSeason", ""),
+                "sport": league.get("sport", {}).get("sportName", "Football")
+            })
+        
+        return leagues
+    
+    async def get_available_teams(self, league_id: str, season: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Get all teams for a league and season.
+        
+        API Endpoint: /getavailableteams/{leagueshortcut}/{season}
+        
+        Args:
+            league_id: The league identifier (e.g., 'bl1' for Bundesliga)
+            season: Optional season year (defaults to current)
+            
+        Returns:
+            List of team information dictionaries
+            
+        Example response:
+            [{"teamId": 40, "teamName": "FC Bayern München", "shortName": "Bayern", "teamIconUrl": "...", ...}]
+        """
+        if season is None:
+            season = self._get_season()
+        
+        url = f"{self.BASE_URL}/getavailableteams/{league_id}/{season}"
+        cache_key = f"teams_{league_id}_{season}"
+        
+        data = await self._make_api_request(url, cache_key, self.CACHE_TTL_TEAMS)
+        
+        if not data:
+            return []
+        
+        # Parse teams into standardized format
+        teams = []
+        for team in data:
+            teams.append({
+                "team_id": team.get("teamId"),
+                "team_name": team.get("teamName", "Unknown"),
+                "short_name": team.get("shortName", ""),
+                "team_icon_url": team.get("teamIconUrl", ""),
+                "team_group_name": team.get("teamGroupName", "")
+            })
+        
+        return teams
+    
+    async def get_league_table(self, league_id: str, season: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Get the current league standings/table.
+        
+        API Endpoint: /getbltable/{leagueshortcut}/{season}
+        
+        Args:
+            league_id: The league identifier (e.g., 'bl1' for Bundesliga)
+            season: Optional season year (defaults to current)
+            
+        Returns:
+            List of team standings sorted by position
+            
+        Example response:
+            [{"teamInfoId": 40, "teamName": "FC Bayern München", "points": 25, "goals": 30, 
+              "opponentGoals": 10, "matches": 12, "won": 8, "lost": 1, "draw": 3, ...}]
+        """
+        if season is None:
+            season = self._get_season()
+        
+        url = f"{self.BASE_URL}/getbltable/{league_id}/{season}"
+        cache_key = f"table_{league_id}_{season}"
+        
+        data = await self._make_api_request(url, cache_key, self.CACHE_TTL_TABLE)
+        
+        if not data:
+            return []
+        
+        # Parse table into standardized format
+        standings = []
+        for i, entry in enumerate(data, 1):
+            standings.append({
+                "position": i,
+                "team_id": entry.get("teamInfoId"),
+                "team_name": entry.get("teamName", "Unknown"),
+                "short_name": entry.get("shortName", ""),
+                "team_icon_url": entry.get("teamIconUrl", ""),
+                "matches": entry.get("matches", 0),
+                "won": entry.get("won", 0),
+                "draw": entry.get("draw", 0),
+                "lost": entry.get("lost", 0),
+                "goals": entry.get("goals", 0),
+                "goals_against": entry.get("opponentGoals", 0),
+                "goal_diff": entry.get("goalDiff", entry.get("goals", 0) - entry.get("opponentGoals", 0)),
+                "points": entry.get("points", 0)
+            })
+        
+        return standings
+    
+    async def get_goal_scorers(self, league_id: str, season: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Get the top goal scorers for a league and season.
+        
+        API Endpoint: /getgoalgetters/{leagueshortcut}/{season}
+        
+        Args:
+            league_id: The league identifier (e.g., 'bl1' for Bundesliga)
+            season: Optional season year (defaults to current)
+            
+        Returns:
+            List of top scorers sorted by goals
+            
+        Example response:
+            [{"goalGetterID": 123, "goalGetterName": "Harry Kane", "goalCount": 15, "teamId": 40, ...}]
+        """
+        if season is None:
+            season = self._get_season()
+        
+        url = f"{self.BASE_URL}/getgoalgetters/{league_id}/{season}"
+        cache_key = f"scorers_{league_id}_{season}"
+        
+        data = await self._make_api_request(url, cache_key, self.CACHE_TTL_TABLE)
+        
+        if not data:
+            return []
+        
+        # Parse scorers into standardized format
+        scorers = []
+        for i, scorer in enumerate(data, 1):
+            scorers.append({
+                "rank": i,
+                "player_id": scorer.get("goalGetterID"),
+                "player_name": scorer.get("goalGetterName", "Unknown"),
+                "goals": scorer.get("goalCount", 0),
+                "team_id": scorer.get("teamId"),
+                "team_name": scorer.get("teamName", "")
+            })
+        
+        return scorers
+    
+    async def get_last_match_by_team(self, league_id: int, team_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Get the last completed match for a specific team.
+        
+        API Endpoint: /getlastmatchbyleagueteam/{leagueid}/{teamid}
+        
+        Note: This endpoint uses numeric league ID (not league shortcut).
+        Use get_available_leagues() to find league IDs.
+        
+        Args:
+            league_id: The numeric league ID (e.g., 4442 for Bundesliga 2024)
+            team_id: The numeric team ID (e.g., 40 for Bayern München)
+            
+        Returns:
+            Last match data or None if not found
+        """
+        url = f"{self.BASE_URL}/getlastmatchbyleagueteam/{league_id}/{team_id}"
+        cache_key = f"lastmatch_{league_id}_{team_id}"
+        
+        data = await self._make_api_request(url, cache_key, self.CACHE_TTL_MATCHES)
+        
+        if not data:
+            return None
+        
+        # Parse single match
+        matches = self._parse_matches([data] if isinstance(data, dict) else data)
+        return matches[0] if matches else None
+    
+    async def get_next_match_by_team(self, league_id: int, team_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Get the next scheduled match for a specific team.
+        
+        API Endpoint: /getnextmatchbyleagueteam/{leagueid}/{teamid}
+        
+        Note: This endpoint uses numeric league ID (not league shortcut).
+        Use get_available_leagues() to find league IDs.
+        
+        Args:
+            league_id: The numeric league ID (e.g., 4442 for Bundesliga 2024)
+            team_id: The numeric team ID (e.g., 40 for Bayern München)
+            
+        Returns:
+            Next match data or None if not found
+        """
+        url = f"{self.BASE_URL}/getnextmatchbyleagueteam/{league_id}/{team_id}"
+        cache_key = f"nextmatch_{league_id}_{team_id}"
+        
+        data = await self._make_api_request(url, cache_key, self.CACHE_TTL_MATCHES)
+        
+        if not data:
+            return None
+        
+        # Parse single match
+        matches = self._parse_matches([data] if isinstance(data, dict) else data)
+        return matches[0] if matches else None
+    
+    async def get_matches_by_team(self, league_id: str, team_id: int, season: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Get all matches for a specific team in a season.
+        
+        This is a helper method that filters the full season's matches for a specific team.
+        
+        Args:
+            league_id: The league shortcut (e.g., 'bl1' for Bundesliga)
+            team_id: The numeric team ID to filter for (e.g., 40 for Bayern München)
+            season: Optional season year (defaults to current)
+            
+        Returns:
+            List of matches involving the specified team (home or away)
+        """
+        all_matches = await self.get_matches_by_season(league_id, season or self._get_season())
+        
+        # Filter matches for the specified team
+        team_matches = []
+        for match in all_matches:
+            home_team_id = match.get("home_team_id")
+            away_team_id = match.get("away_team_id")
+            
+            # Check if team is playing in this match (home or away)
+            if home_team_id == team_id or away_team_id == team_id:
+                team_matches.append(match)
+        
+        return team_matches
 
 
 # ============================================================================
