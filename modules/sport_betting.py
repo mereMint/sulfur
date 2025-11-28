@@ -573,18 +573,86 @@ class OpenLigaDBProvider(FootballAPIProvider):
             if group_order:
                 return int(group_order)
         
-        # Fallback: try to get available groups and find current one
+        # Fallback: try to get all matches for the season and determine current matchday
+        # based on match dates - find the matchday with the most recent/upcoming matches
+        try:
+            all_matches_url = f"{self.BASE_URL}/getmatchdata/{league_id}/{season}"
+            all_matches_cache_key = f"all_matches_{league_id}_{season}"
+            
+            matches_data = await self._make_api_request(all_matches_url, all_matches_cache_key, self.CACHE_TTL_MATCHES)
+            
+            if matches_data:
+                if isinstance(matches_data, dict):
+                    matches_data = [matches_data]
+                
+                now = datetime.now(timezone.utc)
+                current_matchday = 1
+                
+                # Find the matchday with matches closest to now (upcoming or just finished)
+                best_time_diff = float('inf')
+                
+                for match in matches_data:
+                    match_time_str = match.get("matchDateTime") or match.get("matchDateTimeUTC")
+                    if match_time_str:
+                        try:
+                            match_time = datetime.fromisoformat(match_time_str.replace("Z", "+00:00"))
+                            # Make timezone-aware if needed
+                            if match_time.tzinfo is None:
+                                match_time = match_time.replace(tzinfo=timezone.utc)
+                            
+                            time_diff = abs((match_time - now).total_seconds())
+                            matchday = match.get("group", {}).get("groupOrderID", 1)
+                            
+                            # Find the match closest to now (smallest time difference)
+                            # This naturally prioritizes recent/upcoming matches
+                            if time_diff < best_time_diff:
+                                best_time_diff = time_diff
+                                current_matchday = matchday
+                        except (ValueError, TypeError):
+                            continue
+                
+                if current_matchday and current_matchday > 0:
+                    logger.info(f"Determined current matchday for {league_id} from match data: {current_matchday}")
+                    return int(current_matchday)
+                    
+        except Exception as e:
+            logger.warning(f"Error determining current matchday from matches for {league_id}: {e}")
+        
+        # Secondary fallback: try to get available groups
         try:
             groups = await self.get_available_groups(league_id, season)
             if groups:
-                # Find the most recent group that has started
+                # Find the group/matchday closest to now based on group info
+                # Groups typically have dates, find the one closest to current date
                 now = datetime.now(timezone.utc)
                 best_group = 1
+                best_time_diff = float('inf')
+                
                 for group in groups:
                     group_order = group.get("groupOrderID", 1)
-                    # Groups are typically numbered 1-34 for Bundesliga
-                    best_group = max(best_group, group_order)
-                return best_group
+                    # Try to get group date if available
+                    group_date_str = group.get("groupDateTimeUTC") or group.get("groupDateTime")
+                    
+                    if group_date_str:
+                        try:
+                            group_date = datetime.fromisoformat(group_date_str.replace("Z", "+00:00"))
+                            if group_date.tzinfo is None:
+                                group_date = group_date.replace(tzinfo=timezone.utc)
+                            
+                            time_diff = abs((group_date - now).total_seconds())
+                            if time_diff < best_time_diff:
+                                best_time_diff = time_diff
+                                best_group = group_order
+                        except (ValueError, TypeError):
+                            continue
+                    else:
+                        # If no date info, just track the highest group number as a fallback
+                        best_group = max(best_group, group_order)
+                
+                if best_group > 0:
+                    logger.info(f"Determined current matchday for {league_id} from groups: {best_group}")
+                    return best_group
+                    
         except Exception as e:
             logger.warning(f"Error getting groups for {league_id}: {e}")
         
@@ -598,19 +666,35 @@ class OpenLigaDBProvider(FootballAPIProvider):
         
         for match in data:
             try:
-                # Parse match time
-                match_time_str = match.get("matchDateTime") or match.get("matchDateTimeUTC")
+                # Parse match time - OpenLigaDB uses matchDateTimeUTC for UTC times
+                # and matchDateTime for local times
+                match_time_str = match.get("matchDateTimeUTC") or match.get("matchDateTime")
                 if match_time_str:
                     try:
+                        # Try to parse ISO format
                         match_time = datetime.fromisoformat(match_time_str.replace("Z", "+00:00"))
+                        # Ensure timezone-aware (treat as UTC if naive)
+                        if match_time.tzinfo is None:
+                            match_time = match_time.replace(tzinfo=timezone.utc)
                     except ValueError:
-                        match_time = datetime.now(timezone.utc)
+                        # If ISO parsing fails, try other common formats
+                        try:
+                            # Try parsing without timezone (treat as UTC)
+                            match_time = datetime.strptime(match_time_str, "%Y-%m-%dT%H:%M:%S")
+                            match_time = match_time.replace(tzinfo=timezone.utc)
+                        except ValueError:
+                            logger.warning(f"Could not parse match time: {match_time_str}")
+                            match_time = datetime.now(timezone.utc)
                 else:
                     match_time = datetime.now(timezone.utc)
                 
                 # Determine match status
                 is_finished = match.get("matchIsFinished", False)
                 now = datetime.now(timezone.utc)
+                
+                # Ensure match_time is timezone-aware for comparison
+                if match_time.tzinfo is None:
+                    match_time = match_time.replace(tzinfo=timezone.utc)
                 
                 if is_finished:
                     status = MatchStatus.FINISHED
@@ -619,36 +703,56 @@ class OpenLigaDBProvider(FootballAPIProvider):
                 else:
                     status = MatchStatus.SCHEDULED
                 
-                # Get scores
+                # Get scores - try different result types
                 match_results = match.get("matchResults", [])
                 home_score = 0
                 away_score = 0
                 
-                for result in match_results:
-                    if result.get("resultTypeID") == 2:  # Final result
-                        home_score = result.get("pointsTeam1", 0)
-                        away_score = result.get("pointsTeam2", 0)
-                        break
+                # Sort by resultTypeID to get the most relevant result
+                # resultTypeID 2 = Final result, 1 = Halftime
+                sorted_results = sorted(match_results, key=lambda x: x.get("resultTypeID", 0), reverse=True)
                 
-                team1 = match.get("team1", {})
-                team2 = match.get("team2", {})
+                for result in sorted_results:
+                    result_type = result.get("resultTypeID", 0)
+                    # Accept final result (2) or if no final result, any result
+                    if result_type == 2 or (home_score == 0 and away_score == 0):
+                        home_score = result.get("pointsTeam1", 0) or 0
+                        away_score = result.get("pointsTeam2", 0) or 0
+                        if result_type == 2:
+                            break  # Use final result if available
+                
+                team1 = match.get("team1") or {}
+                team2 = match.get("team2") or {}
+                
+                # Get team names with proper fallbacks
+                home_team_name = team1.get("teamName") or team1.get("shortName") or "Unknown"
+                away_team_name = team2.get("teamName") or team2.get("shortName") or "Unknown"
+                
+                # Get short names with fallbacks
+                home_short = team1.get("shortName") or (home_team_name[:3].upper() if home_team_name else "UNK")
+                away_short = team2.get("shortName") or (away_team_name[:3].upper() if away_team_name else "UNK")
+                
+                # Get league shortcut from match data
+                league_shortcut = match.get("leagueShortcut") or match.get("leagueName") or "bl1"
+                # Normalize league_shortcut to lowercase for consistency
+                league_shortcut = league_shortcut.lower() if league_shortcut else "bl1"
                 
                 parsed_match = {
                     "id": str(match.get("matchID")),
-                    "home_team": team1.get("teamName", "Unknown"),
-                    "away_team": team2.get("teamName", "Unknown"),
+                    "home_team": home_team_name,
+                    "away_team": away_team_name,
                     "home_team_id": team1.get("teamId"),
                     "away_team_id": team2.get("teamId"),
-                    "home_team_short": team1.get("shortName", team1.get("teamName", "UNK")[:3].upper()),
-                    "away_team_short": team2.get("shortName", team2.get("teamName", "UNK")[:3].upper()),
+                    "home_team_short": home_short,
+                    "away_team_short": away_short,
                     "home_logo": team1.get("teamIconUrl"),
                     "away_logo": team2.get("teamIconUrl"),
                     "home_score": home_score,
                     "away_score": away_score,
                     "status": status,
                     "match_time": match_time,
-                    "matchday": match.get("group", {}).get("groupOrderID", 1),
-                    "league_id": match.get("leagueShortcut", "bl1"),
+                    "matchday": match.get("group", {}).get("groupOrderID", 1) if match.get("group") else 1,
+                    "league_id": league_shortcut,
                     "provider": "openligadb"
                 }
                 
@@ -1410,6 +1514,18 @@ async def get_or_update_match(db_helpers, match_data: Dict[str, Any]) -> bool:
             # Calculate odds
             odds = OddsCalculator.calculate_match_odds(match_data)
             
+            # Convert match_time to UTC naive datetime for MySQL DATETIME storage
+            match_time = match_data["match_time"]
+            if isinstance(match_time, datetime):
+                # If timezone-aware, convert to UTC first
+                if match_time.tzinfo is not None:
+                    match_time = match_time.astimezone(timezone.utc).replace(tzinfo=None)
+            
+            # Ensure league_id is stored in lowercase for consistency
+            league_id = match_data.get("league_id", "bl1")
+            if league_id:
+                league_id = league_id.lower()
+            
             cursor.execute("""
                 INSERT INTO sport_matches 
                 (match_id, league_id, provider, home_team, away_team, home_team_short, 
@@ -1426,17 +1542,17 @@ async def get_or_update_match(db_helpers, match_data: Dict[str, Any]) -> bool:
                     odds_away = VALUES(odds_away)
             """, (
                 match_data["id"],
-                match_data["league_id"],
+                league_id,
                 match_data["provider"],
                 match_data["home_team"],
                 match_data["away_team"],
                 match_data.get("home_team_short", ""),
                 match_data.get("away_team_short", ""),
-                match_data.get("home_score", 0),
-                match_data.get("away_score", 0),
+                match_data.get("home_score", 0) or 0,
+                match_data.get("away_score", 0) or 0,
                 match_data["status"].value,
-                match_data["match_time"],
-                match_data.get("matchday", 1),
+                match_time,
+                match_data.get("matchday", 1) or 1,
                 odds["home"],
                 odds["draw"],
                 odds["away"]
