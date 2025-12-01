@@ -43,12 +43,18 @@ def create_probability_bar(probability: float, width: int = 10) -> str:
 SECONDS_IN_DAY = 86400
 
 # German timezone handling
+GERMAN_TZ = None
 try:
     from zoneinfo import ZoneInfo
-    GERMAN_TZ = ZoneInfo("Europe/Berlin")
+    try:
+        GERMAN_TZ = ZoneInfo("Europe/Berlin")
+    except KeyError:
+        # ZoneInfoNotFoundError (a subclass of KeyError) is raised when
+        # the tzdata package is not installed (common on Termux/Android)
+        pass
 except ImportError:
-    # Fallback for Python < 3.9 or if tzdata is not available
-    GERMAN_TZ = None
+    # zoneinfo module not available (Python < 3.9)
+    pass
 
 
 def format_match_time_detailed(match_time) -> str:
