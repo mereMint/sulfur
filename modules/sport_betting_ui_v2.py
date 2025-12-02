@@ -15,7 +15,8 @@ from modules.sport_betting import (
     LEAGUES, MatchStatus, BetOutcome, BetType,
     format_match_time, get_league_emoji, get_league_name,
     format_odds_display, get_outcome_emoji,
-    get_upcoming_matches, get_recent_matches, get_match_from_db, place_bet,
+    get_upcoming_matches, get_recent_matches, get_upcoming_matches_all_leagues,
+    get_match_from_db, place_bet,
     get_user_bets, get_user_betting_stats, get_betting_leaderboard,
     sync_league_matches, OddsCalculator, place_combo_bet, get_user_combo_bets
 )
@@ -249,14 +250,13 @@ def create_advanced_bet_embed(match: Dict, bet_category: str = "over_under") -> 
 
 
 def create_highlighted_matches_embed(matches: List[Dict], user_balance: int = 0) -> discord.Embed:
-    """Create an embed showing highlighted recent matches."""
+    """Create an embed showing highlighted upcoming matches from all leagues."""
     embed = discord.Embed(
         title="⚽ Sport Betting",
         description=(
             "**Willkommen bei Sport Betting!**\n"
             "Wette auf echte Fußballspiele und gewinne Coins!\n\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "**🔥 Aktuelle Spiele:**"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         ),
         color=discord.Color.green()
     )
@@ -264,60 +264,72 @@ def create_highlighted_matches_embed(matches: List[Dict], user_balance: int = 0)
     # Add user balance
     embed.add_field(name="💰 Dein Guthaben", value=f"**{user_balance}** 🪙", inline=True)
     
-    # Show up to 5 highlighted matches
+    # Show up to 6 highlighted matches from all leagues
     if matches:
+        # Group matches by league for better display
+        matches_by_league = {}
+        for match in matches[:6]:
+            league_id = match.get("league_id", "bl1")
+            if league_id not in matches_by_league:
+                matches_by_league[league_id] = []
+            matches_by_league[league_id].append(match)
+        
+        # Create display text for each league
         match_list = []
-        for i, match in enumerate(matches[:5]):
-            home_team = match.get("home_team", "Unknown")[:15]
-            away_team = match.get("away_team", "Unknown")[:15]
-            league_emoji = get_league_emoji(match.get("league_id", "bl1"))
-            match_time = match.get("match_time")
-            match_status = match.get("status", "scheduled")
+        for league_id, league_matches in matches_by_league.items():
+            league_name = get_league_name(league_id)
+            league_emoji = get_league_emoji(league_id)
             
-            # Get score if available
-            home_score = match.get("home_score", 0)
-            away_score = match.get("away_score", 0)
-            
-            # Determine status display
-            if match_status == "finished":
-                status_text = f"🏁 **{home_score}:{away_score}** (Beendet)"
-            elif match_status == "live":
-                status_text = f"🔴 **{home_score}:{away_score}** LIVE"
-            else:
-                time_str = format_match_time_detailed(match_time)
-                # Calculate favorite (lowest odds = highest probability)
-                odds_home = float(match.get("odds_home", 2.0))
-                odds_draw = float(match.get("odds_draw", 3.5))
-                odds_away = float(match.get("odds_away", 3.0))
+            for match in league_matches:
+                home_team = match.get("home_team", "Unknown")[:15]
+                away_team = match.get("away_team", "Unknown")[:15]
+                match_time = match.get("match_time")
+                match_status = match.get("status", "scheduled")
                 
-                if odds_home < odds_away and odds_home < odds_draw:
-                    favorite = f"⭐ {home_team}"
-                elif odds_away < odds_home and odds_away < odds_draw:
-                    favorite = f"⭐ {away_team}"
-                elif odds_draw <= odds_home and odds_draw <= odds_away:
-                    favorite = "🤝 Remis erwartet"
+                # Get score if available
+                home_score = match.get("home_score", 0)
+                away_score = match.get("away_score", 0)
+                
+                # Determine status display
+                if match_status == "finished":
+                    status_text = f"🏁 **{home_score}:{away_score}** (Beendet)"
+                elif match_status == "live":
+                    status_text = f"🔴 **{home_score}:{away_score}** LIVE"
                 else:
-                    favorite = "⚖️ Ausgeglichen"
-                status_text = f"{time_str} • {favorite}"
-            
-            match_list.append(
-                f"{league_emoji} **{home_team}** vs **{away_team}**\n"
-                f"   └ {status_text}"
-            )
+                    time_str = format_match_time_detailed(match_time)
+                    # Calculate favorite (lowest odds = highest probability)
+                    odds_home = float(match.get("odds_home", 2.0))
+                    odds_draw = float(match.get("odds_draw", 3.5))
+                    odds_away = float(match.get("odds_away", 3.0))
+                    
+                    if odds_home < odds_away and odds_home < odds_draw:
+                        favorite = f"⭐ {home_team}"
+                    elif odds_away < odds_home and odds_away < odds_draw:
+                        favorite = f"⭐ {away_team}"
+                    elif odds_draw <= odds_home and odds_draw <= odds_away:
+                        favorite = "🤝 Remis erwartet"
+                    else:
+                        favorite = "⚖️ Ausgeglichen"
+                    status_text = f"{time_str} • {favorite}"
+                
+                match_list.append(
+                    f"{league_emoji} **{home_team}** vs **{away_team}**\n"
+                    f"   └ {status_text}"
+                )
         
         embed.add_field(
-            name="📋 Aktuelle Spiele",
+            name="🔥 Kommende Spiele",
             value="\n\n".join(match_list) if match_list else "Keine Spiele gefunden",
             inline=False
         )
     else:
         embed.add_field(
-            name="📋 Aktuelle Spiele",
-            value="*Keine Spiele gefunden. Nutze 'Spiele aktualisieren' um Daten zu laden.*",
+            name="🔥 Kommende Spiele",
+            value="*Keine Spiele gefunden. Nutze '🔄 Aktualisieren' um Daten zu laden.*",
             inline=False
         )
     
-    embed.set_footer(text="Wähle 'Liga wählen' um auf Spiele zu wetten!")
+    embed.set_footer(text="Wähle '🏟️ Liga wählen' um auf Spiele zu wetten!")
     
     return embed
 
@@ -825,20 +837,38 @@ class MatchSelectView(View):
 # LEAGUE SELECT VIEW
 # ============================================================================
 
+# Free leagues that don't require an API key (OpenLigaDB)
+FREE_LEAGUES = ["bl1", "bl2", "dfb"]
+
+
 class LeagueSelectDropdown(Select):
-    """Dropdown to select a league."""
+    """Dropdown to select a league - only shows free leagues by default."""
     
-    def __init__(self, on_select_callback: Callable):
+    def __init__(self, on_select_callback: Callable, show_premium: bool = False):
         self.on_select_callback = on_select_callback
         
         options = []
-        for league_id, config in LEAGUES.items():
-            options.append(discord.SelectOption(
-                label=config["name"],
-                value=league_id,
-                emoji=config["emoji"],
-                description=f"{config['country']} • {config['provider'].replace('_', ' ').title()}"
-            ))
+        # First add free leagues (always available)
+        for league_id in FREE_LEAGUES:
+            config = LEAGUES.get(league_id)
+            if config:
+                options.append(discord.SelectOption(
+                    label=config["name"],
+                    value=league_id,
+                    emoji=config["emoji"],
+                    description=f"{config['country']} • Kostenlos"
+                ))
+        
+        # Only show premium leagues if explicitly requested (and potentially API key is available)
+        if show_premium:
+            for league_id, config in LEAGUES.items():
+                if league_id not in FREE_LEAGUES:
+                    options.append(discord.SelectOption(
+                        label=config["name"],
+                        value=league_id,
+                        emoji=config["emoji"],
+                        description=f"{config['country']} • Premium (API-Key)"
+                    ))
         
         super().__init__(
             placeholder="🏟️ Liga auswählen...",
@@ -854,19 +884,19 @@ class LeagueSelectDropdown(Select):
 class LeagueSelectView(View):
     """View for selecting a league."""
     
-    def __init__(self, on_select_callback: Callable, timeout: float = 180.0):
+    def __init__(self, on_select_callback: Callable, show_premium: bool = False, timeout: float = 180.0):
         super().__init__(timeout=timeout)
-        self.add_item(LeagueSelectDropdown(on_select_callback))
+        self.add_item(LeagueSelectDropdown(on_select_callback, show_premium))
     
     def get_embed(self) -> discord.Embed:
         embed = discord.Embed(
             title="🏟️ Liga auswählen",
             description=(
                 "Wähle eine Liga aus, um die kommenden Spiele zu sehen.\n\n"
-                "**Kostenlose Ligen (OpenLigaDB):**\n"
-                "🇩🇪 Bundesliga, 2. Bundesliga, DFB-Pokal\n\n"
-                "**Premium Ligen (API-Key erforderlich):**\n"
-                "🏆 Champions League, Premier League, World Cup"
+                "**Verfügbare Ligen:**\n"
+                "🇩🇪 **Bundesliga** - Deutsche 1. Liga\n"
+                "🇩🇪 **2. Bundesliga** - Deutsche 2. Liga\n"
+                "🏆 **DFB-Pokal** - Deutscher Pokal"
             ),
             color=discord.Color.blue()
         )
@@ -1293,8 +1323,8 @@ class ComboBetBuilderView(View):
     
     @ui.button(label="⬅️ Zurück zum Hauptmenü", style=discord.ButtonStyle.secondary, row=1)
     async def go_back(self, interaction: discord.Interaction, button: Button):
-        # Get matches and balance for main view
-        matches = await get_recent_matches(self.db_helpers, None, limit=5)
+        # Get upcoming matches from all free leagues for main view
+        matches = await get_upcoming_matches_all_leagues(self.db_helpers, matches_per_league=2, total_limit=6)
         balance = await self.balance_check_func(interaction.user.id)
         
         embed = create_highlighted_matches_embed(matches, balance)
@@ -1549,8 +1579,8 @@ class SportBetsMainView(View):
             synced = await sync_league_matches(self.db_helpers, league_id)
             synced_total += synced
         
-        # Get fresh recent matches (including recently finished games)
-        matches = await get_recent_matches(self.db_helpers, None, limit=5)
+        # Get fresh upcoming matches from all free leagues
+        matches = await get_upcoming_matches_all_leagues(self.db_helpers, matches_per_league=2, total_limit=6)
         balance = await self.balance_check_func(interaction.user.id)
         
         embed = create_highlighted_matches_embed(matches, balance)
@@ -1729,9 +1759,9 @@ def create_help_embed() -> discord.Embed:
     embed.add_field(
         name="🏟️ Verfügbare Ligen",
         value=(
-            "🇩🇪 Bundesliga, 2. Bundesliga\n"
-            "🏆 DFB-Pokal, Champions League\n"
-            "🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League & mehr"
+            "🇩🇪 **Bundesliga** - 1. Liga\n"
+            "🇩🇪 **2. Bundesliga** - 2. Liga\n"
+            "🏆 **DFB-Pokal** - Pokal"
         ),
         inline=False
     )
