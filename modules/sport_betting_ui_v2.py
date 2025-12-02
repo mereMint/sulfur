@@ -15,7 +15,7 @@ from modules.sport_betting import (
     LEAGUES, MatchStatus, BetOutcome, BetType,
     format_match_time, get_league_emoji, get_league_name,
     format_odds_display, get_outcome_emoji,
-    get_upcoming_matches, get_recent_matches, get_match_from_db, place_bet,
+    get_upcoming_matches, get_match_from_db, place_bet,
     get_user_bets, get_user_betting_stats, get_betting_leaderboard,
     sync_league_matches, OddsCalculator, place_combo_bet, get_user_combo_bets
 )
@@ -301,7 +301,7 @@ def create_highlighted_matches_embed(matches: List[Dict], user_balance: int = 0)
             
             match_list.append(
                 f"{league_emoji} **{home_team}** vs **{away_team}**\n"
-                f"└ {status_text}"
+                f"   └ {status_text}"
             )
         
         embed.add_field(
