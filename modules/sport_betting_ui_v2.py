@@ -249,14 +249,13 @@ def create_advanced_bet_embed(match: Dict, bet_category: str = "over_under") -> 
 
 
 def create_highlighted_matches_embed(matches: List[Dict], user_balance: int = 0) -> discord.Embed:
-    """Create an embed showing highlighted recent matches."""
+    """Create an embed showing highlighted upcoming matches."""
     embed = discord.Embed(
         title="⚽ Sport Betting",
         description=(
             "**Willkommen bei Sport Betting!**\n"
             "Wette auf echte Fußballspiele und gewinne Coins!\n\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "**🔥 Aktuelle Spiele:**"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         ),
         color=discord.Color.green()
     )
@@ -302,17 +301,17 @@ def create_highlighted_matches_embed(matches: List[Dict], user_balance: int = 0)
             
             match_list.append(
                 f"{league_emoji} **{home_team}** vs **{away_team}**\n"
-                f"   └ {status_text}"
+                f"└ {status_text}"
             )
         
         embed.add_field(
-            name="📋 Aktuelle Spiele",
+            name="🔥 Kommende Spiele",
             value="\n\n".join(match_list) if match_list else "Keine Spiele gefunden",
             inline=False
         )
     else:
         embed.add_field(
-            name="📋 Aktuelle Spiele",
+            name="🔥 Kommende Spiele",
             value="*Keine Spiele gefunden. Nutze 'Spiele aktualisieren' um Daten zu laden.*",
             inline=False
         )
@@ -1294,7 +1293,7 @@ class ComboBetBuilderView(View):
     @ui.button(label="⬅️ Zurück zum Hauptmenü", style=discord.ButtonStyle.secondary, row=1)
     async def go_back(self, interaction: discord.Interaction, button: Button):
         # Get matches and balance for main view
-        matches = await get_recent_matches(self.db_helpers, None, limit=5)
+        matches = await get_upcoming_matches(self.db_helpers, None, limit=5)
         balance = await self.balance_check_func(interaction.user.id)
         
         embed = create_highlighted_matches_embed(matches, balance)
@@ -1549,8 +1548,8 @@ class SportBetsMainView(View):
             synced = await sync_league_matches(self.db_helpers, league_id)
             synced_total += synced
         
-        # Get fresh recent matches (including recently finished games)
-        matches = await get_recent_matches(self.db_helpers, None, limit=5)
+        # Get fresh upcoming matches (only scheduled future games)
+        matches = await get_upcoming_matches(self.db_helpers, None, limit=5)
         balance = await self.balance_check_func(interaction.user.id)
         
         embed = create_highlighted_matches_embed(matches, balance)

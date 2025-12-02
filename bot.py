@@ -13528,8 +13528,8 @@ async def sportbets_command(interaction: discord.Interaction):
         except Exception as e:
             logger.warning(f"Could not sync leagues: {e}")
         
-        # Get recent matches for highlighting (including recently finished games)
-        matches = await sport_betting.get_recent_matches(db_helpers, None, limit=5)
+        # Get upcoming matches for highlighting (only scheduled matches with future times)
+        matches = await sport_betting.get_upcoming_matches(db_helpers, None, limit=5)
         
         # Get user balance
         balance = await get_user_balance(user_id)
