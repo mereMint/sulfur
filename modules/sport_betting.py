@@ -1613,6 +1613,10 @@ async def get_recent_matches(db_helpers, league_id: Optional[str] = None, limit:
     Get recent matches including finished, live, and scheduled games.
     This provides a broader view of current activity in the leagues.
     Shows matches from the last 7 days (past and future from that point).
+    
+    IMPORTANT: When no league_id is specified, only returns matches from
+    free leagues (bl1, bl2, dfb) to avoid showing stale data from premium
+    leagues that may not be synced.
     """
     try:
         if not db_helpers.db_pool:
@@ -1633,12 +1637,16 @@ async def get_recent_matches(db_helpers, league_id: Optional[str] = None, limit:
                     LIMIT %s
                 """, (league_id, limit))
             else:
+                # Only get matches from free leagues (OpenLigaDB)
+                # This prevents showing stale data from premium leagues
+                free_leagues = ("bl1", "bl2", "dfb")
                 cursor.execute("""
                     SELECT * FROM sport_matches 
-                    WHERE match_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                    WHERE league_id IN (%s, %s, %s)
+                      AND match_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
                     ORDER BY match_time DESC
                     LIMIT %s
-                """, (limit,))
+                """, (*free_leagues, limit))
             
             return cursor.fetchall()
             
@@ -1648,6 +1656,96 @@ async def get_recent_matches(db_helpers, league_id: Optional[str] = None, limit:
             
     except Exception as e:
         logger.error(f"Error getting recent matches: {e}", exc_info=True)
+        return []
+
+
+async def get_upcoming_matches_all_leagues(db_helpers, matches_per_league: int = 2, total_limit: int = 10) -> List[Dict]:
+    """
+    Get upcoming matches from ALL available free leagues (bl1, bl2, dfb), ensuring diversity.
+    
+    This function fetches upcoming scheduled matches from each free league 
+    and returns a mixed list sorted by match time. This ensures the homepage
+    shows games from all leagues, not just the one with the most matches.
+    
+    Only includes matches from free leagues (OpenLigaDB) to avoid showing
+    stale data from premium leagues that may not be synced.
+    
+    Args:
+        db_helpers: Database helper instance
+        matches_per_league: Maximum matches to fetch per league (default: 2)
+        total_limit: Maximum total matches to return (default: 10)
+        
+    Returns:
+        List of upcoming matches from all free leagues, sorted by match_time
+    """
+    try:
+        if not db_helpers.db_pool:
+            return []
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return []
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            # Get matches from all free leagues only (OpenLigaDB)
+            free_leagues = ["bl1", "bl2", "dfb"]
+            all_matches = []
+            
+            for league_id in free_leagues:
+                # For each league, get the next few upcoming matches
+                cursor.execute("""
+                    SELECT * FROM sport_matches 
+                    WHERE status = 'scheduled' 
+                      AND league_id = %s 
+                      AND match_time > NOW()
+                    ORDER BY match_time ASC
+                    LIMIT %s
+                """, (league_id, matches_per_league))
+                
+                league_matches = cursor.fetchall()
+                all_matches.extend(league_matches)
+            
+            # If we don't have enough upcoming matches, also get live matches from free leagues
+            if len(all_matches) < total_limit:
+                # Get any live matches from free leagues only
+                cursor.execute("""
+                    SELECT * FROM sport_matches 
+                    WHERE status = 'live'
+                      AND league_id IN (%s, %s, %s)
+                    ORDER BY match_time DESC
+                    LIMIT %s
+                """, (*free_leagues, total_limit - len(all_matches)))
+                
+                live_matches = cursor.fetchall()
+                
+                # Add live matches at the beginning (they're most important)
+                all_matches = live_matches + all_matches
+            
+            # Sort all matches by match_time (closest first for upcoming, most recent for past)
+            # Prioritize: LIVE > upcoming (soonest) > finished (most recent)
+            def sort_key(match):
+                status = match.get("status", "scheduled")
+                match_time = match.get("match_time")
+                
+                if status == "live":
+                    return (0, match_time)  # Live matches first
+                elif status == "scheduled":
+                    return (1, match_time)  # Then upcoming, by time
+                else:
+                    return (2, match_time)  # Then finished
+            
+            all_matches.sort(key=sort_key)
+            
+            # Return up to total_limit matches
+            return all_matches[:total_limit]
+            
+        finally:
+            cursor.close()
+            conn.close()
+            
+    except Exception as e:
+        logger.error(f"Error getting upcoming matches from all leagues: {e}", exc_info=True)
         return []
 
 
