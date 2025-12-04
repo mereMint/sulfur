@@ -3435,6 +3435,10 @@ async def _get_motorsport_events_from_providers(sport_type: str = None, limit: i
             f1_sessions = await f1_provider.get_upcoming_sessions(num_sessions=limit)
             
             for session in f1_sessions:
+                # Safe string handling for short codes
+                session_type = session.get("session_type") or "Race"
+                country = session.get("country") or ""
+                
                 # Convert to database-like format
                 all_events.append({
                     "match_id": session.get("id", ""),
@@ -3442,8 +3446,8 @@ async def _get_motorsport_events_from_providers(sport_type: str = None, limit: i
                     "provider": "openf1",
                     "home_team": session.get("session_name", "Race"),
                     "away_team": session.get("circuit_name", "Unknown Circuit"),
-                    "home_team_short": session.get("session_type", "R")[:3] if session.get("session_type") else "RAC",
-                    "away_team_short": (session.get("country", "")[:3]).upper() if session.get("country") else "",
+                    "home_team_short": session_type[:3].upper(),
+                    "away_team_short": country[:3].upper(),
                     "home_score": 0,
                     "away_score": 0,
                     "status": session.get("status").value if hasattr(session.get("status"), "value") else "scheduled",
@@ -3460,6 +3464,9 @@ async def _get_motorsport_events_from_providers(sport_type: str = None, limit: i
             motogp_races = await motogp_provider.get_upcoming_races(num_races=limit)
             
             for race in motogp_races:
+                # Safe string handling for country code
+                country = race.get("country") or ""
+                
                 # Convert to database-like format
                 all_events.append({
                     "match_id": race.get("id", ""),
@@ -3468,7 +3475,7 @@ async def _get_motorsport_events_from_providers(sport_type: str = None, limit: i
                     "home_team": race.get("session_name", "Race"),
                     "away_team": race.get("circuit_name", "Unknown Circuit"),
                     "home_team_short": "GP",
-                    "away_team_short": (race.get("country", "")[:3]).upper() if race.get("country") else "",
+                    "away_team_short": country[:3].upper(),
                     "home_score": 0,
                     "away_score": 0,
                     "status": race.get("status").value if hasattr(race.get("status"), "value") else "scheduled",
@@ -3479,8 +3486,25 @@ async def _get_motorsport_events_from_providers(sport_type: str = None, limit: i
                     "odds_away": 3.0
                 })
         
-        # Sort by match time
-        all_events.sort(key=lambda x: x["match_time"] if x["match_time"] else datetime.max.replace(tzinfo=timezone.utc))
+        # Sort by match time with safe handling for None or non-datetime values
+        def get_sort_key(event):
+            match_time = event.get("match_time")
+            if match_time is None:
+                return datetime.max.replace(tzinfo=timezone.utc)
+            if isinstance(match_time, datetime):
+                # Ensure timezone-aware for consistent comparison
+                if match_time.tzinfo is None:
+                    return match_time.replace(tzinfo=timezone.utc)
+                return match_time
+            # Try to parse string datetime
+            if isinstance(match_time, str):
+                try:
+                    return datetime.fromisoformat(match_time.replace("Z", "+00:00"))
+                except (ValueError, TypeError):
+                    pass
+            return datetime.max.replace(tzinfo=timezone.utc)
+        
+        all_events.sort(key=get_sort_key)
         
     except Exception as e:
         logger.error(f"Error fetching events from providers: {e}", exc_info=True)
