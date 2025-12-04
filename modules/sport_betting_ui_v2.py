@@ -21,7 +21,8 @@ from modules.sport_betting import (
     get_upcoming_motorsport_events, get_all_upcoming_events,
     get_match_from_db, place_bet,
     get_user_bets, get_user_betting_stats, get_betting_leaderboard,
-    sync_league_matches, OddsCalculator, place_combo_bet, get_user_combo_bets
+    sync_league_matches, OddsCalculator, place_combo_bet, get_user_combo_bets,
+    APIProviderFactory
 )
 
 
@@ -1900,11 +1901,18 @@ def create_motorsport_bet_embed(event: Dict, sport_type: str) -> discord.Embed:
 
 
 class MotorsportBetModal(Modal):
-    """Modal for motorsport betting."""
+    """Modal for motorsport betting with driver/rider selection."""
     
     def __init__(self, event: Dict, bet_type: str, description: str, odds: float,
-                 db_helpers, balance_check_func, balance_deduct_func=None):
-        super().__init__(title=f"🏁 Wette: {description[:40]}")
+                 db_helpers, balance_check_func, balance_deduct_func=None,
+                 driver_name: str = None, driver_number: int = None):
+        # Include both driver name and bet type in title for clarity
+        if driver_name:
+            title_text = f"{driver_name[:15]} - {description[:15]}"
+        else:
+            title_text = description[:40]
+        super().__init__(title=f"🏁 {title_text}")
+        
         self.event = event
         self.bet_type = bet_type
         self.description = description
@@ -1912,6 +1920,8 @@ class MotorsportBetModal(Modal):
         self.db_helpers = db_helpers
         self.balance_check_func = balance_check_func
         self.balance_deduct_func = balance_deduct_func
+        self.driver_name = driver_name
+        self.driver_number = driver_number
         
         prob = odds_to_probability(odds)
         
@@ -1941,14 +1951,22 @@ class MotorsportBetModal(Modal):
                 )
                 return
             
-            # Place the bet
+            # Place the bet with driver info in the outcome
             event_id = self.event.get("match_id", self.event.get("id"))
+            
+            # Build outcome description that includes driver info for database storage
+            # Format: "driver_<number>_<bet_type>" for bets with driver selection
+            if self.driver_name and self.driver_number is not None:
+                bet_outcome = f"driver_{self.driver_number}_{self.bet_type}"
+            else:
+                bet_outcome = self.bet_type
+            
             success, message = await place_bet(
                 self.db_helpers,
                 user_id,
                 event_id,
                 self.bet_type,
-                self.description,
+                bet_outcome,
                 amount,
                 self.odds
             )
@@ -1966,6 +1984,8 @@ class MotorsportBetModal(Modal):
                     color=discord.Color.green()
                 )
                 embed.add_field(name="🏁 Rennen", value=f"{session_name} @ {circuit}", inline=False)
+                if self.driver_name:
+                    embed.add_field(name="🏎️ Fahrer/Fahrerin", value=self.driver_name, inline=True)
                 embed.add_field(name="🎯 Wette", value=self.description, inline=True)
                 embed.add_field(name="📊 Quote", value=f"{self.odds:.2f}x", inline=True)
                 embed.add_field(name="💰 Einsatz", value=f"{amount} 🪙", inline=True)
@@ -1980,7 +2000,7 @@ class MotorsportBetModal(Modal):
 
 
 class MotorsportBetView(View):
-    """View for placing motorsport bets."""
+    """View for placing motorsport bets - shows bet type selection."""
     
     def __init__(self, event: Dict, db_helpers, balance_check_func, 
                  balance_deduct_func=None, sport_type: str = "f1", timeout: float = 300.0):
@@ -2003,37 +2023,80 @@ class MotorsportBetView(View):
             "top_10": 1.4        # Top 10 finish - most likely
         }
     
+    async def _show_driver_selection(self, interaction: discord.Interaction, bet_type: str, 
+                                     description: str, odds: float):
+        """Show driver/rider selection view for the chosen bet type."""
+        await interaction.response.defer()
+        
+        # Get drivers/riders from the appropriate provider
+        try:
+            if self.sport_type == "f1":
+                provider = APIProviderFactory.get_provider("openf1")
+                participants = await provider.get_drivers()
+            else:  # motogp
+                provider = APIProviderFactory.get_provider("motogp")
+                participants = await provider.get_riders()
+            
+            if not participants:
+                await interaction.followup.send(
+                    "❌ Keine Fahrer verfügbar. Bitte versuche es später erneut.",
+                    ephemeral=True
+                )
+                return
+            
+            # Create the driver selection view
+            view = DriverSelectView(
+                event=self.event,
+                participants=participants,
+                bet_type=bet_type,
+                description=description,
+                odds=odds,
+                db_helpers=self.db_helpers,
+                balance_check_func=self.balance_check_func,
+                balance_deduct_func=self.balance_deduct_func,
+                sport_type=self.sport_type
+            )
+            
+            embed = create_driver_select_embed(
+                self.event, participants, bet_type, description, odds, self.sport_type
+            )
+            
+            await interaction.followup.edit_message(
+                message_id=interaction.message.id,
+                embed=embed,
+                view=view
+            )
+            
+        except Exception as e:
+            logger.error(f"Error getting drivers/riders: {e}", exc_info=True)
+            await interaction.followup.send(
+                f"❌ Fehler beim Laden der Fahrer: {str(e)}",
+                ephemeral=True
+            )
+    
     @ui.button(label="🏆 Rennsieger (6.00x)", style=discord.ButtonStyle.primary, row=0)
     async def bet_race_winner(self, interaction: discord.Interaction, button: Button):
-        modal = MotorsportBetModal(
-            self.event, "race_winner", "Rennsieger", self.odds["race_winner"],
-            self.db_helpers, self.balance_check_func, self.balance_deduct_func
+        await self._show_driver_selection(
+            interaction, "race_winner", "Rennsieger", self.odds["race_winner"]
         )
-        await interaction.response.send_modal(modal)
     
     @ui.button(label="🥇 Podium (2.50x)", style=discord.ButtonStyle.success, row=0)
     async def bet_podium(self, interaction: discord.Interaction, button: Button):
-        modal = MotorsportBetModal(
-            self.event, "podium_finish", "Podiumsplatz", self.odds["podium"],
-            self.db_helpers, self.balance_check_func, self.balance_deduct_func
+        await self._show_driver_selection(
+            interaction, "podium_finish", "Podiumsplatz", self.odds["podium"]
         )
-        await interaction.response.send_modal(modal)
     
     @ui.button(label="🏅 Top 5 (1.80x)", style=discord.ButtonStyle.secondary, row=1)
     async def bet_top_5(self, interaction: discord.Interaction, button: Button):
-        modal = MotorsportBetModal(
-            self.event, "top_5_finish", "Top 5 Platzierung", self.odds["top_5"],
-            self.db_helpers, self.balance_check_func, self.balance_deduct_func
+        await self._show_driver_selection(
+            interaction, "top_5_finish", "Top 5 Platzierung", self.odds["top_5"]
         )
-        await interaction.response.send_modal(modal)
     
     @ui.button(label="📊 Top 10 (1.40x)", style=discord.ButtonStyle.secondary, row=1)
     async def bet_top_10(self, interaction: discord.Interaction, button: Button):
-        modal = MotorsportBetModal(
-            self.event, "top_10_finish", "Top 10 Platzierung", self.odds["top_10"],
-            self.db_helpers, self.balance_check_func, self.balance_deduct_func
+        await self._show_driver_selection(
+            interaction, "top_10_finish", "Top 10 Platzierung", self.odds["top_10"]
         )
-        await interaction.response.send_modal(modal)
     
     @ui.button(label="⬅️ Zurück", style=discord.ButtonStyle.danger, row=2)
     async def go_back(self, interaction: discord.Interaction, button: Button):
@@ -2041,6 +2104,164 @@ class MotorsportBetView(View):
         embed = create_motorsport_events_embed(events, self.sport_type)
         view = MotorsportEventSelectView(
             events, self.db_helpers, self.balance_check_func, 
+            self.balance_deduct_func, self.sport_type
+        )
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+def create_driver_select_embed(event: Dict, participants: List[Dict], bet_type: str,
+                               description: str, odds: float, sport_type: str) -> discord.Embed:
+    """Create an embed for driver/rider selection."""
+    session_name = event.get("home_team", "Race")
+    circuit = event.get("away_team", "Unknown")
+    
+    if sport_type == "f1":
+        title = f"🏎️ {description} - Fahrer wählen"
+        color = discord.Color.red()
+        emoji = "🏎️"
+    else:
+        title = f"🏍️ {description} - Fahrer wählen"
+        color = discord.Color.orange()
+        emoji = "🏍️"
+    
+    embed = discord.Embed(
+        title=title,
+        description=f"**{session_name}** @ {circuit}\n\n"
+                    f"Wähle einen Fahrer aus dem Dropdown für deine **{description}** Wette.\n"
+                    f"Quote: **{odds:.2f}x**",
+        color=color
+    )
+    
+    # Show first few participants as preview
+    preview_text = ""
+    for p in participants[:5]:
+        name = p.get("full_name", "Unknown")
+        team = p.get("team_name", "Unknown Team")
+        number = p.get("driver_number") or p.get("rider_number", "?")
+        preview_text += f"{emoji} **#{number}** {name} - {team}\n"
+    
+    if len(participants) > 5:
+        preview_text += f"\n*...und {len(participants) - 5} weitere Fahrer*"
+    
+    embed.add_field(name="👥 Verfügbare Fahrer", value=preview_text or "Keine Fahrer verfügbar", inline=False)
+    
+    embed.set_footer(text="Wähle einen Fahrer aus dem Dropdown unten!")
+    return embed
+
+
+class DriverSelectDropdown(Select):
+    """Dropdown for selecting a driver/rider for motorsport betting."""
+    
+    def __init__(self, event: Dict, participants: List[Dict], bet_type: str,
+                 description: str, odds: float, db_helpers, balance_check_func,
+                 balance_deduct_func=None, sport_type: str = "f1"):
+        self.event = event
+        self.participants_dict = {}
+        self.bet_type = bet_type
+        self.description = description
+        self.odds = odds
+        self.db_helpers = db_helpers
+        self.balance_check_func = balance_check_func
+        self.balance_deduct_func = balance_deduct_func
+        self.sport_type = sport_type
+        
+        emoji = "🏎️" if sport_type == "f1" else "🏍️"
+        
+        options = []
+        for p in participants[:25]:  # Discord limit is 25 options
+            # Handle both F1 (driver_number) and MotoGP (rider_number) formats
+            number = p.get("driver_number") or p.get("rider_number")
+            if number is None:
+                continue  # Skip participants without a valid number
+            
+            name = p.get("full_name", "Unknown Driver")
+            team = p.get("team_name", "Unknown Team")
+            
+            # Store participant by number for lookup
+            self.participants_dict[str(number)] = p
+            
+            options.append(discord.SelectOption(
+                label=f"#{number} {name}"[:100],
+                value=str(number),
+                description=team[:100] if team else "Unknown Team",
+                emoji=emoji
+            ))
+        
+        if not options:
+            options = [discord.SelectOption(label="Keine Fahrer verfügbar", value="none")]
+        
+        super().__init__(
+            placeholder=f"{emoji} Fahrer auswählen...",
+            options=options,
+            min_values=1,
+            max_values=1
+        )
+    
+    async def callback(self, interaction: discord.Interaction):
+        if self.values[0] == "none":
+            await interaction.response.send_message("❌ Keine Fahrer verfügbar!", ephemeral=True)
+            return
+        
+        participant = self.participants_dict.get(self.values[0])
+        if not participant:
+            await interaction.response.send_message("❌ Fahrer nicht gefunden!", ephemeral=True)
+            return
+        
+        # Get driver info - the number should be available since we filtered None values when building options
+        driver_number = participant.get("driver_number") or participant.get("rider_number")
+        driver_name = participant.get("full_name", "Unknown")
+        
+        if driver_number is None:
+            await interaction.response.send_message("❌ Fahrernummer nicht verfügbar!", ephemeral=True)
+            return
+        
+        # Show the bet modal with the selected driver
+        modal = MotorsportBetModal(
+            event=self.event,
+            bet_type=self.bet_type,
+            description=self.description,
+            odds=self.odds,
+            db_helpers=self.db_helpers,
+            balance_check_func=self.balance_check_func,
+            balance_deduct_func=self.balance_deduct_func,
+            driver_name=driver_name,
+            driver_number=driver_number
+        )
+        await interaction.response.send_modal(modal)
+
+
+class DriverSelectView(View):
+    """View containing the driver selection dropdown."""
+    
+    def __init__(self, event: Dict, participants: List[Dict], bet_type: str,
+                 description: str, odds: float, db_helpers, balance_check_func,
+                 balance_deduct_func=None, sport_type: str = "f1", timeout: float = 300.0):
+        super().__init__(timeout=timeout)
+        self.event = event
+        self.db_helpers = db_helpers
+        self.balance_check_func = balance_check_func
+        self.balance_deduct_func = balance_deduct_func
+        self.sport_type = sport_type
+        
+        # Add the driver select dropdown
+        self.add_item(DriverSelectDropdown(
+            event=event,
+            participants=participants,
+            bet_type=bet_type,
+            description=description,
+            odds=odds,
+            db_helpers=db_helpers,
+            balance_check_func=balance_check_func,
+            balance_deduct_func=balance_deduct_func,
+            sport_type=sport_type
+        ))
+    
+    @ui.button(label="⬅️ Zurück zur Wettauswahl", style=discord.ButtonStyle.secondary, row=1)
+    async def go_back(self, interaction: discord.Interaction, button: Button):
+        """Go back to bet type selection."""
+        embed = create_motorsport_bet_embed(self.event, self.sport_type)
+        view = MotorsportBetView(
+            self.event, self.db_helpers, self.balance_check_func,
             self.balance_deduct_func, self.sport_type
         )
         await interaction.response.edit_message(embed=embed, view=view)
