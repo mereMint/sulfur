@@ -99,8 +99,15 @@ _api_cache = APICache(default_ttl=300)  # 5 minute default TTL
 # ENUMS AND CONSTANTS
 # ============================================================================
 
+class SportType(Enum):
+    """Types of sports supported."""
+    FOOTBALL = "football"
+    F1 = "f1"
+    MOTOGP = "motogp"
+
+
 class MatchStatus(Enum):
-    """Status of a football match."""
+    """Status of a match/race/session."""
     SCHEDULED = "scheduled"
     LIVE = "live"
     FINISHED = "finished"
@@ -110,6 +117,7 @@ class MatchStatus(Enum):
 
 class BetType(Enum):
     """Types of bets available."""
+    # Football bet types
     MATCH_WINNER = "winner"  # 1X2 - Home/Draw/Away
     OVER_UNDER_2_5 = "over_under_2.5"  # Over/Under 2.5 goals
     OVER_UNDER_1_5 = "over_under_1.5"  # Over/Under 1.5 goals
@@ -118,6 +126,14 @@ class BetType(Enum):
     GOAL_DIFF_1 = "goal_diff_1"  # Win by 1+ goal difference
     GOAL_DIFF_2 = "goal_diff_2"  # Win by 2+ goal difference
     GOAL_DIFF_3 = "goal_diff_3"  # Win by 3+ goal difference
+    # Racing bet types (F1/MotoGP)
+    RACE_WINNER = "race_winner"  # Who wins the race
+    PODIUM_FINISH = "podium_finish"  # Top 3 finish
+    TOP_5_FINISH = "top_5_finish"  # Top 5 finish
+    TOP_10_FINISH = "top_10_finish"  # Top 10 finish
+    FASTEST_LAP = "fastest_lap"  # Driver with fastest lap
+    POLE_POSITION = "pole_position"  # Qualifying winner
+    HEAD_TO_HEAD = "head_to_head"  # Driver vs Driver
 
 
 class BetOutcome(Enum):
@@ -135,11 +151,19 @@ class BetOutcome(Enum):
     AWAY_DIFF_2 = "away_diff_2"  # Away wins by 2+ goals
     HOME_DIFF_3 = "home_diff_3"  # Home wins by 3+ goals
     AWAY_DIFF_3 = "away_diff_3"  # Away wins by 3+ goals
+    # Racing outcomes
+    DRIVER_WIN = "driver_win"  # Specific driver wins
+    DRIVER_PODIUM = "driver_podium"  # Specific driver on podium
+    DRIVER_TOP5 = "driver_top5"  # Specific driver in top 5
+    DRIVER_TOP10 = "driver_top10"  # Specific driver in top 10
 
 
 # Free leagues that don't require an API key (OpenLigaDB)
 # These are the leagues that will be synced and displayed by default
 FREE_LEAGUES = ["bl1", "bl2", "dfb", "ucl", "uel"]
+
+# Free motorsport events (OpenF1 is free, MotoGP uses free endpoints)
+FREE_MOTORSPORT = ["f1", "motogp"]
 
 # League configurations with display info
 LEAGUES = {
@@ -148,63 +172,90 @@ LEAGUES = {
         "country": "Germany",
         "emoji": "🇩🇪",
         "api_id": "bl1",
-        "provider": "openligadb"
+        "provider": "openligadb",
+        "sport": SportType.FOOTBALL
     },
     "bl2": {
         "name": "2. Bundesliga",
         "country": "Germany",
         "emoji": "🇩🇪",
         "api_id": "bl2",
-        "provider": "openligadb"
+        "provider": "openligadb",
+        "sport": SportType.FOOTBALL
     },
     "dfb": {
         "name": "DFB-Pokal",
         "country": "Germany",
         "emoji": "🏆",
         "api_id": "dfb",
-        "provider": "openligadb"
+        "provider": "openligadb",
+        "sport": SportType.FOOTBALL
     },
     "ucl": {
         "name": "Champions League",
         "country": "Europe",
         "emoji": "🏆",
         "api_id": "ucl",
-        "provider": "openligadb"
+        "provider": "openligadb",
+        "sport": SportType.FOOTBALL
     },
     "uel": {
         "name": "Europa League",
         "country": "Europe",
         "emoji": "🏆",
         "api_id": "uel",
-        "provider": "openligadb"
+        "provider": "openligadb",
+        "sport": SportType.FOOTBALL
     },
     "pl": {
         "name": "Premier League",
         "country": "England",
         "emoji": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
         "api_id": "PL",
-        "provider": "football_data"
+        "provider": "football_data",
+        "sport": SportType.FOOTBALL
     },
     "la_liga": {
         "name": "La Liga",
         "country": "Spain",
         "emoji": "🇪🇸",
         "api_id": "PD",
-        "provider": "football_data"
+        "provider": "football_data",
+        "sport": SportType.FOOTBALL
     },
     "serie_a": {
         "name": "Serie A",
         "country": "Italy",
         "emoji": "🇮🇹",
         "api_id": "SA",
-        "provider": "football_data"
+        "provider": "football_data",
+        "sport": SportType.FOOTBALL
     },
     "world_cup": {
         "name": "FIFA World Cup",
         "country": "International",
         "emoji": "🏆",
         "api_id": "WC",
-        "provider": "football_data"
+        "provider": "football_data",
+        "sport": SportType.FOOTBALL
+    },
+    # F1 Racing
+    "f1": {
+        "name": "Formula 1",
+        "country": "International",
+        "emoji": "🏎️",
+        "api_id": "f1",
+        "provider": "openf1",
+        "sport": SportType.F1
+    },
+    # MotoGP Racing
+    "motogp": {
+        "name": "MotoGP",
+        "country": "International",
+        "emoji": "🏍️",
+        "api_id": "motogp",
+        "provider": "motogp",
+        "sport": SportType.MOTOGP
     }
 }
 
@@ -1173,6 +1224,377 @@ class FootballDataProvider(FootballAPIProvider):
 
 
 # ============================================================================
+# OPENF1 PROVIDER (FREE, NO API KEY REQUIRED)
+# ============================================================================
+
+class OpenF1Provider(FootballAPIProvider):
+    """
+    OpenF1 API provider - completely free, no API key required.
+    Provides real-time Formula 1 data including sessions, drivers, and results.
+    
+    API Documentation: https://openf1.org/
+    
+    Available Endpoints:
+        - /sessions - Get session information (races, qualifying, practice)
+        - /drivers - Get driver information
+        - /meetings - Get meeting (race weekend) information
+        - /position - Get position data during sessions
+        - /laps - Get lap time data
+        - /car_data - Get real-time car telemetry
+    """
+    
+    BASE_URL = "https://api.openf1.org/v1"
+    
+    CACHE_TTL_SESSIONS = 1800     # 30 minutes for session data
+    CACHE_TTL_DRIVERS = 86400    # 24 hours for driver data (rarely changes)
+    CACHE_TTL_RESULTS = 300      # 5 minutes for results
+    
+    MAX_RETRIES = 3
+    RETRY_DELAY = 1.0
+    REQUEST_DELAY = 0.5
+    
+    def get_provider_name(self) -> str:
+        return "OpenF1"
+    
+    def _get_season(self) -> int:
+        """Get the current F1 season year."""
+        return datetime.now().year
+    
+    async def _make_api_request(self, url: str, cache_key: Optional[str] = None,
+                                 cache_ttl: Optional[int] = None) -> Optional[Any]:
+        """Make an API request with caching and retry logic."""
+        if cache_key:
+            cached = _api_cache.get(cache_key)
+            if cached is not None:
+                logger.debug(f"Cache hit for {cache_key}")
+                return cached
+        
+        session = await self.get_session()
+        last_error = None
+        
+        for attempt in range(self.MAX_RETRIES):
+            try:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        if cache_key and data:
+                            _api_cache.set(cache_key, data, cache_ttl)
+                        return data
+                    elif response.status == 404:
+                        logger.debug(f"OpenF1 404 for URL: {url}")
+                        return None
+                    elif response.status == 429:
+                        logger.warning(f"OpenF1 rate limit hit, waiting...")
+                        await asyncio.sleep(self.RETRY_DELAY * (attempt + 2))
+                        continue
+                    else:
+                        logger.warning(f"OpenF1 API error {response.status}")
+                        last_error = f"HTTP {response.status}"
+                        
+            except asyncio.TimeoutError:
+                last_error = "Timeout"
+            except aiohttp.ClientError as e:
+                last_error = str(e)
+            except Exception as e:
+                logger.error(f"OpenF1 unexpected error: {e}", exc_info=True)
+                last_error = str(e)
+                break
+            
+            if attempt < self.MAX_RETRIES - 1:
+                await asyncio.sleep(self.RETRY_DELAY * (attempt + 1))
+        
+        logger.error(f"OpenF1 API failed: {last_error}")
+        return None
+    
+    async def get_upcoming_sessions(self, num_sessions: int = 5) -> List[Dict[str, Any]]:
+        """Get upcoming F1 race sessions."""
+        year = self._get_season()
+        url = f"{self.BASE_URL}/sessions?year={year}"
+        cache_key = f"f1_sessions_{year}"
+        
+        data = await self._make_api_request(url, cache_key, self.CACHE_TTL_SESSIONS)
+        
+        if not data:
+            return []
+        
+        now = datetime.now(timezone.utc)
+        sessions = []
+        
+        for session in data:
+            try:
+                session_start = session.get("date_start")
+                if not session_start:
+                    continue
+                
+                session_time = datetime.fromisoformat(session_start.replace("Z", "+00:00"))
+                
+                # Only include future sessions or recently finished ones (last 4 hours)
+                if session_time > now - timedelta(hours=4):
+                    status = MatchStatus.SCHEDULED
+                    if session_time <= now:
+                        session_end = session.get("date_end")
+                        if session_end:
+                            end_time = datetime.fromisoformat(session_end.replace("Z", "+00:00"))
+                            if end_time < now:
+                                status = MatchStatus.FINISHED
+                            else:
+                                status = MatchStatus.LIVE
+                        else:
+                            status = MatchStatus.LIVE if session_time <= now <= session_time + timedelta(hours=2) else MatchStatus.FINISHED
+                    
+                    sessions.append({
+                        "id": f"f1_{session.get('session_key', session.get('meeting_key', 'unknown'))}",
+                        "session_key": session.get("session_key"),
+                        "meeting_key": session.get("meeting_key"),
+                        "session_name": session.get("session_name", "Race"),
+                        "session_type": session.get("session_type", "Race"),
+                        "circuit_name": session.get("circuit_short_name", session.get("location", "Unknown")),
+                        "country": session.get("country_name", "Unknown"),
+                        "match_time": session_time,
+                        "status": status,
+                        "league_id": "f1",
+                        "provider": "openf1",
+                        "sport_type": SportType.F1.value
+                    })
+                    
+            except Exception as e:
+                logger.error(f"Error parsing F1 session: {e}")
+                continue
+        
+        # Sort by date and take upcoming sessions
+        sessions.sort(key=lambda x: x["match_time"])
+        return sessions[:num_sessions]
+    
+    async def get_drivers(self, session_key: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Get F1 drivers for current season or specific session."""
+        if session_key:
+            url = f"{self.BASE_URL}/drivers?session_key={session_key}"
+            cache_key = f"f1_drivers_session_{session_key}"
+        else:
+            year = self._get_season()
+            url = f"{self.BASE_URL}/drivers?session_key=latest"
+            cache_key = f"f1_drivers_{year}"
+        
+        data = await self._make_api_request(url, cache_key, self.CACHE_TTL_DRIVERS)
+        
+        if not data:
+            return []
+        
+        drivers = []
+        seen_numbers = set()
+        
+        for driver in data:
+            driver_number = driver.get("driver_number")
+            if driver_number and driver_number not in seen_numbers:
+                seen_numbers.add(driver_number)
+                drivers.append({
+                    "driver_number": driver_number,
+                    "full_name": driver.get("full_name", f"Driver {driver_number}"),
+                    "name_acronym": driver.get("name_acronym", ""),
+                    "team_name": driver.get("team_name", "Unknown"),
+                    "team_colour": driver.get("team_colour", "000000"),
+                    "country_code": driver.get("country_code", "")
+                })
+        
+        return sorted(drivers, key=lambda x: x["driver_number"])
+    
+    async def get_session_results(self, session_key: int) -> List[Dict[str, Any]]:
+        """Get results for a specific session."""
+        url = f"{self.BASE_URL}/position?session_key={session_key}"
+        cache_key = f"f1_results_{session_key}"
+        
+        data = await self._make_api_request(url, cache_key, self.CACHE_TTL_RESULTS)
+        
+        if not data:
+            return []
+        
+        # Get latest position for each driver
+        driver_positions = {}
+        for pos in data:
+            driver_num = pos.get("driver_number")
+            if driver_num:
+                driver_positions[driver_num] = pos.get("position", 0)
+        
+        results = []
+        for driver_num, position in sorted(driver_positions.items(), key=lambda x: x[1]):
+            results.append({
+                "driver_number": driver_num,
+                "position": position
+            })
+        
+        return results
+    
+    async def get_matches(self, league_id: str, matchday: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Get F1 sessions (implements abstract method)."""
+        return await self.get_upcoming_sessions(num_sessions=10)
+    
+    async def get_match(self, match_id: str) -> Optional[Dict[str, Any]]:
+        """Get a specific session by ID."""
+        sessions = await self.get_upcoming_sessions(num_sessions=20)
+        for session in sessions:
+            if session["id"] == match_id:
+                return session
+        return None
+    
+    async def get_current_matchday(self, league_id: str) -> int:
+        """Get current race round (matchday equivalent)."""
+        sessions = await self.get_upcoming_sessions(num_sessions=1)
+        if sessions:
+            return sessions[0].get("meeting_key", 1)
+        return 1
+
+
+# ============================================================================
+# MOTOGP PROVIDER (PUBLIC DATA)
+# ============================================================================
+
+class MotoGPProvider(FootballAPIProvider):
+    """
+    MotoGP data provider using public MotoGP timing data.
+    Note: MotoGP doesn't have an official free API, so we use available public data.
+    
+    This implementation provides a structured way to handle MotoGP data
+    when it becomes available through various sources.
+    """
+    
+    # MotoGP official timing data endpoint (limited access)
+    BASE_URL = "https://api.motogp.pulselive.com"
+    
+    CACHE_TTL_CALENDAR = 3600    # 1 hour for calendar
+    CACHE_TTL_RESULTS = 300      # 5 minutes for results
+    
+    MAX_RETRIES = 2
+    RETRY_DELAY = 1.0
+    
+    # 2025 MotoGP Calendar (manually maintained - update for 2026 season)
+    # TODO: Update this calendar when 2026 schedule is announced (typically in late 2025)
+    # Source: https://www.motogp.com/en/calendar
+    MOTOGP_CALENDAR = [
+        {"name": "Qatar GP", "circuit": "Losail", "country": "Qatar", "date": "2025-03-02"},
+        {"name": "Portuguese GP", "circuit": "Portimao", "country": "Portugal", "date": "2025-03-16"},
+        {"name": "Americas GP", "circuit": "COTA", "country": "USA", "date": "2025-04-13"},
+        {"name": "Spanish GP", "circuit": "Jerez", "country": "Spain", "date": "2025-04-27"},
+        {"name": "French GP", "circuit": "Le Mans", "country": "France", "date": "2025-05-11"},
+        {"name": "British GP", "circuit": "Silverstone", "country": "UK", "date": "2025-05-25"},
+        {"name": "Italian GP", "circuit": "Mugello", "country": "Italy", "date": "2025-06-01"},
+        {"name": "Dutch GP", "circuit": "Assen", "country": "Netherlands", "date": "2025-06-29"},
+        {"name": "German GP", "circuit": "Sachsenring", "country": "Germany", "date": "2025-07-13"},
+        {"name": "Austrian GP", "circuit": "Red Bull Ring", "country": "Austria", "date": "2025-08-17"},
+        {"name": "Aragon GP", "circuit": "Aragon", "country": "Spain", "date": "2025-08-31"},
+        {"name": "San Marino GP", "circuit": "Misano", "country": "San Marino", "date": "2025-09-07"},
+        {"name": "Japanese GP", "circuit": "Motegi", "country": "Japan", "date": "2025-10-05"},
+        {"name": "Australian GP", "circuit": "Phillip Island", "country": "Australia", "date": "2025-10-19"},
+        {"name": "Thai GP", "circuit": "Buriram", "country": "Thailand", "date": "2025-10-26"},
+        {"name": "Malaysian GP", "circuit": "Sepang", "country": "Malaysia", "date": "2025-11-02"},
+        {"name": "Valencia GP", "circuit": "Valencia", "country": "Spain", "date": "2025-11-16"},
+    ]
+    
+    # Current MotoGP riders (2024/2025 grid)
+    MOTOGP_RIDERS = [
+        {"number": 1, "name": "Francesco Bagnaia", "team": "Ducati Lenovo Team", "country": "Italy"},
+        {"number": 93, "name": "Marc Marquez", "team": "Ducati Lenovo Team", "country": "Spain"},
+        {"number": 89, "name": "Jorge Martin", "team": "Aprilia Racing", "country": "Spain"},
+        {"number": 21, "name": "Franco Morbidelli", "team": "VR46 Racing Team", "country": "Italy"},
+        {"number": 23, "name": "Enea Bastianini", "team": "KTM Factory Racing", "country": "Italy"},
+        {"number": 33, "name": "Brad Binder", "team": "KTM Factory Racing", "country": "South Africa"},
+        {"number": 41, "name": "Aleix Espargaro", "team": "Aprilia Racing", "country": "Spain"},
+        {"number": 72, "name": "Marco Bezzecchi", "team": "Aprilia Racing", "country": "Italy"},
+        {"number": 10, "name": "Luca Marini", "team": "Honda Repsol Team", "country": "Italy"},
+        {"number": 43, "name": "Jack Miller", "team": "Pramac Racing", "country": "Australia"},
+    ]
+    
+    def get_provider_name(self) -> str:
+        return "MotoGP"
+    
+    async def _make_api_request(self, url: str, cache_key: Optional[str] = None,
+                                 cache_ttl: Optional[int] = None) -> Optional[Any]:
+        """Make an API request with caching.
+        
+        Note: MotoGP does not have a free public API like OpenF1.
+        This method intentionally returns None to fall back to calendar data.
+        The provider uses static calendar data which is updated annually.
+        """
+        if cache_key:
+            cached = _api_cache.get(cache_key)
+            if cached is not None:
+                return cached
+        
+        # MotoGP API has restricted access - using static calendar data instead
+        logger.debug("MotoGP API not available, using static calendar data")
+        return None
+    
+    async def get_upcoming_races(self, num_races: int = 5) -> List[Dict[str, Any]]:
+        """Get upcoming MotoGP races from calendar."""
+        now = datetime.now(timezone.utc)
+        races = []
+        
+        for i, race in enumerate(self.MOTOGP_CALENDAR):
+            try:
+                race_date = datetime.strptime(race["date"], "%Y-%m-%d").replace(
+                    hour=14, minute=0, tzinfo=timezone.utc
+                )
+                
+                # Include upcoming races and recently finished ones
+                if race_date > now - timedelta(days=1):
+                    status = MatchStatus.SCHEDULED
+                    if race_date.date() == now.date():
+                        status = MatchStatus.LIVE
+                    elif race_date < now:
+                        status = MatchStatus.FINISHED
+                    
+                    races.append({
+                        "id": f"motogp_{race['name'].lower().replace(' ', '_')}_{race_date.year}",
+                        "session_name": race["name"],
+                        "session_type": "Race",
+                        "circuit_name": race["circuit"],
+                        "country": race["country"],
+                        "match_time": race_date,
+                        "status": status,
+                        "round": i + 1,
+                        "league_id": "motogp",
+                        "provider": "motogp",
+                        "sport_type": SportType.MOTOGP.value
+                    })
+                    
+            except Exception as e:
+                logger.error(f"Error parsing MotoGP race: {e}")
+                continue
+        
+        return races[:num_races]
+    
+    async def get_riders(self) -> List[Dict[str, Any]]:
+        """Get current MotoGP riders."""
+        return [
+            {
+                "rider_number": rider["number"],
+                "full_name": rider["name"],
+                "team_name": rider["team"],
+                "country": rider["country"]
+            }
+            for rider in self.MOTOGP_RIDERS
+        ]
+    
+    async def get_matches(self, league_id: str, matchday: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Get MotoGP races (implements abstract method)."""
+        return await self.get_upcoming_races(num_races=10)
+    
+    async def get_match(self, match_id: str) -> Optional[Dict[str, Any]]:
+        """Get a specific race by ID."""
+        races = await self.get_upcoming_races(num_races=20)
+        for race in races:
+            if race["id"] == match_id:
+                return race
+        return None
+    
+    async def get_current_matchday(self, league_id: str) -> int:
+        """Get current race round."""
+        races = await self.get_upcoming_races(num_races=1)
+        if races:
+            return races[0].get("round", 1)
+        return 1
+
+
+# ============================================================================
 # API PROVIDER FACTORY
 # ============================================================================
 
@@ -1200,6 +1622,10 @@ class APIProviderFactory:
                 cls._providers[provider_name] = OpenLigaDBProvider()
             elif provider_name == "football_data":
                 cls._providers[provider_name] = FootballDataProvider(api_key)
+            elif provider_name == "openf1":
+                cls._providers[provider_name] = OpenF1Provider()
+            elif provider_name == "motogp":
+                cls._providers[provider_name] = MotoGPProvider()
             else:
                 # Default to OpenLigaDB (free, no key required)
                 cls._providers[provider_name] = OpenLigaDBProvider()
@@ -2602,18 +3028,18 @@ async def check_bet_outcome(bet_type: str, bet_outcome: str, home_score: int, aw
 
 async def sync_league_matches(db_helpers, league_id: str, num_matchdays: int = 3) -> int:
     """
-    Sync matches from API to database for a league.
+    Sync matches/races from API to database for a league or motorsport series.
     
-    For OpenLigaDB leagues, fetches current and upcoming matchdays to ensure
-    there are always upcoming matches available for betting.
+    For OpenLigaDB leagues, fetches current and upcoming matchdays.
+    For F1/MotoGP, fetches upcoming race sessions.
     
     Args:
         db_helpers: Database helper instance
-        league_id: The league identifier
+        league_id: The league/series identifier
         num_matchdays: Number of matchdays to fetch for OpenLigaDB (default: 3)
         
     Returns:
-        Number of matches synced.
+        Number of events synced.
     """
     league_config = LEAGUES.get(league_id)
     if not league_config:
@@ -2623,25 +3049,72 @@ async def sync_league_matches(db_helpers, league_id: str, num_matchdays: int = 3
     provider = APIProviderFactory.get_provider(league_config["provider"])
     
     try:
-        # Use get_upcoming_matches for OpenLigaDB to fetch multiple matchdays
+        # Handle different providers
         if isinstance(provider, OpenLigaDBProvider):
             matches = await provider.get_upcoming_matches(league_config["api_id"], num_matchdays)
+        elif isinstance(provider, OpenF1Provider):
+            matches = await provider.get_upcoming_sessions(num_sessions=10)
+        elif isinstance(provider, MotoGPProvider):
+            matches = await provider.get_upcoming_races(num_races=10)
         else:
-            # For other providers, use the standard get_matches method
             matches = await provider.get_matches(league_config["api_id"])
         
         synced = 0
         for match in matches:
             match["league_id"] = league_id
+            # For motorsport, convert to match-like format if needed
+            if league_config.get("sport") in [SportType.F1, SportType.MOTOGP]:
+                match = _convert_race_to_match_format(match, league_config)
+            
             if await get_or_update_match(db_helpers, match):
                 synced += 1
         
-        logger.info(f"Synced {synced} matches for {league_config['name']}")
+        logger.info(f"Synced {synced} events for {league_config['name']}")
         return synced
         
     except Exception as e:
-        logger.error(f"Error syncing matches for {league_id}: {e}", exc_info=True)
+        logger.error(f"Error syncing events for {league_id}: {e}", exc_info=True)
         return 0
+
+
+def _convert_race_to_match_format(race: Dict, league_config: Dict) -> Dict:
+    """Convert race/session data to match-like format for database storage."""
+    sport_type = league_config.get("sport", SportType.FOOTBALL)
+    
+    if sport_type == SportType.F1:
+        return {
+            "id": race.get("id", ""),
+            "home_team": race.get("session_name", "Race"),
+            "away_team": race.get("circuit_name", "Unknown Circuit"),
+            "home_team_short": race.get("session_type", "R")[:3],
+            "away_team_short": race.get("country", "")[:3].upper(),
+            "home_score": 0,
+            "away_score": 0,
+            "status": race.get("status", MatchStatus.SCHEDULED),
+            "match_time": race.get("match_time"),
+            "matchday": race.get("meeting_key", 1),
+            "league_id": "f1",
+            "provider": "openf1",
+            "sport_type": SportType.F1.value
+        }
+    elif sport_type == SportType.MOTOGP:
+        return {
+            "id": race.get("id", ""),
+            "home_team": race.get("session_name", "Race"),
+            "away_team": race.get("circuit_name", "Unknown Circuit"),
+            "home_team_short": "GP",
+            "away_team_short": race.get("country", "")[:3].upper(),
+            "home_score": 0,
+            "away_score": 0,
+            "status": race.get("status", MatchStatus.SCHEDULED),
+            "match_time": race.get("match_time"),
+            "matchday": race.get("round", 1),
+            "league_id": "motogp",
+            "provider": "motogp",
+            "sport_type": SportType.MOTOGP.value
+        }
+    
+    return race
 
 
 async def sync_all_leagues(db_helpers) -> Dict[str, int]:
@@ -2715,7 +3188,132 @@ async def smart_sync_leagues(db_helpers, force: bool = False) -> Dict[str, int]:
         results[league_id] = await sync_league_matches(db_helpers, league_id)
         await asyncio.sleep(OpenLigaDBProvider.REQUEST_DELAY * 2)  # Slightly longer delay between leagues
     
+    # Also sync motorsport events
+    for sport_id in FREE_MOTORSPORT:
+        try:
+            results[sport_id] = await sync_league_matches(db_helpers, sport_id)
+            await asyncio.sleep(0.5)
+        except Exception as e:
+            logger.warning(f"Could not sync motorsport {sport_id}: {e}")
+            results[sport_id] = 0
+    
     return results
+
+
+async def get_upcoming_motorsport_events(db_helpers, sport_type: str = None, limit: int = 10) -> List[Dict]:
+    """
+    Get upcoming motorsport events (F1/MotoGP races).
+    
+    Args:
+        db_helpers: Database helper instance
+        sport_type: Filter by sport type ('f1' or 'motogp'), None for all
+        limit: Maximum number of events to return
+        
+    Returns:
+        List of upcoming motorsport events
+    """
+    try:
+        if not db_helpers.db_pool:
+            return []
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return []
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            if sport_type:
+                cursor.execute("""
+                    SELECT * FROM sport_matches 
+                    WHERE status = 'scheduled' 
+                      AND league_id = %s 
+                      AND match_time > NOW()
+                    ORDER BY match_time ASC
+                    LIMIT %s
+                """, (sport_type, limit))
+            else:
+                cursor.execute("""
+                    SELECT * FROM sport_matches 
+                    WHERE status = 'scheduled' 
+                      AND league_id IN ('f1', 'motogp')
+                      AND match_time > NOW()
+                    ORDER BY match_time ASC
+                    LIMIT %s
+                """, (limit,))
+            
+            return cursor.fetchall()
+            
+        finally:
+            cursor.close()
+            conn.close()
+            
+    except Exception as e:
+        logger.error(f"Error getting motorsport events: {e}", exc_info=True)
+        return []
+
+
+async def get_all_upcoming_events(db_helpers, limit: int = 15) -> Dict[str, List[Dict]]:
+    """
+    Get upcoming events from all sports, organized by sport type.
+    
+    Returns:
+        Dictionary with keys 'football', 'f1', 'motogp' containing lists of events
+    """
+    try:
+        if not db_helpers.db_pool:
+            return {"football": [], "f1": [], "motogp": []}
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return {"football": [], "f1": [], "motogp": []}
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            result = {"football": [], "f1": [], "motogp": []}
+            
+            # Get football matches from free leagues
+            placeholders = ', '.join(['%s'] * len(FREE_LEAGUES))
+            cursor.execute(f"""
+                SELECT * FROM sport_matches 
+                WHERE status = 'scheduled' 
+                  AND league_id IN ({placeholders})
+                  AND match_time > NOW()
+                ORDER BY match_time ASC
+                LIMIT %s
+            """, (*FREE_LEAGUES, limit))
+            result["football"] = cursor.fetchall()
+            
+            # Get F1 events
+            cursor.execute("""
+                SELECT * FROM sport_matches 
+                WHERE status = 'scheduled' 
+                  AND league_id = 'f1'
+                  AND match_time > NOW()
+                ORDER BY match_time ASC
+                LIMIT %s
+            """, (limit,))
+            result["f1"] = cursor.fetchall()
+            
+            # Get MotoGP events
+            cursor.execute("""
+                SELECT * FROM sport_matches 
+                WHERE status = 'scheduled' 
+                  AND league_id = 'motogp'
+                  AND match_time > NOW()
+                ORDER BY match_time ASC
+                LIMIT %s
+            """, (limit,))
+            result["motogp"] = cursor.fetchall()
+            
+            return result
+            
+        finally:
+            cursor.close()
+            conn.close()
+            
+    except Exception as e:
+        logger.error(f"Error getting all upcoming events: {e}", exc_info=True)
+        return {"football": [], "f1": [], "motogp": []}
 
 
 # ============================================================================
