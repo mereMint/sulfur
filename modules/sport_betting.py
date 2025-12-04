@@ -1241,6 +1241,8 @@ class OpenF1Provider(FootballAPIProvider):
         - /position - Get position data during sessions
         - /laps - Get lap time data
         - /car_data - Get real-time car telemetry
+    
+    Includes fallback calendar for off-season when API data is not available.
     """
     
     BASE_URL = "https://api.openf1.org/v1"
@@ -1252,6 +1254,35 @@ class OpenF1Provider(FootballAPIProvider):
     MAX_RETRIES = 3
     RETRY_DELAY = 1.0
     REQUEST_DELAY = 0.5
+    
+    # Fallback F1 calendar for 2026 season (projected dates based on typical calendar)
+    # Update with official dates when announced (usually late 2025/early 2026)
+    # Source: Formula 1 typically follows similar calendar patterns year over year
+    F1_CALENDAR_2026 = [
+        {"name": "Bahrain GP", "circuit": "Sakhir", "country": "Bahrain", "date": "2026-03-08"},
+        {"name": "Saudi Arabian GP", "circuit": "Jeddah", "country": "Saudi Arabia", "date": "2026-03-15"},
+        {"name": "Australian GP", "circuit": "Melbourne", "country": "Australia", "date": "2026-03-29"},
+        {"name": "Japanese GP", "circuit": "Suzuka", "country": "Japan", "date": "2026-04-05"},
+        {"name": "Chinese GP", "circuit": "Shanghai", "country": "China", "date": "2026-04-19"},
+        {"name": "Miami GP", "circuit": "Miami", "country": "USA", "date": "2026-05-03"},
+        {"name": "Emilia Romagna GP", "circuit": "Imola", "country": "Italy", "date": "2026-05-17"},
+        {"name": "Monaco GP", "circuit": "Monaco", "country": "Monaco", "date": "2026-05-24"},
+        {"name": "Spanish GP", "circuit": "Barcelona", "country": "Spain", "date": "2026-06-07"},
+        {"name": "Canadian GP", "circuit": "Montreal", "country": "Canada", "date": "2026-06-14"},
+        {"name": "Austrian GP", "circuit": "Red Bull Ring", "country": "Austria", "date": "2026-06-28"},
+        {"name": "British GP", "circuit": "Silverstone", "country": "UK", "date": "2026-07-05"},
+        {"name": "Belgian GP", "circuit": "Spa", "country": "Belgium", "date": "2026-07-26"},
+        {"name": "Hungarian GP", "circuit": "Hungaroring", "country": "Hungary", "date": "2026-08-02"},
+        {"name": "Dutch GP", "circuit": "Zandvoort", "country": "Netherlands", "date": "2026-08-30"},
+        {"name": "Italian GP", "circuit": "Monza", "country": "Italy", "date": "2026-09-06"},
+        {"name": "Singapore GP", "circuit": "Marina Bay", "country": "Singapore", "date": "2026-09-20"},
+        {"name": "United States GP", "circuit": "COTA", "country": "USA", "date": "2026-10-18"},
+        {"name": "Mexico City GP", "circuit": "Mexico City", "country": "Mexico", "date": "2026-10-25"},
+        {"name": "São Paulo GP", "circuit": "Interlagos", "country": "Brazil", "date": "2026-11-08"},
+        {"name": "Las Vegas GP", "circuit": "Las Vegas", "country": "USA", "date": "2026-11-21"},
+        {"name": "Qatar GP", "circuit": "Lusail", "country": "Qatar", "date": "2026-11-28"},
+        {"name": "Abu Dhabi GP", "circuit": "Yas Marina", "country": "UAE", "date": "2026-12-06"},
+    ]
     
     def get_provider_name(self) -> str:
         return "OpenF1"
@@ -1307,50 +1338,109 @@ class OpenF1Provider(FootballAPIProvider):
         return None
     
     async def get_upcoming_sessions(self, num_sessions: int = 5) -> List[Dict[str, Any]]:
-        """Get upcoming F1 race sessions."""
-        year = self._get_season()
-        url = f"{self.BASE_URL}/sessions?year={year}"
-        cache_key = f"f1_sessions_{year}"
+        """Get upcoming F1 race sessions.
         
-        data = await self._make_api_request(url, cache_key, self.CACHE_TTL_SESSIONS)
-        
-        if not data:
-            return []
-        
+        Fetches sessions from the current year and, if no upcoming sessions are found,
+        also queries the next year to handle off-season periods.
+        Falls back to static calendar if API data is not available.
+        """
         now = datetime.now(timezone.utc)
         sessions = []
         
-        for session in data:
-            try:
-                session_start = session.get("date_start")
-                if not session_start:
-                    continue
-                
-                session_time = datetime.fromisoformat(session_start.replace("Z", "+00:00"))
-                
-                # Only include future sessions or recently finished ones (last 4 hours)
-                if session_time > now - timedelta(hours=4):
-                    status = MatchStatus.SCHEDULED
-                    if session_time <= now:
-                        session_end = session.get("date_end")
-                        if session_end:
-                            end_time = datetime.fromisoformat(session_end.replace("Z", "+00:00"))
-                            if end_time < now:
-                                status = MatchStatus.FINISHED
+        # Try current year first, then next year if no upcoming sessions found
+        years_to_try = [now.year, now.year + 1]
+        
+        for year in years_to_try:
+            url = f"{self.BASE_URL}/sessions?year={year}"
+            cache_key = f"f1_sessions_{year}"
+            
+            data = await self._make_api_request(url, cache_key, self.CACHE_TTL_SESSIONS)
+            
+            if not data:
+                continue
+            
+            for session in data:
+                try:
+                    session_start = session.get("date_start")
+                    if not session_start:
+                        continue
+                    
+                    session_time = datetime.fromisoformat(session_start.replace("Z", "+00:00"))
+                    
+                    # Only include future sessions or recently finished ones (last 4 hours)
+                    if session_time > now - timedelta(hours=4):
+                        status = MatchStatus.SCHEDULED
+                        if session_time <= now:
+                            session_end = session.get("date_end")
+                            if session_end:
+                                end_time = datetime.fromisoformat(session_end.replace("Z", "+00:00"))
+                                if end_time < now:
+                                    status = MatchStatus.FINISHED
+                                else:
+                                    status = MatchStatus.LIVE
                             else:
-                                status = MatchStatus.LIVE
-                        else:
-                            status = MatchStatus.LIVE if session_time <= now <= session_time + timedelta(hours=2) else MatchStatus.FINISHED
+                                status = MatchStatus.LIVE if session_time <= now <= session_time + timedelta(hours=2) else MatchStatus.FINISHED
+                        
+                        sessions.append({
+                            "id": f"f1_{session.get('session_key', session.get('meeting_key', 'unknown'))}",
+                            "session_key": session.get("session_key"),
+                            "meeting_key": session.get("meeting_key"),
+                            "session_name": session.get("session_name", "Race"),
+                            "session_type": session.get("session_type", "Race"),
+                            "circuit_name": session.get("circuit_short_name", session.get("location", "Unknown")),
+                            "country": session.get("country_name", "Unknown"),
+                            "match_time": session_time,
+                            "status": status,
+                            "league_id": "f1",
+                            "provider": "openf1",
+                            "sport_type": SportType.F1.value
+                        })
+                        
+                except Exception as e:
+                    logger.error(f"Error parsing F1 session: {e}")
+                    continue
+            
+            # If we found upcoming sessions, no need to check next year
+            if sessions:
+                break
+        
+        # If no sessions found from API, use fallback calendar
+        if not sessions:
+            sessions = await self._get_sessions_from_fallback_calendar()
+        
+        # Sort by date and take upcoming sessions
+        sessions.sort(key=lambda x: x["match_time"])
+        return sessions[:num_sessions]
+    
+    async def _get_sessions_from_fallback_calendar(self) -> List[Dict[str, Any]]:
+        """Get sessions from the fallback static calendar when API data is not available."""
+        now = datetime.now(timezone.utc)
+        sessions = []
+        
+        for i, race in enumerate(self.F1_CALENDAR_2026):
+            try:
+                # Parse race date and set typical race time (14:00 UTC)
+                race_date = datetime.strptime(race["date"], "%Y-%m-%d").replace(
+                    hour=14, minute=0, tzinfo=timezone.utc
+                )
+                
+                # Include upcoming races and recently finished ones (within last day)
+                if race_date > now - timedelta(days=1):
+                    status = MatchStatus.SCHEDULED
+                    if race_date.date() == now.date():
+                        status = MatchStatus.LIVE
+                    elif race_date < now:
+                        status = MatchStatus.FINISHED
                     
                     sessions.append({
-                        "id": f"f1_{session.get('session_key', session.get('meeting_key', 'unknown'))}",
-                        "session_key": session.get("session_key"),
-                        "meeting_key": session.get("meeting_key"),
-                        "session_name": session.get("session_name", "Race"),
-                        "session_type": session.get("session_type", "Race"),
-                        "circuit_name": session.get("circuit_short_name", session.get("location", "Unknown")),
-                        "country": session.get("country_name", "Unknown"),
-                        "match_time": session_time,
+                        "id": f"f1_{race['name'].lower().replace(' ', '_')}_{race_date.year}",
+                        "session_key": None,
+                        "meeting_key": i + 1,
+                        "session_name": race["name"],
+                        "session_type": "Race",
+                        "circuit_name": race["circuit"],
+                        "country": race["country"],
+                        "match_time": race_date,
                         "status": status,
                         "league_id": "f1",
                         "provider": "openf1",
@@ -1358,12 +1448,11 @@ class OpenF1Provider(FootballAPIProvider):
                     })
                     
             except Exception as e:
-                logger.error(f"Error parsing F1 session: {e}")
+                logger.error(f"Error parsing F1 fallback race: {e}")
                 continue
         
-        # Sort by date and take upcoming sessions
-        sessions.sort(key=lambda x: x["match_time"])
-        return sessions[:num_sessions]
+        logger.info(f"Using fallback F1 calendar, found {len(sessions)} upcoming sessions")
+        return sessions
     
     async def get_drivers(self, session_key: Optional[int] = None) -> List[Dict[str, Any]]:
         """Get F1 drivers for current season or specific session."""
@@ -1466,10 +1555,10 @@ class MotoGPProvider(FootballAPIProvider):
     MAX_RETRIES = 2
     RETRY_DELAY = 1.0
     
-    # 2025 MotoGP Calendar (manually maintained - update for 2026 season)
-    # TODO: Update this calendar when 2026 schedule is announced (typically in late 2025)
+    # MotoGP Calendar - includes both 2025 and 2026 seasons
+    # Updated annually when official schedule is announced (typically late October/November)
     # Source: https://www.motogp.com/en/calendar
-    MOTOGP_CALENDAR = [
+    MOTOGP_CALENDAR_2025 = [
         {"name": "Qatar GP", "circuit": "Losail", "country": "Qatar", "date": "2025-03-02"},
         {"name": "Portuguese GP", "circuit": "Portimao", "country": "Portugal", "date": "2025-03-16"},
         {"name": "Americas GP", "circuit": "COTA", "country": "USA", "date": "2025-04-13"},
@@ -1489,7 +1578,36 @@ class MotoGPProvider(FootballAPIProvider):
         {"name": "Valencia GP", "circuit": "Valencia", "country": "Spain", "date": "2025-11-16"},
     ]
     
-    # Current MotoGP riders (2024/2025 grid)
+    # 2026 MotoGP Calendar (projected dates based on typical calendar)
+    # Update with official dates when announced (usually late 2025)
+    # Dates are estimated based on typical race weekends
+    MOTOGP_CALENDAR_2026 = [
+        {"name": "Qatar GP", "circuit": "Losail", "country": "Qatar", "date": "2026-03-08"},
+        {"name": "Portuguese GP", "circuit": "Portimao", "country": "Portugal", "date": "2026-03-22"},
+        {"name": "Americas GP", "circuit": "COTA", "country": "USA", "date": "2026-04-12"},
+        {"name": "Spanish GP", "circuit": "Jerez", "country": "Spain", "date": "2026-04-26"},
+        {"name": "French GP", "circuit": "Le Mans", "country": "France", "date": "2026-05-10"},
+        {"name": "British GP", "circuit": "Silverstone", "country": "UK", "date": "2026-05-24"},
+        {"name": "Italian GP", "circuit": "Mugello", "country": "Italy", "date": "2026-05-31"},
+        {"name": "Dutch GP", "circuit": "Assen", "country": "Netherlands", "date": "2026-06-28"},
+        {"name": "German GP", "circuit": "Sachsenring", "country": "Germany", "date": "2026-07-12"},
+        {"name": "Austrian GP", "circuit": "Red Bull Ring", "country": "Austria", "date": "2026-08-16"},
+        {"name": "Aragon GP", "circuit": "Aragon", "country": "Spain", "date": "2026-08-30"},
+        {"name": "San Marino GP", "circuit": "Misano", "country": "San Marino", "date": "2026-09-13"},
+        {"name": "Japanese GP", "circuit": "Motegi", "country": "Japan", "date": "2026-10-04"},
+        {"name": "Australian GP", "circuit": "Phillip Island", "country": "Australia", "date": "2026-10-18"},
+        {"name": "Thai GP", "circuit": "Buriram", "country": "Thailand", "date": "2026-10-25"},
+        {"name": "Malaysian GP", "circuit": "Sepang", "country": "Malaysia", "date": "2026-11-01"},
+        {"name": "Valencia GP", "circuit": "Valencia", "country": "Spain", "date": "2026-11-15"},
+    ]
+    
+    # Combined calendar property for easy access
+    @property
+    def MOTOGP_CALENDAR(self) -> List[Dict]:
+        """Get combined calendar for all tracked seasons."""
+        return self.MOTOGP_CALENDAR_2025 + self.MOTOGP_CALENDAR_2026
+    
+    # Current MotoGP riders (2025/2026 grid)
     MOTOGP_RIDERS = [
         {"number": 1, "name": "Francesco Bagnaia", "team": "Ducati Lenovo Team", "country": "Italy"},
         {"number": 93, "name": "Marc Marquez", "team": "Ducati Lenovo Team", "country": "Spain"},
@@ -1524,7 +1642,10 @@ class MotoGPProvider(FootballAPIProvider):
         return None
     
     async def get_upcoming_races(self, num_races: int = 5) -> List[Dict[str, Any]]:
-        """Get upcoming MotoGP races from calendar."""
+        """Get upcoming MotoGP races from calendar.
+        
+        Searches through all seasons in the calendar to find upcoming races.
+        """
         now = datetime.now(timezone.utc)
         races = []
         
@@ -1534,7 +1655,7 @@ class MotoGPProvider(FootballAPIProvider):
                     hour=14, minute=0, tzinfo=timezone.utc
                 )
                 
-                # Include upcoming races and recently finished ones
+                # Include upcoming races and recently finished ones (within last day)
                 if race_date > now - timedelta(days=1):
                     status = MatchStatus.SCHEDULED
                     if race_date.date() == now.date():
@@ -1560,6 +1681,8 @@ class MotoGPProvider(FootballAPIProvider):
                 logger.error(f"Error parsing MotoGP race: {e}")
                 continue
         
+        # Sort by date to ensure correct order across seasons
+        races.sort(key=lambda x: x["match_time"])
         return races[:num_races]
     
     async def get_riders(self) -> List[Dict[str, Any]]:
@@ -1580,7 +1703,7 @@ class MotoGPProvider(FootballAPIProvider):
     
     async def get_match(self, match_id: str) -> Optional[Dict[str, Any]]:
         """Get a specific race by ID."""
-        races = await self.get_upcoming_races(num_races=20)
+        races = await self.get_upcoming_races(num_races=40)  # Increased to search both seasons
         for race in races:
             if race["id"] == match_id:
                 return race
