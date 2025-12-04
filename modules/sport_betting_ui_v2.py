@@ -12,7 +12,7 @@ from typing import Optional, List, Dict, Any, Callable
 from datetime import datetime, timedelta, timezone
 
 from modules.sport_betting import (
-    LEAGUES, MatchStatus, BetOutcome, BetType,
+    LEAGUES, FREE_LEAGUES, MatchStatus, BetOutcome, BetType,
     format_match_time, get_league_emoji, get_league_name,
     format_odds_display, get_outcome_emoji,
     get_upcoming_matches, get_recent_matches, get_upcoming_matches_all_leagues,
@@ -837,8 +837,7 @@ class MatchSelectView(View):
 # LEAGUE SELECT VIEW
 # ============================================================================
 
-# Free leagues that don't require an API key (OpenLigaDB)
-FREE_LEAGUES = ["bl1", "bl2", "dfb"]
+# Note: FREE_LEAGUES is now imported from sport_betting module
 
 
 class LeagueSelectDropdown(Select):
@@ -896,7 +895,9 @@ class LeagueSelectView(View):
                 "**Verfügbare Ligen:**\n"
                 "🇩🇪 **Bundesliga** - Deutsche 1. Liga\n"
                 "🇩🇪 **2. Bundesliga** - Deutsche 2. Liga\n"
-                "🏆 **DFB-Pokal** - Deutscher Pokal"
+                "🏆 **DFB-Pokal** - Deutscher Pokal\n"
+                "🏆 **Champions League** - UEFA Champions League\n"
+                "🏆 **Europa League** - UEFA Europa League"
             ),
             color=discord.Color.blue()
         )
@@ -1572,10 +1573,9 @@ class SportBetsMainView(View):
         await interaction.response.defer()
         
         # Sync free leagues
-        free_leagues = ["bl1", "bl2", "dfb"]
         synced_total = 0
         
-        for league_id in free_leagues:
+        for league_id in FREE_LEAGUES:
             synced = await sync_league_matches(self.db_helpers, league_id)
             synced_total += synced
         

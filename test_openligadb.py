@@ -40,7 +40,7 @@ def test_leagues_config():
     from modules.sport_betting import LEAGUES
     
     # Check that OpenLigaDB leagues are configured
-    openligadb_leagues = ["bl1", "bl2", "dfb"]
+    openligadb_leagues = ["bl1", "bl2", "dfb", "ucl", "uel"]
     
     for league_id in openligadb_leagues:
         if league_id not in LEAGUES:
