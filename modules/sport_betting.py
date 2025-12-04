@@ -3363,6 +3363,9 @@ async def get_upcoming_motorsport_events(db_helpers, sport_type: str = None, lim
     """
     Get upcoming motorsport events (F1/MotoGP races).
     
+    First tries to get events from the database. If the database is unavailable
+    or returns no results, falls back to fetching directly from the providers.
+    
     Args:
         db_helpers: Database helper instance
         sport_type: Filter by sport type ('f1' or 'motogp'), None for all
@@ -3371,108 +3374,222 @@ async def get_upcoming_motorsport_events(db_helpers, sport_type: str = None, lim
     Returns:
         List of upcoming motorsport events
     """
+    events = []
+    
+    # Try database first
     try:
-        if not db_helpers.db_pool:
-            return []
-        
-        conn = db_helpers.db_pool.get_connection()
-        if not conn:
-            return []
-        
-        cursor = conn.cursor(dictionary=True)
-        try:
-            if sport_type:
-                cursor.execute("""
-                    SELECT * FROM sport_matches 
-                    WHERE status = 'scheduled' 
-                      AND league_id = %s 
-                      AND match_time > NOW()
-                    ORDER BY match_time ASC
-                    LIMIT %s
-                """, (sport_type, limit))
-            else:
-                cursor.execute("""
-                    SELECT * FROM sport_matches 
-                    WHERE status = 'scheduled' 
-                      AND league_id IN ('f1', 'motogp')
-                      AND match_time > NOW()
-                    ORDER BY match_time ASC
-                    LIMIT %s
-                """, (limit,))
-            
-            return cursor.fetchall()
-            
-        finally:
-            cursor.close()
-            conn.close()
-            
+        if db_helpers.db_pool:
+            conn = db_helpers.db_pool.get_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+                try:
+                    if sport_type:
+                        cursor.execute("""
+                            SELECT * FROM sport_matches 
+                            WHERE status = 'scheduled' 
+                              AND league_id = %s 
+                              AND match_time > NOW()
+                            ORDER BY match_time ASC
+                            LIMIT %s
+                        """, (sport_type, limit))
+                    else:
+                        cursor.execute("""
+                            SELECT * FROM sport_matches 
+                            WHERE status = 'scheduled' 
+                              AND league_id IN ('f1', 'motogp')
+                              AND match_time > NOW()
+                            ORDER BY match_time ASC
+                            LIMIT %s
+                        """, (limit,))
+                    
+                    events = cursor.fetchall()
+                    
+                finally:
+                    cursor.close()
+                    conn.close()
     except Exception as e:
-        logger.error(f"Error getting motorsport events: {e}", exc_info=True)
-        return []
+        logger.warning(f"Database error getting motorsport events, will use fallback: {e}")
+    
+    # If no events from database, fall back to providers directly
+    if not events:
+        logger.info(f"No motorsport events in database for {sport_type or 'all'}, fetching from providers")
+        try:
+            events = await _get_motorsport_events_from_providers(sport_type, limit)
+        except Exception as e:
+            logger.error(f"Error fetching motorsport events from providers: {e}", exc_info=True)
+    
+    return events
+
+
+async def _get_motorsport_events_from_providers(sport_type: str = None, limit: int = 10) -> List[Dict]:
+    """
+    Fetch motorsport events directly from providers (fallback when database unavailable).
+    Converts provider data to database-like format for UI compatibility.
+    """
+    all_events = []
+    
+    try:
+        # Get F1 events
+        if sport_type is None or sport_type == "f1":
+            f1_provider = APIProviderFactory.get_provider("openf1")
+            f1_sessions = await f1_provider.get_upcoming_sessions(num_sessions=limit)
+            
+            for session in f1_sessions:
+                # Safe string handling for short codes
+                session_type = session.get("session_type") or "Race"
+                country = session.get("country") or ""
+                
+                # Convert to database-like format
+                all_events.append({
+                    "match_id": session.get("id", ""),
+                    "league_id": "f1",
+                    "provider": "openf1",
+                    "home_team": session.get("session_name", "Race"),
+                    "away_team": session.get("circuit_name", "Unknown Circuit"),
+                    "home_team_short": session_type[:3].upper(),
+                    "away_team_short": country[:3].upper(),
+                    "home_score": 0,
+                    "away_score": 0,
+                    "status": session.get("status").value if hasattr(session.get("status"), "value") else "scheduled",
+                    "match_time": session.get("match_time"),
+                    "matchday": session.get("meeting_key", 1),
+                    "odds_home": 2.0,
+                    "odds_draw": 3.5,
+                    "odds_away": 3.0
+                })
+        
+        # Get MotoGP events
+        if sport_type is None or sport_type == "motogp":
+            motogp_provider = APIProviderFactory.get_provider("motogp")
+            motogp_races = await motogp_provider.get_upcoming_races(num_races=limit)
+            
+            for race in motogp_races:
+                # Safe string handling for country code
+                country = race.get("country") or ""
+                
+                # Convert to database-like format
+                all_events.append({
+                    "match_id": race.get("id", ""),
+                    "league_id": "motogp",
+                    "provider": "motogp",
+                    "home_team": race.get("session_name", "Race"),
+                    "away_team": race.get("circuit_name", "Unknown Circuit"),
+                    "home_team_short": "GP",
+                    "away_team_short": country[:3].upper(),
+                    "home_score": 0,
+                    "away_score": 0,
+                    "status": race.get("status").value if hasattr(race.get("status"), "value") else "scheduled",
+                    "match_time": race.get("match_time"),
+                    "matchday": race.get("round", 1),
+                    "odds_home": 2.0,
+                    "odds_draw": 3.5,
+                    "odds_away": 3.0
+                })
+        
+        # Sort by match time with safe handling for None or non-datetime values
+        def get_sort_key(event):
+            match_time = event.get("match_time")
+            if match_time is None:
+                return datetime.max.replace(tzinfo=timezone.utc)
+            if isinstance(match_time, datetime):
+                # Ensure timezone-aware for consistent comparison
+                if match_time.tzinfo is None:
+                    return match_time.replace(tzinfo=timezone.utc)
+                return match_time
+            # Try to parse string datetime
+            if isinstance(match_time, str):
+                try:
+                    return datetime.fromisoformat(match_time.replace("Z", "+00:00"))
+                except (ValueError, TypeError):
+                    pass
+            return datetime.max.replace(tzinfo=timezone.utc)
+        
+        all_events.sort(key=get_sort_key)
+        
+    except Exception as e:
+        logger.error(f"Error fetching events from providers: {e}", exc_info=True)
+    
+    return all_events[:limit]
 
 
 async def get_all_upcoming_events(db_helpers, limit: int = 15) -> Dict[str, List[Dict]]:
     """
     Get upcoming events from all sports, organized by sport type.
     
+    First tries to get events from the database. If the database is unavailable
+    or returns no results for F1/MotoGP, falls back to fetching directly from providers.
+    
     Returns:
         Dictionary with keys 'football', 'f1', 'motogp' containing lists of events
     """
+    result = {"football": [], "f1": [], "motogp": []}
+    
+    # Try database first
     try:
-        if not db_helpers.db_pool:
-            return {"football": [], "f1": [], "motogp": []}
-        
-        conn = db_helpers.db_pool.get_connection()
-        if not conn:
-            return {"football": [], "f1": [], "motogp": []}
-        
-        cursor = conn.cursor(dictionary=True)
-        try:
-            result = {"football": [], "f1": [], "motogp": []}
-            
-            # Get football matches from free leagues
-            placeholders = ', '.join(['%s'] * len(FREE_LEAGUES))
-            cursor.execute(f"""
-                SELECT * FROM sport_matches 
-                WHERE status = 'scheduled' 
-                  AND league_id IN ({placeholders})
-                  AND match_time > NOW()
-                ORDER BY match_time ASC
-                LIMIT %s
-            """, (*FREE_LEAGUES, limit))
-            result["football"] = cursor.fetchall()
-            
-            # Get F1 events
-            cursor.execute("""
-                SELECT * FROM sport_matches 
-                WHERE status = 'scheduled' 
-                  AND league_id = 'f1'
-                  AND match_time > NOW()
-                ORDER BY match_time ASC
-                LIMIT %s
-            """, (limit,))
-            result["f1"] = cursor.fetchall()
-            
-            # Get MotoGP events
-            cursor.execute("""
-                SELECT * FROM sport_matches 
-                WHERE status = 'scheduled' 
-                  AND league_id = 'motogp'
-                  AND match_time > NOW()
-                ORDER BY match_time ASC
-                LIMIT %s
-            """, (limit,))
-            result["motogp"] = cursor.fetchall()
-            
-            return result
-            
-        finally:
-            cursor.close()
-            conn.close()
-            
+        if db_helpers.db_pool:
+            conn = db_helpers.db_pool.get_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+                try:
+                    # Get football matches from free leagues
+                    placeholders = ', '.join(['%s'] * len(FREE_LEAGUES))
+                    cursor.execute(f"""
+                        SELECT * FROM sport_matches 
+                        WHERE status = 'scheduled' 
+                          AND league_id IN ({placeholders})
+                          AND match_time > NOW()
+                        ORDER BY match_time ASC
+                        LIMIT %s
+                    """, (*FREE_LEAGUES, limit))
+                    result["football"] = cursor.fetchall()
+                    
+                    # Get F1 events
+                    cursor.execute("""
+                        SELECT * FROM sport_matches 
+                        WHERE status = 'scheduled' 
+                          AND league_id = 'f1'
+                          AND match_time > NOW()
+                        ORDER BY match_time ASC
+                        LIMIT %s
+                    """, (limit,))
+                    result["f1"] = cursor.fetchall()
+                    
+                    # Get MotoGP events
+                    cursor.execute("""
+                        SELECT * FROM sport_matches 
+                        WHERE status = 'scheduled' 
+                          AND league_id = 'motogp'
+                          AND match_time > NOW()
+                        ORDER BY match_time ASC
+                        LIMIT %s
+                    """, (limit,))
+                    result["motogp"] = cursor.fetchall()
+                    
+                finally:
+                    cursor.close()
+                    conn.close()
+                    
     except Exception as e:
-        logger.error(f"Error getting all upcoming events: {e}", exc_info=True)
-        return {"football": [], "f1": [], "motogp": []}
+        logger.warning(f"Database error getting all upcoming events, will use fallback: {e}")
+    
+    # Fallback to providers for F1 and MotoGP if database returned empty
+    if not result.get("f1"):
+        logger.info("No F1 events in database, fetching from provider")
+        try:
+            f1_events = await _get_motorsport_events_from_providers("f1", limit)
+            result["f1"] = f1_events
+        except Exception as e:
+            logger.error(f"Error fetching F1 events from provider: {e}")
+    
+    if not result.get("motogp"):
+        logger.info("No MotoGP events in database, fetching from provider")
+        try:
+            motogp_events = await _get_motorsport_events_from_providers("motogp", limit)
+            result["motogp"] = motogp_events
+        except Exception as e:
+            logger.error(f"Error fetching MotoGP events from provider: {e}")
+    
+    return result
 
 
 # ============================================================================
