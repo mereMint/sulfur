@@ -8233,6 +8233,46 @@ async def view_news(interaction: discord.Interaction, limit: int = 5):
         await interaction.followup.send(f"Fehler beim Laden der Nachrichten: {str(e)}", ephemeral=True)
 
 
+@tree.command(name="sportnews", description="📰 Sport News - Fußball, F1 & MotoGP Nachrichten!")
+async def view_sports_news(interaction: discord.Interaction):
+    """View sports news with multi-sport tabs."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        # Get sports data
+        if not db_helpers.db_pool:
+            await interaction.followup.send("Datenbank nicht verfügbar.", ephemeral=True)
+            return
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            await interaction.followup.send("Datenbankverbindung fehlgeschlagen.", ephemeral=True)
+            return
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            sports_data = await news.gather_sports_news_data(db_helpers, cursor)
+        finally:
+            cursor.close()
+            conn.close()
+        
+        # Get sports news articles
+        articles = await news.get_sports_news(db_helpers, limit=5)
+        
+        # Create the sports news view
+        view = news.SportsNewsPaginationView(db_helpers, interaction.user.id, sports_data, articles)
+        embed = view.get_current_embed()
+        
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        
+        # Update quest progress
+        await quests.update_quest_progress(db_helpers, interaction.user.id, 'check_news', 1)
+        
+    except Exception as e:
+        logger.error(f"Error viewing sports news: {e}", exc_info=True)
+        await interaction.followup.send(f"Fehler beim Laden der Sport-Nachrichten: {str(e)}", ephemeral=True)
+
+
 # Shop commands registered above
 
 
@@ -13498,15 +13538,15 @@ async def on_message(message):
 
 
 # ============================================================================
-# SPORT BETTING COMMAND (Consolidated)
+# SPORT BETTING COMMAND (Multi-Sport: Football, F1, MotoGP)
 # ============================================================================
 
-@tree.command(name="sportbets", description="⚽ Sport Betting - Wette auf Fußballspiele!")
+@tree.command(name="sportbets", description="🏆 Sport Betting - Fußball, F1 & MotoGP!")
 async def sportbets_command(interaction: discord.Interaction):
     """
-    Main sport betting command with highlighted games and intuitive flow.
-    Flow: Main Menu → League Select → Match Details → Bet Type → Place Bet
-    Messages are ephemeral (only visible to the user).
+    Main sport betting command with multi-sport support.
+    Flow: Main Menu (Sport Selection) → Event Selection → Bet Type → Place Bet
+    Supports: Football (Bundesliga, UCL, etc.), Formula 1, MotoGP
     """
     await interaction.response.defer(ephemeral=True)
     
@@ -13527,27 +13567,30 @@ async def sportbets_command(interaction: discord.Interaction):
         except Exception as e:
             logger.warning(f"Could not sync leagues: {e}")
         
-        # Get upcoming matches from all free leagues for highlighting
-        matches = await sport_betting.get_upcoming_matches_all_leagues(db_helpers, matches_per_league=2, total_limit=6)
+        # Get upcoming football matches
+        matches = await sport_betting.get_upcoming_matches_all_leagues(db_helpers, matches_per_league=2, total_limit=4)
+        
+        # Get motorsport events
+        motorsport_events = await sport_betting.get_all_upcoming_events(db_helpers, limit=3)
         
         # Get user balance
         balance = await get_user_balance(user_id)
         
-        # Create main menu embed with highlighted games
-        embed = sport_betting_ui.create_highlighted_matches_embed(matches, balance)
+        # Create main menu embed with highlighted games from all sports
+        embed = sport_betting_ui.create_highlighted_matches_embed(matches, balance, motorsport_events)
         
         # Get user stats for display
         stats = await sport_betting.get_user_betting_stats(db_helpers, user_id)
-        if stats:
+        if stats and stats.get("total_bets", 0) > 0:
             profit = stats.get("total_won", 0) - stats.get("total_lost", 0)
-            win_rate = (stats.get("total_wins", 0) / stats.get("total_bets", 1) * 100) if stats.get("total_bets", 0) > 0 else 0
+            win_rate = (stats.get("total_wins", 0) / stats.get("total_bets", 1) * 100)
             embed.add_field(
                 name="📊 Deine Bilanz",
                 value=f"**{profit:+d}** 🪙 • {win_rate:.0f}% Gewinnrate",
                 inline=True
             )
         
-        # Create main menu view
+        # Create main menu view with multi-sport support
         view = sport_betting_ui.SportBetsMainView(
             db_helpers, get_user_balance, deduct_balance
         )

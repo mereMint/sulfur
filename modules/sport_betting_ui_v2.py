@@ -1,8 +1,9 @@
 """
 Sulfur Bot - Sport Betting Discord UI Components (v2)
 Improved user-friendly UI with win probabilities and consolidated betting flow.
+Supports multiple sports: Football, Formula 1, and MotoGP.
 
-Flow: Main Menu (highlighted games) → League Select → Match Details (with probabilities) → Bet Type → Place Bet
+Flow: Main Menu (highlighted games) → Sport/League Select → Event Details → Bet Type → Place Bet
 """
 
 import discord
@@ -12,10 +13,11 @@ from typing import Optional, List, Dict, Any, Callable
 from datetime import datetime, timedelta, timezone
 
 from modules.sport_betting import (
-    LEAGUES, FREE_LEAGUES, MatchStatus, BetOutcome, BetType,
+    LEAGUES, FREE_LEAGUES, FREE_MOTORSPORT, MatchStatus, BetOutcome, BetType, SportType,
     format_match_time, get_league_emoji, get_league_name,
     format_odds_display, get_outcome_emoji,
     get_upcoming_matches, get_recent_matches, get_upcoming_matches_all_leagues,
+    get_upcoming_motorsport_events, get_all_upcoming_events,
     get_match_from_db, place_bet,
     get_user_bets, get_user_betting_stats, get_betting_leaderboard,
     sync_league_matches, OddsCalculator, place_combo_bet, get_user_combo_bets
@@ -38,6 +40,16 @@ def create_probability_bar(probability: float, width: int = 10) -> str:
     filled = int((probability / 100) * width)
     empty = width - filled
     return "█" * filled + "░" * empty
+
+
+def get_sport_emoji(sport_type: str) -> str:
+    """Get emoji for a sport type."""
+    emojis = {
+        "football": "⚽",
+        "f1": "🏎️",
+        "motogp": "🏍️"
+    }
+    return emojis.get(sport_type, "🏆")
 
 
 # Constants
@@ -249,13 +261,14 @@ def create_advanced_bet_embed(match: Dict, bet_category: str = "over_under") -> 
     return embed
 
 
-def create_highlighted_matches_embed(matches: List[Dict], user_balance: int = 0) -> discord.Embed:
-    """Create an embed showing highlighted upcoming matches from all leagues."""
+def create_highlighted_matches_embed(matches: List[Dict], user_balance: int = 0, 
+                                     motorsport_events: Dict = None) -> discord.Embed:
+    """Create an embed showing highlighted upcoming events from all sports."""
     embed = discord.Embed(
-        title="⚽ Sport Betting",
+        title="🏆 Sport Betting",
         description=(
             "**Willkommen bei Sport Betting!**\n"
-            "Wette auf echte Fußballspiele und gewinne Coins!\n\n"
+            "Wette auf Fußball, Formel 1 und MotoGP!\n\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         ),
         color=discord.Color.green()
@@ -264,72 +277,88 @@ def create_highlighted_matches_embed(matches: List[Dict], user_balance: int = 0)
     # Add user balance
     embed.add_field(name="💰 Dein Guthaben", value=f"**{user_balance}** 🪙", inline=True)
     
-    # Show up to 6 highlighted matches from all leagues
+    # Football matches
     if matches:
-        # Group matches by league for better display
-        matches_by_league = {}
-        for match in matches[:6]:
-            league_id = match.get("league_id", "bl1")
-            if league_id not in matches_by_league:
-                matches_by_league[league_id] = []
-            matches_by_league[league_id].append(match)
-        
-        # Create display text for each league
         match_list = []
-        for league_id, league_matches in matches_by_league.items():
-            league_name = get_league_name(league_id)
+        for match in matches[:4]:  # Limit to 4 football matches
+            league_id = match.get("league_id", "bl1")
             league_emoji = get_league_emoji(league_id)
             
-            for match in league_matches:
-                home_team = match.get("home_team", "Unknown")[:15]
-                away_team = match.get("away_team", "Unknown")[:15]
-                match_time = match.get("match_time")
-                match_status = match.get("status", "scheduled")
+            home_team = match.get("home_team", "Unknown")[:15]
+            away_team = match.get("away_team", "Unknown")[:15]
+            match_time = match.get("match_time")
+            match_status = match.get("status", "scheduled")
+            
+            home_score = match.get("home_score", 0)
+            away_score = match.get("away_score", 0)
+            
+            if match_status == "finished":
+                status_text = f"🏁 {home_score}:{away_score}"
+            elif match_status == "live":
+                status_text = f"🔴 {home_score}:{away_score} LIVE"
+            else:
+                time_str = format_match_time_detailed(match_time)
+                odds_home = float(match.get("odds_home", 2.0))
+                odds_away = float(match.get("odds_away", 3.0))
                 
-                # Get score if available
-                home_score = match.get("home_score", 0)
-                away_score = match.get("away_score", 0)
-                
-                # Determine status display
-                if match_status == "finished":
-                    status_text = f"🏁 **{home_score}:{away_score}** (Beendet)"
-                elif match_status == "live":
-                    status_text = f"🔴 **{home_score}:{away_score}** LIVE"
+                if odds_home < odds_away:
+                    favorite = f"⭐{home_team[:8]}"
                 else:
-                    time_str = format_match_time_detailed(match_time)
-                    # Calculate favorite (lowest odds = highest probability)
-                    odds_home = float(match.get("odds_home", 2.0))
-                    odds_draw = float(match.get("odds_draw", 3.5))
-                    odds_away = float(match.get("odds_away", 3.0))
-                    
-                    if odds_home < odds_away and odds_home < odds_draw:
-                        favorite = f"⭐ {home_team}"
-                    elif odds_away < odds_home and odds_away < odds_draw:
-                        favorite = f"⭐ {away_team}"
-                    elif odds_draw <= odds_home and odds_draw <= odds_away:
-                        favorite = "🤝 Remis erwartet"
-                    else:
-                        favorite = "⚖️ Ausgeglichen"
-                    status_text = f"{time_str} • {favorite}"
-                
-                match_list.append(
-                    f"{league_emoji} **{home_team}** vs **{away_team}**\n"
-                    f"   └ {status_text}"
-                )
+                    favorite = f"⭐{away_team[:8]}"
+                status_text = f"{time_str}"
+            
+            match_list.append(f"{league_emoji} **{home_team}** vs **{away_team}**\n   └ {status_text}")
         
         embed.add_field(
-            name="🔥 Kommende Spiele",
-            value="\n\n".join(match_list) if match_list else "Keine Spiele gefunden",
-            inline=False
-        )
-    else:
-        embed.add_field(
-            name="🔥 Kommende Spiele",
-            value="*Keine Spiele gefunden. Nutze '🔄 Aktualisieren' um Daten zu laden.*",
+            name="⚽ Fußball",
+            value="\n".join(match_list) if match_list else "*Keine Spiele*",
             inline=False
         )
     
-    embed.set_footer(text="Wähle '🏟️ Liga wählen' um auf Spiele zu wetten!")
+    # Motorsport events
+    if motorsport_events:
+        # F1 events
+        f1_events = motorsport_events.get("f1", [])
+        if f1_events:
+            f1_list = []
+            for event in f1_events[:2]:
+                session_name = event.get("home_team", "Race")[:20]
+                circuit = event.get("away_team", "Circuit")[:15]
+                match_time = event.get("match_time")
+                time_str = format_match_time_detailed(match_time) if match_time else "TBD"
+                f1_list.append(f"🏎️ **{session_name}**\n   📍 {circuit} | {time_str}")
+            
+            embed.add_field(
+                name="🏎️ Formula 1",
+                value="\n".join(f1_list) if f1_list else "*Keine Rennen*",
+                inline=True
+            )
+        
+        # MotoGP events
+        motogp_events = motorsport_events.get("motogp", [])
+        if motogp_events:
+            motogp_list = []
+            for event in motogp_events[:2]:
+                session_name = event.get("home_team", "Race")[:20]
+                circuit = event.get("away_team", "Circuit")[:15]
+                match_time = event.get("match_time")
+                time_str = format_match_time_detailed(match_time) if match_time else "TBD"
+                motogp_list.append(f"🏍️ **{session_name}**\n   📍 {circuit} | {time_str}")
+            
+            embed.add_field(
+                name="🏍️ MotoGP",
+                value="\n".join(motogp_list) if motogp_list else "*Keine Rennen*",
+                inline=True
+            )
+    
+    if not matches and not motorsport_events:
+        embed.add_field(
+            name="🔥 Kommende Events",
+            value="*Keine Events gefunden. Nutze '🔄 Aktualisieren' um Daten zu laden.*",
+            inline=False
+        )
+    
+    embed.set_footer(text="Wähle eine Sportart um zu wetten!")
     
     return embed
 
@@ -1507,7 +1536,7 @@ class ComboBetTypeSelectView(View):
 # ============================================================================
 
 class SportBetsMainView(View):
-    """Main menu view for sport betting with highlighted games."""
+    """Main menu view for sport betting with multi-sport support."""
     
     def __init__(self, db_helpers, balance_check_func, balance_deduct_func=None, timeout: float = 300.0):
         super().__init__(timeout=timeout)
@@ -1515,12 +1544,12 @@ class SportBetsMainView(View):
         self.balance_check_func = balance_check_func
         self.balance_deduct_func = balance_deduct_func
     
-    @ui.button(label="🏟️ Liga wählen", style=discord.ButtonStyle.primary, row=0)
-    async def select_league(self, interaction: discord.Interaction, button: Button):
+    @ui.button(label="⚽ Fußball", style=discord.ButtonStyle.primary, row=0)
+    async def select_football(self, interaction: discord.Interaction, button: Button):
+        """Show football leagues."""
         async def on_league_select(inter: discord.Interaction, league_id: str):
             await inter.response.defer()
             
-            # Sync and get matches
             await sync_league_matches(self.db_helpers, league_id)
             matches = await get_upcoming_matches(self.db_helpers, league_id, limit=25)
             
@@ -1546,7 +1575,73 @@ class SportBetsMainView(View):
         view = LeagueSelectView(on_league_select)
         await interaction.response.edit_message(embed=view.get_embed(), view=view)
     
-    @ui.button(label="🎫 Meine Wetten", style=discord.ButtonStyle.secondary, row=0)
+    @ui.button(label="🏎️ Formel 1", style=discord.ButtonStyle.danger, row=0)
+    async def select_f1(self, interaction: discord.Interaction, button: Button):
+        """Show F1 races."""
+        await interaction.response.defer()
+        
+        # Sync F1 data
+        await sync_league_matches(self.db_helpers, "f1")
+        events = await get_upcoming_motorsport_events(self.db_helpers, "f1", limit=10)
+        
+        if not events:
+            embed = discord.Embed(
+                title="🏎️ Formula 1",
+                description="Keine bevorstehenden F1-Rennen gefunden.\n\nDie nächsten Rennen werden automatisch geladen, wenn sie geplant sind.",
+                color=discord.Color.red()
+            )
+            await interaction.followup.edit_message(
+                message_id=interaction.message.id,
+                embed=embed,
+                view=self
+            )
+            return
+        
+        embed = create_motorsport_events_embed(events, "f1")
+        view = MotorsportEventSelectView(
+            events, self.db_helpers, self.balance_check_func, 
+            self.balance_deduct_func, "f1"
+        )
+        await interaction.followup.edit_message(
+            message_id=interaction.message.id,
+            embed=embed,
+            view=view
+        )
+    
+    @ui.button(label="🏍️ MotoGP", style=discord.ButtonStyle.success, row=0)
+    async def select_motogp(self, interaction: discord.Interaction, button: Button):
+        """Show MotoGP races."""
+        await interaction.response.defer()
+        
+        # Sync MotoGP data
+        await sync_league_matches(self.db_helpers, "motogp")
+        events = await get_upcoming_motorsport_events(self.db_helpers, "motogp", limit=10)
+        
+        if not events:
+            embed = discord.Embed(
+                title="🏍️ MotoGP",
+                description="Keine bevorstehenden MotoGP-Rennen gefunden.\n\nDie nächsten Rennen werden automatisch geladen, wenn sie geplant sind.",
+                color=discord.Color.orange()
+            )
+            await interaction.followup.edit_message(
+                message_id=interaction.message.id,
+                embed=embed,
+                view=self
+            )
+            return
+        
+        embed = create_motorsport_events_embed(events, "motogp")
+        view = MotorsportEventSelectView(
+            events, self.db_helpers, self.balance_check_func, 
+            self.balance_deduct_func, "motogp"
+        )
+        await interaction.followup.edit_message(
+            message_id=interaction.message.id,
+            embed=embed,
+            view=view
+        )
+    
+    @ui.button(label="🎫 Meine Wetten", style=discord.ButtonStyle.secondary, row=1)
     async def show_my_bets(self, interaction: discord.Interaction, button: Button):
         user_id = interaction.user.id
         bets = await get_user_bets(self.db_helpers, user_id)
@@ -1554,7 +1649,7 @@ class SportBetsMainView(View):
         view = UserBetsView(self.db_helpers, user_id, interaction.user.display_name, bets)
         await interaction.response.edit_message(embed=view.get_embed(), view=view)
     
-    @ui.button(label="📊 Statistiken", style=discord.ButtonStyle.secondary, row=0)
+    @ui.button(label="📊 Statistiken", style=discord.ButtonStyle.secondary, row=1)
     async def show_stats(self, interaction: discord.Interaction, button: Button):
         user_id = interaction.user.id
         stats = await get_user_betting_stats(self.db_helpers, user_id)
@@ -1568,25 +1663,36 @@ class SportBetsMainView(View):
         embed = create_leaderboard_embed(leaderboard)
         await interaction.response.edit_message(embed=embed, view=self)
     
-    @ui.button(label="🔄 Aktualisieren", style=discord.ButtonStyle.primary, row=1)
+    @ui.button(label="🔄 Aktualisieren", style=discord.ButtonStyle.primary, row=2)
     async def sync_matches(self, interaction: discord.Interaction, button: Button):
         await interaction.response.defer()
         
-        # Sync free leagues
         synced_total = 0
         
+        # Sync football leagues
         for league_id in FREE_LEAGUES:
             synced = await sync_league_matches(self.db_helpers, league_id)
             synced_total += synced
         
-        # Get fresh upcoming matches from all free leagues
-        matches = await get_upcoming_matches_all_leagues(self.db_helpers, matches_per_league=2, total_limit=6)
+        # Sync motorsport
+        for sport_id in FREE_MOTORSPORT:
+            try:
+                synced = await sync_league_matches(self.db_helpers, sport_id)
+                synced_total += synced
+            except Exception as e:
+                pass  # Silently continue if motorsport sync fails
+        
+        # Get fresh data
+        matches = await get_upcoming_matches_all_leagues(self.db_helpers, matches_per_league=2, total_limit=4)
         balance = await self.balance_check_func(interaction.user.id)
         
-        embed = create_highlighted_matches_embed(matches, balance)
+        # Get motorsport events
+        motorsport_events = await get_all_upcoming_events(self.db_helpers, limit=3)
+        
+        embed = create_highlighted_matches_embed(matches, balance, motorsport_events)
         embed.add_field(
             name="✅ Aktualisiert",
-            value=f"**{synced_total}** Spiele synchronisiert.",
+            value=f"**{synced_total}** Events synchronisiert.",
             inline=False
         )
         
@@ -1609,6 +1715,329 @@ class SportBetsMainView(View):
     async def show_help(self, interaction: discord.Interaction, button: Button):
         embed = create_help_embed()
         await interaction.response.edit_message(embed=embed, view=self)
+
+
+# ============================================================================
+# MOTORSPORT EVENT VIEWS
+# ============================================================================
+
+def create_motorsport_events_embed(events: List[Dict], sport_type: str) -> discord.Embed:
+    """Create embed for motorsport events."""
+    if sport_type == "f1":
+        title = "🏎️ Formula 1 - Bevorstehende Rennen"
+        color = discord.Color.red()
+        emoji = "🏎️"
+    else:
+        title = "🏍️ MotoGP - Bevorstehende Rennen"
+        color = discord.Color.orange()
+        emoji = "🏍️"
+    
+    embed = discord.Embed(
+        title=title,
+        description="Wähle ein Rennen zum Wetten aus:",
+        color=color
+    )
+    
+    for event in events[:5]:
+        session_name = event.get("home_team", "Race")
+        circuit = event.get("away_team", "Unknown Circuit")
+        match_time = event.get("match_time")
+        
+        if isinstance(match_time, str):
+            try:
+                match_time = datetime.fromisoformat(match_time.replace("Z", "+00:00"))
+            except ValueError:
+                pass
+        
+        if isinstance(match_time, datetime):
+            time_str = match_time.strftime("%d.%m.%Y %H:%M")
+        else:
+            time_str = "TBD"
+        
+        embed.add_field(
+            name=f"{emoji} {session_name}",
+            value=f"📍 **{circuit}**\n📅 {time_str}",
+            inline=True
+        )
+    
+    return embed
+
+
+class MotorsportEventSelectView(View):
+    """View for selecting a motorsport event."""
+    
+    def __init__(self, events: List[Dict], db_helpers, balance_check_func, 
+                 balance_deduct_func=None, sport_type: str = "f1", timeout: float = 300.0):
+        super().__init__(timeout=timeout)
+        self.events = events
+        self.db_helpers = db_helpers
+        self.balance_check_func = balance_check_func
+        self.balance_deduct_func = balance_deduct_func
+        self.sport_type = sport_type
+        
+        if events:
+            self.add_item(MotorsportEventSelectDropdown(
+                events, db_helpers, balance_check_func, balance_deduct_func, sport_type
+            ))
+    
+    @ui.button(label="⬅️ Zurück", style=discord.ButtonStyle.secondary, row=1)
+    async def go_back(self, interaction: discord.Interaction, button: Button):
+        matches = await get_upcoming_matches_all_leagues(self.db_helpers, matches_per_league=2, total_limit=4)
+        balance = await self.balance_check_func(interaction.user.id)
+        motorsport_events = await get_all_upcoming_events(self.db_helpers, limit=3)
+        
+        embed = create_highlighted_matches_embed(matches, balance, motorsport_events)
+        view = SportBetsMainView(
+            self.db_helpers, self.balance_check_func, self.balance_deduct_func
+        )
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+class MotorsportEventSelectDropdown(Select):
+    """Dropdown to select a motorsport event."""
+    
+    def __init__(self, events: List[Dict], db_helpers, balance_check_func, 
+                 balance_deduct_func=None, sport_type: str = "f1"):
+        self.events_dict = {}
+        self.db_helpers = db_helpers
+        self.balance_check_func = balance_check_func
+        self.balance_deduct_func = balance_deduct_func
+        self.sport_type = sport_type
+        
+        emoji = "🏎️" if sport_type == "f1" else "🏍️"
+        
+        options = []
+        for event in events[:25]:
+            event_id = str(event.get("match_id", event.get("id", "")))
+            self.events_dict[event_id] = event
+            
+            session_name = event.get("home_team", "Race")[:25]
+            circuit = event.get("away_team", "Circuit")[:30]
+            match_time = event.get("match_time")
+            
+            if isinstance(match_time, datetime):
+                time_str = match_time.strftime("%d.%m. %H:%M")
+            else:
+                time_str = "TBD"
+            
+            options.append(discord.SelectOption(
+                label=f"{session_name}",
+                value=event_id,
+                description=f"{circuit} • {time_str}"[:100],
+                emoji=emoji
+            ))
+        
+        if not options:
+            options = [discord.SelectOption(label="Keine Events", value="none")]
+        
+        super().__init__(
+            placeholder=f"{emoji} Rennen auswählen...",
+            options=options,
+            min_values=1,
+            max_values=1
+        )
+    
+    async def callback(self, interaction: discord.Interaction):
+        if self.values[0] == "none":
+            await interaction.response.send_message("Keine Events verfügbar!", ephemeral=True)
+            return
+        
+        event = self.events_dict.get(self.values[0])
+        if not event:
+            await interaction.response.send_message("Event nicht gefunden!", ephemeral=True)
+            return
+        
+        embed = create_motorsport_bet_embed(event, self.sport_type)
+        view = MotorsportBetView(
+            event, self.db_helpers, self.balance_check_func, 
+            self.balance_deduct_func, self.sport_type
+        )
+        
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+def create_motorsport_bet_embed(event: Dict, sport_type: str) -> discord.Embed:
+    """Create betting embed for a motorsport event."""
+    session_name = event.get("home_team", "Race")
+    circuit = event.get("away_team", "Unknown")
+    match_time = event.get("match_time")
+    
+    if sport_type == "f1":
+        title = f"🏎️ {session_name}"
+        color = discord.Color.red()
+    else:
+        title = f"🏍️ {session_name}"
+        color = discord.Color.orange()
+    
+    embed = discord.Embed(
+        title=title,
+        description=f"📍 **{circuit}**",
+        color=color
+    )
+    
+    if isinstance(match_time, datetime):
+        time_str = match_time.strftime("%d.%m.%Y %H:%M")
+    else:
+        time_str = "TBD"
+    
+    embed.add_field(name="📅 Zeitpunkt", value=time_str, inline=True)
+    
+    # Add betting options info
+    embed.add_field(
+        name="🎯 Wettoptionen",
+        value=(
+            "• **Rennsieger** - Wette auf den Gewinner\n"
+            "• **Podium** - Top 3 Platzierung\n"
+            "• **Top 5** - Platzierung in Top 5"
+        ),
+        inline=False
+    )
+    
+    embed.set_footer(text="Wähle eine Wettoption unten!")
+    return embed
+
+
+class MotorsportBetModal(Modal):
+    """Modal for motorsport betting."""
+    
+    def __init__(self, event: Dict, bet_type: str, description: str, odds: float,
+                 db_helpers, balance_check_func, balance_deduct_func=None):
+        super().__init__(title=f"🏁 Wette: {description[:40]}")
+        self.event = event
+        self.bet_type = bet_type
+        self.description = description
+        self.odds = odds
+        self.db_helpers = db_helpers
+        self.balance_check_func = balance_check_func
+        self.balance_deduct_func = balance_deduct_func
+        
+        prob = odds_to_probability(odds)
+        
+        self.amount_input = TextInput(
+            label=f"Einsatz ({odds:.2f}x • {prob:.0f}% Chance)",
+            placeholder="z.B. 100",
+            min_length=1,
+            max_length=10,
+            required=True
+        )
+        self.add_item(self.amount_input)
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            amount = int(self.amount_input.value)
+            if amount <= 0:
+                await interaction.response.send_message("❌ Einsatz muss positiv sein!", ephemeral=True)
+                return
+            
+            user_id = interaction.user.id
+            balance = await self.balance_check_func(user_id)
+            
+            if balance < amount:
+                await interaction.response.send_message(
+                    f"❌ Nicht genug Geld! Du hast **{balance}** 🪙, brauchst aber **{amount}** 🪙.",
+                    ephemeral=True
+                )
+                return
+            
+            # Place the bet
+            event_id = self.event.get("match_id", self.event.get("id"))
+            success, message = await place_bet(
+                self.db_helpers,
+                user_id,
+                event_id,
+                self.bet_type,
+                self.description,
+                amount,
+                self.odds
+            )
+            
+            if success:
+                if self.balance_deduct_func:
+                    await self.balance_deduct_func(user_id, interaction.user.display_name, -amount)
+                
+                potential_payout = int(amount * self.odds)
+                session_name = self.event.get("home_team", "Race")
+                circuit = self.event.get("away_team", "Circuit")
+                
+                embed = discord.Embed(
+                    title="✅ Wette platziert!",
+                    color=discord.Color.green()
+                )
+                embed.add_field(name="🏁 Rennen", value=f"{session_name} @ {circuit}", inline=False)
+                embed.add_field(name="🎯 Wette", value=self.description, inline=True)
+                embed.add_field(name="📊 Quote", value=f"{self.odds:.2f}x", inline=True)
+                embed.add_field(name="💰 Einsatz", value=f"{amount} 🪙", inline=True)
+                embed.add_field(name="💎 Möglicher Gewinn", value=f"**{potential_payout}** 🪙", inline=True)
+                
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+            else:
+                await interaction.response.send_message(f"❌ {message}", ephemeral=True)
+                
+        except ValueError:
+            await interaction.response.send_message("❌ Bitte gib eine gültige Zahl ein!", ephemeral=True)
+
+
+class MotorsportBetView(View):
+    """View for placing motorsport bets."""
+    
+    def __init__(self, event: Dict, db_helpers, balance_check_func, 
+                 balance_deduct_func=None, sport_type: str = "f1", timeout: float = 300.0):
+        super().__init__(timeout=timeout)
+        self.event = event
+        self.db_helpers = db_helpers
+        self.balance_check_func = balance_check_func
+        self.balance_deduct_func = balance_deduct_func
+        self.sport_type = sport_type
+        
+        # Base odds for motorsport betting (these would ideally come from an odds provider)
+        self.odds = {
+            "race_winner": 6.0,  # Higher odds for race winner
+            "podium": 2.5,       # Podium finish
+            "top_5": 1.8,        # Top 5 finish
+            "top_10": 1.4        # Top 10 finish
+        }
+    
+    @ui.button(label="🏆 Rennsieger (6.00x)", style=discord.ButtonStyle.primary, row=0)
+    async def bet_race_winner(self, interaction: discord.Interaction, button: Button):
+        modal = MotorsportBetModal(
+            self.event, "race_winner", "Rennsieger", self.odds["race_winner"],
+            self.db_helpers, self.balance_check_func, self.balance_deduct_func
+        )
+        await interaction.response.send_modal(modal)
+    
+    @ui.button(label="🥇 Podium (2.50x)", style=discord.ButtonStyle.success, row=0)
+    async def bet_podium(self, interaction: discord.Interaction, button: Button):
+        modal = MotorsportBetModal(
+            self.event, "podium_finish", "Podiumsplatz", self.odds["podium"],
+            self.db_helpers, self.balance_check_func, self.balance_deduct_func
+        )
+        await interaction.response.send_modal(modal)
+    
+    @ui.button(label="🏅 Top 5 (1.80x)", style=discord.ButtonStyle.secondary, row=1)
+    async def bet_top_5(self, interaction: discord.Interaction, button: Button):
+        modal = MotorsportBetModal(
+            self.event, "top_5_finish", "Top 5 Platzierung", self.odds["top_5"],
+            self.db_helpers, self.balance_check_func, self.balance_deduct_func
+        )
+        await interaction.response.send_modal(modal)
+    
+    @ui.button(label="📊 Top 10 (1.40x)", style=discord.ButtonStyle.secondary, row=1)
+    async def bet_top_10(self, interaction: discord.Interaction, button: Button):
+        modal = MotorsportBetModal(
+            self.event, "top_10_finish", "Top 10 Platzierung", self.odds["top_10"],
+            self.db_helpers, self.balance_check_func, self.balance_deduct_func
+        )
+        await interaction.response.send_modal(modal)
+    
+    @ui.button(label="⬅️ Zurück", style=discord.ButtonStyle.danger, row=2)
+    async def go_back(self, interaction: discord.Interaction, button: Button):
+        events = await get_upcoming_motorsport_events(self.db_helpers, self.sport_type, limit=10)
+        embed = create_motorsport_events_embed(events, self.sport_type)
+        view = MotorsportEventSelectView(
+            events, self.db_helpers, self.balance_check_func, 
+            self.balance_deduct_func, self.sport_type
+        )
+        await interaction.response.edit_message(embed=embed, view=view)
 
 
 # ============================================================================
@@ -1696,72 +2125,73 @@ def create_help_embed() -> discord.Embed:
     """Create help embed for sport betting."""
     embed = discord.Embed(
         title="❓ Sport Betting - Hilfe",
-        description="So funktioniert das Wetten auf Fußballspiele!",
+        description="So funktioniert das Wetten auf Sport-Events!",
         color=discord.Color.blue()
     )
     
     embed.add_field(
         name="📋 Ablauf",
         value=(
-            "1️⃣ Wähle eine Liga aus\n"
-            "2️⃣ Wähle ein Spiel aus der Liste\n"
-            "3️⃣ Sieh dir die Siegchancen an\n"
+            "1️⃣ Wähle eine Sportart aus\n"
+            "2️⃣ Wähle ein Event aus der Liste\n"
+            "3️⃣ Sieh dir die Quoten an\n"
             "4️⃣ Wähle deinen Tipp\n"
             "5️⃣ Gib deinen Einsatz ein\n"
-            "6️⃣ Warte auf das Spielergebnis!"
+            "6️⃣ Warte auf das Ergebnis!"
         ),
         inline=False
     )
     
     embed.add_field(
-        name="🎯 Wettarten",
+        name="⚽ Fußball-Wetten",
         value=(
-            "**Basis:**\n"
-            "🏠 Heimsieg | 🤝 Remis | ✈️ Auswärtssieg\n\n"
-            "**Erweitert:**\n"
-            "⬆️⬇️ Über/Unter 1.5, 2.5, 3.5 Tore\n"
-            "✅❌ Beide Teams treffen (BTTS)\n"
-            "📊 Tordifferenz (+1, +2, +3)"
+            "🏠 Heimsieg | 🤝 Remis | ✈️ Auswärtssieg\n"
+            "⬆️⬇️ Über/Unter Tore\n"
+            "✅❌ Beide Teams treffen"
         ),
-        inline=False
+        inline=True
+    )
+    
+    embed.add_field(
+        name="🏎️ F1 / 🏍️ MotoGP",
+        value=(
+            "🏆 Rennsieger (6.00x)\n"
+            "🥇 Podium (2.50x)\n"
+            "🏅 Top 5 (1.80x)\n"
+            "📊 Top 10 (1.40x)"
+        ),
+        inline=True
     )
     
     embed.add_field(
         name="🎰 Kombiwetten",
         value=(
-            "Kombiniere mehrere Tipps zu einer Wette!\n"
-            "• Mindestens 2 Auswahlen\n"
-            "• Maximal 10 Auswahlen\n"
-            "• Quoten werden **multipliziert**\n"
+            "Kombiniere Tipps für höhere Quoten!\n"
+            "• Min. 2, Max. 10 Auswahlen\n"
+            "• Quoten werden multipliziert\n"
             "• Alle Tipps müssen richtig sein"
         ),
         inline=False
     )
     
     embed.add_field(
-        name="🔔 Benachrichtigungen",
-        value=(
-            "Du erhältst **30 Min vor Spielbeginn**\n"
-            "eine Erinnerung per DM!"
-        ),
-        inline=True
-    )
-    
-    embed.add_field(
         name="📊 Quoten verstehen",
-        value=(
-            "Quote 2.50x bei 100 🪙\n"
-            "→ Gewinn: **250** 🪙"
-        ),
+        value="Quote 2.50x bei 100 🪙 → **250** 🪙 Gewinn",
         inline=True
     )
     
     embed.add_field(
-        name="🏟️ Verfügbare Ligen",
+        name="🔔 Benachrichtigungen",
+        value="30 Min vor Event-Start per DM!",
+        inline=True
+    )
+    
+    embed.add_field(
+        name="🏆 Verfügbare Events",
         value=(
-            "🇩🇪 **Bundesliga** - 1. Liga\n"
-            "🇩🇪 **2. Bundesliga** - 2. Liga\n"
-            "🏆 **DFB-Pokal** - Pokal"
+            "⚽ Bundesliga, 2. BL, DFB-Pokal, UCL, UEL\n"
+            "🏎️ Formula 1 Rennen & Sessions\n"
+            "🏍️ MotoGP Grand Prix"
         ),
         inline=False
     )
