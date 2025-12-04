@@ -1255,9 +1255,13 @@ class OpenF1Provider(FootballAPIProvider):
     RETRY_DELAY = 1.0
     REQUEST_DELAY = 0.5
     
-    # Fallback F1 calendar for 2026 season (projected dates based on typical calendar)
-    # Update with official dates when announced (usually late 2025/early 2026)
-    # Source: Formula 1 typically follows similar calendar patterns year over year
+    # Maximum number of races to search when looking for a specific race ID (covers 2 full seasons)
+    MAX_RACES_SEARCH = 50
+    
+    # Fallback F1 calendar for 2026 season
+    # IMPORTANT: These are UNOFFICIAL ESTIMATED DATES based on typical F1 calendar patterns.
+    # Actual dates may differ significantly. Update with official dates when announced
+    # (usually in late 2025/early 2026 via https://www.formula1.com/en/racing/2026.html)
     F1_CALENDAR_2026 = [
         {"name": "Bahrain GP", "circuit": "Sakhir", "country": "Bahrain", "date": "2026-03-08"},
         {"name": "Saudi Arabian GP", "circuit": "Jeddah", "country": "Saudi Arabia", "date": "2026-03-15"},
@@ -1427,10 +1431,9 @@ class OpenF1Provider(FootballAPIProvider):
                 # Include upcoming races and recently finished ones (within last day)
                 if race_date > now - timedelta(days=1):
                     status = MatchStatus.SCHEDULED
-                    if race_date.date() == now.date():
-                        status = MatchStatus.LIVE
-                    elif race_date < now:
-                        status = MatchStatus.FINISHED
+                    # Only mark as LIVE if race time has passed (race_date includes time component)
+                    if race_date <= now:
+                        status = MatchStatus.LIVE if now <= race_date + timedelta(hours=2) else MatchStatus.FINISHED
                     
                     sessions.append({
                         "id": f"f1_{race['name'].lower().replace(' ', '_')}_{race_date.year}",
@@ -1578,9 +1581,10 @@ class MotoGPProvider(FootballAPIProvider):
         {"name": "Valencia GP", "circuit": "Valencia", "country": "Spain", "date": "2025-11-16"},
     ]
     
-    # 2026 MotoGP Calendar (projected dates based on typical calendar)
-    # Update with official dates when announced (usually late 2025)
-    # Dates are estimated based on typical race weekends
+    # 2026 MotoGP Calendar
+    # IMPORTANT: These are UNOFFICIAL ESTIMATED DATES based on typical MotoGP calendar patterns.
+    # Actual dates may differ significantly. Update with official dates when announced
+    # (usually in late 2025 via https://www.motogp.com/en/calendar)
     MOTOGP_CALENDAR_2026 = [
         {"name": "Qatar GP", "circuit": "Losail", "country": "Qatar", "date": "2026-03-08"},
         {"name": "Portuguese GP", "circuit": "Portimao", "country": "Portugal", "date": "2026-03-22"},
@@ -1601,11 +1605,18 @@ class MotoGPProvider(FootballAPIProvider):
         {"name": "Valencia GP", "circuit": "Valencia", "country": "Spain", "date": "2026-11-15"},
     ]
     
-    # Combined calendar property for easy access
+    # Maximum number of races to search when looking for a specific race ID (covers 2 full seasons)
+    MAX_RACES_SEARCH = 40
+    
+    # Cached combined calendar (lazy initialization)
+    _combined_calendar: Optional[List[Dict]] = None
+    
     @property
     def MOTOGP_CALENDAR(self) -> List[Dict]:
-        """Get combined calendar for all tracked seasons."""
-        return self.MOTOGP_CALENDAR_2025 + self.MOTOGP_CALENDAR_2026
+        """Get combined calendar for all tracked seasons (cached)."""
+        if self._combined_calendar is None:
+            self._combined_calendar = self.MOTOGP_CALENDAR_2025 + self.MOTOGP_CALENDAR_2026
+        return self._combined_calendar
     
     # Current MotoGP riders (2025/2026 grid)
     MOTOGP_RIDERS = [
@@ -1658,10 +1669,9 @@ class MotoGPProvider(FootballAPIProvider):
                 # Include upcoming races and recently finished ones (within last day)
                 if race_date > now - timedelta(days=1):
                     status = MatchStatus.SCHEDULED
-                    if race_date.date() == now.date():
-                        status = MatchStatus.LIVE
-                    elif race_date < now:
-                        status = MatchStatus.FINISHED
+                    # Only mark as LIVE if race time has passed (race_date includes time component)
+                    if race_date <= now:
+                        status = MatchStatus.LIVE if now <= race_date + timedelta(hours=2) else MatchStatus.FINISHED
                     
                     races.append({
                         "id": f"motogp_{race['name'].lower().replace(' ', '_')}_{race_date.year}",
@@ -1703,7 +1713,7 @@ class MotoGPProvider(FootballAPIProvider):
     
     async def get_match(self, match_id: str) -> Optional[Dict[str, Any]]:
         """Get a specific race by ID."""
-        races = await self.get_upcoming_races(num_races=40)  # Increased to search both seasons
+        races = await self.get_upcoming_races(num_races=self.MAX_RACES_SEARCH)
         for race in races:
             if race["id"] == match_id:
                 return race
