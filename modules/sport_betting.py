@@ -160,6 +160,20 @@ LEAGUES = {
         "api_id": "dfb",
         "provider": "openligadb"
     },
+    "ucl": {
+        "name": "Champions League",
+        "country": "Europe",
+        "emoji": "🏆",
+        "api_id": "ucl",
+        "provider": "openligadb"
+    },
+    "uel": {
+        "name": "Europa League",
+        "country": "Europe",
+        "emoji": "🏆",
+        "api_id": "uel",
+        "provider": "openligadb"
+    },
     "cl": {
         "name": "Champions League",
         "country": "Europe",
@@ -1615,8 +1629,8 @@ async def get_recent_matches(db_helpers, league_id: Optional[str] = None, limit:
     Shows matches from the last 7 days (past and future from that point).
     
     IMPORTANT: When no league_id is specified, only returns matches from
-    free leagues (bl1, bl2, dfb) to avoid showing stale data from premium
-    leagues that may not be synced.
+    free leagues to avoid showing stale data from premium leagues that 
+    may not be synced.
     """
     try:
         if not db_helpers.db_pool:
@@ -1639,10 +1653,11 @@ async def get_recent_matches(db_helpers, league_id: Optional[str] = None, limit:
             else:
                 # Only get matches from free leagues (OpenLigaDB)
                 # This prevents showing stale data from premium leagues
-                free_leagues = ("bl1", "bl2", "dfb")
-                cursor.execute("""
+                free_leagues = ("bl1", "bl2", "dfb", "ucl", "uel")
+                placeholders = ', '.join(['%s'] * len(free_leagues))
+                cursor.execute(f"""
                     SELECT * FROM sport_matches 
-                    WHERE league_id IN (%s, %s, %s)
+                    WHERE league_id IN ({placeholders})
                       AND match_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
                     ORDER BY match_time DESC
                     LIMIT %s
@@ -1661,7 +1676,7 @@ async def get_recent_matches(db_helpers, league_id: Optional[str] = None, limit:
 
 async def get_upcoming_matches_all_leagues(db_helpers, matches_per_league: int = 2, total_limit: int = 10) -> List[Dict]:
     """
-    Get upcoming matches from ALL available free leagues (bl1, bl2, dfb), ensuring diversity.
+    Get upcoming matches from ALL available free leagues, ensuring diversity.
     
     This function fetches upcoming scheduled matches from each free league 
     and returns a mixed list sorted by match time. This ensures the homepage
@@ -1689,7 +1704,7 @@ async def get_upcoming_matches_all_leagues(db_helpers, matches_per_league: int =
         cursor = conn.cursor(dictionary=True)
         try:
             # Get matches from all free leagues only (OpenLigaDB)
-            free_leagues = ["bl1", "bl2", "dfb"]
+            free_leagues = ["bl1", "bl2", "dfb", "ucl", "uel"]
             all_matches = []
             
             for league_id in free_leagues:
@@ -1709,10 +1724,12 @@ async def get_upcoming_matches_all_leagues(db_helpers, matches_per_league: int =
             # If we don't have enough upcoming matches, also get live matches from free leagues
             if len(all_matches) < total_limit:
                 # Get any live matches from free leagues only
-                cursor.execute("""
+                # Build dynamic placeholders for IN clause
+                placeholders = ', '.join(['%s'] * len(free_leagues))
+                cursor.execute(f"""
                     SELECT * FROM sport_matches 
                     WHERE status = 'live'
-                      AND league_id IN (%s, %s, %s)
+                      AND league_id IN ({placeholders})
                     ORDER BY match_time DESC
                     LIMIT %s
                 """, (*free_leagues, total_limit - len(all_matches)))
@@ -2682,7 +2699,7 @@ async def smart_sync_leagues(db_helpers, force: bool = False) -> Dict[str, int]:
         Dictionary of league_id -> number of matches synced
     """
     results = {}
-    free_leagues = ["bl1", "bl2", "dfb"]  # OpenLigaDB supported leagues
+    free_leagues = ["bl1", "bl2", "dfb", "ucl", "uel"]  # OpenLigaDB supported leagues
     
     # Get season using the provider's method for consistency
     provider = APIProviderFactory.get_provider("openligadb")

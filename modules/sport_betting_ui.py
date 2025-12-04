@@ -469,7 +469,7 @@ class SportBettingMainView(View):
         await interaction.response.defer()
         
         # Sync only free leagues (OpenLigaDB)
-        free_leagues = ["bl1", "bl2", "dfb"]
+        free_leagues = ["bl1", "bl2", "dfb", "ucl", "uel"]
         synced_total = 0
         
         for league_id in free_leagues:

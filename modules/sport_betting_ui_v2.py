@@ -838,7 +838,7 @@ class MatchSelectView(View):
 # ============================================================================
 
 # Free leagues that don't require an API key (OpenLigaDB)
-FREE_LEAGUES = ["bl1", "bl2", "dfb"]
+FREE_LEAGUES = ["bl1", "bl2", "dfb", "ucl", "uel"]
 
 
 class LeagueSelectDropdown(Select):
@@ -896,7 +896,9 @@ class LeagueSelectView(View):
                 "**Verfügbare Ligen:**\n"
                 "🇩🇪 **Bundesliga** - Deutsche 1. Liga\n"
                 "🇩🇪 **2. Bundesliga** - Deutsche 2. Liga\n"
-                "🏆 **DFB-Pokal** - Deutscher Pokal"
+                "🏆 **DFB-Pokal** - Deutscher Pokal\n"
+                "🏆 **Champions League** - UEFA Champions League\n"
+                "🏆 **Europa League** - UEFA Europa League"
             ),
             color=discord.Color.blue()
         )
@@ -1572,7 +1574,7 @@ class SportBetsMainView(View):
         await interaction.response.defer()
         
         # Sync free leagues
-        free_leagues = ["bl1", "bl2", "dfb"]
+        free_leagues = ["bl1", "bl2", "dfb", "ucl", "uel"]
         synced_total = 0
         
         for league_id in free_leagues:

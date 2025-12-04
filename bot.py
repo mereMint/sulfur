@@ -645,7 +645,7 @@ async def on_ready():
         print("Football-Data.org API key not set - only free leagues available")
     # Sync matches from free APIs (OpenLigaDB - no API key required)
     try:
-        for league_id in ["bl1", "bl2", "dfb"]:
+        for league_id in ["bl1", "bl2", "dfb", "ucl", "uel"]:
             await sport_betting.sync_league_matches(db_helpers, league_id)
     except Exception as e:
         logger.warning(f"Could not sync sport betting matches on startup: {e}")
@@ -1511,7 +1511,7 @@ async def sport_betting_sync_and_settle_task():
         logger.debug("Running sport betting sync and settle task")
         
         # Step 1: Sync match data from free leagues
-        free_leagues = ["bl1", "bl2", "dfb"]
+        free_leagues = ["bl1", "bl2", "dfb", "ucl", "uel"]
         total_synced = 0
         
         for league_id in free_leagues:
