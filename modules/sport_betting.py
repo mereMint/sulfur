@@ -1258,6 +1258,13 @@ class OpenF1Provider(FootballAPIProvider):
     # Maximum number of races to search when looking for a specific race ID (covers 2 full seasons)
     MAX_RACES_SEARCH = 50
     
+    # Fallback F1 calendar for 2025 season (used when API data is incomplete)
+    # This covers races that might be missing from the OpenF1 API
+    # Abu Dhabi GP 2025 is the season finale on December 7, 2025
+    F1_CALENDAR_2025 = [
+        {"name": "Abu Dhabi GP", "circuit": "Yas Marina", "country": "UAE", "date": "2025-12-07"},
+    ]
+    
     # Fallback F1 calendar for 2026 season
     # IMPORTANT: These are UNOFFICIAL ESTIMATED DATES based on typical F1 calendar patterns.
     # Actual dates may differ significantly. Update with official dates when announced
@@ -1408,20 +1415,39 @@ class OpenF1Provider(FootballAPIProvider):
             if sessions:
                 break
         
-        # If no sessions found from API, use fallback calendar
-        if not sessions:
-            sessions = await self._get_sessions_from_fallback_calendar()
+        # Check fallback calendars for any missing races (e.g., Abu Dhabi 2025 not in API yet)
+        fallback_sessions = await self._get_sessions_from_fallback_calendar(include_current_year=True)
+        
+        # Add fallback sessions that aren't already in the list (based on circuit and date match)
+        existing_circuits_dates = {
+            (s["circuit_name"], s["match_time"].date()) for s in sessions
+        }
+        for fb_session in fallback_sessions:
+            key = (fb_session["circuit_name"], fb_session["match_time"].date())
+            if key not in existing_circuits_dates:
+                sessions.append(fb_session)
         
         # Sort by date and take upcoming sessions
         sessions.sort(key=lambda x: x["match_time"])
         return sessions[:num_sessions]
     
-    async def _get_sessions_from_fallback_calendar(self) -> List[Dict[str, Any]]:
-        """Get sessions from the fallback static calendar when API data is not available."""
+    async def _get_sessions_from_fallback_calendar(self, include_current_year: bool = False) -> List[Dict[str, Any]]:
+        """Get sessions from the fallback static calendar when API data is not available or incomplete.
+        
+        Args:
+            include_current_year: If True, also includes races from the current year's fallback calendar
+                                  (useful for races missing from the API like Abu Dhabi 2025)
+        """
         now = datetime.now(timezone.utc)
         sessions = []
         
-        for i, race in enumerate(self.F1_CALENDAR_2026):
+        # Combine calendars based on what's needed
+        calendars_to_check = []
+        if include_current_year:
+            calendars_to_check.extend(self.F1_CALENDAR_2025)
+        calendars_to_check.extend(self.F1_CALENDAR_2026)
+        
+        for i, race in enumerate(calendars_to_check):
             try:
                 # Parse race date and set typical race time (14:00 UTC)
                 race_date = datetime.strptime(race["date"], "%Y-%m-%d").replace(
