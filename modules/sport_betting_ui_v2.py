@@ -1906,11 +1906,12 @@ class MotorsportBetModal(Modal):
     def __init__(self, event: Dict, bet_type: str, description: str, odds: float,
                  db_helpers, balance_check_func, balance_deduct_func=None,
                  driver_name: str = None, driver_number: int = None):
-        # Include driver name in title if provided
-        title_text = description[:40]
+        # Include both driver name and bet type in title for clarity
         if driver_name:
-            title_text = f"{driver_name[:20]}"
-        super().__init__(title=f"🏁 Wette: {title_text}")
+            title_text = f"{driver_name[:15]} - {description[:15]}"
+        else:
+            title_text = description[:40]
+        super().__init__(title=f"🏁 {title_text}")
         
         self.event = event
         self.bet_type = bet_type
@@ -1953,13 +1954,12 @@ class MotorsportBetModal(Modal):
             # Place the bet with driver info in the outcome
             event_id = self.event.get("match_id", self.event.get("id"))
             
-            # Build outcome description that includes driver info
-            if self.driver_name and self.driver_number:
+            # Build outcome description that includes driver info for database storage
+            # Format: "driver_<number>_<bet_type>" for bets with driver selection
+            if self.driver_name and self.driver_number is not None:
                 bet_outcome = f"driver_{self.driver_number}_{self.bet_type}"
-                display_description = f"{self.driver_name} - {self.description}"
             else:
                 bet_outcome = self.bet_type
-                display_description = self.description
             
             success, message = await place_bet(
                 self.db_helpers,
@@ -2033,15 +2033,13 @@ class MotorsportBetView(View):
             if self.sport_type == "f1":
                 provider = APIProviderFactory.get_provider("openf1")
                 participants = await provider.get_drivers()
-                participant_type = "Fahrer"
             else:  # motogp
                 provider = APIProviderFactory.get_provider("motogp")
                 participants = await provider.get_riders()
-                participant_type = "Fahrer"
             
             if not participants:
                 await interaction.followup.send(
-                    f"❌ Keine {participant_type} verfügbar. Bitte versuche es später erneut.",
+                    "❌ Keine Fahrer verfügbar. Bitte versuche es später erneut.",
                     ephemeral=True
                 )
                 return
@@ -2172,7 +2170,10 @@ class DriverSelectDropdown(Select):
         options = []
         for p in participants[:25]:  # Discord limit is 25 options
             # Handle both F1 (driver_number) and MotoGP (rider_number) formats
-            number = p.get("driver_number") or p.get("rider_number", 0)
+            number = p.get("driver_number") or p.get("rider_number")
+            if number is None:
+                continue  # Skip participants without a valid number
+            
             name = p.get("full_name", "Unknown Driver")
             team = p.get("team_name", "Unknown Team")
             
@@ -2206,9 +2207,13 @@ class DriverSelectDropdown(Select):
             await interaction.response.send_message("❌ Fahrer nicht gefunden!", ephemeral=True)
             return
         
-        # Get driver info
+        # Get driver info - the number should be available since we filtered None values when building options
         driver_number = participant.get("driver_number") or participant.get("rider_number")
         driver_name = participant.get("full_name", "Unknown")
+        
+        if driver_number is None:
+            await interaction.response.send_message("❌ Fahrernummer nicht verfügbar!", ephemeral=True)
+            return
         
         # Show the bet modal with the selected driver
         modal = MotorsportBetModal(
