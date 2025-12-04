@@ -12,6 +12,7 @@ from discord.ui import View, Button, Select, Modal, TextInput
 from typing import Optional, List, Dict, Any, Callable
 from datetime import datetime, timedelta, timezone
 
+from modules.logger_utils import bot_logger as logger
 from modules.sport_betting import (
     LEAGUES, FREE_LEAGUES, FREE_MOTORSPORT, MatchStatus, BetOutcome, BetType, SportType,
     format_match_time, get_league_emoji, get_league_name,
@@ -1680,7 +1681,8 @@ class SportBetsMainView(View):
                 synced = await sync_league_matches(self.db_helpers, sport_id)
                 synced_total += synced
             except Exception as e:
-                pass  # Silently continue if motorsport sync fails
+                logger.debug(f"Could not sync motorsport {sport_id}: {e}")
+                # Continue with other sports if one fails
         
         # Get fresh data
         matches = await get_upcoming_matches_all_leagues(self.db_helpers, matches_per_league=2, total_limit=4)
@@ -1989,12 +1991,16 @@ class MotorsportBetView(View):
         self.balance_deduct_func = balance_deduct_func
         self.sport_type = sport_type
         
-        # Base odds for motorsport betting (these would ideally come from an odds provider)
+        # Base odds for motorsport betting
+        # NOTE: These are simplified fixed odds. In a production system, these would
+        # be fetched from a real-time odds provider based on driver standings,
+        # qualifying results, and market conditions.
+        # TODO: Implement dynamic odds based on driver standings when available
         self.odds = {
-            "race_winner": 6.0,  # Higher odds for race winner
-            "podium": 2.5,       # Podium finish
-            "top_5": 1.8,        # Top 5 finish
-            "top_10": 1.4        # Top 10 finish
+            "race_winner": 6.0,  # Higher odds - harder to predict exact winner
+            "podium": 2.5,       # Top 3 finish - more likely
+            "top_5": 1.8,        # Top 5 finish - even more likely
+            "top_10": 1.4        # Top 10 finish - most likely
         }
     
     @ui.button(label="🏆 Rennsieger (6.00x)", style=discord.ButtonStyle.primary, row=0)

@@ -713,8 +713,14 @@ async def generate_sports_news(db_helpers, api_helpers, config, gemini_key=None,
 
 
 async def create_sports_article_with_ai(api_helpers, sports_data, config, gemini_key=None, openai_key=None):
-    """Use AI to create an engaging sports news article."""
+    """Use AI to create an engaging sports news article.
+    
+    Note: The prompt is in German as the bot primarily serves German-speaking users.
+    The prompt template could be extracted to a config file for internationalization.
+    """
     try:
+        # Sports journalism prompt - German language for target audience
+        # TODO: Consider moving to config file for easier maintenance
         prompt = """Du bist ein begeisterter Sportjournalist mit Leidenschaft für Fußball, Formel 1 und MotoGP.
 Schreibe einen packenden Sportnachrichtenartikel (250-400 Wörter) basierend auf den folgenden Daten.
 Verwende sportliche Metaphern, dramatische Formulierungen und bringe Emotionen rein!

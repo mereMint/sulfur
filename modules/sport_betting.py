@@ -1466,7 +1466,9 @@ class MotoGPProvider(FootballAPIProvider):
     MAX_RETRIES = 2
     RETRY_DELAY = 1.0
     
-    # 2024/2025 MotoGP Calendar (manually maintained as backup)
+    # 2025 MotoGP Calendar (manually maintained - update for 2026 season)
+    # TODO: Update this calendar when 2026 schedule is announced (typically in late 2025)
+    # Source: https://www.motogp.com/en/calendar
     MOTOGP_CALENDAR = [
         {"name": "Qatar GP", "circuit": "Losail", "country": "Qatar", "date": "2025-03-02"},
         {"name": "Portuguese GP", "circuit": "Portimao", "country": "Portugal", "date": "2025-03-16"},
@@ -1506,13 +1508,19 @@ class MotoGPProvider(FootballAPIProvider):
     
     async def _make_api_request(self, url: str, cache_key: Optional[str] = None,
                                  cache_ttl: Optional[int] = None) -> Optional[Any]:
-        """Make an API request with caching."""
+        """Make an API request with caching.
+        
+        Note: MotoGP does not have a free public API like OpenF1.
+        This method intentionally returns None to fall back to calendar data.
+        The provider uses static calendar data which is updated annually.
+        """
         if cache_key:
             cached = _api_cache.get(cache_key)
             if cached is not None:
                 return cached
         
-        # MotoGP API may have restricted access, use fallback data
+        # MotoGP API has restricted access - using static calendar data instead
+        logger.debug("MotoGP API not available, using static calendar data")
         return None
     
     async def get_upcoming_races(self, num_races: int = 5) -> List[Dict[str, Any]]:
