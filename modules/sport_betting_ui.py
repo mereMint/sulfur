@@ -10,7 +10,7 @@ from typing import Optional, List, Dict, Any, Callable
 from datetime import datetime
 
 from modules.sport_betting import (
-    LEAGUES, MatchStatus, BetOutcome,
+    LEAGUES, FREE_LEAGUES, MatchStatus, BetOutcome,
     format_match_time, get_league_emoji, get_league_name,
     format_odds_display, get_outcome_emoji,
     create_match_embed, create_bet_embed, create_stats_embed,
@@ -469,10 +469,9 @@ class SportBettingMainView(View):
         await interaction.response.defer()
         
         # Sync only free leagues (OpenLigaDB)
-        free_leagues = ["bl1", "bl2", "dfb", "ucl", "uel"]
         synced_total = 0
         
-        for league_id in free_leagues:
+        for league_id in FREE_LEAGUES:
             synced = await sync_league_matches(self.db_helpers, league_id)
             synced_total += synced
         

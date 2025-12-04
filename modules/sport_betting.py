@@ -137,6 +137,10 @@ class BetOutcome(Enum):
     AWAY_DIFF_3 = "away_diff_3"  # Away wins by 3+ goals
 
 
+# Free leagues that don't require an API key (OpenLigaDB)
+# These are the leagues that will be synced and displayed by default
+FREE_LEAGUES = ["bl1", "bl2", "dfb", "ucl", "uel"]
+
 # League configurations with display info
 LEAGUES = {
     "bl1": {
@@ -173,13 +177,6 @@ LEAGUES = {
         "emoji": "🏆",
         "api_id": "uel",
         "provider": "openligadb"
-    },
-    "cl": {
-        "name": "Champions League",
-        "country": "Europe",
-        "emoji": "🏆",
-        "api_id": "CL",
-        "provider": "football_data"
     },
     "pl": {
         "name": "Premier League",
@@ -1653,15 +1650,14 @@ async def get_recent_matches(db_helpers, league_id: Optional[str] = None, limit:
             else:
                 # Only get matches from free leagues (OpenLigaDB)
                 # This prevents showing stale data from premium leagues
-                free_leagues = ("bl1", "bl2", "dfb", "ucl", "uel")
-                placeholders = ', '.join(['%s'] * len(free_leagues))
+                placeholders = ', '.join(['%s'] * len(FREE_LEAGUES))
                 cursor.execute(f"""
                     SELECT * FROM sport_matches 
                     WHERE league_id IN ({placeholders})
                       AND match_time >= DATE_SUB(NOW(), INTERVAL 7 DAY)
                     ORDER BY match_time DESC
                     LIMIT %s
-                """, (*free_leagues, limit))
+                """, (*FREE_LEAGUES, limit))
             
             return cursor.fetchall()
             
@@ -1704,10 +1700,9 @@ async def get_upcoming_matches_all_leagues(db_helpers, matches_per_league: int =
         cursor = conn.cursor(dictionary=True)
         try:
             # Get matches from all free leagues only (OpenLigaDB)
-            free_leagues = ["bl1", "bl2", "dfb", "ucl", "uel"]
             all_matches = []
             
-            for league_id in free_leagues:
+            for league_id in FREE_LEAGUES:
                 # For each league, get the next few upcoming matches
                 cursor.execute("""
                     SELECT * FROM sport_matches 
@@ -1725,14 +1720,14 @@ async def get_upcoming_matches_all_leagues(db_helpers, matches_per_league: int =
             if len(all_matches) < total_limit:
                 # Get any live matches from free leagues only
                 # Build dynamic placeholders for IN clause
-                placeholders = ', '.join(['%s'] * len(free_leagues))
+                placeholders = ', '.join(['%s'] * len(FREE_LEAGUES))
                 cursor.execute(f"""
                     SELECT * FROM sport_matches 
                     WHERE status = 'live'
                       AND league_id IN ({placeholders})
                     ORDER BY match_time DESC
                     LIMIT %s
-                """, (*free_leagues, total_limit - len(all_matches)))
+                """, (*FREE_LEAGUES, total_limit - len(all_matches)))
                 
                 live_matches = cursor.fetchall()
                 
@@ -2699,13 +2694,12 @@ async def smart_sync_leagues(db_helpers, force: bool = False) -> Dict[str, int]:
         Dictionary of league_id -> number of matches synced
     """
     results = {}
-    free_leagues = ["bl1", "bl2", "dfb", "ucl", "uel"]  # OpenLigaDB supported leagues
     
     # Get season using the provider's method for consistency
     provider = APIProviderFactory.get_provider("openligadb")
     season = provider._get_season()
     
-    for league_id in free_leagues:
+    for league_id in FREE_LEAGUES:
         league_config = LEAGUES.get(league_id)
         if not league_config:
             continue
