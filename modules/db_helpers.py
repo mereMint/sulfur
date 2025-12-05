@@ -336,7 +336,7 @@ def initialize_database():
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS wrapped_registrations (
                 user_id BIGINT PRIMARY KEY,
-                username VARCHAR(255) NOT NULL,
+                username VARCHAR(255),
                 opted_out BOOLEAN DEFAULT FALSE NOT NULL,
                 last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
             )
@@ -2305,16 +2305,16 @@ async def unregister_from_wrapped(user_id):
     cnx = db_pool.get_connection()
     cursor = cnx.cursor()
     try:
+        # Only UPDATE existing records - don't INSERT new ones
         query = """
-            INSERT INTO wrapped_registrations (user_id, opted_out)
-            VALUES (%s, TRUE)
-            ON DUPLICATE KEY UPDATE
-                opted_out = TRUE,
-                last_updated = CURRENT_TIMESTAMP
+            UPDATE wrapped_registrations
+            SET opted_out = TRUE, last_updated = CURRENT_TIMESTAMP
+            WHERE user_id = %s
         """
         cursor.execute(query, (user_id,))
         cnx.commit()
-        return True
+        # Return True if a record was updated, otherwise the user wasn't registered
+        return cursor.rowcount > 0
     except mysql.connector.Error as err:
         print(f"Error in unregister_from_wrapped: {err}")
         return False

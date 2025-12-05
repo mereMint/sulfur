@@ -1301,7 +1301,7 @@ async def on_scheduled_event_user_add(event: discord.ScheduledEvent, user: disco
                     value="Deine persönliche Zusammenfassung wird in der zweiten Woche des nächsten Monats per DM verschickt!",
                     inline=False
                 )
-                embed.set_footer(text="💡 Tipp: Du kannst dich jederzeit mit /wrapped-unregister abmelden oder erneut auf 'Interessiert' klicken um abzumelden.")
+                embed.set_footer(text="💡 Tipp: Du kannst dich jederzeit mit /wrapped abmelden oder erneut auf 'Interessiert' klicken um abzumelden.")
                 embed.set_thumbnail(url=user.display_avatar.url)
                 await user.send(embed=embed)
             except (discord.Forbidden, discord.HTTPException) as dm_error:
@@ -1342,7 +1342,7 @@ async def on_scheduled_event_user_remove(event: discord.ScheduledEvent, user: di
                 embed.add_field(
                     name="🔄 Möchtest du dich wieder anmelden?",
                     value="• Klicke erneut auf 'Interessiert' beim nächsten Wrapped-Event\n"
-                          "• Oder nutze `/wrapped-register`",
+                          "• Oder nutze `/wrapped`",
                     inline=False
                 )
                 embed.set_footer(text="Wir freuen uns, dich bald wieder zu sehen!")
@@ -2946,35 +2946,39 @@ class AdminGroup(app_commands.Group):
     async def view_wrapped(self, interaction: discord.Interaction, user: discord.Member):
         await interaction.response.defer(ephemeral=True)
         
-        # --- FIX: Generate the preview for the PREVIOUS month, just like the real event ---
-        # This ensures the data is complete and the preview is accurate.
-        now = datetime.now(timezone.utc)
-        first_day_of_current_month = now.replace(day=1)
-        last_month_first_day = (first_day_of_current_month - timedelta(days=1)).replace(day=1)
-        stat_period = last_month_first_day.strftime('%Y-%m')
-        # We need all stats for the period to calculate ranks
-        all_stats = await db_helpers.get_wrapped_stats_for_period(stat_period)
-        if not all_stats:
-            await interaction.followup.send(f"Keine 'Wrapped'-Daten für den Zeitraum `{stat_period}` gefunden.", ephemeral=True)
-            return
-            
-        # Find the target user's stats
-        target_user_stats = next((s for s in all_stats if s['user_id'] == user.id), None)
-        if not target_user_stats:
-            await interaction.followup.send(f"Keine 'Wrapped'-Daten für {user.display_name} im Zeitraum `{stat_period}` gefunden.", ephemeral=True)
-            return
+        try:
+            # --- FIX: Generate the preview for the PREVIOUS month, just like the real event ---
+            # This ensures the data is complete and the preview is accurate.
+            now = datetime.now(timezone.utc)
+            first_day_of_current_month = now.replace(day=1)
+            last_month_first_day = (first_day_of_current_month - timedelta(days=1)).replace(day=1)
+            stat_period = last_month_first_day.strftime('%Y-%m')
+            # We need all stats for the period to calculate ranks
+            all_stats = await db_helpers.get_wrapped_stats_for_period(stat_period)
+            if not all_stats:
+                await interaction.followup.send(f"Keine 'Wrapped'-Daten für den Zeitraum `{stat_period}` gefunden.", ephemeral=True)
+                return
+                
+            # Find the target user's stats
+            target_user_stats = next((s for s in all_stats if s['user_id'] == user.id), None)
+            if not target_user_stats:
+                await interaction.followup.send(f"Keine 'Wrapped'-Daten für {user.display_name} im Zeitraum `{stat_period}` gefunden.", ephemeral=True)
+                return
 
-        # --- FIX: Pass the correct arguments to the helper function ---
-        # The helper function now calculates ranks internally.
-        await _generate_and_send_wrapped_for_user(
-            user_stats=target_user_stats,
-            stat_period_date=last_month_first_day,
-            all_stats_for_period=all_stats,
-            total_users=len(all_stats),
-            server_averages=await _calculate_server_averages(all_stats)
-        )
+            # --- FIX: Pass the correct arguments to the helper function ---
+            # The helper function now calculates ranks internally.
+            await _generate_and_send_wrapped_for_user(
+                user_stats=target_user_stats,
+                stat_period_date=last_month_first_day,
+                all_stats_for_period=all_stats,
+                total_users=len(all_stats),
+                server_averages=await _calculate_server_averages(all_stats)
+            )
 
-        await interaction.followup.send(f"Eine 'Wrapped'-Vorschau für `{stat_period}` wurde an {user.mention} gesendet.", ephemeral=True)
+            await interaction.followup.send(f"Eine 'Wrapped'-Vorschau für `{stat_period}` wurde an {user.mention} gesendet.", ephemeral=True)
+        except Exception as e:
+            logger.error(f"Error in view_wrapped command: {e}", exc_info=True)
+            await interaction.followup.send("❌ Fehler beim Generieren der Wrapped-Vorschau. Bitte überprüfe die Logs für mehr Details.", ephemeral=True)
 
     @app_commands.command(name="reload_config", description="Lädt die config.json und die System-Prompt-Datei neu.")
     async def reload_config(self, interaction: discord.Interaction):
@@ -7069,100 +7073,6 @@ async def wrapped_command(interaction: discord.Interaction):
     
     await interaction.followup.send(embed=view._create_embed(), view=view, ephemeral=True)
 
-@tree.command(name="wrapped-register", description="Registriere dich für monatliche Wrapped-Zusammenfassungen.")
-async def wrapped_register(interaction: discord.Interaction):
-    """Allows users to opt-in to receive Wrapped summaries."""
-    await interaction.response.defer(ephemeral=True)
-    
-    # Check if already registered
-    is_registered = await db_helpers.is_registered_for_wrapped(interaction.user.id)
-    if is_registered:
-        embed = discord.Embed(
-            title="ℹ️ Bereits registriert!",
-            description="Du bist bereits für Wrapped angemeldet!\n\nNutze `/wrapped` um deinen Status zu sehen oder dich abzumelden.",
-            color=discord.Color.blue()
-        )
-        embed.set_thumbnail(url=interaction.user.display_avatar.url)
-        await interaction.followup.send(embed=embed, ephemeral=True)
-        return
-    
-    success = await db_helpers.register_for_wrapped(interaction.user.id, interaction.user.display_name)
-    
-    if success:
-        embed = discord.Embed(
-            title="🎉 Erfolgreich registriert!",
-            description="Du wirst ab jetzt monatlich deine persönliche Wrapped-Zusammenfassung per DM erhalten!",
-            color=discord.Color.green()
-        )
-        embed.set_thumbnail(url=interaction.user.display_avatar.url)
-        embed.add_field(
-            name="📦 Was bekommst du?",
-            value="```\n"
-                  "📊 Nachrichten & Emoji-Stats\n"
-                  "🎤 Voice-Chat Statistiken\n"
-                  "🎵 Spotify Rückblick\n"
-                  "👥 Server-Bestie\n"
-                  "🎮 Gaming & Aktivitäten\n"
-                  "✨ AI-Analyse & mehr!\n"
-                  "```",
-            inline=False
-        )
-        embed.add_field(
-            name="📅 Wann?",
-            value="Deine Wrapped wird in der 2. Woche des nächsten Monats versendet.",
-            inline=False
-        )
-        embed.set_footer(text="💡 Nutze /wrapped für eine Übersicht oder /wrapped-unregister zum Abmelden")
-        await interaction.followup.send(embed=embed, ephemeral=True)
-    else:
-        await interaction.followup.send("❌ Ein Fehler ist aufgetreten. Bitte versuche es später erneut.", ephemeral=True)
-
-@tree.command(name="wrapped-unregister", description="Melde dich von den Wrapped-Zusammenfassungen ab.")
-async def wrapped_unregister(interaction: discord.Interaction):
-    """Allows users to opt-out of receiving Wrapped summaries."""
-    await interaction.response.defer(ephemeral=True)
-    
-    # Check if not registered
-    is_registered = await db_helpers.is_registered_for_wrapped(interaction.user.id)
-    if not is_registered:
-        embed = discord.Embed(
-            title="ℹ️ Nicht registriert",
-            description="Du bist gar nicht für Wrapped angemeldet!\n\nNutze `/wrapped-register` oder `/wrapped` um dich anzumelden.",
-            color=discord.Color.blue()
-        )
-        await interaction.followup.send(embed=embed, ephemeral=True)
-        return
-    
-    success = await db_helpers.unregister_from_wrapped(interaction.user.id)
-    
-    if success:
-        embed = discord.Embed(
-            title="👋 Erfolgreich abgemeldet",
-            description="Du wirst keine Wrapped-Zusammenfassungen mehr erhalten.",
-            color=discord.Color.orange()
-        )
-        embed.add_field(
-            name="💡 Wieder anmelden?",
-            value="• Nutze `/wrapped-register` oder `/wrapped`\n"
-                  "• Oder klicke 'Interessiert' beim nächsten Wrapped-Event",
-            inline=False
-        )
-        embed.set_footer(text="Wir freuen uns, dich wieder zu sehen!")
-        await interaction.followup.send(embed=embed, ephemeral=True)
-    else:
-        await interaction.followup.send("❌ Ein Fehler ist aufgetreten. Bitte versuche es später erneut.", ephemeral=True)
-
-@tree.command(name="wrapped-status", description="Überprüfe deinen Wrapped-Registrierungsstatus.")
-async def wrapped_status(interaction: discord.Interaction):
-    """Shows the user's current Wrapped registration status - redirects to /wrapped."""
-    await interaction.response.defer(ephemeral=True)
-    
-    # Use the new interactive view
-    is_registered = await db_helpers.is_registered_for_wrapped(interaction.user.id)
-    view = WrappedRegistrationView(interaction.user, is_registered)
-    
-    await interaction.followup.send(embed=view._create_embed(), view=view, ephemeral=True)
-
 @ww_group.command(name="start", description="Startet ein neues Werwolf-Spiel.")
 @app_commands.describe(
     ziel_spieler="Die Ziel-Spieleranzahl. Bots füllen auf, wenn angegeben."
@@ -7497,10 +7407,7 @@ class HelpView(discord.ui.View):
             "⚙️ Other": [
                 ("news", "Zeige die neuesten Server-Nachrichten"),
                 ("privacy", "Verwalte deine Datenschutz-Einstellungen"),
-                ("wrapped", "📊 Zeige deinen Wrapped-Status mit interaktiver Registrierung"),
-                ("wrapped-register", "Registriere dich für monatliche Wrapped-Zusammenfassungen"),
-                ("wrapped-unregister", "Melde dich von Wrapped-Zusammenfassungen ab"),
-                ("wrapped-status", "Überprüfe deinen Wrapped-Status"),
+                ("wrapped", "📊 Zeige deinen Wrapped-Status und verwalte deine Registrierung"),
             ],
         }
         
