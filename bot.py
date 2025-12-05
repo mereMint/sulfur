@@ -1908,6 +1908,9 @@ class WrappedView(discord.ui.View):
         self.next_button.disabled = self.current_page >= len(self.pages) - 1
         self.next_button.label = "Weiter ▶"
     
+    # Footer separator constant
+    FOOTER_SEPARATOR = "━━━━━━━━━━━━━━━"
+    
     def _update_embed_footer(self, embed: discord.Embed):
         """Adds visual page indicator to embed footer."""
         page_dots = self._get_page_indicator()
@@ -1915,7 +1918,7 @@ class WrappedView(discord.ui.View):
         
         # Add separator if there's existing footer text
         if original_footer:
-            new_footer = f"{original_footer}\n━━━━━━━━━━━━━━━\n{page_dots}"
+            new_footer = f"{original_footer}\n{self.FOOTER_SEPARATOR}\n{page_dots}"
         else:
             new_footer = page_dots
         
@@ -2224,7 +2227,10 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
 
     # Add VC stats with enhanced visuals
     longest_session_seconds = extra_stats.get("longest_vc_session_seconds", 0)
-    longest_session_str = str(timedelta(seconds=longest_session_seconds)).split('.')[0]
+    # Format duration properly without microseconds
+    hours, remainder = divmod(int(longest_session_seconds), 3600)
+    minutes, seconds = divmod(remainder, 60)
+    longest_session_str = f"{hours}:{minutes:02d}:{seconds:02d}"
     
     vc_embed.add_field(
         name="⏳ Längste Session",
@@ -2517,8 +2523,9 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
             inline=False
         )
         
-        # Add rating with visual progress bar
-        progress_bar = "█" * int(solve_rate / 10) + "░" * (10 - int(solve_rate / 10))
+        # Add rating with visual progress bar (clamped to prevent overflow)
+        progress_filled = min(int(solve_rate / 10), 10)
+        progress_bar = "█" * progress_filled + "░" * (10 - progress_filled)
         detective_embed.add_field(
             name="📉 Erfolgsbalken",
             value=f"`[{progress_bar}]` {solve_rate:.0f}%",
