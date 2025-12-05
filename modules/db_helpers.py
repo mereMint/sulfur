@@ -1101,6 +1101,42 @@ async def get_conversation_context(user_id: int, channel_id: int):
         cursor.close()
         cnx.close()
 
+
+@db_operation("get_channel_conversation_context")
+async def get_channel_conversation_context(channel_id: int, max_age_seconds: int = 300):
+    """
+    Returns the most recent conversation context for any user in the channel.
+    Used to detect if the bot was recently talking to someone and should respond to follow-ups.
+    
+    Args:
+        channel_id: The Discord channel ID
+        max_age_seconds: Maximum age of context to consider (default 5 minutes)
+    
+    Returns:
+        dict with user_id, last_user_message, last_bot_response, seconds_ago or None
+    """
+    if not db_pool:
+        return None
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return None
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        query = """
+            SELECT user_id, last_user_message, last_bot_response,
+                   TIMESTAMPDIFF(SECOND, last_bot_message_at, NOW()) AS seconds_ago
+            FROM conversation_context
+            WHERE channel_id = %s AND last_bot_message_at > (NOW() - INTERVAL %s SECOND)
+            ORDER BY last_bot_message_at DESC
+            LIMIT 1
+        """
+        cursor.execute(query, (channel_id, max_age_seconds))
+        row = cursor.fetchone()
+        return row
+    finally:
+        cursor.close()
+        cnx.close()
+
 @db_operation("clear_old_conversation_contexts")
 async def clear_old_conversation_contexts(retention_minutes: int = 1440):
     """Deletes conversation contexts older than the given retention window (default: 24h)."""

@@ -19,6 +19,9 @@ from modules.emoji_manager import analyze_server_emojis, get_emoji_context_for_a
 import base64
 import aiohttp
 
+# --- NEW: Import structured logging ---
+from modules.logger_utils import bot_logger as logger
+
 
 async def handle_unknown_emojis_in_message(message, config, gemini_key, openai_key):
     """
@@ -130,6 +133,95 @@ async def handle_image_attachment(message, config, gemini_key, openai_key):
                 return "[Image attached but could not be analyzed]"
     
     return None
+
+
+async def is_contextual_conversation(channel_id: int, user_id: int, message_content: str, bot_names: list, max_age_seconds: int = 120) -> tuple[bool, dict]:
+    """
+    Determines if a message is likely part of an ongoing conversation with the bot.
+    Optimized for speed - only checks user context, not channel-wide context.
+    
+    Args:
+        channel_id: The Discord channel ID
+        user_id: The message author's Discord user ID
+        message_content: The content of the message
+        bot_names: List of bot names to check for partial matches
+        max_age_seconds: Maximum age of context to consider (default 2 minutes)
+    
+    Returns:
+        Tuple of (is_trigger, context_dict)
+    """
+    # Quick exit for long messages (unlikely follow-ups)
+    word_count = len(message_content.split())
+    if word_count > 30:
+        return False, {}
+    
+    # Check if user had recent conversation with bot
+    user_context = await get_conversation_context(user_id, channel_id)
+    
+    if not user_context or user_context['seconds_ago'] > max_age_seconds:
+        return False, {}
+    
+    seconds_ago = user_context['seconds_ago']
+    msg_lower = message_content.lower().strip()
+    
+    # Very recent (< 60s): treat short messages as follow-ups
+    if seconds_ago <= 60 and word_count <= 20:
+        return True, {'type': 'recent', 'seconds_ago': seconds_ago}
+    
+    # Recent (60-120s): check for conversational patterns
+    if seconds_ago <= 120:
+        # Question or continuation indicators
+        if '?' in msg_lower or any(w in msg_lower for w in ['warum', 'wieso', 'wie', 'was', 'und du', 'aber']):
+            return True, {'type': 'question', 'seconds_ago': seconds_ago}
+        
+        # Short affirmative/negative responses
+        if word_count <= 5:
+            quick_responses = {'ja', 'nein', 'ok', 'okay', 'klar', 'stimmt', 'genau', 'nö', 'nice', 'lol', 'haha', 'danke', 'echt', 'krass'}
+            first_word = msg_lower.split()[0].rstrip('!?.,') if msg_lower else ''
+            if first_word in quick_responses:
+                return True, {'type': 'response', 'seconds_ago': seconds_ago}
+    
+    return False, {}
+
+
+async def get_enriched_user_context(user_id: int, display_name: str, db_helpers_module) -> str:
+    """
+    Builds a compact context string about the user for the AI.
+    Optimized for minimal tokens while providing useful context.
+    
+    Args:
+        user_id: The Discord user ID
+        display_name: The user's display name
+        db_helpers_module: The db_helpers module for database access
+    
+    Returns:
+        A short context string or empty string
+    """
+    try:
+        # Get player profile (single DB query)
+        profile, error = await db_helpers_module.get_player_profile(user_id)
+        if not profile or error:
+            return ""
+        
+        parts = []
+        
+        # Basic stats (compact)
+        level = profile.get('level', 1)
+        if level > 1:
+            parts.append(f"Lv{level}")
+        
+        # Last activity (useful for conversation)
+        activity = profile.get('last_activity_name')
+        if activity:
+            parts.append(f"spielt: {activity[:20]}")
+        
+        if parts:
+            return f" [{' | '.join(parts)}]"
+    
+    except Exception:
+        pass  # Fail silently - context is optional
+    
+    return ""
 
 
 async def enhance_prompt_with_context(user_id, channel_id, user_prompt):

@@ -56,6 +56,8 @@ from modules.bot_enhancements import (
     save_ai_conversation,
     track_api_call,
     initialize_emoji_system,
+    is_contextual_conversation,
+    get_enriched_user_context,
 )
 from discord.ext import tasks as _tasks  # separate alias for new periodic cleanup
 
@@ -13255,41 +13257,36 @@ async def on_message(message):
 
     async def _get_ai_response(history, message, user_prompt):
         """Helper function to encapsulate the API call logic."""
-        logger.debug(f"[AI] Fetching relationship summary for {message.author.name}")
-        print(f"[AI] Getting relationship summary...")
-        relationship_summary = await get_relationship_summary(message.author.id)
         dynamic_system_prompt = config['bot']['system_prompt']
         
         # Add language reminder to prevent language slips
-        dynamic_system_prompt += "\n\nREMINDER: Antworte IMMER auf Deutsch! Bleibe in der deutschen Sprache!"
+        dynamic_system_prompt += "\n\nREMINDER: Antworte IMMER auf Deutsch!"
         
+        # Add compact user context (level, current activity)
+        try:
+            user_context = await get_enriched_user_context(message.author.id, message.author.display_name, db_helpers)
+            if user_context:
+                dynamic_system_prompt += user_context
+        except Exception:
+            pass  # Context is optional, don't fail
+        
+        # Get relationship summary
+        relationship_summary = await get_relationship_summary(message.author.id)
         if relationship_summary:
-            logger.debug(f"[AI] Adding relationship context to system prompt")
-            print(f"[AI] Relationship summary found, adding to prompt")
-            dynamic_system_prompt += f"\n\nZusätzlicher Kontext über deine Beziehung zu '{message.author.display_name}': {relationship_summary}"
+            dynamic_system_prompt += f"\n\nBeziehung zu '{message.author.display_name}': {relationship_summary}"
         
-        # --- NEW: Add detailed logging for AI calls ---
+        # Get AI response
         provider_to_use = await get_current_provider(config)
-        logger.info(f"[AI] Using provider '{provider_to_use}' for user '{message.author.display_name}'")
-        print(f"[AI] Calling provider '{provider_to_use}' for user '{message.author.display_name}'...")
         temp_config = config.copy()
         temp_config['api']['provider'] = provider_to_use
         
-        logger.debug(f"[AI] Making API call to {provider_to_use}")
-        print(f"[AI] Making API request...")
         response_text, error_message, updated_history = await get_chat_response(
             history, user_prompt, message.author.display_name, dynamic_system_prompt, temp_config, GEMINI_API_KEY, OPENAI_API_KEY
         )
-        logger.info(f"[AI] Response from '{provider_to_use}': {'ERROR' if error_message else 'SUCCESS'}")
-        print(f"[AI] Received response from '{provider_to_use}'. Error: {error_message is not None}")
-        if error_message:
-            logger.error(f"[AI] Error message: {error_message}")
-            print(f"[AI] Error details: {error_message}")
         return response_text, error_message, updated_history
 
     # 1. Ignore messages from the bot itself. This is the most important guard to prevent loops.
     if message.author == client.user:
-        logger.debug(f"[FILTER] Ignoring message from bot itself")
         print(f"[FILTER] Message from bot itself, skipping")
         return
 
@@ -13441,42 +13438,40 @@ async def on_message(message):
 
     # 3. Handle messages in Guild Text Channels.
     if isinstance(message.channel, discord.TextChannel):
-        logger.debug(f"[GUILD] Processing guild message from {message.author.name}")
-        print(f"[GUILD] Guild message from {message.author.name} in #{message.channel.name}")
-        
         # Ignore any messages in active Werwolf game channels to prevent interference.
         if message.channel.id in active_werwolf_games:
-            logger.debug(f"[FILTER] Ignoring message in Werwolf game channel")
-            print(f"[FILTER] Message in Werwolf game channel, skipping")
             return
 
         # Determine if the message is a trigger for the chatbot.
+        # 1. Direct triggers: @ mention or explicit bot name usage
         is_pinged = client.user in message.mentions
-        message_lower = message.content.lower()
         is_name_used = any(name in message.content.lower().split() for name in config['bot']['names'])
-        is_chatbot_trigger = is_pinged or is_name_used
+        is_direct_trigger = is_pinged or is_name_used
         
-        # Enhanced logging for trigger detection
-        logger.debug(f"[TRIGGER] is_pinged={is_pinged}, is_name_used={is_name_used}, trigger={is_chatbot_trigger}")
-        logger.debug(f"[TRIGGER] Bot names in config: {config['bot']['names']}")
-        logger.debug(f"[TRIGGER] Message words: {message.content.lower().split()}")
-        print(f"[TRIGGER] Chatbot trigger check: pinged={is_pinged}, name_used={is_name_used}, final={is_chatbot_trigger}")
+        # 2. Contextual trigger: Check if this is a follow-up to a recent conversation
+        is_contextual_trigger = False
+        
+        if not is_direct_trigger:
+            # Only check contextual triggers if not already a direct trigger
+            is_contextual_trigger, _ = await is_contextual_conversation(
+                channel_id=message.channel.id,
+                user_id=message.author.id,
+                message_content=message.content,
+                bot_names=config['bot']['names'],
+                max_age_seconds=120  # 2 minute window for contextual triggers
+            )
+        
+        is_chatbot_trigger = is_direct_trigger or is_contextual_trigger
 
-        # --- CRITICAL FIX: Prioritize the chatbot trigger. ---
         # If the message is a chatbot trigger, run the chatbot logic and IMMEDIATELY stop.
-        # This prevents the leveling system from also running and sending a DM that would re-trigger the bot.
         if is_chatbot_trigger:
-            logger.info(f"[TRIGGER] Chatbot triggered by {message.author.name}")
-            print(f"[TRIGGER] Chatbot TRIGGERED - running chatbot handler")
+            if is_contextual_trigger:
+                logger.info(f"[TRIGGER] Contextual trigger for {message.author.name}")
             await run_chatbot(message)
             return
-        else:
-            logger.debug(f"[TRIGGER] Chatbot NOT triggered - message will be processed for XP only")
-            print(f"[TRIGGER] Chatbot NOT triggered - continuing to XP processing")
 
         # If it was NOT a chatbot trigger, then we can safely run the leveling system and other stats logging.
         if not message.content.startswith('/'):
-            # --- FIX: Correct the typo from 'custom_emojies' to 'custom_emojis' ---
             stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
             custom_emojis = re.findall(r'<a?:(\w+):\d+>', message.content)
             await db_helpers.log_message_stat(message.author.id, message.channel.id, custom_emojis, stat_period)
