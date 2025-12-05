@@ -1258,6 +1258,101 @@ async def before_grant_voice_xp():
 
 # --- NEW: Wrapped Event Management ---
 
+# --- NEW: Scheduled Event Handlers for Wrapped Registration ---
+@client.event
+async def on_scheduled_event_user_add(event: discord.ScheduledEvent, user: discord.User):
+    """
+    Fires when a user clicks 'Interested' on a scheduled event.
+    Automatically registers them for Wrapped if it's a Wrapped event.
+    """
+    try:
+        # Check if this is a Wrapped event by looking for "Wrapped" in the name
+        if "Wrapped" not in event.name:
+            return
+        
+        # Skip bots
+        if user.bot:
+            return
+        
+        # Register the user for Wrapped
+        success = await db_helpers.register_for_wrapped(user.id, user.display_name)
+        
+        if success:
+            logger.info(f"[Wrapped] Auto-registered {user.display_name} ({user.id}) via event interest")
+            print(f"[Wrapped] ✅ Auto-registered {user.display_name} for Wrapped via event '{event.name}'")
+            
+            # Send a friendly DM to confirm registration
+            try:
+                embed = discord.Embed(
+                    title="🎉 Du bist dabei!",
+                    description=f"Du hast Interesse an **{event.name}** gezeigt und bist jetzt automatisch für monatliche Wrapped-Zusammenfassungen registriert!",
+                    color=discord.Color.green()
+                )
+                embed.add_field(
+                    name="📊 Was erwartet dich?",
+                    value="• Personalisierte Monats-Statistiken\n"
+                          "• Deine Top-Aktivitäten & Favoriten\n"
+                          "• Server-Bestie & Vergleiche\n"
+                          "• Spotify & Gaming-Rückblick",
+                    inline=False
+                )
+                embed.add_field(
+                    name="📅 Wann kommt das Wrapped?",
+                    value="Deine persönliche Zusammenfassung wird in der zweiten Woche des nächsten Monats per DM verschickt!",
+                    inline=False
+                )
+                embed.set_footer(text="💡 Tipp: Du kannst dich jederzeit mit /wrapped-unregister abmelden oder erneut auf 'Interessiert' klicken um abzumelden.")
+                embed.set_thumbnail(url=user.display_avatar.url)
+                await user.send(embed=embed)
+            except (discord.Forbidden, discord.HTTPException) as dm_error:
+                logger.debug(f"Could not DM {user.display_name} about Wrapped registration: {dm_error}")
+    except Exception as e:
+        logger.error(f"Error in on_scheduled_event_user_add: {e}", exc_info=True)
+
+
+@client.event
+async def on_scheduled_event_user_remove(event: discord.ScheduledEvent, user: discord.User):
+    """
+    Fires when a user removes their 'Interested' status from a scheduled event.
+    Automatically unregisters them from Wrapped if it's a Wrapped event.
+    """
+    try:
+        # Check if this is a Wrapped event
+        if "Wrapped" not in event.name:
+            return
+        
+        # Skip bots
+        if user.bot:
+            return
+        
+        # Unregister the user from Wrapped
+        success = await db_helpers.unregister_from_wrapped(user.id)
+        
+        if success:
+            logger.info(f"[Wrapped] Auto-unregistered {user.display_name} ({user.id}) via event interest removal")
+            print(f"[Wrapped] ❌ Auto-unregistered {user.display_name} from Wrapped via event '{event.name}'")
+            
+            # Send a friendly DM to confirm unregistration
+            try:
+                embed = discord.Embed(
+                    title="👋 Bis zum nächsten Mal!",
+                    description=f"Du hast dein Interesse an **{event.name}** entfernt und erhältst keine Wrapped-Zusammenfassungen mehr.",
+                    color=discord.Color.orange()
+                )
+                embed.add_field(
+                    name="🔄 Möchtest du dich wieder anmelden?",
+                    value="• Klicke erneut auf 'Interessiert' beim nächsten Wrapped-Event\n"
+                          "• Oder nutze `/wrapped-register`",
+                    inline=False
+                )
+                embed.set_footer(text="Wir freuen uns, dich bald wieder zu sehen!")
+                await user.send(embed=embed)
+            except (discord.Forbidden, discord.HTTPException) as dm_error:
+                logger.debug(f"Could not DM {user.display_name} about Wrapped unregistration: {dm_error}")
+    except Exception as e:
+        logger.error(f"Error in on_scheduled_event_user_remove: {e}", exc_info=True)
+
+
 def _calculate_wrapped_dates(config):
     """Helper function to calculate the dates for the next Wrapped event."""
     now = datetime.now(timezone.utc)
@@ -1776,28 +1871,93 @@ class ShareView(discord.ui.View):
 
 # --- NEW: View for paginating the Wrapped DM ---
 class WrappedView(discord.ui.View):
-    def __init__(self, pages: list, user: discord.User, timeout=300):
+    """Enhanced paginated view for Wrapped summaries with visual improvements."""
+    
+    # Page icons for different sections
+    PAGE_ICONS = ["🎭", "👥", "💬", "🎤", "📍", "🎮", "🎵", "📋", "🔍", "🛍️", "✨"]
+    
+    def __init__(self, pages: list, user: discord.User, timeout=600):
         super().__init__(timeout=timeout)
         self.pages = pages
         self.user = user
         self.current_page = 0
         self.message = None
-
-    @discord.ui.button(label="◀", style=discord.ButtonStyle.secondary)
-    async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.current_page -= 1
+        self._update_buttons()
+    
+    def _get_page_indicator(self):
+        """Returns a visual page indicator string."""
+        indicators = []
+        for i in range(len(self.pages)):
+            if i == self.current_page:
+                indicators.append("●")  # Current page
+            else:
+                indicators.append("○")  # Other pages
+        return " ".join(indicators)
+    
+    def _update_buttons(self):
+        """Updates button states and labels based on current page."""
+        # Update previous button
         self.previous_button.disabled = self.current_page == 0
-        self.next_button.disabled = False
-        await interaction.response.edit_message(embed=self.pages[self.current_page], view=self)
+        self.previous_button.label = "◀ Zurück"
+        
+        # Update page indicator button
+        page_icon = self.PAGE_ICONS[self.current_page % len(self.PAGE_ICONS)]
+        self.page_indicator.label = f"{page_icon} {self.current_page + 1}/{len(self.pages)}"
+        
+        # Update next button
+        self.next_button.disabled = self.current_page >= len(self.pages) - 1
+        self.next_button.label = "Weiter ▶"
+    
+    def _update_embed_footer(self, embed: discord.Embed):
+        """Adds visual page indicator to embed footer."""
+        page_dots = self._get_page_indicator()
+        original_footer = embed.footer.text if embed.footer and embed.footer.text else ""
+        
+        # Add separator if there's existing footer text
+        if original_footer:
+            new_footer = f"{original_footer}\n━━━━━━━━━━━━━━━\n{page_dots}"
+        else:
+            new_footer = page_dots
+        
+        embed.set_footer(text=new_footer)
+        return embed
 
-    @discord.ui.button(label="▶", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="◀ Zurück", style=discord.ButtonStyle.secondary, row=0)
+    async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page = max(0, self.current_page - 1)
+        self._update_buttons()
+        embed = self._update_embed_footer(self.pages[self.current_page].copy())
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="1/1", style=discord.ButtonStyle.secondary, disabled=True, row=0)
+    async def page_indicator(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Non-interactive page indicator button."""
+        pass
+
+    @discord.ui.button(label="Weiter ▶", style=discord.ButtonStyle.primary, row=0)
     async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.current_page += 1
-        self.next_button.disabled = self.current_page == len(self.pages) - 1
-        self.previous_button.disabled = False
-        await interaction.response.edit_message(embed=self.pages[self.current_page], view=self)
+        self.current_page = min(len(self.pages) - 1, self.current_page + 1)
+        self._update_buttons()
+        embed = self._update_embed_footer(self.pages[self.current_page].copy())
+        await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(label="Teilen", style=discord.ButtonStyle.green, emoji="🔗")
+    @discord.ui.button(label="Zum Anfang", style=discord.ButtonStyle.secondary, emoji="⏮️", row=1)
+    async def first_page_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Jump to the first page."""
+        self.current_page = 0
+        self._update_buttons()
+        embed = self._update_embed_footer(self.pages[self.current_page].copy())
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="Zum Ende", style=discord.ButtonStyle.secondary, emoji="⏭️", row=1)
+    async def last_page_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Jump to the last page."""
+        self.current_page = len(self.pages) - 1
+        self._update_buttons()
+        embed = self._update_embed_footer(self.pages[self.current_page].copy())
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="Teilen", style=discord.ButtonStyle.green, emoji="🔗", row=1)
     async def share_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Sends a message with a channel select menu to share the summary."""
         current_page_embed = self.pages[self.current_page]
@@ -1814,10 +1974,10 @@ class WrappedView(discord.ui.View):
         )
 
     async def send_initial_message(self):
-        """Sends the first page to the user's DMs."""
-        self.previous_button.disabled = True
-        self.next_button.disabled = len(self.pages) <= 1
-        self.message = await self.user.send(embed=self.pages[0], view=self)
+        """Sends the first page to the user's DMs with enhanced styling."""
+        self._update_buttons()
+        first_embed = self._update_embed_footer(self.pages[0].copy())
+        self.message = await self.user.send(embed=first_embed, view=self)
 
 async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_stats_for_period, total_users, server_averages):
     """Helper function to generate and DM the Wrapped story to a single user."""
@@ -1833,7 +1993,22 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
     print(f"  - [Wrapped] Generating for {user.name} ({user.id})...")
     
     pages = [] # This will hold all the embed pages for the story
-    color = get_embed_color(config)
+    base_color = get_embed_color(config)
+    
+    # Define themed colors for different pages (more visually appealing)
+    WRAPPED_COLORS = {
+        'intro': discord.Color.from_rgb(88, 101, 242),    # Discord blurple
+        'bestie': discord.Color.from_rgb(255, 121, 198),  # Pink
+        'messages': discord.Color.from_rgb(87, 242, 135), # Green
+        'voice': discord.Color.from_rgb(254, 231, 92),    # Yellow
+        'activity': discord.Color.from_rgb(235, 69, 158), # Magenta
+        'game': discord.Color.from_rgb(88, 101, 242),     # Blurple
+        'spotify': discord.Color.from_rgb(30, 215, 96),   # Spotify green
+        'quests': discord.Color.from_rgb(255, 163, 26),   # Orange
+        'detective': discord.Color.from_rgb(47, 49, 54),  # Dark
+        'shop': discord.Color.from_rgb(255, 215, 0),      # Gold
+        'summary': discord.Color.from_rgb(114, 137, 218), # Light blurple
+    }
 
     # Find favorite channel
     fav_channel_id = None
@@ -1845,94 +2020,283 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
 
     # --- NEW: Fetch all the new Wrapped stats in one go ---
     extra_stats = await get_wrapped_extra_stats(user.id, stat_period_date.strftime('%Y-%m'))
+    
+    # --- Calculate fun facts for the intro ---
+    total_messages = user_stats.get('message_count', 0)
+    total_vc_minutes = user_stats.get('minutes_in_vc', 0)
+    words_typed = total_messages * 15  # Rough estimate: 15 words per message
+    
+    # Calculate activity score for achievements
+    activity_score = total_messages + (total_vc_minutes * 2)
 
-    # --- Page 1: Intro & Prime Time ---
+    # --- Page 1: Enhanced Intro & Prime Time ---
     intro_embed = discord.Embed(
-        title=f"Dein {stat_period_date.strftime('%B')} Wrapped ist da, {user.display_name}!",
-        description="Bist du bereit, in deine Stats einzutauchen und zu sehen, ob du ein No-Lifer bist? Los geht's!",
-        color=color
+        title=f"🎉 {stat_period_date.strftime('%B')} Wrapped",
+        description=f"### Willkommen zurück, **{user.display_name}**!\n\n"
+                    f"Dein persönlicher Rückblick auf den **{stat_period_date.strftime('%B %Y')}** ist da. "
+                    f"Lass uns gemeinsam schauen, was du so getrieben hast! 👀",
+        color=WRAPPED_COLORS['intro']
     )
     intro_embed.set_thumbnail(url=user.display_avatar.url)
-    # Add Prime Time title to the intro page
+    
+    # Add Prime Time title with enhanced visuals
     prime_time_title = get_prime_time_title(extra_stats.get('prime_time_hour'))
-    intro_embed.add_field(name="Dein Titel diesen Monat", value=f"## {prime_time_title}", inline=False)
-    intro_embed.set_footer(text="Basiert auf deiner aktivsten Zeit im Chat.")
+    prime_time_hour = extra_stats.get('prime_time_hour')
+    if prime_time_hour is not None:
+        time_str = f"{prime_time_hour}:00 - {(prime_time_hour + 1) % 24}:00 Uhr"
+    else:
+        time_str = "Keine Daten"
+    
+    intro_embed.add_field(
+        name="🏅 Dein Titel diesen Monat",
+        value=f"## {prime_time_title}\n*Aktivste Zeit: {time_str}*",
+        inline=False
+    )
+    
+    # Add quick stats summary
+    intro_embed.add_field(
+        name="📊 Schnellübersicht",
+        value=f"```\n"
+              f"📝 Nachrichten:  {total_messages:,}\n"
+              f"🎤 VC-Minuten:   {int(total_vc_minutes):,}\n"
+              f"✍️ ~Wörter:      {words_typed:,}\n"
+              f"```",
+        inline=True
+    )
+    
+    # Add achievement badges based on activity
+    badges = []
+    if total_messages >= 500:
+        badges.append("💬 Vielschreiber")
+    if total_vc_minutes >= 600:  # 10 hours
+        badges.append("🎧 VC-König")
+    if extra_stats.get('quests_completed', 0) >= 20:
+        badges.append("📋 Quest-Master")
+    if extra_stats.get('games_played', 0) >= 50:
+        badges.append("🎰 Gambler")
+    if extra_stats.get('detective_cases_solved', 0) >= 5:
+        badges.append("🔍 Sherlock")
+        
+    if badges:
+        intro_embed.add_field(
+            name="🏆 Verdiente Abzeichen",
+            value=" ".join(badges),
+            inline=True
+        )
+    
+    intro_embed.set_image(url=config['modules']['wrapped'].get('intro_gif_url', ''))
     pages.append(intro_embed)
 
-    # --- Page 2: Server Bestie ---
-    bestie_embed = discord.Embed(title="Deine engsten Kontakte", color=color)
+    # --- Page 2: Server Bestie with enhanced styling ---
+    bestie_embed = discord.Embed(
+        title="👥 Deine Server-Connections",
+        color=WRAPPED_COLORS['bestie']
+    )
     bestie_id = extra_stats.get("server_bestie_id")
     if bestie_id:
         try:
             bestie_user = await client.fetch_user(int(bestie_id))
-            bestie_embed.description = f"Diesen Monat warst du unzertrennlich mit...\n\n## {bestie_user.mention}"
+            bestie_embed.description = (
+                f"💕 Diesen Monat warst du unzertrennlich mit...\n\n"
+                f"## 🤝 {bestie_user.mention}\n\n"
+                f"*Ihr scheint euch echt gut zu verstehen!*"
+            )
             bestie_embed.set_thumbnail(url=bestie_user.display_avatar.url)
+            
+            # Add a fun relationship fact
+            bestie_embed.add_field(
+                name="💡 Fun Fact",
+                value=random.choice([
+                    "Habt ihr euch mal auf einen Kaffee verabredet?",
+                    "Vielleicht solltet ihr mal zusammen zocken!",
+                    "Beste Freunde im Making!",
+                    "Bromance/Womance des Monats?",
+                    "Die nächste iconic duo?"
+                ]),
+                inline=False
+            )
         except discord.NotFound:
-            bestie_embed.description = await replace_emoji_tags("Dein Server-Bestie scheint ein Geist zu sein... oder hat den Server verlassen. :dono:", client, None)
+            bestie_embed.description = await replace_emoji_tags(
+                "👻 Dein Server-Bestie scheint ein Geist zu sein...\n\n"
+                "*Oder hat den Server verlassen.* :dono:",
+                client, None
+            )
     else:
-        bestie_embed.description = await replace_emoji_tags("Du bist diesen Monat eher ein Einzelgänger gewesen und hast niemanden oft erwähnt oder auf ihn geantwortet. :gege:", client, None)
-    bestie_embed.set_footer(text="Basiert darauf, wen du am häufigsten erwähnst oder wem du antwortest.")
+        bestie_embed.description = await replace_emoji_tags(
+            "🐺 Du warst diesen Monat eher ein **einsamer Wolf**.\n\n"
+            "*Keine regelmäßigen Erwähnungen oder Antworten gefunden.*\n\n"
+            "Vielleicht nächsten Monat? :gege:",
+            client, None
+        )
+        bestie_embed.set_thumbnail(url="https://cdn.discordapp.com/emojis/862039818399481876.png")
+    
+    bestie_embed.set_footer(text="Basiert auf Erwähnungen und Reply-Patterns")
     pages.append(bestie_embed)
 
-    # --- Page 3: Message & Emoji Stats ---
+    # --- Page 3: Enhanced Message & Emoji Stats ---
     message_ranks = {user['user_id']: rank for rank, user in enumerate(sorted(all_stats_for_period, key=lambda x: x.get('message_count', 0), reverse=True))}
     message_rank_text = _get_percentile_rank(user.id, message_ranks, total_users)
-    msg_embed = discord.Embed(title="Du und der Chat", color=color)
-    msg_embed.add_field(name="Deine Nachrichten", value=f"## `{user_stats.get('message_count', 0)}`", inline=True)
-    msg_embed.add_field(name="Server-Durchschnitt", value=f"## `{int(server_averages['avg_messages'])}`", inline=True)
-    msg_embed.add_field(name="Dein Rang", value=f"Du gehörst zu den **{message_rank_text}** der aktivsten Chatter!", inline=False)
+    
+    # Calculate comparison with average
+    avg_messages = int(server_averages['avg_messages'])
+    message_diff = total_messages - avg_messages
+    diff_text = f"+{message_diff}" if message_diff >= 0 else str(message_diff)
+    diff_emoji = "📈" if message_diff >= 0 else "📉"
+    
+    msg_embed = discord.Embed(
+        title="💬 Du und der Chat",
+        description=f"*So viel hast du diesen Monat gechattet...*",
+        color=WRAPPED_COLORS['messages']
+    )
+    
+    msg_embed.add_field(
+        name="📝 Deine Nachrichten",
+        value=f"## `{total_messages:,}`",
+        inline=True
+    )
+    msg_embed.add_field(
+        name="📊 Server-Durchschnitt",
+        value=f"## `{avg_messages:,}`",
+        inline=True
+    )
+    msg_embed.add_field(
+        name=f"{diff_emoji} Vergleich",
+        value=f"## `{diff_text}`",
+        inline=True
+    )
+    msg_embed.add_field(
+        name="🏆 Dein Rang",
+        value=f"Du gehörst zu den **{message_rank_text}** der aktivsten Chatter!",
+        inline=False
+    )
 
-    # Add Top 3 Emojis to this page
+    # Add Top 3 Emojis with enhanced styling
     if user_stats.get('emoji_usage'):
         emoji_usage = json.loads(user_stats['emoji_usage'])
         sorted_emojis = sorted(emoji_usage.items(), key=lambda item: item[1], reverse=True)
-        top_emojis_text = ""
-        for i, (emoji_name, count) in enumerate(sorted_emojis[:3]):
-            emoji_obj = discord.utils.get(client.emojis, name=emoji_name)
-            emoji_display = str(emoji_obj) if emoji_obj else f"`:{emoji_name}:`"
-            top_emojis_text += f"**{i+1}.** {emoji_display} (`{count}x`)\n"
-        if top_emojis_text:
-            msg_embed.add_field(name="Deine Lieblings-Emojis", value=top_emojis_text, inline=False)
+        if sorted_emojis:
+            emoji_lines = []
+            medals = ["🥇", "🥈", "🥉"]
+            for i, (emoji_name, count) in enumerate(sorted_emojis[:3]):
+                emoji_obj = discord.utils.get(client.emojis, name=emoji_name)
+                emoji_display = str(emoji_obj) if emoji_obj else f"`:{emoji_name}:`"
+                medal = medals[i] if i < len(medals) else f"**{i+1}.**"
+                emoji_lines.append(f"{medal} {emoji_display} × **{count}**")
+            
+            msg_embed.add_field(
+                name="😀 Deine Top-Emojis",
+                value="\n".join(emoji_lines),
+                inline=False
+            )
     pages.append(msg_embed)
 
-    # --- Page 4: Voice Channel Stats ---
+    # --- Page 4: Enhanced Voice Channel Stats ---
     vc_ranks = {user['user_id']: rank for rank, user in enumerate(sorted(all_stats_for_period, key=lambda x: x.get('minutes_in_vc', 0), reverse=True))}
     vc_rank_text = _get_percentile_rank(user.id, vc_ranks, total_users)
-    vc_hours = user_stats.get('minutes_in_vc', 0) / 60
-    vc_embed = discord.Embed(title="Deine Voice-Chat Story", color=color)
-    vc_embed.add_field(name="Deine VC-Stunden", value=f"## `{vc_hours:.2f}`", inline=True)
-    vc_embed.add_field(name="Server-Durchschnitt", value=f"## `{server_averages['avg_vc_minutes'] / 60:.2f}`", inline=True)
-    vc_embed.add_field(name="Dein Rang", value=f"Du warst in den **{vc_rank_text}** der größten Quasselstrippen!", inline=False)
+    vc_hours = total_vc_minutes / 60
+    avg_vc_hours = server_averages['avg_vc_minutes'] / 60
+    
+    vc_embed = discord.Embed(
+        title="🎤 Deine Voice-Chat Story",
+        description="*Wie viel Zeit hast du im VC verbracht?*",
+        color=WRAPPED_COLORS['voice']
+    )
+    
+    # Calculate fun conversions
+    vc_movies = vc_hours / 2  # Average movie length: 2 hours
+    vc_songs = vc_hours * 20  # Average song: 3 min
+    
+    vc_embed.add_field(
+        name="⏱️ Deine VC-Zeit",
+        value=f"## `{vc_hours:.1f}` Stunden\n*({int(total_vc_minutes)} Minuten)*",
+        inline=True
+    )
+    vc_embed.add_field(
+        name="📊 Server-Durchschnitt",
+        value=f"## `{avg_vc_hours:.1f}` Stunden",
+        inline=True
+    )
+    vc_embed.add_field(
+        name="🏆 Dein Rang",
+        value=f"Du warst in den **{vc_rank_text}** der größten Quasselstrippen!",
+        inline=False
+    )
 
-    # Add new VC stats to this page
+    # Add VC stats with enhanced visuals
     longest_session_seconds = extra_stats.get("longest_vc_session_seconds", 0)
-    longest_session_str = str(timedelta(seconds=longest_session_seconds)).split('.')[0] # Format as H:MM:SS
-    vc_embed.add_field(name="Längste Session", value=f"`{longest_session_str}`", inline=True)
-    vc_embed.add_field(name="Erstellte VCs", value=f"`{extra_stats.get('temp_vcs_created', 0)}`", inline=True)
+    longest_session_str = str(timedelta(seconds=longest_session_seconds)).split('.')[0]
+    
+    vc_embed.add_field(
+        name="⏳ Längste Session",
+        value=f"`{longest_session_str}`",
+        inline=True
+    )
+    vc_embed.add_field(
+        name="➕ Erstellte VCs",
+        value=f"`{extra_stats.get('temp_vcs_created', 0)}`",
+        inline=True
+    )
+    
+    # Fun fact about VC time
+    if vc_hours >= 1:
+        vc_embed.add_field(
+            name="🎬 Das sind...",
+            value=f"~**{vc_movies:.0f}** Filme oder ~**{int(vc_songs)}** Songs!",
+            inline=True
+        )
+    
     pages.append(vc_embed)
 
-    # --- Page 5: Top Channel & Activity ---
-    activity_embed = discord.Embed(title="Deine digitalen Hangouts", color=color)
-    # Top Channel
+    # --- Page 5: Enhanced Top Channel & Activity ---
+    activity_embed = discord.Embed(
+        title="📍 Deine digitalen Hangouts",
+        description="*Wo hast du dich am liebsten aufgehalten?*",
+        color=WRAPPED_COLORS['activity']
+    )
+    
+    # Top Channel with enhanced display
     if user_stats.get('channel_usage'):
         channel_usage = json.loads(user_stats['channel_usage'])
         if channel_usage:
-            fav_channel_id = max(channel_usage, key=channel_usage.get)
-            fav_channel_obj = client.get_channel(int(fav_channel_id))
-            activity_embed.add_field(name="Dein Lieblingskanal", value=f"Du hast die meiste Zeit in {fav_channel_obj.mention if fav_channel_obj else 'einem unbekannten Kanal'} verbracht.", inline=False)
+            # Get top 3 channels
+            sorted_channels = sorted(channel_usage.items(), key=lambda x: x[1], reverse=True)[:3]
+            channel_lines = []
+            medals = ["🥇", "🥈", "🥉"]
+            
+            for i, (ch_id, count) in enumerate(sorted_channels):
+                channel_obj = client.get_channel(int(ch_id))
+                channel_name = channel_obj.mention if channel_obj else f"*Gelöschter Kanal*"
+                medal = medals[i] if i < len(medals) else f"**{i+1}.**"
+                channel_lines.append(f"{medal} {channel_name}")
+            
+            activity_embed.add_field(
+                name="🏠 Deine Lieblingskanäle",
+                value="\n".join(channel_lines),
+                inline=False
+            )
 
-    # Top Activity
+    # Top Activities with enhanced display
     if user_stats.get('activity_usage'):
         activity_usage = json.loads(user_stats['activity_usage'])
         filtered_activities = {k: v for k, v in activity_usage.items() if k.lower() not in ['custom status', 'spotify']}
         if filtered_activities:
-            fav_activity = max(filtered_activities, key=filtered_activities.get)
-            activity_embed.add_field(name="Deine Top-Aktivität", value=f"Abgesehen von Discord warst du am häufigsten in **{fav_activity}** unterwegs.", inline=False)
+            sorted_activities = sorted(filtered_activities.items(), key=lambda x: x[1], reverse=True)[:3]
+            activity_lines = []
+            for i, (act_name, minutes) in enumerate(sorted_activities):
+                medal = medals[i] if i < len(medals) else f"**{i+1}.**"
+                hours = minutes / 60
+                activity_lines.append(f"{medal} **{act_name}** - *{hours:.1f}h*")
+            
+            activity_embed.add_field(
+                name="🎮 Top Aktivitäten",
+                value="\n".join(activity_lines),
+                inline=False
+            )
     
-    if activity_embed.fields: # Only add the page if it has content
+    if activity_embed.fields:
         pages.append(activity_embed)
 
-    # --- Page 6: Game Wrapped Page ---
+    # --- Page 6: Enhanced Game Wrapped Page ---
     if user_stats.get('game_usage'):
         monthly_game_stats = json.loads(user_stats['game_usage'])
         if monthly_game_stats:
@@ -1940,6 +2304,7 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
             fav_game_name = max(monthly_game_stats, key=lambda g: monthly_game_stats[g]['total_minutes'])
             fav_game_data = monthly_game_stats[fav_game_name]
             user_minutes = fav_game_data['total_minutes']
+            user_hours = user_minutes / 60
 
             # Calculate server average and leaderboard for this specific game
             other_players_minutes = []
@@ -1954,72 +2319,134 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
             
             server_avg_minutes = sum(other_players_minutes) / len(other_players_minutes) if other_players_minutes else 0
             
-            # Build leaderboard
+            # Build leaderboard with enhanced visuals
             leaderboard_data.sort(key=lambda x: x['minutes'], reverse=True)
-            leaderboard_text = ""
-            for i, data in enumerate(leaderboard_data[:3]): # Top 3
+            leaderboard_lines = []
+            medals = ["🥇", "🥈", "🥉"]
+            for i, data in enumerate(leaderboard_data[:3]):
                 player_user = client.get_user(data['user_id'])
                 player_name = player_user.display_name if player_user else f"User {data['user_id']}"
-                leaderboard_text += f"**{i+1}.** {player_name} - *{data['minutes']:.0f} Min.*\n"
+                medal = medals[i] if i < len(medals) else f"**{i+1}.**"
+                hours = data['minutes'] / 60
+                leaderboard_lines.append(f"{medal} **{player_name}** - *{hours:.1f}h*")
 
-            game_embed = discord.Embed(title=f"Dein Lieblingsspiel: {fav_game_name}", color=color)
-            game_embed.add_field(name="Deine Spielzeit (diesen Monat)", value=f"## `{user_minutes:.0f}`\n*Minuten*", inline=True)
-            game_embed.add_field(name="Server-Durchschnitt", value=f"## `{server_avg_minutes:.0f}`\n*Minuten*", inline=True)
+            game_embed = discord.Embed(
+                title=f"🎮 Dein Lieblingsspiel",
+                description=f"## {fav_game_name}\n*Dein meistgespieltes Spiel diesen Monat*",
+                color=WRAPPED_COLORS['game']
+            )
+            game_embed.add_field(
+                name="⏱️ Deine Spielzeit",
+                value=f"## `{user_hours:.1f}` Stunden\n*({int(user_minutes)} Minuten)*",
+                inline=True
+            )
+            game_embed.add_field(
+                name="📊 Server-Durchschnitt",
+                value=f"## `{server_avg_minutes / 60:.1f}` Stunden",
+                inline=True
+            )
             
-            if leaderboard_text:
-                game_embed.add_field(name=f"Leaderboard für {fav_game_name}", value=leaderboard_text, inline=False)
+            if leaderboard_lines:
+                game_embed.add_field(
+                    name=f"🏆 Top-Spieler",
+                    value="\n".join(leaderboard_lines),
+                    inline=False
+                )
             
-            # --- FIX: Fetch game image from the API ---
-            # This defines the 'api_response' variable that was previously missing.
+            # Calculate user's rank
+            user_rank = next((i+1 for i, d in enumerate(leaderboard_data) if d['user_id'] == user.id), None)
+            if user_rank:
+                rank_emoji = medals[user_rank-1] if user_rank <= 3 else "🎖️"
+                game_embed.add_field(
+                    name="📍 Dein Rang",
+                    value=f"{rank_emoji} **Platz {user_rank}** von {len(leaderboard_data)} Spielern",
+                    inline=False
+                )
+            
+            # Fetch game image from the API
             api_response, _ = await get_game_details_from_api([fav_game_name], config, GEMINI_API_KEY, OPENAI_API_KEY)
             game_image_url = api_response.get(fav_game_name, {}).get('image') if api_response else None
             
             if game_image_url:
                 game_embed.set_thumbnail(url=game_image_url)
 
-
             game_embed.set_footer(text="Verglichen mit anderen Spielern dieses Spiels auf dem Server.")
             pages.append(game_embed)
 
-    # --- Page 7: Spotify Wrapped Page ---
+    # --- Page 7: Enhanced Spotify Wrapped Page ---
     if user_stats.get('spotify_minutes'):
         spotify_minutes_data = json.loads(user_stats['spotify_minutes'])
-        if spotify_minutes_data: # Check if the JSON object is not empty
+        if spotify_minutes_data:
             total_minutes = sum(spotify_minutes_data.values())
+            total_hours = total_minutes / 60
             
             # Sort songs by listening time
             sorted_songs = sorted(spotify_minutes_data.items(), key=lambda item: item[1], reverse=True)
             
-            top_songs_text = ""
+            # Build top songs with enhanced styling
+            song_lines = []
+            medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
             for i, (song, minutes) in enumerate(sorted_songs[:5]):
-                top_songs_text += f"**{i+1}.** `{song}` - *{minutes:.0f} Minuten*\n"
+                medal = medals[i] if i < len(medals) else f"**{i+1}.**"
+                song_lines.append(f"{medal} `{song}` - *{minutes:.0f} Min.*")
 
-            # --- NEW: Calculate Top Artists for Wrapped ---
+            # Calculate Top Artists
             artist_minutes = {}
             for song_key, minutes in spotify_minutes_data.items():
                 try:
                     artist = song_key.split(' by ')[1]
                     artist_minutes[artist] = artist_minutes.get(artist, 0) + minutes
                 except IndexError:
-                    continue # Skip malformed song keys
+                    continue
             
             sorted_artists = sorted(artist_minutes.items(), key=lambda item: item[1], reverse=True)
-            top_artists_text = ""
+            artist_lines = []
             for i, (artist, minutes) in enumerate(sorted_artists[:5]):
-                top_artists_text += f"**{i+1}.** `{artist}` - *{minutes:.0f} Minuten*\n"
+                medal = medals[i] if i < len(medals) else f"**{i+1}.**"
+                artist_lines.append(f"{medal} **{artist}** - *{minutes:.0f} Min.*")
 
-            if top_songs_text:
-                spotify_embed = discord.Embed(title="Dein Spotify-Rückblick", color=discord.Color.green())
-                spotify_embed.add_field(name="Gesamte Hörzeit", value=f"Du hast diesen Monat insgesamt **{total_minutes:.0f} Minuten** Musik gehört.", inline=False)
-                spotify_embed.add_field(name="Deine Top 5 Songs (nach Hörzeit)", value=top_songs_text, inline=False)
-                if top_artists_text:
-                    spotify_embed.add_field(name="Deine Top 5 Künstler (nach Hörzeit)", value=top_artists_text, inline=False)
-                spotify_embed.set_footer(text="Basiert auf der Zeit, die du Songs über Discord gehört hast.")
+            if song_lines:
+                spotify_embed = discord.Embed(
+                    title="🎵 Dein Spotify-Rückblick",
+                    description="*Was lief diesen Monat in deiner Playlist?*",
+                    color=WRAPPED_COLORS['spotify']
+                )
+                
+                # Total listening time with fun comparison
+                songs_listened = total_minutes / 3.5  # Average song ~3.5 min
+                spotify_embed.add_field(
+                    name="⏱️ Gesamte Hörzeit",
+                    value=f"## `{total_hours:.1f}` Stunden\n*~{int(songs_listened)} Songs*",
+                    inline=False
+                )
+                
+                spotify_embed.add_field(
+                    name="🎶 Deine Top 5 Songs",
+                    value="\n".join(song_lines),
+                    inline=False
+                )
+                
+                if artist_lines:
+                    spotify_embed.add_field(
+                        name="🎤 Deine Top 5 Künstler",
+                        value="\n".join(artist_lines),
+                        inline=False
+                    )
+                
+                # Add fun music fact
+                if sorted_artists:
+                    top_artist = sorted_artists[0][0]
+                    spotify_embed.set_footer(text=f"Du bist wohl ein großer {top_artist}-Fan! 🎧")
+                
                 pages.append(spotify_embed)
 
-    # --- NEW Page: Quest & Game Stats ---
+    # --- Enhanced Quest & Game Stats Page ---
     if extra_stats.get('quests_completed', 0) > 0 or extra_stats.get('games_played', 0) > 0:
-        quest_game_embed = discord.Embed(title="Quests & Gambling", color=color)
+        quest_game_embed = discord.Embed(
+            title="📋 Quests & Gambling",
+            description="*Deine Bot-Aktivitäten im Überblick*",
+            color=WRAPPED_COLORS['quests']
+        )
         
         # Quest stats
         if extra_stats.get('quests_completed', 0) > 0:
@@ -2066,12 +2493,12 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
         quest_game_embed.set_footer(text="Quests & Mini-Games - Deine Aktivität im Bot")
         pages.append(quest_game_embed)
 
-    # --- NEW Page: Detective Game Stats ---
+    # --- Enhanced Detective Game Stats Page ---
     if extra_stats.get('detective_total_cases', 0) > 0:
         detective_embed = discord.Embed(
             title="🔍 Detective Game Rückblick",
-            description="Deine Ermittlungen diesen Monat",
-            color=discord.Color.dark_blue()
+            description="*Deine Ermittlungen diesen Monat*",
+            color=WRAPPED_COLORS['detective']
         )
         
         cases_solved = extra_stats.get('detective_cases_solved', 0)
@@ -2079,92 +2506,106 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
         total_cases = extra_stats.get('detective_total_cases', 0)
         solve_rate = (cases_solved / total_cases * 100) if total_cases > 0 else 0
         
-        stats_text = f"**Fälle bearbeitet:** {total_cases}\n"
-        stats_text += f"**Erfolgreich gelöst:** ✅ {cases_solved}\n"
-        stats_text += f"**Gescheitert:** ❌ {cases_failed}\n"
-        stats_text += f"**Erfolgsquote:** {solve_rate:.1f}%\n\n"
-        
-        # Add rating based on solve rate
-        if solve_rate >= 80:
-            rating = "🏆 **Meisterdetektiv!** Du bist ein wahrer Sherlock Holmes!"
-        elif solve_rate >= 60:
-            rating = "🎖️ **Erfahrener Ermittler!** Solide Arbeit!"
-        elif solve_rate >= 40:
-            rating = "🔍 **Kompetenter Detective!** Weiter so!"
-        else:
-            rating = "📝 **Noch in Ausbildung!** Übung macht den Meister!"
-        
-        stats_text += rating
-        
         detective_embed.add_field(
-            name="📊 Deine Ermittlungen",
-            value=stats_text,
+            name="📊 Fallübersicht",
+            value=f"```\n"
+                  f"📁 Bearbeitet:   {total_cases}\n"
+                  f"✅ Gelöst:       {cases_solved}\n"
+                  f"❌ Gescheitert:  {cases_failed}\n"
+                  f"📈 Quote:        {solve_rate:.0f}%\n"
+                  f"```",
             inline=False
         )
         
+        # Add rating with visual progress bar
+        progress_bar = "█" * int(solve_rate / 10) + "░" * (10 - int(solve_rate / 10))
+        detective_embed.add_field(
+            name="📉 Erfolgsbalken",
+            value=f"`[{progress_bar}]` {solve_rate:.0f}%",
+            inline=False
+        )
+        
+        # Add rating based on solve rate
+        if solve_rate >= 80:
+            rating = "🏆 **Meisterdetektiv!**\n*Du bist ein wahrer Sherlock Holmes!*"
+        elif solve_rate >= 60:
+            rating = "🎖️ **Erfahrener Ermittler!**\n*Solide Arbeit, Watson wäre stolz!*"
+        elif solve_rate >= 40:
+            rating = "🔍 **Kompetenter Detective!**\n*Auf dem richtigen Weg!*"
+        else:
+            rating = "📝 **Noch in Ausbildung!**\n*Übung macht den Meister!*"
+        
+        detective_embed.add_field(name="🎭 Dein Rang", value=rating, inline=False)
         detective_embed.set_footer(text="Jeder gelöste Fall bringt dich näher zur nächsten Schwierigkeitsstufe!")
         pages.append(detective_embed)
     
-    # --- NEW Page: Shop & Purchases ---
+    # --- Enhanced Shop & Purchases Page ---
     if extra_stats.get('total_purchases', 0) > 0:
         shop_embed = discord.Embed(
             title="🛍️ Shopping Rückblick",
-            description="Deine Einkäufe diesen Monat",
-            color=discord.Color.gold()
+            description="*Deine Einkäufe diesen Monat*",
+            color=WRAPPED_COLORS['shop']
         )
         
         total_purchases = extra_stats.get('total_purchases', 0)
         most_bought = extra_stats.get('most_bought_item')
         most_bought_count = extra_stats.get('most_bought_item_count', 0)
-        least_bought = extra_stats.get('least_bought_item')
-        least_bought_count = extra_stats.get('least_bought_item_count', 0)
-        
-        purchase_text = f"**Gesamte Käufe:** {total_purchases}\n\n"
-        
-        if most_bought:
-            purchase_text += f"**🥇 Am meisten gekauft:**\n"
-            purchase_text += f"`{most_bought}` ({most_bought_count}x)\n\n"
-        
-        if least_bought and least_bought != most_bought:
-            purchase_text += f"**🥉 Am wenigsten gekauft:**\n"
-            purchase_text += f"`{least_bought}` ({least_bought_count}x)\n"
-        
-        # Add some flavor text based on purchases
-        if total_purchases >= 20:
-            purchase_text += "\n💸 **Shopping-Süchtiger!** Du liebst es einzukaufen!"
-        elif total_purchases >= 10:
-            purchase_text += "\n🛒 **Fleißiger Käufer!** Du weißt, was du willst!"
-        else:
-            purchase_text += "\n💰 **Sparsam!** Du gibst dein Geld mit Bedacht aus!"
         
         shop_embed.add_field(
-            name="🛒 Deine Einkäufe",
-            value=purchase_text,
+            name="🧾 Gesamte Käufe",
+            value=f"## `{total_purchases}`",
+            inline=True
+        )
+        
+        if most_bought:
+            shop_embed.add_field(
+                name="⭐ Favorit",
+                value=f"**{most_bought}**\n*({most_bought_count}x gekauft)*",
+                inline=True
+            )
+        
+        # Add shopping personality
+        if total_purchases >= 20:
+            personality = "💸 **Shopping-Süchtiger!**\nDu liebst es einzukaufen!"
+        elif total_purchases >= 10:
+            personality = "🛒 **Fleißiger Käufer!**\nDu weißt, was du willst!"
+        else:
+            personality = "💰 **Sparfuchs!**\nDu gibst dein Geld mit Bedacht aus!"
+        
+        shop_embed.add_field(
+            name="🎭 Dein Shopping-Typ",
+            value=personality,
             inline=False
         )
         
-        shop_embed.set_footer(text="Basiert auf deinen Shop-Käufen im Bot")
+        shop_embed.set_footer(text="Schau im /shop vorbei für neue Items!")
         pages.append(shop_embed)
 
-    # --- Final Page: Gemini Summary ---
-    # --- REFACTORED: Conditionally build the stats dictionary for the AI ---
+    # --- Enhanced Final Page: AI Summary ---
     gemini_stats = {
-        "message_count": user_stats.get('message_count', 0), "avg_message_count": server_averages['avg_messages'],
-        "vc_hours": vc_hours, "avg_vc_hours": server_averages['avg_vc_minutes'] / 60,
-        "message_rank_text": message_rank_text, "vc_rank_text": vc_rank_text
+        "message_count": total_messages, 
+        "avg_message_count": server_averages['avg_messages'],
+        "vc_hours": vc_hours, 
+        "avg_vc_hours": server_averages['avg_vc_minutes'] / 60,
+        "message_rank_text": message_rank_text, 
+        "vc_rank_text": vc_rank_text
     }
+    
     # Add activity if it exists
     if 'activity_embed' in locals() and activity_embed.fields:
-        field_value = activity_embed.fields[-1].value # Assumes activity is the last field
+        field_value = activity_embed.fields[-1].value
         match = re.search(r'\*\*(.*?)\*\*', field_value)
         if match:
             gemini_stats["fav_activity"] = match.group(1)
+    
     # Add top game if it exists
     if 'fav_game_name' in locals():
         gemini_stats["top_game"] = fav_game_name
+    
     # Add top song if it exists
     if 'sorted_songs' in locals() and sorted_songs:
         gemini_stats["top_song"] = sorted_songs[0][0]
+    
     # Add quest/game stats if they exist
     if extra_stats.get('quests_completed', 0) > 0:
         gemini_stats["quests_completed"] = extra_stats.get('quests_completed', 0)
@@ -2175,13 +2616,26 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
 
     summary_text, _ = await get_wrapped_summary_from_api(user.display_name, gemini_stats, config, GEMINI_API_KEY, OPENAI_API_KEY)
     print(f"    - [Wrapped] Generated Gemini summary for {user.name}.")
-    summary_embed = discord.Embed(title="Mein Urteil über dich", description=f"## _{await replace_emoji_tags(summary_text, client, None)}_", color=color)
-    summary_embed.set_footer(text="Nächstes Mal gibst du dir mehr Mühe, ja? :erm:")
+    
+    summary_embed = discord.Embed(
+        title="✨ Mein Urteil über dich",
+        description=f"*Was die KI über deinen Monat zu sagen hat...*\n\n"
+                    f"## _{await replace_emoji_tags(summary_text, client, None)}_",
+        color=WRAPPED_COLORS['summary']
+    )
+    summary_embed.set_thumbnail(url=user.display_avatar.url)
+    
+    # Add a closing message
+    summary_embed.add_field(
+        name="🎬 Das war's!",
+        value=f"Danke fürs Durchschauen, **{user.display_name}**!\n\n"
+              f"*Wir sehen uns nächsten Monat mit neuen Stats!* 👋",
+        inline=False
+    )
+    summary_embed.set_footer(text="Teile deine Lieblings-Seite mit dem 🔗 Button!")
     pages.append(summary_embed)
 
-    # --- FIX: Make exception handling more specific to DM failures ---
-    # The API call now has its own robust error handling, so we only need to catch
-    # errors related to sending the message to the user.
+    # Send the wrapped to the user
     view = WrappedView(pages, user)
     try:
         await view.send_initial_message()
@@ -6500,31 +6954,158 @@ async def spotify_stats(interaction: discord.Interaction, user: discord.Member =
 
 
 
+# --- Wrapped Registration View for Interactive Registration ---
+class WrappedRegistrationView(discord.ui.View):
+    """Interactive view for Wrapped registration with toggle functionality."""
+    
+    def __init__(self, user: discord.User, is_registered: bool):
+        super().__init__(timeout=300)
+        self.user = user
+        self.is_registered = is_registered
+        self._update_button()
+    
+    def _update_button(self):
+        """Update the button based on registration status."""
+        if self.is_registered:
+            self.toggle_button.label = "🔕 Abmelden"
+            self.toggle_button.style = discord.ButtonStyle.danger
+            self.toggle_button.emoji = None
+        else:
+            self.toggle_button.label = "🔔 Anmelden"
+            self.toggle_button.style = discord.ButtonStyle.success
+            self.toggle_button.emoji = None
+    
+    def _create_embed(self):
+        """Create the status embed based on current registration state."""
+        if self.is_registered:
+            embed = discord.Embed(
+                title="📊 Dein Wrapped Status",
+                description="✅ Du bist **registriert**!\n\nDu erhältst jeden Monat deine persönliche Zusammenfassung.",
+                color=discord.Color.green()
+            )
+            embed.add_field(
+                name="📅 Nächste Wrapped",
+                value="Wird in der 2. Woche des nächsten Monats versendet",
+                inline=False
+            )
+            embed.add_field(
+                name="💡 Tipp",
+                value="Du kannst dich auch über das Wrapped-Event (Interessiert) an-/abmelden!",
+                inline=False
+            )
+            embed.set_footer(text="Klicke den Button unten um dich abzumelden")
+        else:
+            embed = discord.Embed(
+                title="📊 Dein Wrapped Status",
+                description="❌ Du bist **nicht registriert**.\n\nMelde dich an um jeden Monat deine persönliche Zusammenfassung zu erhalten!",
+                color=discord.Color.red()
+            )
+            embed.add_field(
+                name="🎁 Was bekommst du?",
+                value="```\n"
+                      "📊 Nachrichten & Emoji-Stats\n"
+                      "🎤 Voice-Chat Statistiken\n"
+                      "🎵 Spotify Rückblick\n"
+                      "👥 Server-Bestie\n"
+                      "🎮 Gaming & Aktivitäten\n"
+                      "📋 Quest & Gambling Stats\n"
+                      "✨ Personalisierte AI-Analyse\n"
+                      "```",
+                inline=False
+            )
+            embed.add_field(
+                name="💡 Tipp",
+                value="Du kannst dich auch über das Wrapped-Event (Interessiert) anmelden!",
+                inline=False
+            )
+            embed.set_footer(text="Klicke den Button unten um dich anzumelden")
+        
+        embed.set_thumbnail(url=self.user.display_avatar.url)
+        return embed
+    
+    @discord.ui.button(label="🔔 Anmelden", style=discord.ButtonStyle.success)
+    async def toggle_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Toggle registration status."""
+        if interaction.user.id != self.user.id:
+            await interaction.response.send_message("Das ist nicht dein Menü!", ephemeral=True)
+            return
+        
+        if self.is_registered:
+            # Unregister
+            success = await db_helpers.unregister_from_wrapped(self.user.id)
+            if success:
+                self.is_registered = False
+                self._update_button()
+                await interaction.response.edit_message(embed=self._create_embed(), view=self)
+            else:
+                await interaction.response.send_message("❌ Fehler beim Abmelden.", ephemeral=True)
+        else:
+            # Register
+            success = await db_helpers.register_for_wrapped(self.user.id, self.user.display_name)
+            if success:
+                self.is_registered = True
+                self._update_button()
+                await interaction.response.edit_message(embed=self._create_embed(), view=self)
+            else:
+                await interaction.response.send_message("❌ Fehler beim Anmelden.", ephemeral=True)
+
+
 # --- NEW: Wrapped Registration Commands ---
+
+@tree.command(name="wrapped", description="Zeige deinen Wrapped-Status an und verwalte deine Registrierung.")
+async def wrapped_command(interaction: discord.Interaction):
+    """Shows Wrapped status with interactive registration toggle."""
+    await interaction.response.defer(ephemeral=True)
+    
+    is_registered = await db_helpers.is_registered_for_wrapped(interaction.user.id)
+    view = WrappedRegistrationView(interaction.user, is_registered)
+    
+    await interaction.followup.send(embed=view._create_embed(), view=view, ephemeral=True)
 
 @tree.command(name="wrapped-register", description="Registriere dich für monatliche Wrapped-Zusammenfassungen.")
 async def wrapped_register(interaction: discord.Interaction):
     """Allows users to opt-in to receive Wrapped summaries."""
     await interaction.response.defer(ephemeral=True)
     
+    # Check if already registered
+    is_registered = await db_helpers.is_registered_for_wrapped(interaction.user.id)
+    if is_registered:
+        embed = discord.Embed(
+            title="ℹ️ Bereits registriert!",
+            description="Du bist bereits für Wrapped angemeldet!\n\nNutze `/wrapped` um deinen Status zu sehen oder dich abzumelden.",
+            color=discord.Color.blue()
+        )
+        embed.set_thumbnail(url=interaction.user.display_avatar.url)
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        return
+    
     success = await db_helpers.register_for_wrapped(interaction.user.id, interaction.user.display_name)
     
     if success:
         embed = discord.Embed(
-            title="✅ Erfolgreich registriert!",
+            title="🎉 Erfolgreich registriert!",
             description="Du wirst ab jetzt monatlich deine persönliche Wrapped-Zusammenfassung per DM erhalten!",
             color=discord.Color.green()
         )
+        embed.set_thumbnail(url=interaction.user.display_avatar.url)
         embed.add_field(
-            name="Was ist Wrapped?",
-            value="Jeden Monat bekommst du eine personalisierte Zusammenfassung deiner Server-Aktivität:\n"
-                  "📊 Nachrichten & Reaktionen\n"
-                  "🎤 Voice-Channel Zeit\n"
-                  "🎵 Spotify-Statistiken\n"
-                  "👥 Server-Bestie & mehr!",
+            name="📦 Was bekommst du?",
+            value="```\n"
+                  "📊 Nachrichten & Emoji-Stats\n"
+                  "🎤 Voice-Chat Statistiken\n"
+                  "🎵 Spotify Rückblick\n"
+                  "👥 Server-Bestie\n"
+                  "🎮 Gaming & Aktivitäten\n"
+                  "✨ AI-Analyse & mehr!\n"
+                  "```",
             inline=False
         )
-        embed.set_footer(text="Du kannst dich jederzeit mit /wrapped-unregister abmelden.")
+        embed.add_field(
+            name="📅 Wann?",
+            value="Deine Wrapped wird in der 2. Woche des nächsten Monats versendet.",
+            inline=False
+        )
+        embed.set_footer(text="💡 Nutze /wrapped für eine Übersicht oder /wrapped-unregister zum Abmelden")
         await interaction.followup.send(embed=embed, ephemeral=True)
     else:
         await interaction.followup.send("❌ Ein Fehler ist aufgetreten. Bitte versuche es später erneut.", ephemeral=True)
@@ -6534,50 +7115,46 @@ async def wrapped_unregister(interaction: discord.Interaction):
     """Allows users to opt-out of receiving Wrapped summaries."""
     await interaction.response.defer(ephemeral=True)
     
+    # Check if not registered
+    is_registered = await db_helpers.is_registered_for_wrapped(interaction.user.id)
+    if not is_registered:
+        embed = discord.Embed(
+            title="ℹ️ Nicht registriert",
+            description="Du bist gar nicht für Wrapped angemeldet!\n\nNutze `/wrapped-register` oder `/wrapped` um dich anzumelden.",
+            color=discord.Color.blue()
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        return
+    
     success = await db_helpers.unregister_from_wrapped(interaction.user.id)
     
     if success:
         embed = discord.Embed(
-            title="✅ Erfolgreich abgemeldet",
+            title="👋 Erfolgreich abgemeldet",
             description="Du wirst keine Wrapped-Zusammenfassungen mehr erhalten.",
             color=discord.Color.orange()
         )
-        embed.set_footer(text="Du kannst dich jederzeit wieder mit /wrapped-register anmelden.")
+        embed.add_field(
+            name="💡 Wieder anmelden?",
+            value="• Nutze `/wrapped-register` oder `/wrapped`\n"
+                  "• Oder klicke 'Interessiert' beim nächsten Wrapped-Event",
+            inline=False
+        )
+        embed.set_footer(text="Wir freuen uns, dich wieder zu sehen!")
         await interaction.followup.send(embed=embed, ephemeral=True)
     else:
         await interaction.followup.send("❌ Ein Fehler ist aufgetreten. Bitte versuche es später erneut.", ephemeral=True)
 
 @tree.command(name="wrapped-status", description="Überprüfe deinen Wrapped-Registrierungsstatus.")
 async def wrapped_status(interaction: discord.Interaction):
-    """Shows the user's current Wrapped registration status."""
+    """Shows the user's current Wrapped registration status - redirects to /wrapped."""
     await interaction.response.defer(ephemeral=True)
     
+    # Use the new interactive view
     is_registered = await db_helpers.is_registered_for_wrapped(interaction.user.id)
+    view = WrappedRegistrationView(interaction.user, is_registered)
     
-    if is_registered:
-        embed = discord.Embed(
-            title="📊 Wrapped Status",
-            description="✅ Du bist **registriert** und wirst Wrapped-Zusammenfassungen erhalten.",
-            color=discord.Color.green()
-        )
-        embed.add_field(
-            name="Nächste Wrapped",
-            value="Die nächste Zusammenfassung wird in der zweiten Woche des nächsten Monats versendet.",
-            inline=False
-        )
-    else:
-        embed = discord.Embed(
-            title="📊 Wrapped Status",
-            description="❌ Du bist **nicht registriert** und wirst keine Wrapped-Zusammenfassungen erhalten.",
-            color=discord.Color.red()
-        )
-        embed.add_field(
-            name="Jetzt registrieren?",
-            value="Nutze `/wrapped-register` um dich anzumelden!",
-            inline=False
-        )
-    
-    await interaction.followup.send(embed=embed, ephemeral=True)
+    await interaction.followup.send(embed=view._create_embed(), view=view, ephemeral=True)
 
 @ww_group.command(name="start", description="Startet ein neues Werwolf-Spiel.")
 @app_commands.describe(
@@ -6913,6 +7490,7 @@ class HelpView(discord.ui.View):
             "⚙️ Other": [
                 ("news", "Zeige die neuesten Server-Nachrichten"),
                 ("privacy", "Verwalte deine Datenschutz-Einstellungen"),
+                ("wrapped", "📊 Zeige deinen Wrapped-Status mit interaktiver Registrierung"),
                 ("wrapped-register", "Registriere dich für monatliche Wrapped-Zusammenfassungen"),
                 ("wrapped-unregister", "Melde dich von Wrapped-Zusammenfassungen ab"),
                 ("wrapped-status", "Überprüfe deinen Wrapped-Status"),
