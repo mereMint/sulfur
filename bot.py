@@ -2978,7 +2978,7 @@ class AdminGroup(app_commands.Group):
             await interaction.followup.send(f"Eine 'Wrapped'-Vorschau für `{stat_period}` wurde an {user.mention} gesendet.", ephemeral=True)
         except Exception as e:
             logger.error(f"Error in view_wrapped command: {e}", exc_info=True)
-            await interaction.followup.send(f"❌ Fehler beim Generieren der Wrapped-Vorschau: `{e}`", ephemeral=True)
+            await interaction.followup.send("❌ Fehler beim Generieren der Wrapped-Vorschau. Bitte überprüfe die Logs für mehr Details.", ephemeral=True)
 
     @app_commands.command(name="reload_config", description="Lädt die config.json und die System-Prompt-Datei neu.")
     async def reload_config(self, interaction: discord.Interaction):

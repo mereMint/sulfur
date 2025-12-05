@@ -2306,7 +2306,6 @@ async def unregister_from_wrapped(user_id):
     cursor = cnx.cursor()
     try:
         # Only UPDATE existing records - don't INSERT new ones
-        # If user isn't registered, there's nothing to unregister, so just return True
         query = """
             UPDATE wrapped_registrations
             SET opted_out = TRUE, last_updated = CURRENT_TIMESTAMP
@@ -2314,7 +2313,8 @@ async def unregister_from_wrapped(user_id):
         """
         cursor.execute(query, (user_id,))
         cnx.commit()
-        return True
+        # Return True if a record was updated, otherwise the user wasn't registered
+        return cursor.rowcount > 0
     except mysql.connector.Error as err:
         print(f"Error in unregister_from_wrapped: {err}")
         return False
