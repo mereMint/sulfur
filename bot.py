@@ -558,13 +558,18 @@ def get_nested_config(config_obj, *keys, default=None):
     Example:
         currency = get_nested_config(config, 'modules', 'economy', 'currency_symbol', default='💰')
     """
+    # Sentinel value to distinguish missing keys from actual values
+    _MISSING = object()
+    
     result = config_obj
     for key in keys:
         if isinstance(result, dict):
-            result = result.get(key, {})
+            result = result.get(key, _MISSING)
+            if result is _MISSING:
+                return default
         else:
             return default
-    return result if result != {} else default
+    return result
 
 
 async def get_user_embed_color(user_id, config_obj):
