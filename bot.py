@@ -2000,8 +2000,17 @@ class WrappedView(discord.ui.View):
         first_embed = self._update_embed_footer(self.pages[0].copy())
         self.message = await self.user.send(embed=first_embed, view=self)
 
-async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_stats_for_period, total_users, server_averages):
-    """Helper function to generate and DM the Wrapped story to a single user."""
+async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_stats_for_period, total_users, server_averages, raise_on_dm_failure=False):
+    """Helper function to generate and DM the Wrapped story to a single user.
+    
+    Args:
+        user_stats: Stats for the user
+        stat_period_date: Date of the period being wrapped
+        all_stats_for_period: All stats for ranking calculations
+        total_users: Total number of users in the period
+        server_averages: Server-wide averages
+        raise_on_dm_failure: If True, re-raises exceptions when DM fails (for admin previews)
+    """
     user_id = user_stats['user_id']
     user = None
     try:
@@ -2670,8 +2679,9 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
         print(f"  - [Wrapped] Successfully sent DM to {user.name}.")
     except (discord.Forbidden, discord.HTTPException) as e:
         print(f"  - [Wrapped] FAILED to DM {user.name} (DMs likely closed or another Discord error occurred): {e}")
-        # Re-raise the exception so the caller knows it failed
-        raise
+        # Re-raise the exception only in admin preview context so caller knows it failed
+        if raise_on_dm_failure:
+            raise
 
 def _get_percentile_rank(user_id, rank_map, total_users):
     """Helper function to calculate a user's percentile rank from a sorted list."""
@@ -2994,22 +3004,26 @@ class AdminGroup(app_commands.Group):
 
             # --- FIX: Pass the correct arguments to the helper function ---
             # The helper function now calculates ranks internally.
+            # Set raise_on_dm_failure=True so we get error details for the admin
             await _generate_and_send_wrapped_for_user(
                 user_stats=target_user_stats,
                 stat_period_date=last_month_first_day,
                 all_stats_for_period=all_stats,
                 total_users=len(all_stats),
-                server_averages=await _calculate_server_averages(all_stats)
+                server_averages=await _calculate_server_averages(all_stats),
+                raise_on_dm_failure=True
             )
 
             await interaction.followup.send(f"Eine 'Wrapped'-Vorschau für `{stat_period}` wurde an {user.mention} gesendet.", ephemeral=True)
         except Exception as e:
             logger.error(f"Error in view_wrapped command: {e}", exc_info=True)
             # Show the actual error to the admin
-            error_msg = f"❌ Fehler beim Generieren der Wrapped-Vorschau:\n```python\n{type(e).__name__}: {str(e)}\n```"
-            # Truncate if too long (Discord has a 2000 char limit)
-            if len(error_msg) > 1900:
-                error_msg = error_msg[:1897] + "...```"
+            error_details = f"{type(e).__name__}: {str(e)}"
+            # Truncate error details if too long while preserving markdown structure
+            max_error_len = 1850  # Leave room for the message and markdown
+            if len(error_details) > max_error_len:
+                error_details = error_details[:max_error_len] + "... (truncated)"
+            error_msg = f"❌ Fehler beim Generieren der Wrapped-Vorschau:\n```python\n{error_details}\n```"
             await interaction.followup.send(error_msg, ephemeral=True)
 
     @app_commands.command(name="reload_config", description="Lädt die config.json und die System-Prompt-Datei neu.")
