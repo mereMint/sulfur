@@ -434,6 +434,10 @@ def sanitize_malformed_emojis(text):
       - `<:name:id>` -> <:name:id> (removes inline code backticks, preserves code blocks)
       - `:emoji:` -> :emoji: (removes backticks from short format too)
     """
+    # --- FIX: Handle None input gracefully ---
+    if text is None:
+        return ""
+    
     # Fix pattern like <<:emoji_name:emoji_id>emoji_id> or <<a:emoji_name:emoji_id>emoji_id>
     text = re.sub(r'<<(a?):(\w+):(\d+)>\3>', r'<\1:\2:\3>', text)
     # Fix pattern like <<:emoji_name:emoji_id>> or <<a:emoji_name:emoji_id>>
@@ -461,6 +465,10 @@ async def replace_emoji_tags(text, client, guild=None):
     
     This prevents the bot from using emojis from other servers that users cannot see.
     """
+    # --- FIX: Handle None input gracefully ---
+    if text is None:
+        return ""
+    
     # First, sanitize any malformed emoji patterns
     text = sanitize_malformed_emojis(text)
     
@@ -1461,18 +1469,28 @@ async def manage_wrapped_event():
             # Create sorted lists for ranking
 
             # --- NEW: Only send to registered users ---
+            # Pre-calculate server averages once for all users
+            server_averages = await _calculate_server_averages(stats)
+            
             for user_stats in stats:
                 user_id = user_stats.get('user_id')
                 if user_id not in registered_users:
                     continue  # Skip users who haven't opted in
                 
-                await _generate_and_send_wrapped_for_user(
-                    user_stats=user_stats,
-                    stat_period_date=last_month_first_day,
-                    all_stats_for_period=stats,
-                    total_users=total_users,
-                    server_averages=await _calculate_server_averages(stats)
-                )
+                # --- FIX: Wrap individual user processing in try-except to prevent one failure from stopping all users ---
+                # We catch broad Exception intentionally here for fault tolerance - we want to continue
+                # processing other users even if one fails unexpectedly. All errors are logged with full traceback.
+                try:
+                    await _generate_and_send_wrapped_for_user(
+                        user_stats=user_stats,
+                        stat_period_date=last_month_first_day,
+                        all_stats_for_period=stats,
+                        total_users=total_users,
+                        server_averages=server_averages
+                    )
+                except Exception as user_error:
+                    logger.error(f"Error generating Wrapped for user {user_id}: {user_error}", exc_info=True)
+                    print(f"  - [Wrapped] ERROR for user {user_id}: {user_error}")
     except Exception as e:
         logger.error(f"Error in manage_wrapped_event task: {e}", exc_info=True)
         print(f"[Wrapped Event Task] Error: {e}")
@@ -2660,8 +2678,11 @@ def _get_percentile_rank(user_id, rank_map, total_users):
         # This now represents the percentage of users you are ranked higher than.
         percentile = ((total_users - 1 - user_rank) / (total_users - 1)) * 100
 
-        # --- NEW: Use ranks from config file ---
-        ranks = config['modules']['wrapped']['percentile_ranks']
+        # --- NEW: Use ranks from config file with defensive access ---
+        ranks = config.get('modules', {}).get('wrapped', {}).get('percentile_ranks', {})
+        if not ranks:
+            return "N/A"
+        
         # We sort the keys numerically to ensure correct order, ignoring 'default'.
         sorted_thresholds = sorted([int(k) for k in ranks.keys() if k.isdigit()])
 
@@ -2670,7 +2691,8 @@ def _get_percentile_rank(user_id, rank_map, total_users):
                 return ranks[str(threshold)]
         
         return ranks.get("default", "N/A")
-    except StopIteration:
+    except (KeyError, ValueError, TypeError) as e:
+        logger.debug(f"Error calculating percentile rank: {e}")
         return "N/A"
 
 @client.event
