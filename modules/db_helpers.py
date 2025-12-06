@@ -2140,7 +2140,8 @@ async def get_wrapped_extra_stats(user_id, stat_period):
         logger.warning("Database pool not available, cannot get wrapped extra stats")
         return stats
     cnx = db_pool.get_connection()
-    if not cnx: 
+    if not cnx:
+        logger.warning("Database connection failed, cannot get wrapped extra stats")
         return stats
     cursor = cnx.cursor(dictionary=True)
     
