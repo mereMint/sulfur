@@ -1478,6 +1478,8 @@ async def manage_wrapped_event():
                     continue  # Skip users who haven't opted in
                 
                 # --- FIX: Wrap individual user processing in try-except to prevent one failure from stopping all users ---
+                # We catch broad Exception intentionally here for fault tolerance - we want to continue
+                # processing other users even if one fails unexpectedly. All errors are logged with full traceback.
                 try:
                     await _generate_and_send_wrapped_for_user(
                         user_stats=user_stats,
@@ -2689,7 +2691,7 @@ def _get_percentile_rank(user_id, rank_map, total_users):
                 return ranks[str(threshold)]
         
         return ranks.get("default", "N/A")
-    except (StopIteration, KeyError, ValueError, TypeError) as e:
+    except (KeyError, ValueError, TypeError) as e:
         logger.debug(f"Error calculating percentile rank: {e}")
         return "N/A"
 
