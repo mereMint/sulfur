@@ -821,14 +821,29 @@ def api_activity_stats():
             stats['today']['transactions'] = result.get('count', 0) if result else 0
             
             # Games played today - query each table individually to handle missing tables
+            # Using explicit queries for each table (no string interpolation) for security
             games_count = 0
-            for table in ['blackjack_games', 'roulette_games', 'mines_games']:
-                result = safe_db_query(cursor, f"""
-                    SELECT COUNT(*) as count FROM {table} 
-                    WHERE DATE(played_at) = CURDATE()
-                """)
-                if result and result.get('count'):
-                    games_count += int(result.get('count', 0))
+            # Blackjack games
+            result = safe_db_query(cursor, """
+                SELECT COUNT(*) as count FROM blackjack_games 
+                WHERE DATE(played_at) = CURDATE()
+            """)
+            if result and result.get('count'):
+                games_count += int(result.get('count', 0))
+            # Roulette games
+            result = safe_db_query(cursor, """
+                SELECT COUNT(*) as count FROM roulette_games 
+                WHERE DATE(played_at) = CURDATE()
+            """)
+            if result and result.get('count'):
+                games_count += int(result.get('count', 0))
+            # Mines games
+            result = safe_db_query(cursor, """
+                SELECT COUNT(*) as count FROM mines_games 
+                WHERE DATE(played_at) = CURDATE()
+            """)
+            if result and result.get('count'):
+                games_count += int(result.get('count', 0))
             stats['today']['games'] = games_count
             
             # Active users today - use ai_model_usage table instead of non-existent ai_conversation_history
@@ -1217,8 +1232,8 @@ def api_log_content(filename):
     """API endpoint to get the content of a specific log file."""
     try:
         # Validate filename to prevent directory traversal attacks
-        # Only allow alphanumeric, underscore, hyphen, and .log extension
-        if not re.match(r'^[\w\-]+\.log$', filename):
+        # Only allow alphanumeric, underscore, and .log extension (no hyphens)
+        if not re.match(r'^[a-zA-Z0-9_]+\.log$', filename):
             return jsonify({'status': 'error', 'message': 'Invalid filename'}), 400
         
         file_path = os.path.join(LOG_DIR, filename)

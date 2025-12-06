@@ -59,10 +59,30 @@
         font-size: 0.7rem;
         color: var(--matrix-green-dark);
     }
+    
+    /* Toast notification styles */
+    .toast-container {
+        position: fixed;
+        top: 80px;
+        right: 20px;
+        z-index: 1055;
+    }
 </style>
 {% endblock %}
 
 {% block content %}
+<!-- Toast container for notifications -->
+<div class="toast-container">
+    <div id="notification-toast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="toast-header">
+            <i class="bi bi-info-circle me-2" id="toast-icon"></i>
+            <strong class="me-auto" id="toast-title">Notification</strong>
+            <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+        <div class="toast-body" id="toast-message"></div>
+    </div>
+</div>
+
 <div class="row mb-4 fade-in">
     <div class="col-12">
         <h2 class="matrix-text mb-4">
@@ -253,9 +273,41 @@
         loadFileList();
     }
     
+    // Toast notification helper
+    function showToast(message, type = 'info') {
+        const toast = document.getElementById('notification-toast');
+        const toastTitle = document.getElementById('toast-title');
+        const toastMessage = document.getElementById('toast-message');
+        const toastIcon = document.getElementById('toast-icon');
+        
+        // Set content
+        toastMessage.textContent = message;
+        
+        // Set type-specific styling
+        if (type === 'error') {
+            toastTitle.textContent = 'Error';
+            toastIcon.className = 'bi bi-x-circle text-danger me-2';
+            toast.classList.remove('bg-success', 'bg-warning');
+            toast.classList.add('bg-danger', 'text-white');
+        } else if (type === 'warning') {
+            toastTitle.textContent = 'Warning';
+            toastIcon.className = 'bi bi-exclamation-triangle text-warning me-2';
+            toast.classList.remove('bg-success', 'bg-danger');
+            toast.classList.add('bg-warning');
+        } else {
+            toastTitle.textContent = 'Info';
+            toastIcon.className = 'bi bi-info-circle text-info me-2';
+            toast.classList.remove('bg-success', 'bg-danger', 'bg-warning');
+        }
+        
+        // Show the toast
+        const bsToast = new bootstrap.Toast(toast);
+        bsToast.show();
+    }
+    
     function downloadLog() {
         if (!currentFile) {
-            alert('Please select a log file first');
+            showToast('Please select a log file first', 'warning');
             return;
         }
         
@@ -276,7 +328,7 @@
             })
             .catch(error => {
                 console.error('Error downloading log:', error);
-                alert('Error downloading log file');
+                showToast('Error downloading log file', 'error');
             });
     }
 </script>
