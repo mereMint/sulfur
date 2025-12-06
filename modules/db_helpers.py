@@ -1,6 +1,7 @@
 import mysql.connector
 import json
 from mysql.connector import errorcode, pooling
+from decimal import Decimal
 import time
 import logging
 import functools
@@ -17,6 +18,31 @@ if not logger.handlers:
 # This file handles all database interactions for the bot.
 
 db_pool = None
+
+def convert_decimals(obj):
+    """
+    Recursively converts Decimal objects to int or float for JSON serialization.
+    
+    Args:
+        obj: Any Python object (dict, list, Decimal, etc.)
+    
+    Returns:
+        The same object with all Decimal values converted to int or float
+    """
+    if isinstance(obj, Decimal):
+        # Convert to int if it's a whole number, otherwise float
+        if obj % 1 == 0:
+            return int(obj)
+        else:
+            return float(obj)
+    elif isinstance(obj, dict):
+        return {key: convert_decimals(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_decimals(item) for item in obj]
+    elif isinstance(obj, tuple):
+        return tuple(convert_decimals(item) for item in obj)
+    else:
+        return obj
 
 def db_operation(operation_name):
     """Decorator for database operations with automatic error handling and logging"""
@@ -1211,7 +1237,8 @@ async def get_ai_usage_stats(days: int = 30):
         )
         cursor.execute(query, (days,))
         rows = cursor.fetchall() or []
-        return rows
+        # Convert Decimal values for JSON serialization
+        return [convert_decimals(row) for row in rows]
     finally:
         cursor.close()
         cnx.close()
@@ -1863,7 +1890,9 @@ async def get_wrapped_stats_for_period(stat_period):
     try:
         query = "SELECT * FROM user_monthly_stats WHERE stat_period = %s"
         cursor.execute(query, (stat_period,))
-        return cursor.fetchall()
+        results = cursor.fetchall()
+        # Convert Decimal values to int/float for JSON serialization
+        return [convert_decimals(row) for row in results]
     finally:
         cursor.close()
         cnx.close()
@@ -2216,10 +2245,12 @@ async def get_wrapped_extra_stats(user_id, stat_period):
         cursor.execute(game_stats_query, (user_id, stat_period))
         game_stats_result = cursor.fetchone()
         if game_stats_result:
-            stats["games_played"] = game_stats_result['games_played'] or 0
-            stats["games_won"] = game_stats_result['games_won'] or 0
-            stats["total_bet"] = game_stats_result['total_bet'] or 0
-            stats["total_won"] = game_stats_result['total_won'] or 0
+            # Convert entire result using utility function for consistency
+            converted = convert_decimals(game_stats_result)
+            stats["games_played"] = converted['games_played'] or 0
+            stats["games_won"] = converted['games_won'] or 0
+            stats["total_bet"] = converted['total_bet'] or 0
+            stats["total_won"] = converted['total_won'] or 0
 
         # 7. Detective Game Stats
         detective_stats_query = """
@@ -2568,7 +2599,9 @@ async def get_ai_usage_stats(days=30):
             ORDER BY total_calls DESC
         """
         cursor.execute(query, (days,))
-        return cursor.fetchall()
+        rows = cursor.fetchall()
+        # Convert Decimal values for JSON serialization
+        return [convert_decimals(row) for row in rows]
     except mysql.connector.Error as err:
         print(f"Error in get_ai_usage_stats: {err}")
         return []
