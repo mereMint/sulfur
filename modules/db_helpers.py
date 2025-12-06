@@ -2112,20 +2112,9 @@ async def get_user_wrapped_stats(user_id, stat_period):
 async def get_wrapped_extra_stats(user_id, stat_period):
     """
     Fetches comprehensive Wrapped stats for a user including detective, quests, games, shop purchases, etc.
+    Always returns a dict with default values if database is unavailable.
     """
-    if not db_pool:
-        logger.warning("Database pool not available, cannot get wrapped extra stats")
-        return None
-    cnx = db_pool.get_connection()
-    if not cnx: return None
-    cursor = cnx.cursor(dictionary=True)
-    
-    start_date = f"{stat_period}-01"
-    # A bit of a hack to get the end date of the month
-    from datetime import datetime, timedelta
-    next_month = (datetime.strptime(start_date, "%Y-%m-%d") + timedelta(days=32)).replace(day=1)
-    end_date = (next_month - timedelta(days=1)).strftime("%Y-%m-%d")
-
+    # Define default stats first so we can return them if database is unavailable
     stats = {
         "server_bestie_id": None,
         "prime_time_hour": None,
@@ -2146,6 +2135,21 @@ async def get_wrapped_extra_stats(user_id, stat_period):
         "least_bought_item_count": 0,
         "total_purchases": 0
     }
+
+    if not db_pool:
+        logger.warning("Database pool not available, cannot get wrapped extra stats")
+        return stats
+    cnx = db_pool.get_connection()
+    if not cnx:
+        logger.warning("Database connection failed, cannot get wrapped extra stats")
+        return stats
+    cursor = cnx.cursor(dictionary=True)
+    
+    start_date = f"{stat_period}-01"
+    # A bit of a hack to get the end date of the month
+    from datetime import datetime, timedelta
+    next_month = (datetime.strptime(start_date, "%Y-%m-%d") + timedelta(days=32)).replace(day=1)
+    end_date = (next_month - timedelta(days=1)).strftime("%Y-%m-%d")
 
     try:
         # 1. Server Bestie
