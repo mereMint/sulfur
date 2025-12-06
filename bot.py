@@ -2642,10 +2642,13 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
     summary_text, _ = await get_wrapped_summary_from_api(user.display_name, gemini_stats, config, GEMINI_API_KEY, OPENAI_API_KEY)
     print(f"    - [Wrapped] Generated Gemini summary for {user.name}.")
     
+    # Replace emoji tags in the summary text
+    summary_text_formatted = await replace_emoji_tags(summary_text, client, None)
+    
     summary_embed = discord.Embed(
         title="✨ Mein Urteil über dich",
         description=f"*Was die KI über deinen Monat zu sagen hat...*\n\n"
-                    f"## _{await replace_emoji_tags(summary_text, client, None)}_",
+                    f"## _{summary_text_formatted}_",
         color=WRAPPED_COLORS['summary']
     )
     summary_embed.set_thumbnail(url=user.display_avatar.url)
@@ -2667,6 +2670,8 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
         print(f"  - [Wrapped] Successfully sent DM to {user.name}.")
     except (discord.Forbidden, discord.HTTPException) as e:
         print(f"  - [Wrapped] FAILED to DM {user.name} (DMs likely closed or another Discord error occurred): {e}")
+        # Re-raise the exception so the caller knows it failed
+        raise
 
 def _get_percentile_rank(user_id, rank_map, total_users):
     """Helper function to calculate a user's percentile rank from a sorted list."""
@@ -3000,7 +3005,12 @@ class AdminGroup(app_commands.Group):
             await interaction.followup.send(f"Eine 'Wrapped'-Vorschau für `{stat_period}` wurde an {user.mention} gesendet.", ephemeral=True)
         except Exception as e:
             logger.error(f"Error in view_wrapped command: {e}", exc_info=True)
-            await interaction.followup.send("❌ Fehler beim Generieren der Wrapped-Vorschau. Bitte überprüfe die Logs für mehr Details.", ephemeral=True)
+            # Show the actual error to the admin
+            error_msg = f"❌ Fehler beim Generieren der Wrapped-Vorschau:\n```python\n{type(e).__name__}: {str(e)}\n```"
+            # Truncate if too long (Discord has a 2000 char limit)
+            if len(error_msg) > 1900:
+                error_msg = error_msg[:1897] + "...```"
+            await interaction.followup.send(error_msg, ephemeral=True)
 
     @app_commands.command(name="reload_config", description="Lädt die config.json und die System-Prompt-Datei neu.")
     async def reload_config(self, interaction: discord.Interaction):
