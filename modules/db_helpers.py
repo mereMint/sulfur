@@ -2245,11 +2245,12 @@ async def get_wrapped_extra_stats(user_id, stat_period):
         cursor.execute(game_stats_query, (user_id, stat_period))
         game_stats_result = cursor.fetchone()
         if game_stats_result:
-            # Convert Decimal values to int or float for JSON serialization
-            stats["games_played"] = int(game_stats_result['games_played'] or 0)
-            stats["games_won"] = int(game_stats_result['games_won'] or 0)
-            stats["total_bet"] = int(game_stats_result['total_bet'] or 0)
-            stats["total_won"] = int(game_stats_result['total_won'] or 0)
+            # Convert entire result using utility function for consistency
+            converted = convert_decimals(game_stats_result)
+            stats["games_played"] = converted['games_played'] or 0
+            stats["games_won"] = converted['games_won'] or 0
+            stats["total_bet"] = converted['total_bet'] or 0
+            stats["total_won"] = converted['total_won'] or 0
 
         # 7. Detective Game Stats
         detective_stats_query = """
