@@ -80,6 +80,10 @@ DB_USER = os.environ.get("DB_USER", "sulfur_bot_user")
 DB_PASS = os.environ.get("DB_PASS", "") # No password is set for this user
 DB_NAME = os.environ.get("DB_NAME", "sulfur_bot")
 
+# --- Constants ---
+# Discord message length limit is 2000 chars, we reserve some space for formatting
+DISCORD_ERROR_MESSAGE_MAX_LENGTH = 1850
+
 # --- REFACTORED: Add a more robust token check with diagnostics ---
 if not DISCORD_BOT_TOKEN:
     logger.critical("DISCORD_BOT_TOKEN environment variable is not set")
@@ -537,6 +541,35 @@ def get_embed_color(config_obj):
     """Helper function to parse the hex color from config into a discord.Color object."""
     hex_color = config_obj.get('bot', {}).get('embed_color', '#7289DA') # Default to blurple
     return discord.Color(int(hex_color.lstrip('#'), 16))
+
+
+def get_nested_config(config_obj, *keys, default=None):
+    """
+    Safely get a value from nested config dictionaries.
+    
+    Args:
+        config_obj: The config dictionary
+        *keys: Path to the nested value (e.g., 'modules', 'economy', 'currency_symbol')
+        default: Default value if key path doesn't exist
+    
+    Returns:
+        The value at the nested path or the default value
+    
+    Example:
+        currency = get_nested_config(config, 'modules', 'economy', 'currency_symbol', default='💰')
+    """
+    # Sentinel value to distinguish missing keys from actual values
+    _MISSING = object()
+    
+    result = config_obj
+    for key in keys:
+        if isinstance(result, dict):
+            result = result.get(key, _MISSING)
+            if result is _MISSING:
+                return default
+        else:
+            return default
+    return result
 
 
 async def get_user_embed_color(user_id, config_obj):
@@ -2000,8 +2033,24 @@ class WrappedView(discord.ui.View):
         first_embed = self._update_embed_footer(self.pages[0].copy())
         self.message = await self.user.send(embed=first_embed, view=self)
 
-async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_stats_for_period, total_users, server_averages):
-    """Helper function to generate and DM the Wrapped story to a single user."""
+async def _generate_and_send_wrapped_for_user(
+    user_stats: dict,
+    stat_period_date: datetime,
+    all_stats_for_period: list,
+    total_users: int,
+    server_averages: dict,
+    raise_on_dm_failure: bool = False
+) -> None:
+    """Helper function to generate and DM the Wrapped story to a single user.
+    
+    Args:
+        user_stats: Stats for the user (dict from database)
+        stat_period_date: Date of the period being wrapped
+        all_stats_for_period: All stats for ranking calculations (list of dicts)
+        total_users: Total number of users in the period
+        server_averages: Server-wide averages (dict with avg_messages, avg_vc_minutes)
+        raise_on_dm_failure: If True, re-raises exceptions when DM fails (for admin previews)
+    """
     user_id = user_stats['user_id']
     user = None
     try:
@@ -2105,7 +2154,7 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
             inline=True
         )
     
-    intro_embed.set_image(url=config['modules']['wrapped'].get('intro_gif_url', ''))
+    intro_embed.set_image(url=get_nested_config(config, 'modules', 'wrapped', 'intro_gif_url', default=''))
     pages.append(intro_embed)
 
     # --- Page 2: Server Bestie with enhanced styling ---
@@ -2498,7 +2547,7 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
             win_rate = (games_won / games_played * 100) if games_played > 0 else 0
             net_profit = total_won - total_bet
             
-            currency = config['modules']['economy']['currency_symbol']
+            currency = get_nested_config(config, 'modules', 'economy', 'currency_symbol', default='💰')
             game_text = f"**Spiele gespielt:** {games_played}\n"
             game_text += f"**Spiele gewonnen:** {games_won}\n"
             game_text += f"**Gewinnrate:** {win_rate:.1f}%\n\n"
@@ -2642,10 +2691,13 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
     summary_text, _ = await get_wrapped_summary_from_api(user.display_name, gemini_stats, config, GEMINI_API_KEY, OPENAI_API_KEY)
     print(f"    - [Wrapped] Generated Gemini summary for {user.name}.")
     
+    # Replace emoji tags in the summary text
+    summary_text_formatted = await replace_emoji_tags(summary_text, client, None)
+    
     summary_embed = discord.Embed(
         title="✨ Mein Urteil über dich",
         description=f"*Was die KI über deinen Monat zu sagen hat...*\n\n"
-                    f"## _{await replace_emoji_tags(summary_text, client, None)}_",
+                    f"## _{summary_text_formatted}_",
         color=WRAPPED_COLORS['summary']
     )
     summary_embed.set_thumbnail(url=user.display_avatar.url)
@@ -2667,6 +2719,9 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
         print(f"  - [Wrapped] Successfully sent DM to {user.name}.")
     except (discord.Forbidden, discord.HTTPException) as e:
         print(f"  - [Wrapped] FAILED to DM {user.name} (DMs likely closed or another Discord error occurred): {e}")
+        # Re-raise the exception only in admin preview context so caller knows it failed
+        if raise_on_dm_failure:
+            raise
 
 def _get_percentile_rank(user_id, rank_map, total_users):
     """Helper function to calculate a user's percentile rank from a sorted list."""
@@ -2989,18 +3044,26 @@ class AdminGroup(app_commands.Group):
 
             # --- FIX: Pass the correct arguments to the helper function ---
             # The helper function now calculates ranks internally.
+            # Set raise_on_dm_failure=True so we get error details for the admin
             await _generate_and_send_wrapped_for_user(
                 user_stats=target_user_stats,
                 stat_period_date=last_month_first_day,
                 all_stats_for_period=all_stats,
                 total_users=len(all_stats),
-                server_averages=await _calculate_server_averages(all_stats)
+                server_averages=await _calculate_server_averages(all_stats),
+                raise_on_dm_failure=True
             )
 
             await interaction.followup.send(f"Eine 'Wrapped'-Vorschau für `{stat_period}` wurde an {user.mention} gesendet.", ephemeral=True)
         except Exception as e:
             logger.error(f"Error in view_wrapped command: {e}", exc_info=True)
-            await interaction.followup.send("❌ Fehler beim Generieren der Wrapped-Vorschau. Bitte überprüfe die Logs für mehr Details.", ephemeral=True)
+            # Show the actual error to the admin
+            error_details = f"{type(e).__name__}: {str(e)}"
+            # Truncate error details if too long while preserving markdown structure
+            if len(error_details) > DISCORD_ERROR_MESSAGE_MAX_LENGTH:
+                error_details = error_details[:DISCORD_ERROR_MESSAGE_MAX_LENGTH] + "... (truncated)"
+            error_msg = f"❌ Fehler beim Generieren der Wrapped-Vorschau:\n```python\n{error_details}\n```"
+            await interaction.followup.send(error_msg, ephemeral=True)
 
     @app_commands.command(name="reload_config", description="Lädt die config.json und die System-Prompt-Datei neu.")
     async def reload_config(self, interaction: discord.Interaction):
