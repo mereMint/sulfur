@@ -292,7 +292,9 @@ def database_viewer():
             offset = (page - 1) * per_page
             query = f"SELECT * FROM {selected_table} LIMIT {per_page} OFFSET {offset}"
             cursor.execute(query)
-            table_data = cursor.fetchall()
+            raw_data = cursor.fetchall()
+            # Convert Decimal values to int/float for proper JSON serialization in templates
+            table_data = [db_helpers.convert_decimals(row) for row in raw_data]
     except Exception as e:
         logger.error(f"Error in database viewer: {e}")
         return render_template('database.html', 
@@ -328,7 +330,9 @@ def ai_usage_viewer():
         conn = db_helpers.db_pool.get_connection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT usage_date, model_name, call_count, input_tokens, output_tokens FROM api_usage ORDER BY usage_date DESC, model_name ASC")
-        usage_data = cursor.fetchall()
+        raw_data = cursor.fetchall()
+        # Convert Decimal values for proper JSON serialization
+        usage_data = [db_helpers.convert_decimals(row) for row in raw_data]
     except Exception as e:
         usage_data = [{'error': str(e)}]
     finally:
@@ -1381,6 +1385,8 @@ def rpg_stats():
             # Get total gold in circulation
             cursor.execute("SELECT SUM(gold) FROM rpg_players")
             total_gold = cursor.fetchone()[0] or 0
+            # Convert Decimal to int for JSON serialization
+            total_gold = int(total_gold) if total_gold else 0
             
             return jsonify({
                 'total_players': total_players,
@@ -1414,7 +1420,9 @@ def rpg_items():
                 FROM rpg_items
                 ORDER BY required_level ASC, name ASC
             """)
-            items = cursor.fetchall()
+            raw_items = cursor.fetchall()
+            # Convert Decimal values for JSON serialization
+            items = [db_helpers.convert_decimals(item) for item in raw_items]
             cursor.close()
             conn.close()
             return jsonify(items)
@@ -1491,7 +1499,9 @@ def rpg_monsters():
                 FROM rpg_monsters
                 ORDER BY world ASC, level ASC, name ASC
             """)
-            monsters = cursor.fetchall()
+            raw_monsters = cursor.fetchall()
+            # Convert Decimal values for JSON serialization
+            monsters = [db_helpers.convert_decimals(monster) for monster in raw_monsters]
             cursor.close()
             conn.close()
             return jsonify(monsters)
@@ -1891,7 +1901,7 @@ def economy_stats():
             # Total coins in circulation (from players table which stores actual balances)
             cursor.execute("SELECT COALESCE(SUM(balance), 0) as total_coins FROM players WHERE balance > 0")
             result = cursor.fetchone()
-            total_coins = result.get('total_coins', 0) if result else 0
+            total_coins = int(result.get('total_coins', 0)) if result else 0
             
             # Total users with coins
             cursor.execute("SELECT COUNT(*) as total_users FROM players WHERE balance > 0")
@@ -1909,7 +1919,9 @@ def economy_stats():
                 ORDER BY balance DESC 
                 LIMIT 10
             """)
-            richest_users = cursor.fetchall() or []
+            raw_richest = cursor.fetchall() or []
+            # Convert Decimal values for JSON serialization
+            richest_users = [db_helpers.convert_decimals(user) for user in raw_richest]
             
             # Recent transactions - use transaction_history table if it exists
             recent_transactions = safe_db_query(cursor, """
@@ -2030,13 +2042,10 @@ def api_get_stocks():
                 FROM stocks
                 ORDER BY symbol ASC
             """)
-            stocks = cursor.fetchall()
+            raw_stocks = cursor.fetchall()
             
-            # Convert Decimal to float for JSON serialization
-            for stock in stocks:
-                for key in ['current_price', 'previous_price', 'trend', 'game_influence_factor']:
-                    if stock.get(key) is not None:
-                        stock[key] = float(stock[key])
+            # Convert Decimal values for JSON serialization using utility function
+            stocks = [db_helpers.convert_decimals(stock) for stock in raw_stocks]
             
             return jsonify({'stocks': stocks})
         finally:
@@ -2061,15 +2070,13 @@ def api_get_stock(symbol):
             cursor.execute("""
                 SELECT * FROM stocks WHERE symbol = %s
             """, (symbol,))
-            stock = cursor.fetchone()
+            raw_stock = cursor.fetchone()
             
-            if not stock:
+            if not raw_stock:
                 return jsonify({'error': 'Stock not found'}), 404
             
-            # Convert Decimal to float
-            for key in ['current_price', 'previous_price', 'trend', 'game_influence_factor']:
-                if stock.get(key) is not None:
-                    stock[key] = float(stock[key])
+            # Convert Decimal values for JSON serialization
+            stock = db_helpers.convert_decimals(raw_stock)
             
             return jsonify(stock)
         finally:

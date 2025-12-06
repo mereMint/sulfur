@@ -1237,7 +1237,8 @@ async def get_ai_usage_stats(days: int = 30):
         )
         cursor.execute(query, (days,))
         rows = cursor.fetchall() or []
-        return rows
+        # Convert Decimal values for JSON serialization
+        return [convert_decimals(row) for row in rows]
     finally:
         cursor.close()
         cnx.close()
@@ -2597,7 +2598,9 @@ async def get_ai_usage_stats(days=30):
             ORDER BY total_calls DESC
         """
         cursor.execute(query, (days,))
-        return cursor.fetchall()
+        rows = cursor.fetchall()
+        # Convert Decimal values for JSON serialization
+        return [convert_decimals(row) for row in rows]
     except mysql.connector.Error as err:
         print(f"Error in get_ai_usage_stats: {err}")
         return []
