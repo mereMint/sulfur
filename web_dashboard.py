@@ -1,6 +1,7 @@
 import json
 import os
 import platform
+import re
 import subprocess
 import threading
 import time
@@ -662,18 +663,18 @@ def api_recent_activity():
             # Validate and sanitize limit (must be positive integer, max 100)
             limit = max(1, min(100, int(limit)))
             
-            # Get recent AI conversations
+            # Get recent AI activity from ai_model_usage (aggregated by day)
             if activity_type in ['all', 'ai']:
                 ai_activity = safe_db_query(cursor, """
                     SELECT 
                         'ai_chat' as activity_type,
-                        user_id,
-                        channel_id,
-                        LEFT(content, 100) as preview,
-                        timestamp as activity_time,
+                        NULL as user_id,
+                        NULL as channel_id,
+                        CONCAT(model_name, ': ', call_count, ' calls, ', feature) as preview,
+                        usage_date as activity_time,
                         'AI Chat' as category
-                    FROM ai_conversation_history
-                    ORDER BY timestamp DESC
+                    FROM ai_model_usage
+                    ORDER BY usage_date DESC
                     LIMIT %s
                 """, params=(limit,), default=[], fetch_all=True)
                 activities.extend(ai_activity or [])
@@ -702,31 +703,31 @@ def api_recent_activity():
                         user_id,
                         NULL as channel_id,
                         CONCAT('Cases solved: ', cases_solved) as preview,
-                        last_played as activity_time,
+                        last_played_at as activity_time,
                         'Detective Game' as category
                     FROM detective_user_stats
-                    WHERE last_played IS NOT NULL
-                    ORDER BY last_played DESC
+                    WHERE last_played_at IS NOT NULL
+                    ORDER BY last_played_at DESC
                     LIMIT %s
                 """, params=(limit,), default=[], fetch_all=True)
                 activities.extend(detective_activity or [])
             
-            # Get recent Werwolf games
+            # Get recent casino games - Blackjack
             if activity_type in ['all', 'games']:
-                ww_activity = safe_db_query(cursor, """
+                blackjack_activity = safe_db_query(cursor, """
                     SELECT 
-                        'game_werwolf' as activity_type,
+                        'game_blackjack' as activity_type,
                         user_id,
                         NULL as channel_id,
-                        CONCAT('Wins: ', wins, ' | Losses: ', losses) as preview,
-                        last_played as activity_time,
-                        'Werwolf' as category
-                    FROM werwolf_user_stats
-                    WHERE last_played IS NOT NULL
-                    ORDER BY last_played DESC
+                        CONCAT('Bet: ', bet_amount, ' | Result: ', result) as preview,
+                        played_at as activity_time,
+                        'Blackjack' as category
+                    FROM blackjack_games
+                    WHERE played_at IS NOT NULL
+                    ORDER BY played_at DESC
                     LIMIT %s
                 """, params=(limit,), default=[], fetch_all=True)
-                activities.extend(ww_activity or [])
+                activities.extend(blackjack_activity or [])
             
             # Get recent user level ups from user_stats
             if activity_type in ['all', 'leveling']:
@@ -819,31 +820,26 @@ def api_activity_stats():
             """)
             stats['today']['transactions'] = result.get('count', 0) if result else 0
             
-            # Games played today - use UNION to combine queries efficiently
-            # Note: Using hardcoded table names as they are known safe values
-            games_query = """
-                SELECT COALESCE(SUM(cnt), 0) as total FROM (
-                    SELECT COUNT(*) as cnt FROM wordle_games WHERE DATE(created_at) = CURDATE()
-                    UNION ALL
-                    SELECT COUNT(*) as cnt FROM blackjack_games WHERE DATE(created_at) = CURDATE()
-                    UNION ALL
-                    SELECT COUNT(*) as cnt FROM roulette_games WHERE DATE(created_at) = CURDATE()
-                    UNION ALL
-                    SELECT COUNT(*) as cnt FROM mines_games WHERE DATE(created_at) = CURDATE()
-                ) as game_counts
-            """
-            result = safe_db_query(cursor, games_query)
-            stats['today']['games'] = int(result.get('total', 0)) if result else 0
+            # Games played today - query each table individually to handle missing tables
+            games_count = 0
+            for table in ['blackjack_games', 'roulette_games', 'mines_games']:
+                result = safe_db_query(cursor, f"""
+                    SELECT COUNT(*) as count FROM {table} 
+                    WHERE DATE(played_at) = CURDATE()
+                """)
+                if result and result.get('count'):
+                    games_count += int(result.get('count', 0))
+            stats['today']['games'] = games_count
             
-            # Active users today
+            # Active users today - use ai_model_usage table instead of non-existent ai_conversation_history
             result = safe_db_query(cursor, """
-                SELECT COUNT(DISTINCT user_id) as count FROM ai_conversation_history 
-                WHERE DATE(timestamp) = CURDATE()
+                SELECT COALESCE(SUM(call_count), 0) as count FROM ai_model_usage 
+                WHERE usage_date = CURDATE()
             """)
             stats['today']['active_users'] = result.get('count', 0) if result else 0
             
-            # Total counts
-            result = safe_db_query(cursor, "SELECT COUNT(*) as count FROM ai_conversation_history")
+            # Total counts - use ai_model_usage table
+            result = safe_db_query(cursor, "SELECT COALESCE(SUM(call_count), 0) as count FROM ai_model_usage")
             stats['total']['ai_chats'] = result.get('count', 0) if result else 0
             
             result = safe_db_query(cursor, "SELECT COUNT(*) as count FROM transaction_history")
@@ -1170,6 +1166,102 @@ def api_recent_logs():
             'count': len(logs)
         })
     except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+# ========== Logs Viewer Routes ==========
+
+@app.route('/logs', methods=['GET'])
+def logs_page():
+    """Renders the logs viewer page showing all available log files."""
+    return render_template('logs.html')
+
+
+@app.route('/api/logs/files', methods=['GET'])
+def api_log_files():
+    """API endpoint to list all available log files."""
+    try:
+        if not os.path.exists(LOG_DIR):
+            return jsonify({'status': 'success', 'files': []})
+        
+        log_files = []
+        for f in os.listdir(LOG_DIR):
+            if f.endswith('.log'):
+                file_path = os.path.join(LOG_DIR, f)
+                try:
+                    stat = os.stat(file_path)
+                    log_files.append({
+                        'name': f,
+                        'size': stat.st_size,
+                        'modified': stat.st_mtime,
+                        'modified_str': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stat.st_mtime))
+                    })
+                except OSError:
+                    continue
+        
+        # Sort by modification time, most recent first
+        log_files.sort(key=lambda x: x['modified'], reverse=True)
+        
+        return jsonify({
+            'status': 'success',
+            'files': log_files,
+            'count': len(log_files)
+        })
+    except Exception as e:
+        logger.error(f"Error listing log files: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/logs/content/<filename>', methods=['GET'])
+def api_log_content(filename):
+    """API endpoint to get the content of a specific log file."""
+    try:
+        # Validate filename to prevent directory traversal attacks
+        # Only allow alphanumeric, underscore, hyphen, and .log extension
+        if not re.match(r'^[\w\-]+\.log$', filename):
+            return jsonify({'status': 'error', 'message': 'Invalid filename'}), 400
+        
+        file_path = os.path.join(LOG_DIR, filename)
+        
+        # Ensure the resolved path is still within LOG_DIR
+        real_path = os.path.realpath(file_path)
+        real_log_dir = os.path.realpath(LOG_DIR)
+        if not real_path.startswith(real_log_dir):
+            return jsonify({'status': 'error', 'message': 'Invalid file path'}), 400
+        
+        if not os.path.exists(file_path):
+            return jsonify({'status': 'error', 'message': 'File not found'}), 404
+        
+        # Get optional parameters
+        lines = request.args.get('lines', type=int, default=1000)
+        offset = request.args.get('offset', type=int, default=0)
+        
+        # Limit lines to reasonable max
+        lines = min(lines, 5000)
+        
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            all_lines = f.readlines()
+            total_lines = len(all_lines)
+            
+            # If offset is 0, get the last N lines
+            if offset == 0:
+                content = all_lines[-lines:] if total_lines > lines else all_lines
+                start_line = max(0, total_lines - lines)
+            else:
+                # Get lines starting from offset
+                content = all_lines[offset:offset + lines]
+                start_line = offset
+        
+        return jsonify({
+            'status': 'success',
+            'filename': filename,
+            'content': ''.join(content),
+            'total_lines': total_lines,
+            'start_line': start_line,
+            'lines_returned': len(content)
+        })
+    except Exception as e:
+        logger.error(f"Error reading log file {filename}: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 

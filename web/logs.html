@@ -1,0 +1,283 @@
+{% extends "layout.html" %}
+
+{% block title %}Logs Viewer - Sulfur Bot{% endblock %}
+
+{% block extra_styles %}
+<style>
+    .log-file-list {
+        max-height: 300px;
+        overflow-y: auto;
+    }
+    
+    .log-file-item {
+        padding: 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    
+    .log-file-item:hover {
+        background: rgba(0, 255, 65, 0.1);
+    }
+    
+    .log-file-item.active {
+        background: rgba(0, 255, 65, 0.2);
+        border-left: 3px solid var(--matrix-green);
+    }
+    
+    .log-content {
+        background: #000000;
+        color: var(--matrix-green);
+        font-family: 'Courier New', monospace;
+        padding: 1rem;
+        height: 60vh;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        font-size: 0.85rem;
+        border: 1px solid var(--border-color);
+    }
+    
+    .log-content::-webkit-scrollbar {
+        width: 8px;
+    }
+    
+    .log-content::-webkit-scrollbar-track {
+        background: rgba(0, 0, 0, 0.5);
+    }
+    
+    .log-content::-webkit-scrollbar-thumb {
+        background: var(--matrix-green-dark);
+    }
+    
+    .file-size {
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+    }
+    
+    .file-date {
+        font-size: 0.7rem;
+        color: var(--matrix-green-dark);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4 fade-in">
+    <div class="col-12">
+        <h2 class="matrix-text mb-4">
+            <i class="bi bi-file-earmark-text"></i> LOGS_VIEWER
+        </h2>
+        <p class="text-muted" style="font-family: 'Courier New', monospace;">
+            > Browse and view all bot log files
+        </p>
+    </div>
+</div>
+
+<div class="row fade-in">
+    <!-- Log Files List -->
+    <div class="col-md-3 mb-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-folder"></i> LOG_FILES</span>
+                <button class="btn btn-sm btn-outline-primary" onclick="refreshFileList()">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
+            </div>
+            <div class="card-body p-0">
+                <div class="log-file-list" id="log-file-list">
+                    <div class="text-center p-4 text-muted">
+                        <div class="spinner-border text-success" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card mt-3">
+            <div class="card-header">
+                <span><i class="bi bi-info-circle"></i> STATS</span>
+            </div>
+            <div class="card-body">
+                <p class="mb-1"><small class="text-muted">Total Files:</small> <span id="total-files" class="matrix-text">0</span></p>
+                <p class="mb-1"><small class="text-muted">Selected:</small> <span id="selected-file" class="matrix-text">None</span></p>
+                <p class="mb-0"><small class="text-muted">Lines:</small> <span id="total-lines" class="matrix-text">0</span></p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Log Content -->
+    <div class="col-md-9 mb-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-terminal"></i> LOG_CONTENT</span>
+                <div class="d-flex gap-2">
+                    <select class="form-select form-select-sm" id="lines-select" style="width: auto;" onchange="loadSelectedFile()">
+                        <option value="100">Last 100 lines</option>
+                        <option value="500">Last 500 lines</option>
+                        <option value="1000" selected>Last 1000 lines</option>
+                        <option value="2000">Last 2000 lines</option>
+                        <option value="5000">All (max 5000)</option>
+                    </select>
+                    <button class="btn btn-sm btn-outline-info" onclick="downloadLog()">
+                        <i class="bi bi-download"></i> Download
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="log-content" id="log-content">
+                    <span class="text-muted">Select a log file from the list to view its contents...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let currentFile = null;
+    let logFiles = [];
+    
+    document.addEventListener('DOMContentLoaded', function() {
+        loadFileList();
+    });
+    
+    async function loadFileList() {
+        try {
+            const response = await fetch('/api/logs/files');
+            const data = await response.json();
+            
+            const list = document.getElementById('log-file-list');
+            
+            if (data.status === 'success' && data.files && data.files.length > 0) {
+                logFiles = data.files;
+                let html = '';
+                
+                data.files.forEach((file, index) => {
+                    const sizeKB = (file.size / 1024).toFixed(1);
+                    const isSession = file.name.startsWith('session_');
+                    const isMaintenance = file.name.startsWith('maintenance_');
+                    const icon = isSession ? 'bi-robot' : isMaintenance ? 'bi-tools' : 'bi-file-text';
+                    
+                    html += `
+                        <div class="log-file-item" data-filename="${file.name}" onclick="selectFile('${file.name}')">
+                            <div class="d-flex justify-content-between align-items-start">
+                                <div>
+                                    <i class="bi ${icon} me-2 text-success"></i>
+                                    <span class="text-light">${file.name}</span>
+                                </div>
+                            </div>
+                            <div class="d-flex justify-content-between mt-1">
+                                <span class="file-size">${sizeKB} KB</span>
+                                <span class="file-date">${file.modified_str}</span>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                list.innerHTML = html;
+                document.getElementById('total-files').textContent = data.files.length;
+                
+                // Auto-select first file
+                if (data.files.length > 0) {
+                    selectFile(data.files[0].name);
+                }
+            } else {
+                list.innerHTML = '<div class="text-center p-4 text-muted">No log files found</div>';
+            }
+        } catch (error) {
+            console.error('Error loading file list:', error);
+            document.getElementById('log-file-list').innerHTML = 
+                '<div class="text-center p-4 text-danger">Error loading files</div>';
+        }
+    }
+    
+    function selectFile(filename) {
+        currentFile = filename;
+        
+        // Update active state
+        document.querySelectorAll('.log-file-item').forEach(item => {
+            item.classList.remove('active');
+            if (item.dataset.filename === filename) {
+                item.classList.add('active');
+            }
+        });
+        
+        document.getElementById('selected-file').textContent = filename;
+        loadSelectedFile();
+    }
+    
+    async function loadSelectedFile() {
+        if (!currentFile) return;
+        
+        const lines = document.getElementById('lines-select').value;
+        const content = document.getElementById('log-content');
+        
+        content.innerHTML = '<span class="text-muted">Loading...</span>';
+        
+        try {
+            const response = await fetch(`/api/logs/content/${currentFile}?lines=${lines}`);
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                // Escape HTML and add line highlighting
+                let logContent = data.content
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;');
+                
+                // Add color coding
+                logContent = logContent
+                    .replace(/\[ERROR\]/gi, '<span style="color: #ff3333;">[ERROR]</span>')
+                    .replace(/\[WARNING\]/gi, '<span style="color: #ffb000;">[WARNING]</span>')
+                    .replace(/\[INFO\]/gi, '<span style="color: #00ffff;">[INFO]</span>')
+                    .replace(/\[DEBUG\]/gi, '<span style="color: #888;">[DEBUG]</span>');
+                
+                content.innerHTML = logContent || '<span class="text-muted">Log file is empty</span>';
+                document.getElementById('total-lines').textContent = data.total_lines;
+                
+                // Scroll to bottom
+                content.scrollTop = content.scrollHeight;
+            } else {
+                content.innerHTML = `<span class="text-danger">Error: ${data.message}</span>`;
+            }
+        } catch (error) {
+            console.error('Error loading log content:', error);
+            content.innerHTML = '<span class="text-danger">Error loading log content</span>';
+        }
+    }
+    
+    function refreshFileList() {
+        loadFileList();
+    }
+    
+    function downloadLog() {
+        if (!currentFile) {
+            alert('Please select a log file first');
+            return;
+        }
+        
+        fetch(`/api/logs/content/${currentFile}?lines=5000`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    const blob = new Blob([data.content], { type: 'text/plain' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = currentFile;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }
+            })
+            .catch(error => {
+                console.error('Error downloading log:', error);
+                alert('Error downloading log file');
+            });
+    }
+</script>
+{% endblock %}
