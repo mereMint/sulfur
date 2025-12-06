@@ -806,10 +806,10 @@ def api_activity_stats():
                 'total': {}
             }
             
-            # AI calls today
+            # AI calls today - use ai_model_usage table
             result = safe_db_query(cursor, """
-                SELECT COUNT(*) as count FROM ai_conversation_history 
-                WHERE DATE(timestamp) = CURDATE()
+                SELECT COALESCE(SUM(call_count), 0) as count FROM ai_model_usage 
+                WHERE usage_date = CURDATE()
             """)
             stats['today']['ai_chats'] = result.get('count', 0) if result else 0
             
@@ -1059,7 +1059,7 @@ def admin_delete_user_data():
                 ('mines_games', 'user_id'),
                 ('russian_roulette_games', 'user_id'),
                 ('werwolf_user_stats', 'user_id'),
-                ('ai_conversation_history', 'user_id'),
+                ('ai_model_usage', 'user_id'),
                 ('conversation_context', 'user_id'),
                 ('user_relationships', 'user_id'),
                 ('wrapped_events', 'user_id'),
