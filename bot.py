@@ -2105,7 +2105,7 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
             inline=True
         )
     
-    intro_embed.set_image(url=config['modules']['wrapped'].get('intro_gif_url', ''))
+    intro_embed.set_image(url=config.get('modules', {}).get('wrapped', {}).get('intro_gif_url', ''))
     pages.append(intro_embed)
 
     # --- Page 2: Server Bestie with enhanced styling ---
@@ -2498,7 +2498,7 @@ async def _generate_and_send_wrapped_for_user(user_stats, stat_period_date, all_
             win_rate = (games_won / games_played * 100) if games_played > 0 else 0
             net_profit = total_won - total_bet
             
-            currency = config['modules']['economy']['currency_symbol']
+            currency = config.get('modules', {}).get('economy', {}).get('currency_symbol', '💰')
             game_text = f"**Spiele gespielt:** {games_played}\n"
             game_text += f"**Spiele gewonnen:** {games_won}\n"
             game_text += f"**Gewinnrate:** {win_rate:.1f}%\n\n"
