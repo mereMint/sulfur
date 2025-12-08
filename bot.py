@@ -8,10 +8,10 @@ import socket
 import signal
 import sys
 import math
-import aiohttp
 from collections import deque
 import re
 from datetime import datetime, timedelta, timezone
+import aiohttp
 
 # --- NEW: Import structured logging ---
 from modules.logger_utils import bot_logger as logger
@@ -84,6 +84,8 @@ DB_NAME = os.environ.get("DB_NAME", "sulfur_bot")
 # --- Constants ---
 # Discord message length limit is 2000 chars, we reserve some space for formatting
 DISCORD_ERROR_MESSAGE_MAX_LENGTH = 1850
+# Discord HTTP error code for maximum emoji limit
+MAX_EMOJI_LIMIT_ERROR_CODE = 30008
 
 # --- REFACTORED: Add a more robust token check with diagnostics ---
 if not DISCORD_BOT_TOKEN:
@@ -494,7 +496,7 @@ async def auto_download_emoji(emoji_name, guild, client):
         async with aiohttp.ClientSession() as session:
             async with session.get(emoji_url) as response:
                 if response.status != 200:
-                    logger.warning(f"Failed to download emoji '{emoji_name}' from {emoji_url}")
+                    logger.warning(f"Failed to download emoji '{emoji_name}' from {emoji_url}, status: {response.status}")
                     return None
                 
                 emoji_bytes = await response.read()
@@ -510,7 +512,7 @@ async def auto_download_emoji(emoji_name, guild, client):
         return new_emoji
         
     except discord.HTTPException as e:
-        if e.code == 30008:  # Maximum number of emojis reached
+        if e.code == MAX_EMOJI_LIMIT_ERROR_CODE:  # Maximum number of emojis reached
             logger.warning(f"Cannot add emoji '{emoji_name}': Maximum emoji limit reached")
         else:
             logger.error(f"HTTP error auto-downloading emoji '{emoji_name}': {e}")
@@ -2006,7 +2008,7 @@ class WrappedView(discord.ui.View):
     # Page icons for different sections
     PAGE_ICONS = ["🎭", "👥", "💬", "🎤", "📍", "🎮", "🎵", "📋", "🔍", "🛍️", "✨"]
     
-    def __init__(self, pages: list, user: discord.User, timeout=None):
+    def __init__(self, pages: list, user: discord.User, timeout=604800):  # 7 days
         super().__init__(timeout=timeout)
         self.pages = pages
         self.user = user
