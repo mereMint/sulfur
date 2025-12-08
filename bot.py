@@ -8,6 +8,7 @@ import socket
 import signal
 import sys
 import math
+import aiohttp
 from collections import deque
 import re
 from datetime import datetime, timedelta, timezone
@@ -455,6 +456,69 @@ def sanitize_malformed_emojis(text):
     text = re.sub(r'(?<!`)`:(\w+):`(?!`)', r':\1:', text)
     return text
 
+async def auto_download_emoji(emoji_name, guild, client):
+    """
+    Attempts to download a missing emoji from a guild and add it to the bot's application emojis.
+    
+    Args:
+        emoji_name: Name of the emoji to find and download
+        guild: Guild context to search for the emoji
+        client: Discord client instance
+    
+    Returns:
+        The emoji object if successfully added, None otherwise
+    """
+    try:
+        # First, try to find the emoji in the guild
+        emoji_obj = None
+        if guild:
+            emoji_obj = discord.utils.get(guild.emojis, name=emoji_name)
+        
+        if not emoji_obj:
+            logger.debug(f"Emoji '{emoji_name}' not found in guild, cannot auto-download")
+            return None
+        
+        # Check if we already have this emoji as an application emoji
+        try:
+            app_emojis = await client.fetch_application_emojis()
+            for app_emoji in app_emojis:
+                if app_emoji.name == emoji_name:
+                    logger.debug(f"Emoji '{emoji_name}' already exists as application emoji")
+                    return app_emoji
+        except Exception as e:
+            logger.warning(f"Could not fetch application emojis: {e}")
+            return None
+        
+        # Download the emoji image
+        emoji_url = str(emoji_obj.url)
+        async with aiohttp.ClientSession() as session:
+            async with session.get(emoji_url) as response:
+                if response.status != 200:
+                    logger.warning(f"Failed to download emoji '{emoji_name}' from {emoji_url}")
+                    return None
+                
+                emoji_bytes = await response.read()
+        
+        # Upload to application emojis
+        new_emoji = await client.create_application_emoji(
+            name=emoji_name,
+            image=emoji_bytes
+        )
+        
+        logger.info(f"Successfully auto-downloaded and added emoji '{emoji_name}' to application emojis")
+        print(f"[Emoji] Auto-downloaded '{emoji_name}' to bot's emoji bank")
+        return new_emoji
+        
+    except discord.HTTPException as e:
+        if e.code == 30008:  # Maximum number of emojis reached
+            logger.warning(f"Cannot add emoji '{emoji_name}': Maximum emoji limit reached")
+        else:
+            logger.error(f"HTTP error auto-downloading emoji '{emoji_name}': {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Error auto-downloading emoji '{emoji_name}': {e}", exc_info=True)
+        return None
+
 async def replace_emoji_tags(text, client, guild=None):
     """
     Replaces :emoji_name: tags with full Discord emoji format <:emoji_name:emoji_id>.
@@ -509,6 +573,7 @@ async def replace_emoji_tags(text, client, guild=None):
 
     # Convert :emoji_name: to full format <:emoji_name:emoji_id>
     replaced_count = 0
+    auto_downloaded_count = 0
     for tag in set(emoji_tags):  # Use set to avoid processing duplicates
         emoji_obj = None
         
@@ -517,6 +582,18 @@ async def replace_emoji_tags(text, client, guild=None):
             emoji_obj = emoji_map[tag]
         elif tag.lower() in emoji_map:
             emoji_obj = emoji_map[tag.lower()]
+        
+        # If emoji not found and we have a guild context, try to auto-download
+        if not emoji_obj and guild:
+            try:
+                emoji_obj = await auto_download_emoji(tag, guild, client)
+                if emoji_obj:
+                    auto_downloaded_count += 1
+                    # Add to map for future use in this same text
+                    emoji_map[emoji_obj.name] = emoji_obj
+                    emoji_map[emoji_obj.name.lower()] = emoji_obj
+            except Exception as e:
+                logger.debug(f"Auto-download failed for emoji '{tag}': {e}")
         
         if emoji_obj:
             # Replace :emoji_name: with full format <:emoji_name:emoji_id> or <a:emoji_name:emoji_id>
@@ -534,6 +611,8 @@ async def replace_emoji_tags(text, client, guild=None):
     
     if replaced_count > 0:
         logger.debug(f"Converted {replaced_count} emoji tags to full format")
+    if auto_downloaded_count > 0:
+        logger.info(f"Auto-downloaded {auto_downloaded_count} missing emojis")
     
     return text
 
@@ -1927,7 +2006,7 @@ class WrappedView(discord.ui.View):
     # Page icons for different sections
     PAGE_ICONS = ["🎭", "👥", "💬", "🎤", "📍", "🎮", "🎵", "📋", "🔍", "🛍️", "✨"]
     
-    def __init__(self, pages: list, user: discord.User, timeout=600):
+    def __init__(self, pages: list, user: discord.User, timeout=None):
         super().__init__(timeout=timeout)
         self.pages = pages
         self.user = user
@@ -2053,14 +2132,25 @@ async def _generate_and_send_wrapped_for_user(
     """
     user_id = user_stats['user_id']
     user = None
+    guild = None
     try:
         # Use fetch_user to guarantee we can find the user, even if not cached.
         user = await client.fetch_user(int(user_id))
+        
+        # Try to get a guild context for emoji auto-download
+        # Get the first mutual guild between the bot and the user
+        for mutual_guild in client.guilds:
+            member = mutual_guild.get_member(user.id)
+            if member:
+                guild = mutual_guild
+                break
     except discord.NotFound:
         print(f"  - Skipping user ID {user_id}: User could not be found (account may be deleted).")
         return
 
     print(f"  - [Wrapped] Generating for {user.name} ({user.id})...")
+    if guild:
+        print(f"    - [Wrapped] Using guild context: {guild.name} for emoji auto-download")
     
     pages = [] # This will hold all the embed pages for the story
     base_color = get_embed_color(config)
@@ -2189,14 +2279,14 @@ async def _generate_and_send_wrapped_for_user(
             bestie_embed.description = await replace_emoji_tags(
                 "👻 Dein Server-Bestie scheint ein Geist zu sein...\n\n"
                 "*Oder hat den Server verlassen.* :dono:",
-                client, None
+                client, guild
             )
     else:
         bestie_embed.description = await replace_emoji_tags(
             "🐺 Du warst diesen Monat eher ein **einsamer Wolf**.\n\n"
             "*Keine regelmäßigen Erwähnungen oder Antworten gefunden.*\n\n"
             "Vielleicht nächsten Monat? :gege:",
-            client, None
+            client, guild
         )
         bestie_embed.set_thumbnail(url="https://cdn.discordapp.com/emojis/862039818399481876.png")
     
@@ -2692,7 +2782,7 @@ async def _generate_and_send_wrapped_for_user(
     print(f"    - [Wrapped] Generated Gemini summary for {user.name}.")
     
     # Replace emoji tags in the summary text
-    summary_text_formatted = await replace_emoji_tags(summary_text, client, None)
+    summary_text_formatted = await replace_emoji_tags(summary_text, client, guild)
     
     summary_embed = discord.Embed(
         title="✨ Mein Urteil über dich",
@@ -14052,6 +14142,35 @@ async def on_message(message):
             stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
             custom_emojis = re.findall(r'<a?:(\w+):\d+>', message.content)
             await db_helpers.log_message_stat(message.author.id, message.channel.id, custom_emojis, stat_period)
+            
+            # --- NEW: Track mentions and replies for Server Bestie (Wrapped) ---
+            mentioned_id = None
+            replied_id = None
+            
+            # Check for mentions (exclude bot mentions)
+            if message.mentions:
+                # Get the first mentioned user that isn't the bot
+                for mentioned_user in message.mentions:
+                    if mentioned_user.id != client.user.id:
+                        mentioned_id = mentioned_user.id
+                        break
+            
+            # Check for replies
+            if message.reference and message.reference.resolved:
+                # Get the user being replied to
+                replied_message = message.reference.resolved
+                if isinstance(replied_message, discord.Message) and replied_message.author.id != client.user.id:
+                    replied_id = replied_message.author.id
+            
+            # Log the mention/reply activity
+            if mentioned_id or replied_id:
+                await db_helpers.log_mention_reply(
+                    message.author.id, 
+                    message.guild.id, 
+                    mentioned_id, 
+                    replied_id, 
+                    datetime.now(timezone.utc)
+                )
             
             # --- NEW: Track message quest progress ---
             try:
