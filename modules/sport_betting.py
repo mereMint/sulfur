@@ -363,8 +363,10 @@ class OpenLigaDBProvider(FootballAPIProvider):
         """
         now = datetime.now()
         # Football season starts in August
-        # If we're in August or later, we're in a new season (current year)
-        # If we're before August, we're still in the previous season (previous year)
+        # If we're in August or later, we're in the season that started this year
+        # If we're before August, we're still in the season that started last year
+        # NOTE: OpenLigaDB uses the year the season STARTED (first year of season)
+        # So 2024/2025 season is labeled as "2024", 2025/2026 is "2025"
         if now.month >= 8:
             return now.year
         return now.year - 1
@@ -2167,7 +2169,7 @@ async def get_or_update_match(db_helpers, match_data: Dict[str, Any]) -> bool:
 
 
 async def get_upcoming_matches(db_helpers, league_id: Optional[str] = None, limit: int = 10) -> List[Dict]:
-    """Get upcoming matches that can be bet on."""
+    """Get upcoming matches that can be bet on, including today's games."""
     try:
         if not db_helpers.db_pool:
             return []
@@ -2179,16 +2181,21 @@ async def get_upcoming_matches(db_helpers, league_id: Optional[str] = None, limi
         cursor = conn.cursor(dictionary=True)
         try:
             if league_id:
+                # Include matches from today onwards (CURDATE() = start of today)
+                # Include both scheduled and live matches
                 cursor.execute("""
                     SELECT * FROM sport_matches 
-                    WHERE status = 'scheduled' AND league_id = %s AND match_time > NOW()
+                    WHERE status IN ('scheduled', 'live')
+                      AND league_id = %s 
+                      AND match_time >= CURDATE()
                     ORDER BY match_time ASC
                     LIMIT %s
                 """, (league_id, limit))
             else:
                 cursor.execute("""
                     SELECT * FROM sport_matches 
-                    WHERE status = 'scheduled' AND match_time > NOW()
+                    WHERE status IN ('scheduled', 'live')
+                      AND match_time >= CURDATE()
                     ORDER BY match_time ASC
                     LIMIT %s
                 """, (limit,))
@@ -2289,11 +2296,13 @@ async def get_upcoming_matches_all_leagues(db_helpers, matches_per_league: int =
             
             for league_id in FREE_LEAGUES:
                 # For each league, get the next few upcoming matches
+                # Include matches from today (even if they already started) plus future matches
+                # This ensures today's games are shown on the main page
                 cursor.execute("""
                     SELECT * FROM sport_matches 
-                    WHERE status = 'scheduled' 
+                    WHERE status IN ('scheduled', 'live')
                       AND league_id = %s 
-                      AND match_time > NOW()
+                      AND match_time >= CURDATE()
                     ORDER BY match_time ASC
                     LIMIT %s
                 """, (league_id, matches_per_league))
@@ -3185,7 +3194,7 @@ async def check_bet_outcome(bet_type: str, bet_outcome: str, home_score: int, aw
 # MATCH DATA SYNC
 # ============================================================================
 
-async def sync_league_matches(db_helpers, league_id: str, num_matchdays: int = 3) -> int:
+async def sync_league_matches(db_helpers, league_id: str, num_matchdays: int = 5) -> int:
     """
     Sync matches/races from API to database for a league or motorsport series.
     
@@ -3195,7 +3204,7 @@ async def sync_league_matches(db_helpers, league_id: str, num_matchdays: int = 3
     Args:
         db_helpers: Database helper instance
         league_id: The league/series identifier
-        num_matchdays: Number of matchdays to fetch for OpenLigaDB (default: 3)
+        num_matchdays: Number of matchdays to fetch for OpenLigaDB (default: 5, increased to ensure full coverage)
         
     Returns:
         Number of events synced.
@@ -3336,7 +3345,8 @@ async def smart_sync_leagues(db_helpers, force: bool = False) -> Dict[str, int]:
         if not league_config:
             continue
         
-        cache_key = f"upcoming_{league_config['api_id']}_{season}_3"
+        # Update cache key to match the new default of 5 matchdays
+        cache_key = f"upcoming_{league_config['api_id']}_{season}_5"
         
         # Skip if we have cached data and not forcing
         if not force and _api_cache.get(cache_key) is not None:
