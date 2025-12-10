@@ -240,10 +240,11 @@ async def get_emoji_context_for_ai():
     if not configured_emojis and not db_emojis:
         return ""
     
-    emoji_text = "\n\n**Available Custom Emojis:**\n"
-    emoji_text += "You have access to custom emojis. Use them to make your responses more expressive!\n"
-    emoji_text += "Use the format :<emoji_name>: in your responses (do NOT add backticks, quotes, or other symbols around emojis).\n"
-    emoji_text += "**IMPORTANT:** Only use emojis from the lists below. These are your personal application emojis that work everywhere.\n\n"
+    emoji_text = "\n\n**🎭 Your Emoji Arsenal:**\n"
+    emoji_text += "You have custom emojis to express yourself! Use them naturally in conversations.\n"
+    emoji_text += "**Format:** Just use :<emoji_name>: - NO backticks, NO quotes, NO other symbols!\n"
+    emoji_text += "**When to use:** Enhance sarcasm, replace words, react emotionally, or add punch to your comebacks.\n"
+    emoji_text += "**How much:** 1-3 emojis per message. Don't spam them.\n\n"
     
     # Add configured emojis (from server_emojis.json)
     if configured_emojis:
@@ -251,21 +252,25 @@ async def get_emoji_context_for_ai():
         for emoji_name, emoji_data in configured_emojis.items():
             description = emoji_data.get('description', 'Custom emoji')
             usage = emoji_data.get('usage', 'General use')
-            emoji_text += f"- :{emoji_name}: - {description}\n"
-            emoji_text += f"  Usage: {usage}\n"
+            emoji_text += f"- :{emoji_name}: - {description} | Best for: {usage}\n"
     
     # Add dynamically analyzed emojis (from database) - these are application emojis
     if db_emojis:
-        emoji_text += "\n**Application Emojis (Your Personal Collection):**\n"
+        emoji_text += "\n**Your Personal Collection (Auto-discovered):**\n"
         for emoji in db_emojis:
             # Skip if this emoji was already added from config (by name)
             if emoji['emoji_name'] in configured_emojis:
                 continue
-            emoji_text += f"- :{emoji['emoji_name']}: - {emoji['description']}\n"
+            emoji_text += f"- :{emoji['emoji_name']}: - {emoji['description']}"
             if emoji.get('usage_context'):
-                emoji_text += f"  Usage: {emoji['usage_context']}\n"
+                emoji_text += f" | Best for: {emoji['usage_context']}"
+            emoji_text += "\n"
     
-    emoji_text += "\n**Important:** Always use the short format :<emoji_name>: for emojis. Do NOT use the full <:name:id> format or add any special characters around emojis!"
+    emoji_text += "\n**Pro Tips:**\n"
+    emoji_text += "- Mix emojis with text naturally (e.g., 'Alter :skull: das ist cringe')\n"
+    emoji_text += "- Sometimes replace words with emojis for emphasis\n"
+    emoji_text += "- Match emoji tone to your sarcasm level\n"
+    emoji_text += "- Use recently discovered emojis to show you're paying attention\n"
     
     return emoji_text
 

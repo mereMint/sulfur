@@ -225,15 +225,23 @@ async def get_relationship_summary_from_api(history, user_display_name, old_summ
     timeout = config.get('api', {}).get('timeout', 30)
 
     prompt = f"""
-    Based on the following chat history with '{user_display_name}', update my relationship summary with them.
-    My previous summary was: "{old_summary if old_summary else 'None'}"
-    The chat history is:
+    You are Sulfur, a Discord bot with a sarcastic, judgmental personality. Based on the following chat history with '{user_display_name}', create an insightful relationship summary.
+    
+    Previous summary: "{old_summary if old_summary else 'None - this is our first interaction'}"
+    
+    Recent chat history:
     ---
     {json.dumps(history, indent=2)}
     ---
-    Based on this new conversation, write a new, concise, one-sentence summary of my relationship with {user_display_name} from my perspective.
-    The summary should be in the first person (e.g., "I think he's funny," "I find her annoying," "We seem to get along well.").
-    Do not add any extra text, just the single sentence summary.
+    
+    Create a new, detailed 2-3 sentence summary of your relationship with {user_display_name} from your perspective (first person).
+    The summary should:
+    - Capture their personality, communication style, and recurring themes
+    - Note any interesting patterns, inside jokes, or memorable moments
+    - Reflect your sarcastic, judgmental personality while being useful for future conversations
+    - Be in first person (e.g., "They're the type who...", "I've noticed they often...", "We have this running joke about...")
+    
+    Make it personal, specific, and useful for remembering this person in future chats. Don't be generic.
     """
 
     if provider == 'gemini':
@@ -445,17 +453,28 @@ async def get_random_names(count, db_helpers, config, gemini_key, openai_key):
     return names[:count]
 
 async def get_wrapped_summary_from_api(user_display_name, stats, config, gemini_key, openai_key):
-    """Generates a personalized, slightly insulting summary for the Wrapped feature."""
+    """Generates a personalized, insightful summary for the Wrapped feature."""
     provider = config.get('api', {}).get('provider', 'gemini')
     timeout = config.get('api', {}).get('timeout', 30)
     
     prompt = f"""
-    You are Sulfur, a bot with a slightly arrogant and judgmental personality.
-    A user named '{user_display_name}' just received their monthly stats summary ("Wrapped").
-    Here are their stats: {json.dumps(stats)}
-    Based on these stats, write a short, funny, one-sentence "verdict" or judgment about them. Be a little bit of a troll.
-    Examples: "Wow, {stats.get('vc_hours', 0)} hours in VC? Do you ever see the sun?", "Your top song was {stats.get('top_song', 'something weird')}, I'm judging you so hard right now."
-    Your verdict should be a single, concise sentence.
+    You are Sulfur, a Discord bot with a sarcastic, judgmental but ultimately entertaining personality.
+    User '{user_display_name}' just received their monthly stats summary ("Wrapped").
+    
+    Here are their detailed stats: {json.dumps(stats, indent=2)}
+    
+    Write a personalized 2-3 sentence verdict that:
+    - Analyzes their behavior patterns and what they reveal about the person
+    - References specific stats in a clever, sarcastic way
+    - Includes at least one insightful observation or comparison
+    - Ends with a funny roast or backhanded compliment
+    - Speaks in German (DE) to match your personality
+    
+    Examples of style:
+    - "Du hast {stats.get('vc_hours', 0)} Stunden in VC verbracht - ich hoffe, du hast zumindest was Produktives getan und nicht nur AFK rumgehangen. Mit {stats.get('message_count', 0)} Nachrichten bist du eindeutig der Typ, der jeden Gedanken sofort raushauen muss."
+    - "Deine Top-Aktivität war {stats.get('top_activity', 'existieren')}? Interessante Lebensentscheidung. Aber hey, wenigstens bist du konsequent dabei geblieben."
+    
+    Be creative, specific, and make it memorable. Make them laugh while subtly calling out their habits.
     """
     
     if provider == 'gemini':
@@ -479,7 +498,7 @@ async def get_wrapped_summary_from_api(user_display_name, stats, config, gemini_
         if input_tokens > 0 or output_tokens > 0:
             from modules.db_helpers import log_api_usage
             await log_api_usage(model, input_tokens, output_tokens)
-        return summary.strip() if summary else "You survived another month, I guess.", error
+        return summary.strip() if summary else "Du hast einen weiteren Monat überlebt, schätze ich.", error
 
     elif provider == 'openai':
         model = config.get('api', {}).get('openai', {}).get('utility_model', 'gpt-4o-mini')
@@ -507,9 +526,9 @@ async def get_wrapped_summary_from_api(user_display_name, stats, config, gemini_
                         return response_text, None
                     else:
                         print(f"OpenAI API Error (get_wrapped_summary): {await response.text()}")
-                        return "You did... stuff. Congrats?", f"API Error {response.status}"
+                        return "Du hast... Zeug gemacht. Glückwunsch?", f"API Error {response.status}"
         except Exception as e:
-            return "My brain is melting, can't think of a verdict.", str(e)
+            return "Mein Gehirn schmilzt, kann nicht nachdenken.", str(e)
 
     return "You did... stuff. Congrats?", "Invalid provider for Wrapped summary."
 

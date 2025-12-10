@@ -23,10 +23,18 @@ import aiohttp
 from modules.logger_utils import bot_logger as logger
 
 
-async def handle_unknown_emojis_in_message(message, config, gemini_key, openai_key):
+async def handle_unknown_emojis_in_message(message, config, gemini_key, openai_key, client=None):
     """
     Detects custom emojis in a message and analyzes any unknown ones.
+    Automatically adds new emojis to the bot's application emojis.
     Returns context about the emojis for the AI.
+    
+    Args:
+        message: Discord message object
+        config: Bot configuration
+        gemini_key: Gemini API key
+        openai_key: OpenAI API key
+        client: Discord client (optional, for auto-downloading emojis)
     """
     # Pattern to match Discord custom emojis: <:emoji_name:emoji_id> or <a:emoji_name:emoji_id>
     emoji_pattern = r'<a?:(\w+):(\d+)>'
@@ -49,43 +57,77 @@ async def handle_unknown_emojis_in_message(message, config, gemini_key, openai_k
             print(f"[Emoji Analysis] Analyzing unknown emoji: {emoji_name} (ID: {emoji_id})")
             
             # Construct emoji URL (Discord CDN)
-            # Animated emojis use .gif, static use .png
-            emoji_url = f"https://cdn.discordapp.com/emojis/{emoji_id}.png"
+            # Try .gif first for animated emojis, fallback to .png
+            emoji_url_gif = f"https://cdn.discordapp.com/emojis/{emoji_id}.gif"
+            emoji_url_png = f"https://cdn.discordapp.com/emojis/{emoji_id}.png"
             
             try:
                 # Download and convert to base64
                 async with aiohttp.ClientSession() as session:
-                    async with session.get(emoji_url) as response:
+                    # Try GIF first (for animated emojis)
+                    async with session.get(emoji_url_gif) as response:
                         if response.status == 200:
                             image_data = await response.read()
-                            base64_image = base64.b64encode(image_data).decode('utf-8')
-                            data_url = f"data:image/png;base64,{base64_image}"
-                            
-                            # Analyze with vision AI
-                            from modules.api_helpers import get_emoji_description as analyze_emoji
-                            result, error = await analyze_emoji(emoji_name, data_url, config, gemini_key, openai_key)
-                            
-                            if error:
-                                print(f"[Emoji Analysis] Error analyzing {emoji_name}: {error}")
-                                emoji_contexts.append(f"Emoji :{emoji_name}: (analysis failed)")
-                            elif result:
-                                # Save to database
-                                description = result.get('description', 'Custom emoji')
-                                usage_context = result.get('usage_context', 'General use')
-                                
-                                await save_emoji_description(
-                                    emoji_id=emoji_id,
-                                    emoji_name=emoji_name,
-                                    description=description,
-                                    usage_context=usage_context,
-                                    image_url=emoji_url
-                                )
-                                
-                                emoji_contexts.append(f"Emoji :{emoji_name}: - {description}")
-                                print(f"[Emoji Analysis] Saved description for {emoji_name}")
+                            emoji_url = emoji_url_gif
+                            is_animated = True
                         else:
-                            print(f"[Emoji Analysis] Failed to download emoji {emoji_name} from CDN")
-                            emoji_contexts.append(f"Emoji :{emoji_name}: (download failed)")
+                            # Fallback to PNG
+                            async with session.get(emoji_url_png) as response_png:
+                                if response_png.status == 200:
+                                    image_data = await response_png.read()
+                                    emoji_url = emoji_url_png
+                                    is_animated = False
+                                else:
+                                    print(f"[Emoji Analysis] Failed to download emoji {emoji_name} from CDN")
+                                    emoji_contexts.append(f"Emoji :{emoji_name}: (download failed)")
+                                    continue
+                    
+                    base64_image = base64.b64encode(image_data).decode('utf-8')
+                    data_url = f"data:image/{'gif' if is_animated else 'png'};base64,{base64_image}"
+                    
+                    # Analyze with vision AI
+                    from modules.api_helpers import get_emoji_description as analyze_emoji
+                    result, error = await analyze_emoji(emoji_name, data_url, config, gemini_key, openai_key)
+                    
+                    if error:
+                        print(f"[Emoji Analysis] Error analyzing {emoji_name}: {error}")
+                        emoji_contexts.append(f"Emoji :{emoji_name}: (analysis failed)")
+                    elif result:
+                        # Save to database
+                        description = result.get('description', 'Custom emoji')
+                        usage_context = result.get('usage_context', 'General use')
+                        
+                        await save_emoji_description(
+                            emoji_id=emoji_id,
+                            emoji_name=emoji_name,
+                            description=description,
+                            usage_context=usage_context,
+                            image_url=emoji_url
+                        )
+                        
+                        emoji_contexts.append(f"Emoji :{emoji_name}: - {description}")
+                        print(f"[Emoji Analysis] Saved description for {emoji_name}")
+                        
+                        # Auto-download emoji to bot's application emojis
+                        if client:
+                            try:
+                                # Check if we already have this emoji as an application emoji
+                                app_emojis = await client.fetch_application_emojis()
+                                already_exists = any(e.name == emoji_name for e in app_emojis)
+                                
+                                if not already_exists:
+                                    # Add to bot's application emojis
+                                    new_emoji = await client.create_application_emoji(
+                                        name=emoji_name,
+                                        image=image_data
+                                    )
+                                    logger.info(f"Auto-added emoji '{emoji_name}' to bot's application emojis")
+                                    print(f"[Emoji] ✓ Auto-added '{emoji_name}' to bot's emoji collection")
+                                else:
+                                    logger.debug(f"Emoji '{emoji_name}' already exists in application emojis")
+                            except Exception as e:
+                                logger.warning(f"Failed to auto-add emoji '{emoji_name}': {e}")
+                                print(f"[Emoji] ✗ Could not auto-add '{emoji_name}': {e}")
             except Exception as e:
                 print(f"[Emoji Analysis] Exception analyzing {emoji_name}: {e}")
                 emoji_contexts.append(f"Emoji :{emoji_name}: (error)")
