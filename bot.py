@@ -435,6 +435,7 @@ def sanitize_malformed_emojis(text):
     """
     Fixes malformed emoji patterns that the AI might generate.
     Handles both static (<:name:id>) and animated (<a:name:id>) emojis.
+    Supports emoji names that start with numbers (e.g., 7161joecool, 4352_DiCaprioLaugh).
     Examples: 
       - <<:name:id>id> -> <:name:id>
       - <<a:name:id>id> -> <a:name:id>
@@ -446,15 +447,16 @@ def sanitize_malformed_emojis(text):
         return ""
     
     # Fix pattern like <<:emoji_name:emoji_id>emoji_id> or <<a:emoji_name:emoji_id>emoji_id>
-    text = re.sub(r'<<(a?):(\w+):(\d+)>\3>', r'<\1:\2:\3>', text)
+    # Updated to support emoji names starting with numbers ([\w]+)
+    text = re.sub(r'<<(a?):([\w]+):(\d+)>\3>', r'<\1:\2:\3>', text)
     # Fix pattern like <<:emoji_name:emoji_id>> or <<a:emoji_name:emoji_id>>
-    text = re.sub(r'<<(a?):(\w+):(\d+)>>', r'<\1:\2:\3>', text)
+    text = re.sub(r'<<(a?):([\w]+):(\d+)>>', r'<\1:\2:\3>', text)
     # Fix pattern like <:emoji_name:emoji_id>emoji_id or <a:emoji_name:emoji_id>emoji_id (trailing ID)
-    text = re.sub(r'<(a?):(\w+):(\d+)>\3', r'<\1:\2:\3>', text)
+    text = re.sub(r'<(a?):([\w]+):(\d+)>\3', r'<\1:\2:\3>', text)
     # Remove single backticks around full emoji format (inline code), but not triple backticks (code blocks)
     # Use negative lookbehind and lookahead to avoid matching triple backticks
-    text = re.sub(r'(?<!`)`<(a?):(\w+):(\d+)>`(?!`)', r'<\1:\2:\3>', text)
-    # Remove single backticks around short emoji format too
+    text = re.sub(r'(?<!`)`<(a?):([\w]+):(\d+)>`(?!`)', r'<\1:\2:\3>', text)
+    # Remove single backticks around short emoji format too (supports numbers at start)
     text = re.sub(r'(?<!`)`:(\w+):`(?!`)', r':\1:', text)
     return text
 
@@ -13792,7 +13794,7 @@ async def on_message(message):
 
         # --- NEW: Unknown emoji detection and analysis ---
         try:
-            emoji_context = await handle_unknown_emojis_in_message(message, config, GEMINI_API_KEY, OPENAI_API_KEY)
+            emoji_context = await handle_unknown_emojis_in_message(message, config, GEMINI_API_KEY, OPENAI_API_KEY, client)
             if emoji_context:
                 user_prompt = f"{emoji_context}\n{user_prompt}".strip()
                 logger.debug(f"[CHATBOT] Added emoji context to prompt")
