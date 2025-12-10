@@ -258,8 +258,9 @@ async def get_emoji_context_for_ai(client=None):
     db_emojis = await get_all_emoji_descriptions()
     
     # Determine whether to verify emoji existence
-    # If client not provided, we include all emojis (cannot verify)
-    skip_verification = not client or not actual_app_emojis
+    # Only skip verification if client is not provided (cannot fetch emojis)
+    # If client is provided but no app emojis exist, still verify (empty is valid state)
+    skip_verification = client is None
     
     # Build list of emojis that actually exist
     verified_emojis = {}
