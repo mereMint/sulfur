@@ -67,7 +67,7 @@ away_team_short    | VARCHAR(16) | YES  |     | NULL    |       |
 
 ## Testing
 
-A test script is provided to verify the truncation logic:
+Test scripts were created to verify the truncation logic and None handling:
 
 ```bash
 python3 test_team_short_truncation.py
@@ -82,6 +82,15 @@ The fix correctly:
   2. Handles empty/missing values with fallback
   3. Ensures all values fit in VARCHAR(16) column
 ```
+
+### Comprehensive Logic Tests
+
+Additional tests verified:
+- **OpenLigaDB**: Proper handling of `shortName` field and fallbacks
+- **Football-Data.org**: Proper handling of `tla` field and None values
+- **None Handling**: Both APIs properly handle None/empty values
+- **Truncation**: All values are safely truncated to 16 characters
+- **Fallbacks**: Multi-level fallback chains work correctly
 
 ## Files Changed
 
