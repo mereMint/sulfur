@@ -3476,7 +3476,7 @@ class AdminGroup(app_commands.Group):
                         inline=False
                     )
                 
-                embed.set_footer(text="Tipp: Verwende den Test-Script 'test_application_emojis.py' für detaillierte Informationen")
+                embed.set_footer(text="Tipp: Verwende das Diagnostic-Script 'check_application_emojis.py' für detaillierte Informationen")
             else:
                 embed.add_field(
                     name="❌ Keine Application Emojis",

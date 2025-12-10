@@ -72,9 +72,9 @@ This shows:
 - ⚠️ Configured emojis that are missing
 - 📦 Unconfigured application emojis
 
-#### Option 2: Test Script (Command Line)
+#### Option 2: Diagnostic Script (Command Line)
 ```bash
-python3 test_application_emojis.py
+python3 check_application_emojis.py
 ```
 This provides detailed information about:
 - All application emojis with their IDs
@@ -175,8 +175,8 @@ When the bot sees a NEW emoji in a message:
 - `/admin emojis` - View all application emojis and their status
 - `/admin reload_config` - Reload emoji configuration from file
 
-### Test Scripts
-- `python3 test_application_emojis.py` - Detailed emoji diagnostic tool
+### Diagnostic Scripts
+- `python3 check_application_emojis.py` - Detailed emoji diagnostic tool
 
 ## Example Workflow
 
@@ -269,7 +269,7 @@ A: The bot can auto-download them IF it's in that server. They'll be added to ap
 ## Support
 
 If you're still having issues:
-1. Run `test_application_emojis.py` for detailed diagnostics
+1. Run `check_application_emojis.py` for detailed diagnostics
 2. Check bot startup logs for emoji-related errors
 3. Verify emoji names match exactly between config and uploaded emojis
 4. Ensure you haven't hit the 50 emoji limit
