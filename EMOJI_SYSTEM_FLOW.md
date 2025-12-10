@@ -274,7 +274,7 @@ If AI uses an emoji that doesn't exist:
 - [Message Formatting](https://discord.com/developers/docs/reference#message-formatting)
 
 ### Code Locations
-- `bot.py`: Lines 434-621 (sanitization, replacement)
-- `modules/db_helpers.py`: Lines 1-9, 1459-1520 (conversion, history)
-- `modules/bot_enhancements.py`: Lines 100-207 (detection, analysis)
-- `modules/emoji_manager.py`: Lines 1-350 (management, AI context)
+- `bot.py`: Functions `sanitize_malformed_emojis()`, `replace_emoji_tags()`
+- `modules/db_helpers.py`: Functions `_convert_emojis_to_shortcode()`, `get_chat_history()`, `get_conversation_context()`
+- `modules/bot_enhancements.py`: Functions `handle_unknown_emojis_in_message()`, `enhance_prompt_with_context()`
+- `modules/emoji_manager.py`: Functions for emoji analysis and AI context generation

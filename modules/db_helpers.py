@@ -18,6 +18,9 @@ if not logger.handlers:
 
 # This file handles all database interactions for the bot.
 
+# Compile regex pattern once at module level for performance
+_EMOJI_FULL_FORMAT_PATTERN = re.compile(r'<a?:([\w]+):\d+>')
+
 db_pool = None
 
 def convert_decimals(obj):
@@ -1103,38 +1106,6 @@ async def save_conversation_context(user_id: int, channel_id: int, last_user_mes
         cursor.close()
         cnx.close()
 
-@db_operation("get_conversation_context")
-async def get_conversation_context(user_id: int, channel_id: int):
-    """
-    Returns the most recent conversation context and seconds since last bot message.
-    Sanitizes emojis to shortcode format to prevent AI confusion.
-    """
-    if not db_pool:
-        return None
-    cnx = db_pool.get_connection()
-    if not cnx:
-        return None
-    cursor = cnx.cursor(dictionary=True)
-    try:
-        query = (
-            """
-            SELECT last_user_message, last_bot_response,
-                   TIMESTAMPDIFF(SECOND, last_bot_message_at, NOW()) AS seconds_ago
-            FROM conversation_context
-            WHERE user_id = %s AND channel_id = %s
-            """
-        )
-        cursor.execute(query, (user_id, channel_id))
-        row = cursor.fetchone()
-        if row:
-            # Sanitize emojis in messages to prevent AI from learning emoji IDs
-            row['last_user_message'] = _convert_emojis_to_shortcode(row['last_user_message'])
-            row['last_bot_response'] = _convert_emojis_to_shortcode(row['last_bot_response'])
-        return row
-    finally:
-        cursor.close()
-        cnx.close()
-
 
 @db_operation("get_channel_conversation_context")
 async def get_channel_conversation_context(channel_id: int, max_age_seconds: int = 300):
@@ -1474,13 +1445,20 @@ def _convert_emojis_to_shortcode(text):
     
     This ensures the AI only learns and uses the shortcode format (:name:),
     preventing invalid formats like :12345name: from being generated.
+    
+    Args:
+        text: String potentially containing Discord emoji format, or None
+    
+    Returns:
+        String with emojis converted to shortcode, or empty string if input is None.
+        Note: Empty string is returned for None to maintain backward compatibility
+        with database fields that may be NULL.
     """
     if text is None:
         return ""
     
-    # Replace both static and animated emoji formats with shortcode
-    # Pattern matches: <:name:id> or <a:name:id> and extracts just the name
-    text = re.sub(r'<a?:([\w]+):\d+>', r':\1:', text)
+    # Use pre-compiled pattern for better performance
+    text = _EMOJI_FULL_FORMAT_PATTERN.sub(r':\1:', text)
     
     return text
 
