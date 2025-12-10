@@ -103,6 +103,17 @@ async def test_application_emojis():
         print("   Create a .env file with your bot token")
         return
     
+    # Validate token format
+    token = token.strip()
+    if not token:
+        print("❌ Error: Bot token is empty")
+        return
+    
+    # Basic token format validation (Discord tokens have specific structure)
+    if len(token) < 50:
+        print("⚠️  Warning: Token seems too short (Discord bot tokens are typically 59+ characters)")
+        print("   The token may be invalid or incomplete")
+    
     # Run bot
     try:
         await client.start(token)

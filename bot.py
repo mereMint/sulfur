@@ -3411,6 +3411,9 @@ class AdminGroup(app_commands.Group):
         """Shows all application emojis and their configuration status."""
         await interaction.response.defer(ephemeral=True)
         
+        # Constants for display limits
+        MAX_EMOJI_DISPLAY = 10
+        
         try:
             # Fetch application emojis
             app_emojis = await client.fetch_application_emojis()
@@ -3439,23 +3442,24 @@ class AdminGroup(app_commands.Group):
                 # Show configured emojis that exist
                 if configured_found:
                     emoji_list = []
-                    for name in configured_found[:10]:  # Limit to 10 for readability
+                    for name in configured_found[:MAX_EMOJI_DISPLAY]:
                         emoji_obj = next((e for e in app_emojis if e.name == name), None)
                         if emoji_obj:
                             emoji_type = "🎬" if emoji_obj.animated else "🖼️"
                             emoji_list.append(f"{emoji_type} `:{name}:` - {configured_emojis[name].get('description', 'N/A')}")
                     
+                    more_text = f"\n*...und {len(configured_found) - MAX_EMOJI_DISPLAY} weitere*" if len(configured_found) > MAX_EMOJI_DISPLAY else ""
                     embed.add_field(
                         name=f"✅ Konfigurierte Emojis ({len(configured_found)})",
-                        value="\n".join(emoji_list) + (f"\n*...und {len(configured_found) - 10} weitere*" if len(configured_found) > 10 else ""),
+                        value="\n".join(emoji_list) + more_text,
                         inline=False
                     )
                 
                 # Show missing configured emojis
                 if configured_missing:
-                    missing_list = ", ".join([f"`:{name}:`" for name in configured_missing[:10]])
-                    if len(configured_missing) > 10:
-                        missing_list += f" *...und {len(configured_missing) - 10} weitere*"
+                    missing_list = ", ".join([f"`:{name}:`" for name in configured_missing[:MAX_EMOJI_DISPLAY]])
+                    if len(configured_missing) > MAX_EMOJI_DISPLAY:
+                        missing_list += f" *...und {len(configured_missing) - MAX_EMOJI_DISPLAY} weitere*"
                     embed.add_field(
                         name=f"⚠️ Fehlende Konfigurierte Emojis ({len(configured_missing)})",
                         value=f"{missing_list}\n\n*Diese müssen als Application Emojis hochgeladen werden!*",
@@ -3466,13 +3470,14 @@ class AdminGroup(app_commands.Group):
                 unconfigured = [e for e in app_emojis if e.name not in configured_emojis]
                 if unconfigured:
                     unconfigured_list = []
-                    for emoji in unconfigured[:10]:
+                    for emoji in unconfigured[:MAX_EMOJI_DISPLAY]:
                         emoji_type = "🎬" if emoji.animated else "🖼️"
                         unconfigured_list.append(f"{emoji_type} `:{emoji.name}:`")
                     
+                    more_text = f"\n*...und {len(unconfigured) - MAX_EMOJI_DISPLAY} weitere*" if len(unconfigured) > MAX_EMOJI_DISPLAY else ""
                     embed.add_field(
                         name=f"📦 Unkonfigurierte Emojis ({len(unconfigured)})",
-                        value="\n".join(unconfigured_list) + (f"\n*...und {len(unconfigured) - 10} weitere*" if len(unconfigured) > 10 else ""),
+                        value="\n".join(unconfigured_list) + more_text,
                         inline=False
                     )
                 

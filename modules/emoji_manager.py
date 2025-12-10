@@ -242,6 +242,13 @@ async def get_emoji_context_for_ai(client=None):
             print(f"[Emoji System] Found {len(actual_app_emojis)} application emojis for AI context")
         except Exception as e:
             print(f"[Emoji System] Warning: Could not fetch application emojis: {e}")
+            print(f"[Emoji System] This means the AI won't be able to verify which emojis exist.")
+            print(f"[Emoji System] The AI may use non-existent emojis, resulting in text display.")
+            print(f"[Emoji System] Check bot permissions and Discord API connectivity.")
+    else:
+        print(f"[Emoji System] Warning: No client provided to get_emoji_context_for_ai()")
+        print(f"[Emoji System] Cannot verify which emojis actually exist. All configured emojis will be included.")
+        print(f"[Emoji System] This may result in emojis showing as text if they don't exist.")
     
     # Load pre-configured server emojis
     server_emoji_config = load_server_emojis()
@@ -250,12 +257,16 @@ async def get_emoji_context_for_ai(client=None):
     # Get dynamically analyzed emojis from database
     db_emojis = await get_all_emoji_descriptions()
     
+    # Determine whether to verify emoji existence
+    # If client not provided, we include all emojis (cannot verify)
+    skip_verification = not client or not actual_app_emojis
+    
     # Build list of emojis that actually exist
     verified_emojis = {}
     
     # First, add configured emojis that actually exist in application emojis
     for emoji_name, emoji_data in configured_emojis.items():
-        if emoji_name in actual_app_emojis or not client:  # Include all if client not provided
+        if skip_verification or emoji_name in actual_app_emojis:
             verified_emojis[emoji_name] = {
                 'description': emoji_data.get('description', 'Custom emoji'),
                 'usage': emoji_data.get('usage', 'General use'),
@@ -268,7 +279,7 @@ async def get_emoji_context_for_ai(client=None):
     for emoji in db_emojis:
         emoji_name = emoji['emoji_name']
         if emoji_name not in verified_emojis:  # Don't duplicate configured emojis
-            if emoji_name in actual_app_emojis or not client:  # Include all if client not provided
+            if skip_verification or emoji_name in actual_app_emojis:
                 verified_emojis[emoji_name] = {
                     'description': emoji.get('description', 'Custom emoji'),
                     'usage': emoji.get('usage_context', 'General use'),
