@@ -453,7 +453,10 @@ async def get_random_names(count, db_helpers, config, gemini_key, openai_key):
     return names[:count]
 
 async def get_wrapped_summary_from_api(user_display_name, stats, config, gemini_key, openai_key):
-    """Generates a personalized, insightful summary for the Wrapped feature."""
+    """
+    Generates a personalized, comprehensive analysis for the Wrapped feature.
+    Provides detailed behavioral insights with the bot's sarcastic personality in German.
+    """
     provider = config.get('api', {}).get('provider', 'gemini')
     timeout = config.get('api', {}).get('timeout', 30)
     

@@ -6,6 +6,7 @@ Call these functions from appropriate places in bot.py
 
 import discord
 import re
+import time
 from modules.db_helpers import (
     save_conversation_context,
     get_conversation_context,
@@ -21,6 +22,48 @@ import aiohttp
 
 # --- NEW: Import structured logging ---
 from modules.logger_utils import bot_logger as logger
+
+# Rate limiting for emoji auto-download (max 5 emojis per 60 seconds)
+_emoji_download_times = []
+_MAX_EMOJI_DOWNLOADS_PER_MINUTE = 5
+_EMOJI_DOWNLOAD_WINDOW = 60  # seconds
+
+
+def _validate_emoji_name(name):
+    """
+    Validates emoji name according to Discord requirements.
+    - Must be 2-32 characters
+    - Only alphanumeric characters and underscores
+    
+    Returns:
+        bool: True if valid, False otherwise
+    """
+    if not name or len(name) < 2 or len(name) > 32:
+        return False
+    # Check if only alphanumeric and underscores
+    return bool(re.match(r'^[a-zA-Z0-9_]+$', name))
+
+
+def _can_download_emoji():
+    """
+    Checks if we can download another emoji without hitting rate limits.
+    Uses a sliding window of 60 seconds.
+    
+    Returns:
+        bool: True if download is allowed, False if rate limit would be exceeded
+    """
+    now = time.time()
+    # Remove timestamps older than the window
+    global _emoji_download_times
+    _emoji_download_times = [t for t in _emoji_download_times if now - t < _EMOJI_DOWNLOAD_WINDOW]
+    
+    # Check if we're under the limit
+    return len(_emoji_download_times) < _MAX_EMOJI_DOWNLOADS_PER_MINUTE
+
+
+def _record_emoji_download():
+    """Records an emoji download for rate limiting."""
+    _emoji_download_times.append(time.time())
 
 
 async def _download_emoji_image(emoji_id):
@@ -133,17 +176,26 @@ async def handle_unknown_emojis_in_message(message, config, gemini_key, openai_k
                     
                     # Auto-download emoji to bot's application emojis (only if not in cache)
                     if client and emoji_name not in app_emoji_cache:
-                        try:
-                            new_emoji = await client.create_application_emoji(
-                                name=emoji_name,
-                                image=image_data
-                            )
-                            app_emoji_cache[emoji_name] = new_emoji  # Update cache
-                            logger.info(f"Auto-added emoji '{emoji_name}' to bot's application emojis")
-                            print(f"[Emoji] ✓ Auto-added '{emoji_name}' to bot's emoji collection")
-                        except Exception as e:
-                            logger.warning(f"Failed to auto-add emoji '{emoji_name}': {e}")
-                            print(f"[Emoji] ✗ Could not auto-add '{emoji_name}': {e}")
+                        # Validate emoji name before attempting upload
+                        if not _validate_emoji_name(emoji_name):
+                            logger.warning(f"Invalid emoji name '{emoji_name}' - skipping auto-download")
+                            print(f"[Emoji] ✗ Invalid emoji name '{emoji_name}' (must be 2-32 chars, alphanumeric + underscores)")
+                        elif not _can_download_emoji():
+                            logger.warning(f"Rate limit reached - skipping auto-download for '{emoji_name}'")
+                            print(f"[Emoji] ⏸️  Rate limit reached - skipping '{emoji_name}' (max {_MAX_EMOJI_DOWNLOADS_PER_MINUTE}/min)")
+                        else:
+                            try:
+                                new_emoji = await client.create_application_emoji(
+                                    name=emoji_name,
+                                    image=image_data
+                                )
+                                app_emoji_cache[emoji_name] = new_emoji  # Update cache
+                                _record_emoji_download()  # Track for rate limiting
+                                logger.info(f"Auto-added emoji '{emoji_name}' to bot's application emojis")
+                                print(f"[Emoji] ✓ Auto-added '{emoji_name}' to bot's emoji collection")
+                            except Exception as e:
+                                logger.warning(f"Failed to auto-add emoji '{emoji_name}': {e}")
+                                print(f"[Emoji] ✗ Could not auto-add '{emoji_name}': {e}")
             except Exception as e:
                 print(f"[Emoji Analysis] Exception analyzing {emoji_name}: {e}")
                 emoji_contexts.append(f"Emoji :{emoji_name}: (error)")
