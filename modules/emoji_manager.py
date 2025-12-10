@@ -219,17 +219,37 @@ async def analyze_server_emojis(guild, config, gemini_key, openai_key):
     print(f"  - Errors: {error_count}")
 
 
-async def get_emoji_context_for_ai():
+async def get_emoji_context_for_ai(client=None):
     """
     Retrieves all emoji descriptions formatted for AI prompts.
+    Only includes emojis that actually exist in the bot's application emoji collection.
     Combines pre-configured emojis from server_emojis.json with dynamically analyzed ones.
-    Prioritizes application emojis (bot's own emojis).
     Returns a string that can be included in the system prompt.
     
-    Note: This should only include application emojis (bot's own uploaded emojis) that work
+    Args:
+        client: Discord client instance to fetch application emojis (optional but recommended)
+    
+    Note: This only includes application emojis (bot's own uploaded emojis) that work
     everywhere, not server-specific emojis. The replace_emoji_tags() function will handle
     guild-specific emoji restrictions at message send time.
     """
+    # Get actual application emojis from Discord
+    actual_app_emojis = {}
+    if client:
+        try:
+            app_emojis = await client.fetch_application_emojis()
+            actual_app_emojis = {emoji.name: emoji for emoji in app_emojis}
+            print(f"[Emoji System] Found {len(actual_app_emojis)} application emojis for AI context")
+        except Exception as e:
+            print(f"[Emoji System] Warning: Could not fetch application emojis: {e}")
+            print(f"[Emoji System] This means the AI won't be able to verify which emojis exist.")
+            print(f"[Emoji System] The AI may use non-existent emojis, resulting in text display.")
+            print(f"[Emoji System] Check bot permissions and Discord API connectivity.")
+    else:
+        print(f"[Emoji System] Warning: No client provided to get_emoji_context_for_ai()")
+        print(f"[Emoji System] Cannot verify which emojis actually exist. All configured emojis will be included.")
+        print(f"[Emoji System] This may result in emojis showing as text if they don't exist.")
+    
     # Load pre-configured server emojis
     server_emoji_config = load_server_emojis()
     configured_emojis = server_emoji_config.get('emojis', {})
@@ -237,7 +257,36 @@ async def get_emoji_context_for_ai():
     # Get dynamically analyzed emojis from database
     db_emojis = await get_all_emoji_descriptions()
     
-    if not configured_emojis and not db_emojis:
+    # Determine whether to verify emoji existence
+    # If client not provided, we include all emojis (cannot verify)
+    skip_verification = not client or not actual_app_emojis
+    
+    # Build list of emojis that actually exist
+    verified_emojis = {}
+    
+    # First, add configured emojis that actually exist in application emojis
+    for emoji_name, emoji_data in configured_emojis.items():
+        if skip_verification or emoji_name in actual_app_emojis:
+            verified_emojis[emoji_name] = {
+                'description': emoji_data.get('description', 'Custom emoji'),
+                'usage': emoji_data.get('usage', 'General use'),
+                'source': 'configured'
+            }
+        else:
+            print(f"[Emoji System] Warning: Configured emoji '{emoji_name}' not found in application emojis")
+    
+    # Add database emojis that exist in application emojis
+    for emoji in db_emojis:
+        emoji_name = emoji['emoji_name']
+        if emoji_name not in verified_emojis:  # Don't duplicate configured emojis
+            if skip_verification or emoji_name in actual_app_emojis:
+                verified_emojis[emoji_name] = {
+                    'description': emoji.get('description', 'Custom emoji'),
+                    'usage': emoji.get('usage_context', 'General use'),
+                    'source': 'discovered'
+                }
+    
+    if not verified_emojis:
         return ""
     
     emoji_text = "\n\n**🎭 Your Emoji Arsenal:**\n"
@@ -246,31 +295,35 @@ async def get_emoji_context_for_ai():
     emoji_text += "**When to use:** Enhance sarcasm, replace words, react emotionally, or add punch to your comebacks.\n"
     emoji_text += "**How much:** 1-3 emojis per message. Don't spam them.\n\n"
     
-    # Add configured emojis (from server_emojis.json)
-    if configured_emojis:
-        emoji_text += "**Pre-configured Emojis:**\n"
-        for emoji_name, emoji_data in configured_emojis.items():
-            description = emoji_data.get('description', 'Custom emoji')
-            usage = emoji_data.get('usage', 'General use')
+    # Separate configured and discovered emojis
+    configured_list = {k: v for k, v in verified_emojis.items() if v['source'] == 'configured'}
+    discovered_list = {k: v for k, v in verified_emojis.items() if v['source'] == 'discovered'}
+    
+    # Add configured emojis
+    if configured_list:
+        emoji_text += "**Available Emojis:**\n"
+        for emoji_name, emoji_data in configured_list.items():
+            description = emoji_data['description']
+            usage = emoji_data['usage']
             emoji_text += f"- :{emoji_name}: - {description} | Best for: {usage}\n"
     
-    # Add dynamically analyzed emojis (from database) - these are application emojis
-    if db_emojis:
-        emoji_text += "\n**Your Personal Collection (Auto-discovered):**\n"
-        for emoji in db_emojis:
-            # Skip if this emoji was already added from config (by name)
-            if emoji['emoji_name'] in configured_emojis:
-                continue
-            emoji_text += f"- :{emoji['emoji_name']}: - {emoji['description']}"
-            if emoji.get('usage_context'):
-                emoji_text += f" | Best for: {emoji['usage_context']}"
-            emoji_text += "\n"
+    # Add discovered emojis
+    if discovered_list:
+        if configured_list:
+            emoji_text += "\n**Recently Discovered:**\n"
+        else:
+            emoji_text += "**Available Emojis:**\n"
+        for emoji_name, emoji_data in discovered_list.items():
+            description = emoji_data['description']
+            usage = emoji_data['usage']
+            emoji_text += f"- :{emoji_name}: - {description} | Best for: {usage}\n"
     
     emoji_text += "\n**Pro Tips:**\n"
     emoji_text += "- Mix emojis with text naturally (e.g., 'Alter :skull: das ist cringe')\n"
     emoji_text += "- Sometimes replace words with emojis for emphasis\n"
     emoji_text += "- Match emoji tone to your sarcasm level\n"
     emoji_text += "- Use recently discovered emojis to show you're paying attention\n"
+    emoji_text += "- ONLY use emojis from the list above - don't make up emoji names!\n"
     
     return emoji_text
 

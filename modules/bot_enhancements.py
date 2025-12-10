@@ -413,21 +413,26 @@ async def initialize_emoji_system(client, config, gemini_key, openai_key, force_
             await analyze_server_emojis(guild, config, gemini_key, openai_key)
     
     # Get emoji context for AI
-    emoji_context = await get_emoji_context_for_ai()
+    emoji_context = await get_emoji_context_for_ai(client)
     print(f"[Bot Enhancement] Emoji system ready. {len(emoji_context)} characters of emoji data loaded.")
     
     return emoji_context
 
 
-async def get_enhanced_system_prompt(base_prompt, include_emoji_context=False):
+async def get_enhanced_system_prompt(base_prompt, include_emoji_context=False, client=None):
     """
     Enhances the system prompt with emoji context.
     Call this when building the system prompt.
+    
+    Args:
+        base_prompt: The base system prompt
+        include_emoji_context: Whether to include emoji information
+        client: Discord client instance for fetching application emojis
     """
     if not include_emoji_context:
         return base_prompt
     
-    emoji_context = await get_emoji_context_for_ai()
+    emoji_context = await get_emoji_context_for_ai(client)
     
     if emoji_context:
         return base_prompt + "\n\n" + emoji_context

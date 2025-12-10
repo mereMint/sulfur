@@ -3406,6 +3406,97 @@ class AdminGroup(app_commands.Group):
             message = f"Konnte die lokale IP-Adresse nicht automatisch ermitteln. Versuche, das Dashboard über den Host-PC hier aufzurufen:\n**{dashboard_url}**\n\n*Fehler: {e}*"
             await interaction.followup.send(message)
 
+    @app_commands.command(name="emojis", description="Zeigt alle Application Emojis und ihren Status an.")
+    async def emojis(self, interaction: discord.Interaction):
+        """Shows all application emojis and their configuration status."""
+        await interaction.response.defer(ephemeral=True)
+        
+        # Constants for display limits
+        MAX_EMOJI_DISPLAY = 10
+        
+        try:
+            # Fetch application emojis
+            app_emojis = await client.fetch_application_emojis()
+            
+            # Load configured emojis
+            emoji_config_path = os.path.join("config", "server_emojis.json")
+            configured_emojis = {}
+            if os.path.exists(emoji_config_path):
+                with open(emoji_config_path, 'r', encoding='utf-8') as f:
+                    emoji_config = json.load(f)
+                    configured_emojis = emoji_config.get('emojis', {})
+            
+            # Create embed
+            embed = discord.Embed(
+                title="🎭 Application Emojis",
+                description=f"Der Bot hat **{len(app_emojis)}** Application Emojis (Limit: 50)",
+                color=get_embed_color(config)
+            )
+            
+            if app_emojis:
+                # Check which are configured
+                app_emoji_names = {e.name for e in app_emojis}
+                configured_found = [name for name in configured_emojis.keys() if name in app_emoji_names]
+                configured_missing = [name for name in configured_emojis.keys() if name not in app_emoji_names]
+                
+                # Show configured emojis that exist
+                if configured_found:
+                    emoji_list = []
+                    for name in configured_found[:MAX_EMOJI_DISPLAY]:
+                        emoji_obj = next((e for e in app_emojis if e.name == name), None)
+                        if emoji_obj:
+                            emoji_type = "🎬" if emoji_obj.animated else "🖼️"
+                            emoji_list.append(f"{emoji_type} `:{name}:` - {configured_emojis[name].get('description', 'N/A')}")
+                    
+                    more_text = f"\n*...und {len(configured_found) - MAX_EMOJI_DISPLAY} weitere*" if len(configured_found) > MAX_EMOJI_DISPLAY else ""
+                    embed.add_field(
+                        name=f"✅ Konfigurierte Emojis ({len(configured_found)})",
+                        value="\n".join(emoji_list) + more_text,
+                        inline=False
+                    )
+                
+                # Show missing configured emojis
+                if configured_missing:
+                    missing_list = ", ".join([f"`:{name}:`" for name in configured_missing[:MAX_EMOJI_DISPLAY]])
+                    if len(configured_missing) > MAX_EMOJI_DISPLAY:
+                        missing_list += f" *...und {len(configured_missing) - MAX_EMOJI_DISPLAY} weitere*"
+                    embed.add_field(
+                        name=f"⚠️ Fehlende Konfigurierte Emojis ({len(configured_missing)})",
+                        value=f"{missing_list}\n\n*Diese müssen als Application Emojis hochgeladen werden!*",
+                        inline=False
+                    )
+                
+                # Show unconfigured application emojis
+                unconfigured = [e for e in app_emojis if e.name not in configured_emojis]
+                if unconfigured:
+                    unconfigured_list = []
+                    for emoji in unconfigured[:MAX_EMOJI_DISPLAY]:
+                        emoji_type = "🎬" if emoji.animated else "🖼️"
+                        unconfigured_list.append(f"{emoji_type} `:{emoji.name}:`")
+                    
+                    more_text = f"\n*...und {len(unconfigured) - MAX_EMOJI_DISPLAY} weitere*" if len(unconfigured) > MAX_EMOJI_DISPLAY else ""
+                    embed.add_field(
+                        name=f"📦 Unkonfigurierte Emojis ({len(unconfigured)})",
+                        value="\n".join(unconfigured_list) + more_text,
+                        inline=False
+                    )
+                
+                embed.set_footer(text="Tipp: Verwende das Diagnostic-Script 'check_application_emojis.py' für detaillierte Informationen")
+            else:
+                embed.add_field(
+                    name="❌ Keine Application Emojis",
+                    value="Der Bot hat keine Application Emojis.\n"
+                          "Emojis müssen im Discord Developer Portal hochgeladen werden:\n"
+                          "https://discord.com/developers/applications",
+                    inline=False
+                )
+            
+            await interaction.followup.send(embed=embed)
+            
+        except Exception as e:
+            logger.error(f"Error in emojis command: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Fehler beim Abrufen der Emojis: `{e}`")
+
     @app_commands.command(name="killvoice", description="[Admin-Gefahr!] Löscht ALLE Sprachkanäle auf dem Server.")
     async def killvoice(self, interaction: discord.Interaction):
         """Deletes ALL voice channels on the server, regardless of DB state."""
