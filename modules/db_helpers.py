@@ -6,6 +6,7 @@ import time
 import logging
 import functools
 import traceback
+import re
 
 # Setup logging
 logger = logging.getLogger('Database')
@@ -1104,7 +1105,10 @@ async def save_conversation_context(user_id: int, channel_id: int, last_user_mes
 
 @db_operation("get_conversation_context")
 async def get_conversation_context(user_id: int, channel_id: int):
-    """Returns the most recent conversation context and seconds since last bot message."""
+    """
+    Returns the most recent conversation context and seconds since last bot message.
+    Sanitizes emojis to shortcode format to prevent AI confusion.
+    """
     if not db_pool:
         return None
     cnx = db_pool.get_connection()
@@ -1122,6 +1126,10 @@ async def get_conversation_context(user_id: int, channel_id: int):
         )
         cursor.execute(query, (user_id, channel_id))
         row = cursor.fetchone()
+        if row:
+            # Sanitize emojis in messages to prevent AI from learning emoji IDs
+            row['last_user_message'] = _convert_emojis_to_shortcode(row['last_user_message'])
+            row['last_bot_response'] = _convert_emojis_to_shortcode(row['last_bot_response'])
         return row
     finally:
         cursor.close()
@@ -1455,8 +1463,32 @@ async def clear_channel_history(channel_id):
         cursor.close()
         cnx.close()
 
+def _convert_emojis_to_shortcode(text):
+    """
+    Converts full Discord emoji format to shortcode for AI training.
+    This prevents the AI from seeing emoji IDs and incorrectly combining them with names.
+    
+    Converts:
+      - <:emoji_name:12345> -> :emoji_name:
+      - <a:emoji_name:12345> -> :emoji_name:
+    
+    This ensures the AI only learns and uses the shortcode format (:name:),
+    preventing invalid formats like :12345name: from being generated.
+    """
+    if text is None:
+        return ""
+    
+    # Replace both static and animated emoji formats with shortcode
+    # Pattern matches: <:name:id> or <a:name:id> and extracts just the name
+    text = re.sub(r'<a?:([\w]+):\d+>', r':\1:', text)
+    
+    return text
+
 async def get_chat_history(channel_id, limit):
-    """Retrieves the last N messages for a channel from the database."""
+    """
+    Retrieves the last N messages for a channel from the database.
+    Converts full-format Discord emojis to shortcode to prevent AI confusion.
+    """
     if not db_pool:
         logger.warning("Database pool not available, cannot get chat history")
         return []
@@ -1480,8 +1512,10 @@ async def get_chat_history(channel_id, limit):
         cursor.execute(query, (channel_id, limit))
         results = cursor.fetchall()
         # Format for Gemini API: {"role": "user", "parts": [{"text": "Hello"}]}
+        # Convert full emoji format to shortcode to prevent AI from learning emoji IDs
         for row in results:
-            history.append({"role": row['role'], "parts": [{"text": row['text']}]})
+            sanitized_text = _convert_emojis_to_shortcode(row['text'])
+            history.append({"role": row['role'], "parts": [{"text": sanitized_text}]})
         return history
     except mysql.connector.Error as err:
         print(f"Error getting chat history: {err}")
@@ -2503,7 +2537,10 @@ async def save_conversation_context(user_id, channel_id, last_user_message, last
 
 @db_operation("Get Conversation Context")
 async def get_conversation_context(user_id, channel_id):
-    """Retrieves conversation context if it's within 2 minutes."""
+    """
+    Retrieves conversation context if it's within 2 minutes.
+    Sanitizes emojis to shortcode format to prevent AI confusion.
+    """
     if not db_pool:
         return None
     
@@ -2518,7 +2555,12 @@ async def get_conversation_context(user_id, channel_id):
             AND TIMESTAMPDIFF(SECOND, last_bot_message_at, NOW()) <= 120
         """
         cursor.execute(query, (user_id, channel_id))
-        return cursor.fetchone()
+        row = cursor.fetchone()
+        if row:
+            # Sanitize emojis in messages to prevent AI from learning emoji IDs
+            row['last_user_message'] = _convert_emojis_to_shortcode(row['last_user_message'])
+            row['last_bot_response'] = _convert_emojis_to_shortcode(row['last_bot_response'])
+        return row
     except mysql.connector.Error as err:
         print(f"Error in get_conversation_context: {err}")
         return None

@@ -460,6 +460,27 @@ def sanitize_malformed_emojis(text):
     text = re.sub(r'(?<!`)`:(\w+):`(?!`)', r':\1:', text)
     return text
 
+def convert_emojis_to_shortcode(text):
+    """
+    Converts full Discord emoji format to shortcode for AI training.
+    This prevents the AI from seeing emoji IDs and incorrectly combining them with names.
+    
+    Converts:
+      - <:emoji_name:12345> -> :emoji_name:
+      - <a:emoji_name:12345> -> :emoji_name:
+    
+    This ensures the AI only learns and uses the shortcode format (:name:),
+    preventing invalid formats like :12345name: from being generated.
+    """
+    if text is None:
+        return ""
+    
+    # Replace both static and animated emoji formats with shortcode
+    # Pattern matches: <:name:id> or <a:name:id> and extracts just the name
+    text = re.sub(r'<a?:([\w]+):\d+>', r':\1:', text)
+    
+    return text
+
 async def auto_download_emoji(emoji_name, guild, client):
     """
     Attempts to download a missing emoji from a guild and add it to the bot's application emojis.
