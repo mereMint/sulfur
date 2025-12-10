@@ -793,10 +793,8 @@ class OpenLigaDBProvider(FootballAPIProvider):
                 away_team_name = team2.get("teamName") or team2.get("shortName") or "Unknown"
                 
                 # Get short names with fallbacks (truncate to 16 characters max)
-                home_short = team1.get("shortName") or (home_team_name[:3].upper() if home_team_name else "UNK")
-                away_short = team2.get("shortName") or (away_team_name[:3].upper() if away_team_name else "UNK")
-                home_short = home_short[:16] if home_short else "UNK"
-                away_short = away_short[:16] if away_short else "UNK"
+                home_short = (team1.get("shortName") or (home_team_name[:3].upper() if home_team_name else "UNK"))[:16]
+                away_short = (team2.get("shortName") or (away_team_name[:3].upper() if away_team_name else "UNK"))[:16]
                 
                 # Get league shortcut from match data
                 league_shortcut = match.get("leagueShortcut") or match.get("leagueName") or "bl1"
@@ -1205,8 +1203,8 @@ class FootballDataProvider(FootballAPIProvider):
                     "id": str(match.get("id")),
                     "home_team": home_team.get("name", "Unknown"),
                     "away_team": away_team.get("name", "Unknown"),
-                    "home_team_short": (home_team.get("tla") or home_team.get("name", "UNK")[:3].upper())[:16],
-                    "away_team_short": (away_team.get("tla") or away_team.get("name", "UNK")[:3].upper())[:16],
+                    "home_team_short": ((home_team.get("tla") or home_team.get("name", "UNK")[:3].upper()))[:16],
+                    "away_team_short": ((away_team.get("tla") or away_team.get("name", "UNK")[:3].upper()))[:16],
                     "home_logo": home_team.get("crest"),
                     "away_logo": away_team.get("crest"),
                     "home_score": full_time.get("home") or 0,
