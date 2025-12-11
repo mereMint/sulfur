@@ -102,6 +102,18 @@ CREATE TABLE IF NOT EXISTS user_memory_enhanced (
     INDEX idx_last_interaction (last_significant_interaction)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Temporary DM access bypass (when bot autonomously messages a user)
+CREATE TABLE IF NOT EXISTS temp_dm_access (
+    user_id BIGINT PRIMARY KEY,
+    granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL,
+    granted_by VARCHAR(20) DEFAULT 'autonomous_message',
+    INDEX idx_expires (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Default settings for existing users
+-- This will only run if the 'users' or 'user_stats' table exists
+-- If neither exists, the settings will be created on first user interaction
 INSERT IGNORE INTO user_autonomous_settings (user_id, allow_autonomous_messages, allow_autonomous_calls)
-SELECT DISTINCT user_id, TRUE, TRUE FROM users;
+SELECT DISTINCT user_id, TRUE, TRUE FROM user_stats WHERE user_id IS NOT NULL
+ON DUPLICATE KEY UPDATE user_id = user_id;

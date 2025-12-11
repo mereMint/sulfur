@@ -8,6 +8,7 @@ Uses edge-tts for TTS (free) and plans for Whisper API for transcription.
 import asyncio
 import tempfile
 import os
+import shutil
 from typing import Optional, Dict, List, Any
 import discord
 from discord import FFmpegPCMAudio
@@ -54,8 +55,14 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
     try:
         # Create temp file if output not specified
         if output_file is None:
-            temp_fd, output_file = tempfile.mkstemp(suffix='.mp3', prefix='sulfur_tts_')
-            os.close(temp_fd)  # Close file descriptor
+            # Use NamedTemporaryFile for safer temp file handling
+            temp_file = tempfile.NamedTemporaryFile(
+                suffix='.mp3', 
+                prefix='sulfur_tts_', 
+                delete=False
+            )
+            output_file = temp_file.name
+            temp_file.close()
         
         # Generate TTS
         communicate = edge_tts.Communicate(
@@ -143,9 +150,14 @@ async def speak_in_channel(
         if not audio_file:
             return False
         
-        # Play audio
-        audio_source = FFmpegPCMAudio(audio_file)
-        voice_client.play(audio_source)
+        # Play audio with error handling
+        try:
+            audio_source = FFmpegPCMAudio(audio_file)
+            voice_client.play(audio_source)
+        except Exception as audio_error:
+            logger.error(f"Error playing audio: {audio_error}")
+            await cleanup_audio_file(audio_file)
+            return False
         
         logger.info(f"Speaking in voice channel: {text[:50]}...")
         
@@ -346,7 +358,6 @@ def check_voice_dependencies() -> Dict[str, bool]:
     }
     
     # Check for ffmpeg
-    import shutil
     dependencies['ffmpeg'] = shutil.which('ffmpeg') is not None
     
     return dependencies

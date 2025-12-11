@@ -128,9 +128,37 @@ Every 2 hours, the autonomous messaging task runs:
 The bot considers:
 - **User Preferences**: Only messages users who allow it
 - **Cooldown**: Respects minimum time between contacts
+- **Minimum DM Cooldown**: **Always waits at least 1 hour** after ANY DM interaction (autonomous or response) before messaging again
 - **Activity**: Prefers online users
 - **Context**: Uses conversation history to make relevant messages
 - **Frequency Limit**: Only messages 1 user per run to avoid spam
+
+### DM Access Premium Feature
+
+The bot has a **DM Access** premium feature that users can purchase in the shop for 2000 coins. This feature allows users to directly message the bot in DMs without being in a server channel.
+
+### Temporary DM Access
+
+When the bot autonomously messages a user, it grants **temporary DM access** for 1 hour (configurable), even if the user hasn't purchased the DM Access feature:
+
+1. **Bot Initiates Contact**: When the bot autonomously sends a DM to a user
+2. **Temporary Access Granted**: The user gets 1 hour of free DM access
+3. **User Can Reply**: During this time, the user can reply to the bot without needing the premium feature
+4. **Access Expires**: After 1 hour, the temporary access expires and the user needs DM Access to continue
+
+This ensures that:
+- Users can always respond when the bot reaches out to them
+- The conversation can flow naturally for a reasonable time
+- The premium feature remains valuable for users who want unlimited DM access
+
+### DM Cooldown Protection
+
+To prevent the bot from being too intrusive, a **1-hour minimum cooldown** is enforced:
+
+1. **After Autonomous Messages**: When the bot autonomously sends a DM, it won't message that user again for at least 1 hour
+2. **Combined with Frequency Settings**: The 1-hour minimum is in addition to the frequency-based cooldown (low/normal/high)
+
+This ensures that even if a user has high-frequency autonomous messages enabled, the bot will never spam them with messages less than 1 hour apart.
 
 ### Conversation Starters
 

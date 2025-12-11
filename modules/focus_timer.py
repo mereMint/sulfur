@@ -131,6 +131,25 @@ async def check_session_expired(user_id: int) -> bool:
     return datetime.now() >= session['end_time']
 
 
+async def cleanup_expired_sessions():
+    """Clean up expired focus sessions that weren't properly ended."""
+    expired_users = []
+    now = datetime.now()
+    
+    for user_id, session in active_sessions.items():
+        if now >= session['end_time']:
+            expired_users.append(user_id)
+    
+    for user_id in expired_users:
+        try:
+            await end_focus_session(user_id, completed=False)
+            logger.info(f"Cleaned up expired focus session for user {user_id}")
+        except Exception as e:
+            logger.error(f"Error cleaning up expired session for user {user_id}: {e}")
+    
+    return len(expired_users)
+
+
 # --- Activity Detection ---
 
 async def detect_message_activity(user_id: int, channel_type: str) -> bool:

@@ -846,6 +846,10 @@ async def on_ready():
     # --- NEW: Start autonomous messaging task ---
     if not autonomous_messaging_task.is_running():
         autonomous_messaging_task.start()
+    
+    # --- NEW: Start temp DM access cleanup task ---
+    if not cleanup_temp_dm_access.is_running():
+        cleanup_temp_dm_access.start()
     # --- NEW: Start the background task for Wrapped event management ---
     if not manage_wrapped_event.is_running():
         manage_wrapped_event.start()
@@ -1042,7 +1046,13 @@ async def autonomous_messaging_task():
         for member in candidates:
             try:
                 # Check if we should contact this user
-                should_contact = await autonomous_behavior.should_contact_user(member.id, member)
+                # Use 1 hour minimum cooldown to prevent spam
+                min_cooldown = config.get('modules', {}).get('autonomous_behavior', {}).get('min_dm_cooldown_hours', 1)
+                should_contact = await autonomous_behavior.should_contact_user(
+                    member.id, 
+                    member,
+                    min_cooldown_hours=min_cooldown
+                )
                 
                 if not should_contact:
                     continue
@@ -1062,6 +1072,10 @@ async def autonomous_messaging_task():
                     # Send DM
                     try:
                         await member.send(message)
+                        
+                        # Grant temporary DM access so user can reply
+                        temp_access_duration = config.get('modules', {}).get('autonomous_behavior', {}).get('temp_dm_access_hours', 1)
+                        await autonomous_behavior.grant_temp_dm_access(member.id, duration_hours=temp_access_duration)
                         
                         # Log the action
                         await autonomous_behavior.log_autonomous_action(
@@ -1097,6 +1111,21 @@ async def autonomous_messaging_task():
 
 @autonomous_messaging_task.before_loop
 async def before_autonomous_messaging_task():
+    await client.wait_until_ready()
+
+# --- NEW: Cleanup expired temporary DM access ---
+@_tasks.loop(hours=1)
+async def cleanup_temp_dm_access():
+    """Clean up expired temporary DM access entries."""
+    try:
+        deleted = await autonomous_behavior.cleanup_expired_temp_dm_access()
+        if deleted > 0:
+            logger.info(f"Cleaned up {deleted} expired temp DM access entries")
+    except Exception as e:
+        logger.error(f"Error in temp DM access cleanup: {e}", exc_info=True)
+
+@cleanup_temp_dm_access.before_loop
+async def before_cleanup_temp_dm_access():
     await client.wait_until_ready()
 
 # --- NEW: Periodic Channel Cleanup Task ---
@@ -14101,9 +14130,15 @@ async def focus(
             logger.info(f"Focus session started for user {user_id}: {duration} minutes")
             
             # Schedule timer completion notification
-            asyncio.create_task(
+            # Store task reference to prevent garbage collection
+            task = asyncio.create_task(
                 focus_timer_completion_handler(interaction.user, session_id, duration)
             )
+            # Add task to a set to prevent GC (will be cleaned up on completion)
+            if not hasattr(client, '_focus_timer_tasks'):
+                client._focus_timer_tasks = set()
+            client._focus_timer_tasks.add(task)
+            task.add_done_callback(client._focus_timer_tasks.discard)
         else:
             await interaction.followup.send(
                 "❌ Fehler beim Starten des Timers.",
@@ -14642,6 +14677,21 @@ async def on_message(message):
         # --- FIX: Ignore DMs from the bot itself (e.g., level-up notifications) ---
         if message.author == client.user:
             logger.debug(f"[FILTER] Ignoring DM from bot itself")
+            return
+        
+        # --- NEW: Check DM access permission ---
+        has_dm_access = await db_helpers.has_feature_unlock(message.author.id, 'dm_access')
+        has_temp_access = await autonomous_behavior.has_temp_dm_access(message.author.id)
+        
+        if not has_dm_access and not has_temp_access:
+            # User doesn't have DM access and no temporary access
+            logger.info(f"[DM] User {message.author.name} lacks DM access")
+            await message.channel.send(
+                "🔒 **DM Access erforderlich**\n\n"
+                "Du benötigst **DM Access** um direkt mit mir zu chatten!\n\n"
+                "Kaufe es im Shop mit `/shop` für 2000 🪙\n\n"
+                "*Hinweis: Wenn ich dich anschreibe, kannst du für eine begrenzte Zeit antworten.*"
+            )
             return
         
         # --- FIX: Check if the user is in an active Werwolf game and handle game commands ---

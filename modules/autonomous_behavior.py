@@ -6,6 +6,7 @@ including sending DMs, making voice calls, and other proactive behaviors.
 """
 
 import asyncio
+import json
 import random
 from datetime import datetime, timedelta
 import discord
@@ -111,6 +112,86 @@ async def record_autonomous_contact(user_id: int):
         logger.error(f"Error recording autonomous contact for user {user_id}: {e}")
 
 
+async def grant_temp_dm_access(user_id: int, duration_hours: int = 1):
+    """
+    Grant temporary DM access to a user for a specified duration.
+    
+    This is used when the bot autonomously messages a user, allowing them
+    to reply without needing the DM access premium feature.
+    
+    Args:
+        user_id: Discord user ID
+        duration_hours: How long to grant access (default: 1 hour)
+    """
+    try:
+        async with get_db_connection() as (conn, cursor):
+            expires_at = datetime.now() + timedelta(hours=duration_hours)
+            await cursor.execute("""
+                INSERT INTO temp_dm_access (user_id, expires_at)
+                VALUES (%s, %s)
+                ON DUPLICATE KEY UPDATE 
+                    expires_at = VALUES(expires_at),
+                    granted_at = CURRENT_TIMESTAMP
+            """, (user_id, expires_at))
+            await conn.commit()
+            logger.info(f"Granted temporary DM access to user {user_id} for {duration_hours} hour(s)")
+    except Exception as e:
+        logger.error(f"Error granting temporary DM access to user {user_id}: {e}")
+
+
+async def has_temp_dm_access(user_id: int) -> bool:
+    """
+    Check if a user has temporary DM access.
+    
+    Returns True if the user has unexpired temporary access.
+    Also cleans up expired access automatically.
+    """
+    try:
+        async with get_db_connection() as (conn, cursor):
+            # Check for valid temp access
+            await cursor.execute("""
+                SELECT user_id 
+                FROM temp_dm_access 
+                WHERE user_id = %s AND expires_at > NOW()
+            """, (user_id,))
+            result = await cursor.fetchone()
+            
+            has_access = result is not None
+            
+            # Clean up expired access for this user if found
+            if not has_access:
+                await cursor.execute("""
+                    DELETE FROM temp_dm_access 
+                    WHERE user_id = %s AND expires_at <= NOW()
+                """, (user_id,))
+                await conn.commit()
+            
+            return has_access
+    except Exception as e:
+        logger.error(f"Error checking temporary DM access for user {user_id}: {e}")
+        return False
+
+
+async def cleanup_expired_temp_dm_access():
+    """Clean up all expired temporary DM access entries."""
+    try:
+        async with get_db_connection() as (conn, cursor):
+            await cursor.execute("""
+                DELETE FROM temp_dm_access 
+                WHERE expires_at <= NOW()
+            """)
+            deleted = cursor.rowcount
+            await conn.commit()
+            
+            if deleted > 0:
+                logger.info(f"Cleaned up {deleted} expired temporary DM access entries")
+            
+            return deleted
+    except Exception as e:
+        logger.error(f"Error cleaning up expired temp DM access: {e}")
+        return 0
+
+
 # --- Action Logging ---
 
 async def log_autonomous_action(
@@ -124,7 +205,6 @@ async def log_autonomous_action(
     """Log an autonomous action taken by the bot."""
     try:
         async with get_db_connection() as (conn, cursor):
-            import json
             await cursor.execute("""
                 INSERT INTO bot_autonomous_actions
                 (action_type, target_user_id, guild_id, action_reason, context_data, success)
@@ -160,14 +240,19 @@ async def update_action_response(action_id: int, user_responded: bool):
 
 # --- Decision Making ---
 
-async def should_contact_user(user_id: int, member: discord.Member) -> bool:
+async def should_contact_user(user_id: int, member: discord.Member, min_cooldown_hours: int = 1) -> bool:
     """
     Determine if the bot should autonomously contact a user.
     
     Returns True if:
     - User allows autonomous contact
-    - Enough time has passed since last contact
+    - Enough time has passed since last contact (minimum 1 hour)
     - User is currently online or was recently active
+    
+    Args:
+        user_id: Discord user ID
+        member: Discord member object
+        min_cooldown_hours: Minimum hours to wait between ANY contact (default: 1 hour)
     """
     settings = await get_user_autonomous_settings(user_id)
     
@@ -187,10 +272,18 @@ async def should_contact_user(user_id: int, member: discord.Member) -> bool:
         'high': 8       # 8 hours
     }.get(frequency, 24)
     
-    # Check last contact time
+    # Check last contact time with minimum cooldown
+    # The bot will ALWAYS wait at least min_cooldown_hours (default 1 hour)
+    # regardless of frequency settings
     last_contact = settings['last_contact']
     if last_contact:
         time_since_contact = datetime.now() - last_contact
+        
+        # Enforce minimum cooldown (e.g., 1 hour) to prevent spam
+        if time_since_contact < timedelta(hours=min_cooldown_hours):
+            return False
+        
+        # Then check the frequency-based cooldown
         if time_since_contact < timedelta(hours=cooldown_hours):
             return False
     
@@ -291,7 +384,6 @@ async def update_user_memory(
 ):
     """Update enhanced user memory for better autonomous decisions."""
     try:
-        import json
         async with get_db_connection() as (conn, cursor):
             # Get current memory
             await cursor.execute("""
@@ -345,7 +437,6 @@ async def update_user_memory(
 async def get_user_memory(user_id: int) -> Dict[str, Any]:
     """Get enhanced memory data for a user."""
     try:
-        import json
         async with get_db_connection() as (conn, cursor):
             await cursor.execute("""
                 SELECT interests, usual_active_times, conversation_topics,
