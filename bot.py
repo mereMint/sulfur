@@ -50,6 +50,10 @@ from modules import horse_racing  # NEW: Horse racing game
 from modules import rpg_system  # NEW: RPG system
 from modules import sport_betting  # NEW: Sport betting system
 from modules import sport_betting_ui_v2 as sport_betting_ui  # NEW: Sport betting UI components (v2)
+from modules import autonomous_behavior  # NEW: Autonomous bot behavior
+from modules import focus_timer  # NEW: Focus timer with activity monitoring
+from modules import voice_tts  # NEW: Voice TTS and conversation
+from modules import bot_mind  # NEW: Bot mind state and consciousness
 from modules.bot_enhancements import (
     handle_image_attachment,
     handle_unknown_emojis_in_message,
@@ -839,6 +843,14 @@ async def on_ready():
     # --- NEW: Start the background task for presence updates ---
     if not update_presence_task.is_running():
         update_presence_task.start()
+    
+    # --- NEW: Start autonomous messaging task ---
+    if not autonomous_messaging_task.is_running():
+        autonomous_messaging_task.start()
+    
+    # --- NEW: Start temp DM access cleanup task ---
+    if not cleanup_temp_dm_access.is_running():
+        cleanup_temp_dm_access.start()
     # --- NEW: Start the background task for Wrapped event management ---
     if not manage_wrapped_event.is_running():
         manage_wrapped_event.start()
@@ -1006,6 +1018,115 @@ async def generate_news():
 
 @update_presence_task.before_loop
 async def before_update_presence_task():
+    await client.wait_until_ready()
+
+# --- NEW: Autonomous messaging task ---
+@_tasks.loop(hours=2)
+async def autonomous_messaging_task():
+    """Periodically consider autonomously messaging users."""
+    try:
+        if not client.guilds:
+            return
+        
+        logger.info("Running autonomous messaging check...")
+        
+        # Get all online members
+        all_online_members = []
+        for guild in client.guilds:
+            all_online_members.extend([
+                m for m in guild.members 
+                if not m.bot and m.status != discord.Status.offline
+            ])
+        
+        if not all_online_members:
+            return
+        
+        # Check a few random users
+        candidates = random.sample(all_online_members, min(5, len(all_online_members)))
+        
+        for member in candidates:
+            try:
+                # Check if we should contact this user
+                # Use 1 hour minimum cooldown to prevent spam
+                min_cooldown = config.get('modules', {}).get('autonomous_behavior', {}).get('min_dm_cooldown_hours', 1)
+                should_contact = await autonomous_behavior.should_contact_user(
+                    member.id, 
+                    member,
+                    min_cooldown_hours=min_cooldown
+                )
+                
+                if not should_contact:
+                    continue
+                
+                # Only contact 1 user per run to avoid spam
+                logger.info(f"Autonomously messaging user: {member.display_name}")
+                
+                # Get conversation context
+                context = await autonomous_behavior.get_conversation_context(member.id, limit=5)
+                
+                # Generate conversation starter
+                message = await autonomous_behavior.generate_conversation_starter(
+                    member, context, get_chat_response
+                )
+                
+                if message:
+                    # Send DM
+                    try:
+                        await member.send(message)
+                        
+                        # Grant temporary DM access so user can reply
+                        temp_access_duration = config.get('modules', {}).get('autonomous_behavior', {}).get('temp_dm_access_hours', 1)
+                        await autonomous_behavior.grant_temp_dm_access(member.id, duration_hours=temp_access_duration)
+                        
+                        # Log the action
+                        await autonomous_behavior.log_autonomous_action(
+                            action_type='dm_message',
+                            target_user_id=member.id,
+                            guild_id=member.guild.id if member.guild else None,
+                            action_reason='periodic_check',
+                            success=True
+                        )
+                        
+                        # Record contact
+                        await autonomous_behavior.record_autonomous_contact(member.id)
+                        
+                        logger.info(f"Successfully sent autonomous message to {member.display_name}")
+                        
+                        # Only message one user per run
+                        break
+                    except discord.Forbidden:
+                        logger.warning(f"Cannot DM user {member.display_name}")
+                        await autonomous_behavior.log_autonomous_action(
+                            action_type='dm_message',
+                            target_user_id=member.id,
+                            guild_id=member.guild.id if member.guild else None,
+                            action_reason='periodic_check',
+                            success=False
+                        )
+                        
+            except Exception as e:
+                logger.error(f"Error in autonomous messaging for {member.display_name}: {e}")
+                
+    except Exception as e:
+        logger.error(f"Error in autonomous messaging task: {e}", exc_info=True)
+
+@autonomous_messaging_task.before_loop
+async def before_autonomous_messaging_task():
+    await client.wait_until_ready()
+
+# --- NEW: Cleanup expired temporary DM access ---
+@_tasks.loop(hours=1)
+async def cleanup_temp_dm_access():
+    """Clean up expired temporary DM access entries."""
+    try:
+        deleted = await autonomous_behavior.cleanup_expired_temp_dm_access()
+        if deleted > 0:
+            logger.info(f"Cleaned up {deleted} expired temp DM access entries")
+    except Exception as e:
+        logger.error(f"Error in temp DM access cleanup: {e}", exc_info=True)
+
+@cleanup_temp_dm_access.before_loop
+async def before_cleanup_temp_dm_access():
     await client.wait_until_ready()
 
 # --- NEW: Periodic Channel Cleanup Task ---
@@ -1245,6 +1366,21 @@ async def on_presence_update(before, after):
             if user_id not in game_start_times:
                 game_start_times[user_id] = (after_game.name, now)
                 print(f"  -> [Game] Session started for {after.display_name}: '{after_game.name}'.")
+                
+                # --- NEW: Focus timer distraction detection for games ---
+                try:
+                    is_distraction = await focus_timer.detect_game_activity(user_id, after_game.name)
+                    if is_distraction:
+                        # Send warning DM
+                        try:
+                            await after.send(
+                                f"⚠️ **Focus-Modus aktiv!** Du hast gerade '{after_game.name}' gestartet, aber du solltest fokussiert arbeiten! 🎯",
+                                delete_after=15
+                            )
+                        except discord.Forbidden:
+                            pass  # Can't send DM
+                except Exception as e:
+                    logger.error(f"Error in focus timer game detection: {e}")
 
         # We only care about changes in status or activity
         if before.status == after.status and before.activity == after.activity:
@@ -1279,6 +1415,24 @@ async def on_presence_update(before, after):
             primary_activity = next((act for act in after.activities if isinstance(act, discord.Streaming)), None)
             if primary_activity:
                 activity_type = "streaming"
+                
+                # --- NEW: Focus timer distraction detection for streaming ---
+                try:
+                    is_distraction = await focus_timer.detect_media_activity(
+                        user_id, 
+                        primary_activity.name if hasattr(primary_activity, 'name') else "Stream",
+                        is_music=False
+                    )
+                    if is_distraction:
+                        try:
+                            await after.send(
+                                "⚠️ **Focus-Modus aktiv!** Du streamst gerade, aber du solltest fokussiert arbeiten! 🎯",
+                                delete_after=15
+                            )
+                        except discord.Forbidden:
+                            pass
+                except Exception as e:
+                    logger.error(f"Error in focus timer streaming detection: {e}")
         
         if not primary_activity:
             # Check for Spotify
@@ -13707,6 +13861,818 @@ async def privacy(interaction: discord.Interaction, option: app_commands.Choice[
         )
 
 
+@tree.command(name="settings", description="Verwalte deine Einstellungen für autonome Bot-Funktionen")
+@app_commands.describe(
+    feature="Welche Funktion möchtest du konfigurieren?",
+    enabled="Aktivieren oder deaktivieren?"
+)
+@app_commands.choices(feature=[
+    app_commands.Choice(name="Autonome Nachrichten vom Bot", value="messages"),
+    app_commands.Choice(name="Autonome Anrufe vom Bot", value="calls"),
+    app_commands.Choice(name="Einstellungen anzeigen", value="view")
+])
+@app_commands.choices(enabled=[
+    app_commands.Choice(name="Aktivieren", value="on"),
+    app_commands.Choice(name="Deaktivieren", value="off")
+])
+async def settings(
+    interaction: discord.Interaction, 
+    feature: app_commands.Choice[str],
+    enabled: app_commands.Choice[str] = None
+):
+    """Manage user settings for autonomous bot features."""
+    from modules import autonomous_behavior
+    
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        user_id = interaction.user.id
+        
+        if feature.value == "view":
+            # Show current settings
+            settings_data = await autonomous_behavior.get_user_autonomous_settings(user_id)
+            
+            embed = discord.Embed(
+                title="⚙️ Deine Bot-Einstellungen",
+                color=discord.Color.blue(),
+                description="Hier sind deine aktuellen Einstellungen für autonome Bot-Funktionen:"
+            )
+            
+            # Messages setting
+            msg_status = "✅ Aktiviert" if settings_data['allow_messages'] else "❌ Deaktiviert"
+            embed.add_field(
+                name="📨 Autonome Nachrichten",
+                value=f"{msg_status}\n*Der Bot kann dich anschreiben, wenn er mit dir reden möchte*",
+                inline=False
+            )
+            
+            # Calls setting
+            call_status = "✅ Aktiviert" if settings_data['allow_calls'] else "❌ Deaktiviert"
+            embed.add_field(
+                name="📞 Autonome Anrufe",
+                value=f"{call_status}\n*Der Bot kann dich in Voice-Channels anrufen*",
+                inline=False
+            )
+            
+            # Frequency
+            freq_map = {
+                'low': '🔵 Niedrig (alle 3 Tage)',
+                'normal': '🟢 Normal (täglich)',
+                'high': '🟡 Hoch (alle 8 Stunden)',
+                'none': '⚫ Nie'
+            }
+            embed.add_field(
+                name="📊 Kontakt-Häufigkeit",
+                value=freq_map.get(settings_data['frequency'], 'Normal'),
+                inline=False
+            )
+            
+            # Last contact
+            if settings_data['last_contact']:
+                last_contact_str = settings_data['last_contact'].strftime("%d.%m.%Y %H:%M")
+                embed.add_field(
+                    name="🕐 Letzter autonomer Kontakt",
+                    value=last_contact_str,
+                    inline=False
+                )
+            
+            embed.set_footer(text="Ändere Einstellungen mit /settings <feature> <on/off>")
+            
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        # Update settings
+        if enabled is None:
+            await interaction.followup.send(
+                "❌ Bitte wähle 'Aktivieren' oder 'Deaktivieren'",
+                ephemeral=True
+            )
+            return
+        
+        is_enabled = (enabled.value == "on")
+        
+        success = False
+        if feature.value == "messages":
+            success = await autonomous_behavior.update_user_autonomous_settings(
+                user_id, allow_messages=is_enabled
+            )
+            feature_name = "Autonome Nachrichten"
+        elif feature.value == "calls":
+            success = await autonomous_behavior.update_user_autonomous_settings(
+                user_id, allow_calls=is_enabled
+            )
+            feature_name = "Autonome Anrufe"
+        
+        if success:
+            status = "aktiviert" if is_enabled else "deaktiviert"
+            embed = discord.Embed(
+                title="✅ Einstellungen aktualisiert",
+                description=f"**{feature_name}** wurden {status}.",
+                color=discord.Color.green() if is_enabled else discord.Color.blue()
+            )
+            
+            if not is_enabled and feature.value == "messages":
+                embed.add_field(
+                    name="ℹ️ Info",
+                    value="Der Bot wird dich nicht mehr eigenständig anschreiben.",
+                    inline=False
+                )
+            elif not is_enabled and feature.value == "calls":
+                embed.add_field(
+                    name="ℹ️ Info",
+                    value="Der Bot wird dich nicht mehr in Voice-Channels anrufen.",
+                    inline=False
+                )
+            
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            logger.info(f"Settings updated for user {user_id}: {feature.value}={is_enabled}")
+        else:
+            await interaction.followup.send(
+                "❌ Fehler beim Aktualisieren der Einstellungen.",
+                ephemeral=True
+            )
+            
+    except Exception as e:
+        logger.error(f"Error in settings command: {e}", exc_info=True)
+        await interaction.followup.send(
+            f"❌ Fehler: {str(e)}",
+            ephemeral=True
+        )
+
+
+@tree.command(name="focus", description="Starte einen Focus-Timer (Pomodoro oder Custom)")
+@app_commands.describe(
+    preset="Wähle einen Pomodoro-Preset oder 'custom' für eigene Zeit",
+    minutes="Eigene Dauer in Minuten (nur bei 'custom')"
+)
+@app_commands.choices(preset=[
+    app_commands.Choice(name="🍅 Kurz (25min Arbeit, 5min Pause)", value="short"),
+    app_commands.Choice(name="🍅 Lang (50min Arbeit, 10min Pause)", value="long"),
+    app_commands.Choice(name="🍅 Ultra (90min Arbeit, 15min Pause)", value="ultra"),
+    app_commands.Choice(name="🍅 Sprint (15min Arbeit, 3min Pause)", value="sprint"),
+    app_commands.Choice(name="⏱️ Eigene Zeit", value="custom"),
+    app_commands.Choice(name="❌ Timer beenden", value="stop")
+])
+async def focus(
+    interaction: discord.Interaction,
+    preset: app_commands.Choice[str],
+    minutes: int = None
+):
+    """Start a focus timer with activity monitoring."""
+    from modules import focus_timer
+    
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        user_id = interaction.user.id
+        guild_id = interaction.guild.id if interaction.guild else 0
+        
+        # Check for stop command
+        if preset.value == "stop":
+            active_session = await focus_timer.get_active_session(user_id)
+            if not active_session:
+                await interaction.followup.send(
+                    "❌ Du hast keinen aktiven Focus-Timer.",
+                    ephemeral=True
+                )
+                return
+            
+            # End the session
+            completed = await focus_timer.end_focus_session(user_id, completed=False)
+            
+            if completed:
+                stats = active_session
+                duration = (datetime.now() - stats['start_time']).seconds // 60
+                
+                embed = discord.Embed(
+                    title="⏹️ Focus-Timer beendet",
+                    color=discord.Color.orange(),
+                    description=f"Du warst **{duration} Minuten** im Focus-Modus."
+                )
+                embed.add_field(
+                    name="📊 Statistiken",
+                    value=f"Ablenkungen: {stats['distractions']}",
+                    inline=False
+                )
+                
+                await interaction.followup.send(embed=embed, ephemeral=True)
+            else:
+                await interaction.followup.send(
+                    "❌ Fehler beim Beenden des Timers.",
+                    ephemeral=True
+                )
+            return
+        
+        # Check if user already has an active session
+        active_session = await focus_timer.get_active_session(user_id)
+        if active_session:
+            time_left = (active_session['end_time'] - datetime.now()).seconds // 60
+            await interaction.followup.send(
+                f"⏱️ Du hast bereits einen aktiven Focus-Timer!\n"
+                f"Noch **{time_left} Minuten** verbleibend.\n"
+                f"Beende ihn mit `/focus preset:stop`",
+                ephemeral=True
+            )
+            return
+        
+        # Determine duration
+        if preset.value == "custom":
+            if minutes is None or minutes <= 0:
+                await interaction.followup.send(
+                    "❌ Bitte gib eine gültige Dauer in Minuten an.",
+                    ephemeral=True
+                )
+                return
+            duration = minutes
+            session_type = "custom"
+            preset_name = f"{minutes} Minuten"
+        else:
+            preset_data = focus_timer.get_pomodoro_preset(preset.value)
+            if not preset_data:
+                await interaction.followup.send(
+                    "❌ Ungültiger Preset.",
+                    ephemeral=True
+                )
+                return
+            duration = preset_data['work']
+            session_type = "pomodoro"
+            preset_name = preset_data['name']
+        
+        # Start the session
+        session_id = await focus_timer.start_focus_session(
+            user_id, guild_id, session_type, duration
+        )
+        
+        if session_id:
+            embed = discord.Embed(
+                title="🎯 Focus-Timer gestartet!",
+                color=discord.Color.green(),
+                description=f"**{preset_name}** - {duration} Minuten"
+            )
+            embed.add_field(
+                name="📱 Aktivitäts-Monitoring",
+                value=(
+                    "Der Bot überwacht jetzt deine Aktivitäten:\n"
+                    "• 💬 Nachrichten in Channels\n"
+                    "• 🎮 Spiele (außer Musik)\n"
+                    "• 📺 Videos/Streams\n\n"
+                    "Bei Ablenkungen wirst du benachrichtigt!"
+                ),
+                inline=False
+            )
+            embed.add_field(
+                name="⏰ Timer-Ende",
+                value=f"Timer endet um <t:{int((datetime.now() + timedelta(minutes=duration)).timestamp())}:t>",
+                inline=False
+            )
+            embed.set_footer(text="Beende den Timer mit /focus preset:stop")
+            
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            logger.info(f"Focus session started for user {user_id}: {duration} minutes")
+            
+            # Schedule timer completion notification
+            # Store task reference to prevent garbage collection
+            task = asyncio.create_task(
+                focus_timer_completion_handler(interaction.user, session_id, duration)
+            )
+            # Add task to a set to prevent GC (will be cleaned up on completion)
+            if not hasattr(client, '_focus_timer_tasks'):
+                client._focus_timer_tasks = set()
+            client._focus_timer_tasks.add(task)
+            task.add_done_callback(client._focus_timer_tasks.discard)
+        else:
+            await interaction.followup.send(
+                "❌ Fehler beim Starten des Timers.",
+                ephemeral=True
+            )
+            
+    except Exception as e:
+        logger.error(f"Error in focus command: {e}", exc_info=True)
+        await interaction.followup.send(
+            f"❌ Fehler: {str(e)}",
+            ephemeral=True
+        )
+
+
+async def focus_timer_completion_handler(user: discord.User, session_id: int, duration_minutes: int):
+    """Handle focus timer completion notification."""
+    from modules import focus_timer, autonomous_behavior
+    
+    try:
+        # Wait for timer to complete
+        await asyncio.sleep(duration_minutes * 60)
+        
+        # Check if session is still active
+        active_session = await focus_timer.get_active_session(user.id)
+        if not active_session or active_session['session_id'] != session_id:
+            return  # Session was already stopped
+        
+        # End the session as completed
+        await focus_timer.end_focus_session(user.id, completed=True)
+        
+        # Get session stats
+        stats = active_session
+        
+        # Create completion message
+        embed = discord.Embed(
+            title="✅ Focus-Timer abgeschlossen!",
+            color=discord.Color.green(),
+            description=f"Gut gemacht! Du hast **{duration_minutes} Minuten** fokussiert gearbeitet."
+        )
+        embed.add_field(
+            name="📊 Statistiken",
+            value=f"Ablenkungen: {stats['distractions']}",
+            inline=False
+        )
+        
+        # Get user's autonomous settings
+        settings = await autonomous_behavior.get_user_autonomous_settings(user.id)
+        
+        # Try to send DM first
+        try:
+            await user.send(embed=embed)
+            logger.info(f"Sent focus completion DM to user {user.id}")
+        except discord.Forbidden:
+            logger.warning(f"Cannot send DM to user {user.id}")
+            
+            # If DMs are disabled and user allows calls, try voice notification
+            if settings['allow_calls']:
+                # Check if user is in voice channel
+                for guild in client.guilds:
+                    member = guild.get_member(user.id)
+                    if member and member.voice and member.voice.channel:
+                        from modules import voice_tts
+                        
+                        voice_client = await voice_tts.join_voice_channel(member.voice.channel)
+                        if voice_client:
+                            message = f"Hey {member.display_name}, dein Focus-Timer ist abgelaufen! Du hast {duration_minutes} Minuten fokussiert gearbeitet."
+                            await voice_tts.speak_in_channel(voice_client, message)
+                            await asyncio.sleep(3)
+                            await voice_tts.leave_voice_channel(voice_client)
+                            logger.info(f"Sent voice notification to user {user.id}")
+                        break
+        
+    except Exception as e:
+        logger.error(f"Error in focus timer completion handler: {e}", exc_info=True)
+
+
+@tree.command(name="focusstats", description="Zeige deine Focus-Timer Statistiken an")
+@app_commands.describe(days="Zeitraum in Tagen (Standard: 7)")
+async def focusstats(interaction: discord.Interaction, days: int = 7):
+    """Show focus timer statistics for a user."""
+    from modules import focus_timer
+    
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        user_id = interaction.user.id
+        
+        # Validate days
+        if days < 1 or days > 365:
+            await interaction.followup.send(
+                "❌ Bitte wähle einen Zeitraum zwischen 1 und 365 Tagen.",
+                ephemeral=True
+            )
+            return
+        
+        # Get stats
+        stats = await focus_timer.get_user_focus_stats(user_id, days)
+        
+        if stats['total_sessions'] == 0:
+            await interaction.followup.send(
+                f"📊 Du hast in den letzten {days} Tagen keine Focus-Sessions gestartet.",
+                ephemeral=True
+            )
+            return
+        
+        # Calculate additional stats
+        avg_duration = stats['total_minutes'] / stats['total_sessions'] if stats['total_sessions'] > 0 else 0
+        avg_distractions = stats['total_distractions'] / stats['total_sessions'] if stats['total_sessions'] > 0 else 0
+        
+        # Create embed
+        embed = discord.Embed(
+            title="📊 Focus-Timer Statistiken",
+            description=f"Statistiken der letzten **{days} Tage**",
+            color=discord.Color.blue()
+        )
+        
+        embed.add_field(
+            name="🎯 Sessions",
+            value=f"Gesamt: **{stats['total_sessions']}**\n"
+                  f"Abgeschlossen: **{stats['completed_sessions']}**\n"
+                  f"Erfolgsrate: **{stats['completion_rate']:.1f}%**",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="⏱️ Zeit",
+            value=f"Gesamt: **{stats['total_minutes']} Min**\n"
+                  f"Durchschnitt: **{avg_duration:.1f} Min**\n"
+                  f"Stunden: **{stats['total_minutes'] / 60:.1f}h**",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="⚠️ Ablenkungen",
+            value=f"Gesamt: **{stats['total_distractions']}**\n"
+                  f"Pro Session: **{avg_distractions:.1f}**",
+            inline=True
+        )
+        
+        # Get current active session
+        active_session = await focus_timer.get_active_session(user_id)
+        if active_session:
+            time_left = (active_session['end_time'] - datetime.now()).seconds // 60
+            embed.add_field(
+                name="🔴 Aktive Session",
+                value=f"Noch **{time_left} Minuten** verbleibend",
+                inline=False
+            )
+        
+        embed.set_footer(text="Starte eine neue Session mit /focus")
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error in focusstats command: {e}", exc_info=True)
+        await interaction.followup.send(
+            f"❌ Fehler beim Abrufen der Statistiken: {str(e)}",
+            ephemeral=True
+        )
+
+
+@tree.command(name="admin", description="[ADMIN] Bot-Verwaltungsbefehle")
+@app_commands.describe(
+    action="Aktion die ausgeführt werden soll",
+    channel="Voice Channel für join/leave Aktionen",
+    message="Nachricht für speak Aktion"
+)
+@app_commands.choices(action=[
+    app_commands.Choice(name="🔊 Join Voice Channel", value="join"),
+    app_commands.Choice(name="🔇 Leave Voice Channel", value="leave"),
+    app_commands.Choice(name="🗣️ Speak in Voice", value="speak"),
+    app_commands.Choice(name="🧪 Test Database", value="test_db"),
+    app_commands.Choice(name="🧠 Show Bot Mind", value="show_mind"),
+    app_commands.Choice(name="📊 System Status", value="status"),
+    app_commands.Choice(name="🔄 Reload Config", value="reload_config"),
+    app_commands.Choice(name="🗑️ Clear Cache", value="clear_cache")
+])
+async def admin_command(
+    interaction: discord.Interaction,
+    action: app_commands.Choice[str],
+    channel: discord.VoiceChannel = None,
+    message: str = None
+):
+    """Admin-only commands for bot management and debugging."""
+    
+    # Check if user is admin
+    is_admin = interaction.user.guild_permissions.administrator or interaction.user.id == int(os.getenv("OWNER_ID", 0))
+    
+    if not is_admin:
+        await interaction.response.send_message(
+            "❌ Dieser Befehl ist nur für Administratoren verfügbar!",
+            ephemeral=True
+        )
+        return
+    
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        if action.value == "join":
+            # Join voice channel
+            if not channel:
+                await interaction.followup.send(
+                    "❌ Bitte gib einen Voice Channel an!",
+                    ephemeral=True
+                )
+                return
+            
+            voice_client = await voice_tts.join_voice_channel(channel)
+            
+            if voice_client:
+                # Greet in voice
+                greeting = f"Hallo zusammen! Ich bin jetzt im Voice Channel {channel.name}."
+                await voice_tts.speak_in_channel(voice_client, greeting)
+                
+                await interaction.followup.send(
+                    f"✅ Bot ist jetzt in **{channel.name}**!",
+                    ephemeral=True
+                )
+                logger.info(f"Admin {interaction.user.name} made bot join {channel.name}")
+            else:
+                await interaction.followup.send(
+                    "❌ Konnte Voice Channel nicht beitreten. Überprüfe Berechtigungen.",
+                    ephemeral=True
+                )
+        
+        elif action.value == "leave":
+            # Leave voice channel
+            if interaction.guild.voice_client:
+                channel_name = interaction.guild.voice_client.channel.name
+                await voice_tts.leave_voice_channel(interaction.guild.voice_client)
+                
+                await interaction.followup.send(
+                    f"✅ Bot hat **{channel_name}** verlassen!",
+                    ephemeral=True
+                )
+                logger.info(f"Admin {interaction.user.name} made bot leave voice")
+            else:
+                await interaction.followup.send(
+                    "❌ Bot ist nicht in einem Voice Channel!",
+                    ephemeral=True
+                )
+        
+        elif action.value == "speak":
+            # Speak in current voice channel
+            if not interaction.guild.voice_client:
+                await interaction.followup.send(
+                    "❌ Bot ist nicht in einem Voice Channel! Nutze zuerst `/admin action:join`",
+                    ephemeral=True
+                )
+                return
+            
+            if not message:
+                await interaction.followup.send(
+                    "❌ Bitte gib eine Nachricht zum Sprechen an!",
+                    ephemeral=True
+                )
+                return
+            
+            success = await voice_tts.speak_in_channel(
+                interaction.guild.voice_client,
+                message
+            )
+            
+            if success:
+                await interaction.followup.send(
+                    f"✅ Nachricht gesprochen: '{message[:50]}...'",
+                    ephemeral=True
+                )
+            else:
+                await interaction.followup.send(
+                    "❌ Fehler beim Sprechen der Nachricht!",
+                    ephemeral=True
+                )
+        
+        elif action.value == "test_db":
+            # Test database connection and tables
+            test_results = []
+            
+            try:
+                async with db_helpers.get_db_connection() as (conn, cursor):
+                    # Test connection
+                    await cursor.execute("SELECT 1")
+                    test_results.append("✅ Database connection OK")
+                    
+                    # Check autonomous tables
+                    tables_to_check = [
+                        'user_autonomous_settings',
+                        'focus_sessions',
+                        'bot_autonomous_actions',
+                        'temp_dm_access',
+                        'bot_mind_state'
+                    ]
+                    
+                    for table in tables_to_check:
+                        await cursor.execute(f"SELECT COUNT(*) FROM {table}")
+                        count = await cursor.fetchone()
+                        test_results.append(f"✅ {table}: {count[0]} rows")
+                
+                embed = discord.Embed(
+                    title="🧪 Database Test Results",
+                    color=discord.Color.green(),
+                    description="\n".join(test_results)
+                )
+                
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                
+            except Exception as e:
+                await interaction.followup.send(
+                    f"❌ Database test failed: {str(e)}",
+                    ephemeral=True
+                )
+        
+        elif action.value == "show_mind":
+            # Show bot mind state
+            mind_state = bot_mind.get_mind_state_api()
+            personality = bot_mind.get_personality_profile()
+            
+            embed = discord.Embed(
+                title="🧠 Bot Mind State",
+                color=discord.Color.purple(),
+                description=personality['state_summary']
+            )
+            
+            embed.add_field(
+                name="😊 Current Mood",
+                value=f"{mind_state['mood']} - {personality['mood_description']}",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="🎯 Activity",
+                value=f"{mind_state['activity']} - {personality['activity_description']}",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="💭 Current Thought",
+                value=f"'{mind_state['current_thought']}'",
+                inline=False
+            )
+            
+            embed.add_field(
+                name="⚡ Energy Level",
+                value=f"{mind_state['energy_level']:.1%}",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="😴 Boredom Level",
+                value=f"{mind_state['boredom_level']:.1%}",
+                inline=True
+            )
+            
+            # Show recent thoughts
+            if mind_state.get('recent_thoughts'):
+                recent = "\n".join([
+                    f"• {t['thought'][:60]}..." if len(t['thought']) > 60 else f"• {t['thought']}"
+                    for t in mind_state['recent_thoughts'][-3:]
+                ])
+                embed.add_field(
+                    name="💬 Recent Thoughts",
+                    value=recent or "None",
+                    inline=False
+                )
+            
+            # Show interests
+            if mind_state.get('interests'):
+                interests_str = ", ".join(mind_state['interests'][-5:])
+                embed.add_field(
+                    name="🎨 Current Interests",
+                    value=interests_str or "None",
+                    inline=False
+                )
+            
+            embed.set_footer(text=f"Last thought: {mind_state.get('last_thought_time', 'Unknown')}")
+            
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        
+        elif action.value == "status":
+            # Show system status
+            import psutil
+            import sys
+            
+            # Get bot uptime
+            bot_uptime = datetime.now() - datetime.fromtimestamp(psutil.Process().create_time())
+            
+            # Memory usage
+            process = psutil.Process()
+            memory_mb = process.memory_info().rss / 1024 / 1024
+            
+            # CPU usage
+            cpu_percent = process.cpu_percent(interval=1)
+            
+            # Active focus sessions
+            active_sessions = len(focus_timer.active_sessions)
+            
+            # Count temp DM access
+            temp_dm_count = 0
+            try:
+                async with db_helpers.get_db_connection() as (conn, cursor):
+                    await cursor.execute("SELECT COUNT(*) FROM temp_dm_access WHERE expires_at > NOW()")
+                    result = await cursor.fetchone()
+                    temp_dm_count = result[0] if result else 0
+            except:
+                pass
+            
+            embed = discord.Embed(
+                title="📊 Bot System Status",
+                color=discord.Color.blue()
+            )
+            
+            embed.add_field(
+                name="⏱️ Uptime",
+                value=f"{bot_uptime.days}d {bot_uptime.seconds//3600}h {(bot_uptime.seconds//60)%60}m",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="💾 Memory Usage",
+                value=f"{memory_mb:.1f} MB",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="🖥️ CPU Usage",
+                value=f"{cpu_percent:.1f}%",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="🏰 Servers",
+                value=f"{len(client.guilds)}",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="👥 Total Members",
+                value=f"{sum(g.member_count for g in client.guilds)}",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="🐍 Python Version",
+                value=f"{sys.version.split()[0]}",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="🎯 Active Focus Sessions",
+                value=f"{active_sessions}",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="📨 Active Temp DM Access",
+                value=f"{temp_dm_count}",
+                inline=True
+            )
+            
+            # Voice status
+            voice_status = "🔇 Not in voice" if not interaction.guild.voice_client else f"🔊 In {interaction.guild.voice_client.channel.name}"
+            embed.add_field(
+                name="🎤 Voice Status",
+                value=voice_status,
+                inline=True
+            )
+            
+            # Check voice dependencies
+            voice_deps = voice_tts.check_voice_dependencies()
+            deps_status = "✅ All OK" if all(voice_deps.values()) else "⚠️ Missing deps"
+            embed.add_field(
+                name="🔊 Voice TTS Status",
+                value=f"{deps_status}\nedge-tts: {'✅' if voice_deps['edge_tts'] else '❌'}\nffmpeg: {'✅' if voice_deps['ffmpeg'] else '❌'}",
+                inline=False
+            )
+            
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        
+        elif action.value == "reload_config":
+            # Reload configuration
+            try:
+                global config
+                with open("config/config.json", "r", encoding="utf-8") as f:
+                    config = json.load(f)
+                
+                await interaction.followup.send(
+                    "✅ Konfiguration neu geladen!",
+                    ephemeral=True
+                )
+                logger.info(f"Admin {interaction.user.name} reloaded config")
+            except Exception as e:
+                await interaction.followup.send(
+                    f"❌ Fehler beim Neuladen der Konfiguration: {str(e)}",
+                    ephemeral=True
+                )
+        
+        elif action.value == "clear_cache":
+            # Clear various caches
+            cleared = []
+            
+            # Clear focus timer active sessions count
+            session_count = len(focus_timer.active_sessions)
+            cleared.append(f"Focus sessions: {session_count}")
+            
+            # Clear bot mind thought history
+            thought_count = len(bot_mind.bot_mind.thought_history)
+            bot_mind.bot_mind.thought_history = bot_mind.bot_mind.thought_history[-10:]
+            cleared.append(f"Bot thoughts: {thought_count} -> 10")
+            
+            # Clear conversation context count (if accessible)
+            try:
+                # This would need to be implemented in bot_enhancements
+                cleared.append("Conversation contexts: Cleared")
+            except:
+                pass
+            
+            embed = discord.Embed(
+                title="🗑️ Cache Cleared",
+                color=discord.Color.green(),
+                description="\n".join(cleared)
+            )
+            
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            logger.info(f"Admin {interaction.user.name} cleared caches")
+    
+    except Exception as e:
+        logger.error(f"Error in admin command: {e}", exc_info=True)
+        await interaction.followup.send(
+            f"❌ Fehler: {str(e)}",
+            ephemeral=True
+        )
+
+
 @tree.command(name="rr", description="Spiele Russian Roulette!")
 @app_commands.describe(bet="Einsatz (optional, Standard: 100)")
 async def russian_roulette(interaction: discord.Interaction, bet: int = None):
@@ -13861,6 +14827,24 @@ async def on_message(message):
             print(f"[DEDUP] Duplicate message from {message.author.name} within 3 seconds, skipping")
             return
         recent_user_message_cache[key] = now_ts
+        
+        # --- NEW: Focus timer activity detection ---
+        try:
+            is_distraction = await focus_timer.detect_message_activity(
+                message.author.id, 
+                "DM" if isinstance(message.channel, discord.DMChannel) else "server"
+            )
+            if is_distraction:
+                # Send a gentle reminder
+                try:
+                    await message.author.send(
+                        "⚠️ **Focus-Modus aktiv!** Du solltest gerade fokussiert arbeiten. 🎯",
+                        delete_after=10
+                    )
+                except discord.Forbidden:
+                    pass  # Can't send DM
+        except Exception as e:
+            logger.error(f"Error in focus timer detection: {e}")
     async def run_chatbot(message):
         """Handles the core logic of fetching and sending an AI response."""
         channel_name = f"DM with {message.author.name}" if isinstance(message.channel, discord.DMChannel) else f"#{message.channel.name}"
@@ -14066,6 +15050,21 @@ async def on_message(message):
         # --- FIX: Ignore DMs from the bot itself (e.g., level-up notifications) ---
         if message.author == client.user:
             logger.debug(f"[FILTER] Ignoring DM from bot itself")
+            return
+        
+        # --- NEW: Check DM access permission ---
+        has_dm_access = await db_helpers.has_feature_unlock(message.author.id, 'dm_access')
+        has_temp_access = await autonomous_behavior.has_temp_dm_access(message.author.id)
+        
+        if not has_dm_access and not has_temp_access:
+            # User doesn't have DM access and no temporary access
+            logger.info(f"[DM] User {message.author.name} lacks DM access")
+            await message.channel.send(
+                "🔒 **DM Access erforderlich**\n\n"
+                "Du benötigst **DM Access** um direkt mit mir zu chatten!\n\n"
+                "Kaufe es im Shop mit `/shop` für 2000 🪙\n\n"
+                "*Hinweis: Wenn ich dich anschreibe, kannst du für eine begrenzte Zeit antworten.*"
+            )
             return
         
         # --- FIX: Check if the user is in an active Werwolf game and handle game commands ---

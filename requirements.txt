@@ -6,6 +6,7 @@ Flask
 Flask-SocketIO
 waitress
 psutil
+edge-tts
 # NOTE: OpenAI Python SDK is not required for runtime. We call OpenAI via HTTP in code.
 # Installing `openai` pulls in `jiter` which fails to build on Termux/Android.
 # If you need the SDK for local testing, install it manually: `pip install openai`.

@@ -362,6 +362,28 @@
           "base_url": "https://api.sportmonks.com/v3"
         }
       }
+    },
+    "autonomous_behavior": {
+      "enabled": true,
+      "messaging_interval_hours": 2,
+      "max_users_per_run": 5,
+      "min_cooldown_hours": 24,
+      "min_dm_cooldown_hours": 1,
+      "temp_dm_access_hours": 1,
+      "allow_voice_calls": true,
+      "voice_call_probability": 0.1
+    },
+    "focus_timer": {
+      "enabled": true,
+      "max_duration_minutes": 180,
+      "reminder_on_distraction": true,
+      "completion_notification_method": "dm_or_voice"
+    },
+    "voice_tts": {
+      "enabled": true,
+      "voice_id": "de-DE-KillianNeural",
+      "rate": "+0%",
+      "pitch": "+0Hz"
     }
   }
 }
