@@ -851,6 +851,11 @@ async def on_ready():
     # --- NEW: Start temp DM access cleanup task ---
     if not cleanup_temp_dm_access.is_running():
         cleanup_temp_dm_access.start()
+    
+    # --- NEW: Start bot mind state task ---
+    if not bot_mind_state_task.is_running():
+        bot_mind_state_task.start()
+    
     # --- NEW: Start the background task for Wrapped event management ---
     if not manage_wrapped_event.is_running():
         manage_wrapped_event.start()
@@ -1128,6 +1133,41 @@ async def cleanup_temp_dm_access():
 @cleanup_temp_dm_access.before_loop
 async def before_cleanup_temp_dm_access():
     await client.wait_until_ready()
+
+# --- NEW: Bot Mind State Management Task ---
+@_tasks.loop(minutes=30)
+async def bot_mind_state_task():
+    """Periodically update bot mind state, generate thoughts, and save state."""
+    try:
+        # Generate autonomous thought
+        await bot_mind.autonomous_thought_cycle(client, get_chat_response)
+        
+        # Periodically save mind state to database
+        if random.random() < 0.3:  # 30% chance each cycle
+            await bot_mind.save_mind_state()
+            logger.info("Bot mind state saved to database")
+        
+        # Observe server activity
+        for guild in client.guilds:
+            online_count = sum(1 for m in guild.members if not m.bot and m.status != discord.Status.offline)
+            if online_count > 10:
+                await bot_mind.observe_server_activity(guild, "high_activity", f"{online_count} users online in {guild.name}")
+                
+    except Exception as e:
+        logger.error(f"Error in bot mind state task: {e}", exc_info=True)
+
+@bot_mind_state_task.before_loop
+async def before_bot_mind_state_task():
+    await client.wait_until_ready()
+    # Load last mind state on startup
+    try:
+        loaded = await bot_mind.load_last_mind_state()
+        if loaded:
+            logger.info("Loaded previous bot mind state from database")
+        else:
+            logger.info("No previous mind state found, starting fresh")
+    except Exception as e:
+        logger.error(f"Error loading mind state on startup: {e}")
 
 # --- NEW: Periodic Channel Cleanup Task ---
 @tasks.loop(hours=1)
@@ -14957,6 +14997,25 @@ async def on_message(message):
         print(f"[CHATBOT] === Starting chatbot handler for {message.author.name} in {channel_name} ===")
         print(f"[CHATBOT] Message content: '{message.content}'")
         
+        # --- NEW: Process interaction with bot mind ---
+        try:
+            bot_mind.bot_mind.process_interaction(message.author.display_name, message.content)
+            
+            # Extract interests from message
+            if len(message.content) > 20:  # Only for substantial messages
+                # Simple keyword extraction for interests
+                keywords = ['game', 'music', 'anime', 'coding', 'art', 'sport', 'movie', 'book']
+                for keyword in keywords:
+                    if keyword.lower() in message.content.lower():
+                        bot_mind.bot_mind.add_interest(keyword.capitalize())
+            
+            # Record observation about the interaction
+            observation = f"User {message.author.display_name} sent a message in {channel_name}"
+            bot_mind.bot_mind.observe(observation)
+            
+        except Exception as e:
+            logger.warning(f"Mind state processing error: {e}")
+        
         if not isinstance(message.channel, discord.DMChannel):
             stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
             await log_stat_increment(message.author.id, stat_period, 'sulf_interactions')
@@ -15118,6 +15177,31 @@ async def on_message(message):
         
         # Add accuracy enforcement for current conversation using constant template
         dynamic_system_prompt += "\n\n" + ACCURACY_CHECK_TEMPLATE.format(user_name=message.author.display_name)
+        
+        # --- NEW: Add bot mind state to system prompt for personality-aware responses ---
+        try:
+            mind_state = bot_mind.get_mind_state_api()
+            mood = mind_state.get('mood', 'neutral')
+            mood_desc = bot_mind.get_mood_description()
+            
+            # Adjust response based on mood
+            if mood in ['bored', 'sarcastic']:
+                dynamic_system_prompt += f"\n\nCurrent mood: {mood_desc} - Be slightly more sarcastic and witty."
+            elif mood == 'excited':
+                dynamic_system_prompt += f"\n\nCurrent mood: {mood_desc} - Be enthusiastic and energetic."
+            elif mood == 'curious':
+                dynamic_system_prompt += f"\n\nCurrent mood: {mood_desc} - Ask follow-up questions and show interest."
+            elif mood == 'contemplative':
+                dynamic_system_prompt += f"\n\nCurrent mood: {mood_desc} - Be thoughtful and philosophical."
+            
+            # Add interests to context
+            interests = mind_state.get('interests', [])
+            if interests:
+                recent_interests = ", ".join(interests[-5:])
+                dynamic_system_prompt += f"\n\nCurrent interests: {recent_interests}"
+                
+        except Exception as e:
+            logger.warning(f"Could not add mind state to prompt: {e}")
         
         # Add compact user context (level, current activity)
         try:
