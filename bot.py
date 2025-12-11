@@ -54,6 +54,7 @@ from modules import autonomous_behavior  # NEW: Autonomous bot behavior
 from modules import focus_timer  # NEW: Focus timer with activity monitoring
 from modules import voice_tts  # NEW: Voice TTS and conversation
 from modules import bot_mind  # NEW: Bot mind state and consciousness
+from modules import personality_evolution  # NEW: Personality evolution and learning system
 from modules.bot_enhancements import (
     handle_image_attachment,
     handle_unknown_emojis_in_message,
@@ -856,6 +857,15 @@ async def on_ready():
     if not bot_mind_state_task.is_running():
         bot_mind_state_task.start()
     
+    # --- NEW: Start personality evolution tasks ---
+    if not personality_maintenance_task.is_running():
+        personality_maintenance_task.start()
+        print("  -> Personality maintenance task started")
+    
+    if not reflection_task.is_running():
+        reflection_task.start()
+        print("  -> Daily reflection task started")
+    
     # --- NEW: Start the background task for Wrapped event management ---
     if not manage_wrapped_event.is_running():
         manage_wrapped_event.start()
@@ -1166,8 +1176,43 @@ async def before_bot_mind_state_task():
             logger.info("Loaded previous bot mind state from database")
         else:
             logger.info("No previous mind state found, starting fresh")
+        
+        # Load evolved personality from database
+        await bot_mind.bot_mind.load_personality_from_db()
+        logger.info("Loaded evolved personality traits")
     except Exception as e:
         logger.error(f"Error loading mind state on startup: {e}")
+
+# --- NEW: Personality Evolution Maintenance Task ---
+@_tasks.loop(hours=6)
+async def personality_maintenance_task():
+    """Perform periodic personality maintenance and learning decay."""
+    try:
+        await personality_evolution.perform_personality_maintenance()
+        logger.info("Personality maintenance completed")
+    except Exception as e:
+        logger.error(f"Error in personality maintenance: {e}", exc_info=True)
+
+@personality_maintenance_task.before_loop
+async def before_personality_maintenance_task():
+    await client.wait_until_ready()
+
+# --- NEW: Reflection Session Task ---
+@_tasks.loop(hours=24)
+async def reflection_task():
+    """Perform daily reflection on bot's personality and interactions."""
+    try:
+        reflection_summary = await personality_evolution.perform_reflection(get_chat_response)
+        if reflection_summary:
+            logger.info(f"Reflection completed: {reflection_summary[:100]}...")
+    except Exception as e:
+        logger.error(f"Error in reflection task: {e}", exc_info=True)
+
+@reflection_task.before_loop
+async def before_reflection_task():
+    await client.wait_until_ready()
+    # Wait a bit before first reflection (let bot gather some data)
+    await asyncio.sleep(3600)  # 1 hour
 
 # --- NEW: Periodic Channel Cleanup Task ---
 @tasks.loop(hours=1)
@@ -14949,6 +14994,45 @@ class WerwolfJoinView(discord.ui.View):
             await asyncio.sleep(min(5, self.duration)) # Update every 5 seconds or less
             self.duration -= 5
 
+
+# --- NEW: Reaction tracking for learning ---
+@client.event
+async def on_reaction_add(reaction, user):
+    """Track reactions to bot messages for learning."""
+    if user.bot:
+        return
+    
+    # Check if this is a reaction to a bot message
+    if reaction.message.author.id == client.user.id:
+        try:
+            # Map emoji to feedback value
+            feedback_value = 0
+            if str(reaction.emoji) in ['👍', '❤️', '🔥', '😂', '🎉']:
+                feedback_value = 1  # Positive
+            elif str(reaction.emoji) in ['👎', '😐', '😒', '🙄']:
+                feedback_value = -1  # Negative
+            
+            # Record feedback
+            await personality_evolution.record_conversation_feedback(
+                user_id=user.id,
+                message_id=reaction.message.id,
+                feedback_type='reaction',
+                feedback_value=feedback_value
+            )
+            
+            # Learn from the reaction
+            if reaction.message.content:
+                await personality_evolution.learn_from_interaction(
+                    user_id=user.id,
+                    message=reaction.message.reference.resolved.content if reaction.message.reference and reaction.message.reference.resolved else "",
+                    bot_response=reaction.message.content,
+                    user_reaction=str(reaction.emoji)
+                )
+            
+        except Exception as e:
+            logger.debug(f"Could not record reaction feedback: {e}")
+
+
 @client.event
 async def on_message(message):
     """Fires on every message in any channel the bot can see."""
@@ -15165,6 +15249,17 @@ async def on_message(message):
             print(f"[CHATBOT] === Response sent successfully to {message.author.name} ({chunks_sent} chunks) ===")
             logger.info(f"[CHATBOT] Sent {chunks_sent} message chunks to {message.author.name}")
 
+            # --- NEW: Learn from this interaction for personality evolution ---
+            try:
+                await personality_evolution.learn_from_interaction(
+                    user_id=message.author.id,
+                    message=message.content,
+                    bot_response=final_response
+                )
+                logger.debug(f"[CHATBOT] Recorded learning from interaction with {message.author.name}")
+            except Exception as e:
+                logger.warning(f"[CHATBOT] Could not record learning: {e}")
+
             # --- NEW: Track AI usage (model + feature) ---
             try:
                 provider_used = await get_current_provider(config)
@@ -15186,6 +15281,15 @@ async def on_message(message):
         
         # Add accuracy enforcement for current conversation using constant template
         dynamic_system_prompt += "\n\n" + ACCURACY_CHECK_TEMPLATE.format(user_name=message.author.display_name)
+        
+        # --- ENHANCED: Add evolved personality context for smarter AI responses ---
+        try:
+            personality_context = await personality_evolution.get_personality_context_for_prompt()
+            if personality_context:
+                dynamic_system_prompt += f"\n\n{personality_context}"
+                logger.debug("Added evolved personality context to prompt")
+        except Exception as e:
+            logger.warning(f"Could not add personality evolution context: {e}")
         
         # --- NEW: Add bot mind state to system prompt for personality-aware responses ---
         try:
