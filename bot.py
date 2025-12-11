@@ -8838,9 +8838,16 @@ class HelpView(discord.ui.View):
             self.categories["🔧 Admin"] = [
                 ("admin view_wrapped", "Zeige eine Wrapped-Vorschau für einen Benutzer"),
                 ("admin reload_config", "Lade die Konfiguration neu"),
-                ("admin view_dates", "Zeige die nächsten Wrapped-Event-Daten"),
-                ("admin view_event", "Erstelle ein Test-Wrapped-Event"),
-                ("admin save_history", "Speichere den Chatverlauf in der Datenbank"),
+                ("admin status", "Zeige den Bot-Status"),
+                ("admin dashboard", "Zeige das Admin-Dashboard"),
+                ("admin emojis", "Verwalte Server-Emojis"),
+            ]
+            self.categories["🤖 Admin AI"] = [
+                ("adminai mind", "Zeige den mentalen Zustand des Bots"),
+                ("adminai context", "Zeige den Konversationskontext"),
+                ("adminai test_ai", "Teste die KI-Antwort"),
+                ("adminai observations", "Zeige Bot-Beobachtungen"),
+                ("adminai autonomous_status", "Zeige autonomen Status"),
             ]
         
         self.pages = list(self.categories.keys())
