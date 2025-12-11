@@ -46,6 +46,7 @@ class BotMind:
     """
     The bot's internal state and consciousness.
     Tracks thoughts, mood, interests, and personality.
+    Now with dynamic personality evolution!
     """
     
     def __init__(self):
@@ -54,17 +55,22 @@ class BotMind:
         self.current_thought = "Just started up... wondering what chaos awaits."
         self.interests = []
         self.recent_observations = []
+        # Personality traits now loaded from database (see load_personality)
         self.personality_traits = {
             'sarcasm': 0.7,
             'curiosity': 0.8,
             'helpfulness': 0.6,
             'mischief': 0.5,
-            'judgment': 0.9
+            'judgment': 0.9,
+            'creativity': 0.7,
+            'empathy': 0.4,
+            'playfulness': 0.8
         }
         self.energy_level = 1.0
         self.boredom_level = 0.0
         self.last_thought_time = datetime.now()
         self.thought_history = []
+        self.personality_loaded_from_db = False
         
     def to_dict(self) -> Dict[str, Any]:
         """Convert mind state to dictionary for serialization"""
@@ -133,6 +139,18 @@ class BotMind:
         # High boredom affects mood
         if self.boredom_level > 0.7:
             self.update_mood(Mood.BORED, "High boredom level")
+    
+    async def load_personality_from_db(self):
+        """Load evolved personality traits from database."""
+        try:
+            from modules.personality_evolution import get_current_personality
+            personality = await get_current_personality()
+            self.personality_traits = personality
+            self.personality_loaded_from_db = True
+            logger.info(f"Loaded evolved personality from database: {personality}")
+        except Exception as e:
+            logger.warning(f"Could not load personality from database, using defaults: {e}")
+            self.personality_loaded_from_db = False
     
     def process_interaction(self, user_name: str, message: str):
         """Process an interaction with a user"""
