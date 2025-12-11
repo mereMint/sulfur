@@ -397,9 +397,17 @@ Thought:"""
             openai_key=openai_key
         )
         
+        # get_chat_response returns a tuple (response_text, error, metadata)
         if response:
-            thought = response.strip().strip('"').strip("'")
-            return thought
+            if isinstance(response, tuple):
+                response_text = response[0]
+                if response_text:
+                    thought = response_text.strip().strip('"').strip("'")
+                    return thought
+            else:
+                # Fallback if it's not a tuple
+                thought = response.strip().strip('"').strip("'")
+                return thought
         
         # Fallback thoughts based on current mood and personality
         mood_fallbacks = {

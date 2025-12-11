@@ -1184,7 +1184,11 @@ async def autonomous_messaging_task():
                 
                 # Generate conversation starter
                 message = await autonomous_behavior.generate_conversation_starter(
-                    member, context, get_chat_response
+                    member, context, get_chat_response,
+                    system_prompt=config['bot']['system_prompt'],
+                    config=config,
+                    gemini_key=GEMINI_API_KEY,
+                    openai_key=OPENAI_API_KEY
                 )
                 
                 if message:
@@ -4406,7 +4410,7 @@ class AdminAIGroup(app_commands.Group):
                 config=config,
                 gemini_key=GEMINI_API_KEY,
                 openai_key=OPENAI_API_KEY,
-                system_prompt=SYSTEM_PROMPT,
+                system_prompt=config['bot']['system_prompt'],
                 use_cache=False  # Don't use cache for debugging
             )
             

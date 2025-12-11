@@ -178,12 +178,18 @@ async def end_voice_call(user_id: int, reason: str = "normal"):
         logger.info(f"Ended voice call with user {user_id}, duration: {duration}s, reason: {reason}")
         
         # Store call statistics
-        async with get_db_connection() as (conn, cursor):
-            await cursor.execute("""
-                INSERT INTO voice_call_stats (user_id, duration_seconds, reason, started_at)
-                VALUES (%s, %s, %s, %s)
-            """, (user_id, duration, reason, call_state.start_time))
-            await conn.commit()
+        conn = get_db_connection()
+        if conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    INSERT INTO voice_call_stats (user_id, duration_seconds, reason, started_at)
+                    VALUES (%s, %s, %s, %s)
+                """, (user_id, duration, reason, call_state.start_time))
+                conn.commit()
+            finally:
+                cursor.close()
+                conn.close()
             
     except Exception as e:
         logger.error(f"Error ending voice call: {e}", exc_info=True)
@@ -462,9 +468,20 @@ async def get_voice_call_stats(user_id: Optional[int] = None) -> Dict[str, Any]:
     Returns:
         Dictionary with call statistics
     """
-    async with get_db_connection() as (conn, cursor):
+    conn = get_db_connection()
+    if not conn:
+        return {
+            'total_calls': 0,
+            'total_duration': 0,
+            'avg_duration': 0,
+            'max_duration': 0,
+            'unique_users': 0
+        }
+    
+    cursor = conn.cursor()
+    try:
         if user_id:
-            await cursor.execute("""
+            cursor.execute("""
                 SELECT 
                     COUNT(*) as total_calls,
                     SUM(duration_seconds) as total_duration,
@@ -474,7 +491,7 @@ async def get_voice_call_stats(user_id: Optional[int] = None) -> Dict[str, Any]:
                 WHERE user_id = %s
             """, (user_id,))
         else:
-            await cursor.execute("""
+            cursor.execute("""
                 SELECT 
                     COUNT(*) as total_calls,
                     SUM(duration_seconds) as total_duration,
@@ -484,7 +501,7 @@ async def get_voice_call_stats(user_id: Optional[int] = None) -> Dict[str, Any]:
                 FROM voice_call_stats
             """)
             
-        result = await cursor.fetchone()
+        result = cursor.fetchone()
         
         if result:
             stats = {
@@ -501,5 +518,10 @@ async def get_voice_call_stats(user_id: Optional[int] = None) -> Dict[str, Any]:
                 'total_calls': 0,
                 'total_duration': 0,
                 'avg_duration': 0,
-                'max_duration': 0
+                'max_duration': 0,
+                'unique_users': 0
+            }
+    finally:
+        cursor.close()
+        conn.close()
             }

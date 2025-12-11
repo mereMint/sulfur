@@ -160,16 +160,10 @@ async def record_learning(learning_type: str, content: str, user_id: Optional[in
 
 async def get_relevant_learnings(limit: int = 10, user_id: Optional[int] = None) -> List[Dict[str, Any]]:
     """Get the most relevant learnings for context."""
-    conn = get_db_connection()
-    if not conn:
-        logger.error("Could not connect to database to get learnings")
-        return []
-    
-    cursor = conn.cursor()
-    try:
+    async with get_db_connection() as (conn, cursor):
         if user_id:
             # Get user-specific and general learnings
-            cursor.execute("""
+            await cursor.execute("""
                 SELECT learning_type, learning_content, confidence, interaction_count
                 FROM interaction_learnings
                 WHERE (user_id = %s OR user_id IS NULL)
@@ -184,7 +178,7 @@ async def get_relevant_learnings(limit: int = 10, user_id: Optional[int] = None)
             """, (user_id, limit))
         else:
             # Get only general learnings
-            cursor.execute("""
+            await cursor.execute("""
                 SELECT learning_type, learning_content, confidence, interaction_count
                 FROM interaction_learnings
                 WHERE user_id IS NULL
@@ -193,7 +187,7 @@ async def get_relevant_learnings(limit: int = 10, user_id: Optional[int] = None)
                 LIMIT %s
             """, (limit,))
         
-        results = cursor.fetchall()
+        results = await cursor.fetchall()
         return [
             {
                 'type': row[0],
@@ -203,61 +197,44 @@ async def get_relevant_learnings(limit: int = 10, user_id: Optional[int] = None)
             }
             for row in results
         ]
-    finally:
-        cursor.close()
-        conn.close()
 
 
 async def add_semantic_memory(memory_type: str, content: str, importance: float = 0.5, 
                               context: Optional[Dict] = None):
     """Add a semantic memory (long-term fact/insight)."""
-    conn = get_db_connection()
-    if not conn:
-        logger.error("Could not connect to database")
-        return
-    
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
+    async with get_db_connection() as (conn, cursor):
+        await cursor.execute("""
             INSERT INTO semantic_memory (memory_type, memory_content, importance, context)
             VALUES (%s, %s, %s, %s)
         """, (memory_type, content, importance, json.dumps(context) if context else None))
-        conn.commit()
-        logger.info(f"Semantic memory added: {memory_type} - {content} (importance: {importance:.2f})")
-    finally:
-        cursor.close()
-        conn.close()
+        await conn.commit()
+    
+    logger.info(f"Semantic memory added: {memory_type} - {content} (importance: {importance:.2f})")
 
 
 async def get_important_memories(limit: int = 5) -> List[Dict[str, Any]]:
     """Get the most important semantic memories."""
-    conn = get_db_connection()
-    if not conn:
-        logger.error("Could not connect to database")
-        return []
-    
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
+    async with get_db_connection() as (conn, cursor):
+        await cursor.execute("""
             SELECT id, memory_type, memory_content, importance, access_count
             FROM semantic_memory
             ORDER BY importance DESC, access_count DESC, created_at DESC
             LIMIT %s
         """, (limit,))
         
-        results = cursor.fetchall()
+        results = await cursor.fetchall()
         
         # Update access count for retrieved memories
         if results:
             memory_ids = [row[0] for row in results]  # row[0] is id
             placeholders = ','.join(['%s'] * len(memory_ids))
-            cursor.execute(f"""
+            await cursor.execute(f"""
                 UPDATE semantic_memory 
                 SET access_count = access_count + 1, 
                     last_accessed = NOW()
                 WHERE id IN ({placeholders})
             """, memory_ids)
-            conn.commit()
+            await conn.commit()
         
         return [
             {
@@ -268,42 +245,24 @@ async def get_important_memories(limit: int = 5) -> List[Dict[str, Any]]:
             }
             for row in results
         ]
-    finally:
-        cursor.close()
-        conn.close()
 
 
 async def record_conversation_feedback(user_id: int, message_id: int, feedback_type: str, 
                                       feedback_value: int = 0):
     """Record implicit feedback from user reactions to bot messages."""
-    conn = get_db_connection()
-    if not conn:
-        logger.error("Could not connect to database")
-        return
-    
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
+    async with get_db_connection() as (conn, cursor):
+        await cursor.execute("""
             INSERT INTO conversation_feedback 
             (user_id, message_id, feedback_type, feedback_value)
             VALUES (%s, %s, %s, %s)
         """, (user_id, message_id, feedback_type, feedback_value))
-        conn.commit()
-    finally:
-        cursor.close()
-        conn.close()
+        await conn.commit()
 
 
 async def analyze_feedback_patterns() -> Dict[str, Any]:
     """Analyze conversation feedback to understand what's working."""
-    conn = get_db_connection()
-    if not conn:
-        logger.error("Could not connect to database")
-        return {}
-    
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
+    async with get_db_connection() as (conn, cursor):
+        await cursor.execute("""
             SELECT 
                 feedback_type,
                 AVG(feedback_value) as avg_value,
@@ -313,7 +272,7 @@ async def analyze_feedback_patterns() -> Dict[str, Any]:
             GROUP BY feedback_type
         """)
         
-        results = cursor.fetchall()
+        results = await cursor.fetchall()
         return {
             row[0]: {
                 'average': row[1],
@@ -321,9 +280,6 @@ async def analyze_feedback_patterns() -> Dict[str, Any]:
             }
             for row in results
         }
-    finally:
-        cursor.close()
-        conn.close()
 
 
 async def perform_reflection(get_chat_response_func) -> Optional[str]:
@@ -339,34 +295,25 @@ async def perform_reflection(get_chat_response_func) -> Optional[str]:
     """
     try:
         # Get recent personality evolution
-        conn = get_db_connection()
-        if not conn:
-            logger.error("Could not connect to database for reflection")
-            return None
-        
-        cursor = conn.cursor()
-        try:
-            cursor.execute("""
+        async with get_db_connection() as (conn, cursor):
+            await cursor.execute("""
                 SELECT trait_name, trait_value, reason, created_at
                 FROM personality_evolution
                 WHERE created_at > DATE_SUB(NOW(), INTERVAL 7 DAY)
                 ORDER BY created_at DESC
                 LIMIT 20
             """)
-            recent_evolution = cursor.fetchall()
+            recent_evolution = await cursor.fetchall()
             
             # Get recent learnings
-            cursor.execute("""
+            await cursor.execute("""
                 SELECT learning_type, learning_content, confidence, interaction_count
                 FROM interaction_learnings
                 WHERE last_observed > DATE_SUB(NOW(), INTERVAL 7 DAY)
                 ORDER BY confidence DESC, interaction_count DESC
                 LIMIT 15
             """)
-            recent_learnings = cursor.fetchall()
-        finally:
-            cursor.close()
-            conn.close()
+            recent_learnings = await cursor.fetchall()
         
         # Get current personality
         current_personality = await get_current_personality()
@@ -424,19 +371,13 @@ Be honest and self-aware. Write in first person as Sulfur."""
                 'feedback_summary': feedback
             }
             
-            conn = get_db_connection()
-            if conn:
-                cursor = conn.cursor()
-                try:
-                    cursor.execute("""
-                        INSERT INTO reflection_sessions 
-                        (reflection_content, insights_generated)
-                        VALUES (%s, %s)
-                    """, (reflection_text, json.dumps(insights)))
-                    conn.commit()
-                finally:
-                    cursor.close()
-                    conn.close()
+            async with get_db_connection() as (conn, cursor):
+                await cursor.execute("""
+                    INSERT INTO reflection_sessions 
+                    (reflection_content, insights_generated)
+                    VALUES (%s, %s)
+                """, (reflection_text, json.dumps(insights)))
+                await conn.commit()
             
             logger.info("Reflection session completed successfully")
             return reflection_text
@@ -450,15 +391,9 @@ Be honest and self-aware. Write in first person as Sulfur."""
 
 async def decay_old_learnings():
     """Decay the relevance of old learnings over time."""
-    conn = get_db_connection()
-    if not conn:
-        logger.error("Could not connect to database")
-        return
-    
-    cursor = conn.cursor()
-    try:
+    async with get_db_connection() as (conn, cursor):
         # Decay learnings that haven't been observed in 30+ days
-        cursor.execute("""
+        await cursor.execute("""
             UPDATE interaction_learnings
             SET relevance_score = relevance_score * 0.9
             WHERE last_observed < DATE_SUB(NOW(), INTERVAL 30 DAY)
@@ -466,13 +401,10 @@ async def decay_old_learnings():
         """)
         
         affected = cursor.rowcount
-        conn.commit()
+        await conn.commit()
         
         if affected > 0:
             logger.info(f"Decayed relevance for {affected} old learnings")
-    finally:
-        cursor.close()
-        conn.close()
 
 
 async def learn_from_interaction(user_id: int, message: str, bot_response: str, 
