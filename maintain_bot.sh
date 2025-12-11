@@ -618,48 +618,108 @@ apply_updates() {
         fi
     fi
     
-    # Initialize/update database tables after pulling updates
-    log_update "Updating database tables and applying migrations..."
+    # Update Python dependencies after code update
+    log_update "Updating Python dependencies..."
     local python_exe="$PYTHON_CMD"
     if [ -f "venv/bin/python" ]; then
         python_exe="venv/bin/python"
     fi
     
-    # Run database initialization and apply migrations
-    "$python_exe" -c "
+    local venv_pip="venv/bin/pip"
+    if [ -f "$venv_pip" ]; then
+        # Update pip first
+        $python_exe -m pip install --upgrade pip >>"$MAIN_LOG" 2>&1 || true
+        
+        # Install/update requirements
+        if $venv_pip install -r requirements.txt >>"$MAIN_LOG" 2>&1; then
+            log_success "Dependencies updated successfully"
+            
+            # Update marker file
+            local req_hash=$(md5sum requirements.txt 2>/dev/null | awk '{print $1}' || echo "unknown")
+            echo "$req_hash" > ".last_requirements_install"
+        else
+            log_warning "Dependencies update failed; retrying without cache..."
+            if $venv_pip install -r requirements.txt --no-cache-dir >>"$MAIN_LOG" 2>&1; then
+                log_success "Dependencies updated successfully (no cache)"
+                local req_hash=$(md5sum requirements.txt 2>/dev/null | awk '{print $1}' || echo "unknown")
+                echo "$req_hash" > ".last_requirements_install"
+            else
+                log_error "Failed to update dependencies"
+                log_warning "Bot may experience import errors"
+            fi
+        fi
+    else
+        log_warning "venv/bin/pip not found, skipping dependency update"
+    fi
+    
+    # Initialize/update database tables after pulling updates
+    log_update "Updating database tables and applying migrations..."
+    
+    # Run database initialization and apply migrations with retry
+    local db_attempt=1
+    local db_max_attempts=3
+    local db_success=false
+    
+    while [ $db_attempt -le $db_max_attempts ]; do
+        log_update "Database update attempt $db_attempt/$db_max_attempts..."
+        
+        if "$python_exe" -c "
 from modules.db_helpers import init_db_pool, initialize_database, apply_pending_migrations
 import os
+import sys
 from dotenv import load_dotenv
 
-load_dotenv()
-DB_HOST = os.environ.get('DB_HOST', 'localhost')
-DB_USER = os.environ.get('DB_USER', 'sulfur_bot_user')
-DB_PASS = os.environ.get('DB_PASS', '')
-DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot')
-
-# Initialize database pool
-init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
-
-# Create base tables
-initialize_database()
-print('Database tables initialized successfully')
-
-# Apply any pending migrations
-applied_count, errors = apply_pending_migrations()
-if applied_count > 0:
-    print(f'Applied {applied_count} new database migrations')
-if errors:
-    print(f'WARNING: {len(errors)} migration errors occurred')
-    for error in errors:
-        print(f'  - {error}')
-else:
-    print('All database migrations up to date')
-" >>"$MAIN_LOG" 2>&1
+try:
+    load_dotenv()
+    DB_HOST = os.environ.get('DB_HOST', 'localhost')
+    DB_USER = os.environ.get('DB_USER', 'sulfur_bot_user')
+    DB_PASS = os.environ.get('DB_PASS', '')
+    DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot')
     
-    if [ $? -eq 0 ]; then
-        log_success "Database tables and migrations updated successfully"
-    else
-        log_warning "Database initialization/migration had issues - check log"
+    # Initialize database pool
+    init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
+    print('Database pool initialized')
+    
+    # Create base tables
+    initialize_database()
+    print('Database tables initialized successfully')
+    
+    # Apply any pending migrations
+    applied_count, errors = apply_pending_migrations()
+    if applied_count > 0:
+        print(f'Applied {applied_count} new database migrations')
+    if errors:
+        print(f'WARNING: {len(errors)} migration errors occurred')
+        for error in errors:
+            print(f'  - {error}')
+        sys.exit(1)
+    else:
+        print('All database migrations up to date')
+    
+    sys.exit(0)
+except Exception as e:
+    print(f'ERROR: Database update failed: {e}')
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+" >>"$MAIN_LOG" 2>&1; then
+            log_success "Database tables and migrations updated successfully"
+            db_success=true
+            break
+        else
+            log_warning "Database update attempt $db_attempt failed"
+            if [ $db_attempt -lt $db_max_attempts ]; then
+                log_info "Retrying in 5 seconds..."
+                sleep 5
+            fi
+        fi
+        
+        db_attempt=$((db_attempt + 1))
+    done
+    
+    if [ "$db_success" = false ]; then
+        log_error "Database update failed after $db_max_attempts attempts"
+        log_warning "Bot may experience database issues. Check $MAIN_LOG for details"
     fi
     
     log_success "Update complete"
@@ -1190,16 +1250,63 @@ ensure_python_env() {
     # Upgrade pip to avoid common install issues
     $venv_python -m pip install --upgrade pip >>"$MAIN_LOG" 2>&1 || true
 
-    # Install requirements if discord.py is missing
+    # Always check and install/update requirements to catch new dependencies
+    log_info "Checking and updating Python dependencies..."
+    
+    # Create a marker file to track last requirements check
+    local req_marker=".last_requirements_install"
+    local req_hash=$(md5sum requirements.txt 2>/dev/null | awk '{print $1}' || echo "unknown")
+    local need_install=false
+    
+    # Check if requirements.txt changed or marker doesn't exist
+    if [ ! -f "$req_marker" ]; then
+        need_install=true
+    else
+        local last_hash=$(cat "$req_marker" 2>/dev/null || echo "")
+        if [ "$req_hash" != "$last_hash" ]; then
+            log_info "requirements.txt has changed, updating dependencies..."
+            need_install=true
+        fi
+    fi
+    
+    # Also check if discord.py is missing (critical dependency)
     if ! $venv_python -c 'import discord' >/dev/null 2>&1; then
         log_warning "discord.py not found in venv; installing requirements..."
-        if ! $venv_pip install -r requirements.txt >>"$MAIN_LOG" 2>&1; then
+        need_install=true
+    fi
+    
+    # Install/update if needed
+    if [ "$need_install" = true ]; then
+        log_info "Installing Python dependencies from requirements.txt..."
+        
+        # Try normal install first
+        if $venv_pip install -r requirements.txt >>"$MAIN_LOG" 2>&1; then
+            log_success "Dependencies installed successfully"
+            echo "$req_hash" > "$req_marker"
+        else
             log_warning "First install attempt failed; retrying without cache..."
-            if ! $venv_pip install -r requirements.txt --no-cache-dir >>"$MAIN_LOG" 2>&1; then
-                log_error "Failed to install Python dependencies"
+            if $venv_pip install -r requirements.txt --no-cache-dir >>"$MAIN_LOG" 2>&1; then
+                log_success "Dependencies installed successfully (no cache)"
+                echo "$req_hash" > "$req_marker"
+            else
+                log_error "Failed to install Python dependencies after retry"
+                log_warning "Trying individual critical packages..."
+                
+                # Try to install critical packages individually
+                for pkg in "discord.py" "Flask" "Flask-SocketIO" "edge-tts" "mysql-connector-python"; do
+                    if ! $venv_pip install "$pkg" >>"$MAIN_LOG" 2>&1; then
+                        log_error "Failed to install $pkg"
+                    else
+                        log_success "Installed $pkg"
+                    fi
+                done
+                
+                # Don't save marker if installation failed
                 return 1
             fi
         fi
+    else
+        log_success "Python dependencies are up to date"
     fi
 
     # Final verification - check for all required packages
@@ -1268,47 +1375,79 @@ fi
 ensure_database_running || log_warning "Database server check failed, continuing anyway..."
 
 # Run database initialization and migrations on startup
-log_info "Initializing database and applying migrations..."
-python_exe="$PYTHON_CMD"
-if [ -f "venv/bin/python" ]; then
-    python_exe="venv/bin/python"
-fi
-
-"$python_exe" -c "
+initialize_database_with_retry() {
+    local max_retries=3
+    local attempt=1
+    
+    log_info "Initializing database and applying migrations..."
+    
+    local python_exe="$PYTHON_CMD"
+    if [ -f "venv/bin/python" ]; then
+        python_exe="venv/bin/python"
+    fi
+    
+    while [ $attempt -le $max_retries ]; do
+        log_info "Database initialization attempt $attempt/$max_retries..."
+        
+        if "$python_exe" -c "
 from modules.db_helpers import init_db_pool, initialize_database, apply_pending_migrations
 import os
+import sys
 from dotenv import load_dotenv
 
-load_dotenv()
-DB_HOST = os.environ.get('DB_HOST', 'localhost')
-DB_USER = os.environ.get('DB_USER', 'sulfur_bot_user')
-DB_PASS = os.environ.get('DB_PASS', '')
-DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot')
+try:
+    load_dotenv()
+    DB_HOST = os.environ.get('DB_HOST', 'localhost')
+    DB_USER = os.environ.get('DB_USER', 'sulfur_bot_user')
+    DB_PASS = os.environ.get('DB_PASS', '')
+    DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot')
+    
+    # Initialize database pool
+    init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
+    print('Database pool initialized')
+    
+    # Create base tables
+    initialize_database()
+    print('Database tables initialized successfully')
+    
+    # Apply any pending migrations
+    applied_count, errors = apply_pending_migrations()
+    if applied_count > 0:
+        print(f'Applied {applied_count} new database migrations')
+    if errors:
+        print(f'WARNING: {len(errors)} migration errors occurred')
+        for error in errors:
+            print(f'  - {error}')
+        sys.exit(1)
+    else:
+        print('All database migrations up to date')
+    
+    sys.exit(0)
+except Exception as e:
+    print(f'ERROR: Database initialization failed: {e}')
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+" >>"$MAIN_LOG" 2>&1; then
+            log_success "Database ready - tables and migrations up to date"
+            return 0
+        else
+            log_warning "Database initialization attempt $attempt failed"
+            if [ $attempt -lt $max_retries ]; then
+                log_info "Retrying in 5 seconds..."
+                sleep 5
+            fi
+        fi
+        
+        attempt=$((attempt + 1))
+    done
+    
+    log_error "Database initialization failed after $max_retries attempts"
+    log_warning "Bot may experience database issues. Check $MAIN_LOG for details"
+    return 1
+}
 
-# Initialize database pool
-init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
-
-# Create base tables
-initialize_database()
-print('Database tables initialized successfully')
-
-# Apply any pending migrations
-applied_count, errors = apply_pending_migrations()
-if applied_count > 0:
-    print(f'Applied {applied_count} new database migrations')
-if errors:
-    print(f'WARNING: {len(errors)} migration errors occurred')
-    for error in errors:
-        print(f'  - {error}')
-else:
-    print('All database migrations up to date')
-" >>"$MAIN_LOG" 2>&1
-
-if [ $? -eq 0 ]; then
-    log_success "Database ready - tables and migrations up to date"
-else
-    log_warning "Database initialization/migration had issues - check log"
-fi
+initialize_database_with_retry
 
 # Start web dashboard
 start_web_dashboard || log_warning "Web Dashboard failed to start, continuing anyway..."
