@@ -342,9 +342,12 @@ async def enhance_prompt_with_context(user_id, channel_id, user_prompt):
     context = await get_conversation_context(user_id, channel_id)
     
     if context and context['seconds_ago'] <= 120:
-        # Add context to prompt in a way that doesn't confuse the AI
-        # Just inform the AI about recent context without making it look like multiple messages
-        enhanced_prompt = f"""[Context: You recently talked with this user {context['seconds_ago']} seconds ago about: "{context['last_user_message'][:100]}..." - Keep this in mind for continuity]
+        # Add context to prompt with clear attribution and timing
+        # Make it explicit that this is ONLY what this specific user said earlier
+        enhanced_prompt = f"""[RECENT CONTEXT - {context['seconds_ago']} seconds ago:
+THIS SPECIFIC USER said: "{context['last_user_message'][:150]}"
+Your response was: "{context['last_bot_response'][:150]}"
+This is a follow-up to that exchange. Only reference what's shown above, nothing else.]
 
 {user_prompt}"""
         return enhanced_prompt, True

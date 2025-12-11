@@ -14024,6 +14024,9 @@ async def on_message(message):
         # Add language reminder to prevent language slips
         dynamic_system_prompt += "\n\nREMINDER: Antworte IMMER auf Deutsch!"
         
+        # Add accuracy enforcement for current conversation
+        dynamic_system_prompt += f"\n\nACCURACY CHECK: You are currently responding to '{message.author.display_name}'. Check the message history carefully - each message shows who said what. ONLY reference things that are explicitly visible in the provided conversation history. Do NOT make assumptions about what was said or done."
+        
         # Add compact user context (level, current activity)
         try:
             user_context = await get_enriched_user_context(message.author.id, message.author.display_name, db_helpers)
