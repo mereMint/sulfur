@@ -3708,6 +3708,483 @@ class AdminGroup(app_commands.Group):
             logger.error(f"Error in addcurrency command: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Fehler beim Hinzufügen von Währung: {e}")
 
+    @app_commands.command(name="mind", description="[Debug] Zeigt den aktuellen mentalen Zustand des Bots an.")
+    async def mind(self, interaction: discord.Interaction):
+        """Displays the bot's current mental state (mood, activity, thoughts)."""
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            mind_state = bot_mind.get_mind_state_api()
+            
+            embed = discord.Embed(
+                title="🧠 Bot Mind Status",
+                description=bot_mind.get_state_summary(),
+                color=get_embed_color(config)
+            )
+            
+            # Mood and Activity
+            embed.add_field(
+                name="Current Mood", 
+                value=f"**{mind_state['mood'].title()}**\n_{bot_mind.get_mood_description()}_", 
+                inline=True
+            )
+            embed.add_field(
+                name="Current Activity", 
+                value=f"**{mind_state['activity'].title()}**\n_{bot_mind.get_activity_description()}_", 
+                inline=True
+            )
+            
+            # Energy and Boredom
+            energy_bar = '█' * int(mind_state['energy_level'] * 10) + '░' * (10 - int(mind_state['energy_level'] * 10))
+            boredom_bar = '█' * int(mind_state['boredom_level'] * 10) + '░' * (10 - int(mind_state['boredom_level'] * 10))
+            embed.add_field(
+                name="Energy & Boredom",
+                value=f"⚡ Energy: `{energy_bar}` {mind_state['energy_level']:.1%}\n😴 Boredom: `{boredom_bar}` {mind_state['boredom_level']:.1%}",
+                inline=False
+            )
+            
+            # Current Thought
+            embed.add_field(
+                name="💭 Current Thought",
+                value=f"_{mind_state['current_thought']}_",
+                inline=False
+            )
+            
+            # Personality Traits
+            traits_str = "\n".join([f"**{k.title()}**: {v:.1%}" for k, v in mind_state['personality_traits'].items()])
+            embed.add_field(
+                name="Personality Traits",
+                value=traits_str,
+                inline=False
+            )
+            
+            # Recent Interests
+            if mind_state.get('interests'):
+                interests_str = ", ".join(mind_state['interests'][-5:])
+                embed.add_field(
+                    name="Recent Interests",
+                    value=interests_str if interests_str else "None yet",
+                    inline=False
+                )
+            
+            embed.set_footer(text=f"Last thought at: {mind_state['last_thought_time']}")
+            
+            await interaction.followup.send(embed=embed)
+            
+        except Exception as e:
+            logger.error(f"Error in mind command: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error viewing mind state: {e}")
+
+    @app_commands.command(name="mind_history", description="[Debug] Zeigt die letzten Gedanken des Bots an.")
+    @app_commands.describe(limit="Anzahl der anzuzeigenden Gedanken (max 20)")
+    async def mind_history(self, interaction: discord.Interaction, limit: int = 10):
+        """Displays the bot's recent thought history."""
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            limit = min(max(1, limit), 20)  # Clamp between 1 and 20
+            mind_state = bot_mind.get_mind_state_api()
+            thoughts = mind_state.get('recent_thoughts', [])
+            
+            if not thoughts:
+                await interaction.followup.send("No thoughts recorded yet.")
+                return
+            
+            embed = discord.Embed(
+                title="🧠 Recent Thoughts",
+                description=f"Last {min(limit, len(thoughts))} thoughts",
+                color=get_embed_color(config)
+            )
+            
+            for i, thought_data in enumerate(thoughts[-limit:], 1):
+                thought = thought_data.get('thought', 'Unknown')
+                mood = thought_data.get('mood', 'unknown')
+                timestamp = thought_data.get('time', 'Unknown')
+                
+                # Parse timestamp for better display
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(timestamp)
+                    time_str = dt.strftime('%H:%M:%S')
+                except:
+                    time_str = timestamp
+                
+                embed.add_field(
+                    name=f"{i}. {mood.title()} @ {time_str}",
+                    value=f"_{thought}_",
+                    inline=False
+                )
+            
+            await interaction.followup.send(embed=embed)
+            
+        except Exception as e:
+            logger.error(f"Error in mind_history command: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error viewing thought history: {e}")
+
+    @app_commands.command(name="mind_set", description="[Debug] Setzt den mentalen Zustand des Bots manuell.")
+    @app_commands.describe(
+        mood="Die neue Stimmung",
+        activity="Die neue Aktivität"
+    )
+    @app_commands.choices(mood=[
+        app_commands.Choice(name="Happy", value="happy"),
+        app_commands.Choice(name="Excited", value="excited"),
+        app_commands.Choice(name="Curious", value="curious"),
+        app_commands.Choice(name="Neutral", value="neutral"),
+        app_commands.Choice(name="Bored", value="bored"),
+        app_commands.Choice(name="Confused", value="confused"),
+        app_commands.Choice(name="Sarcastic", value="sarcastic"),
+        app_commands.Choice(name="Mischievous", value="mischievous"),
+        app_commands.Choice(name="Contemplative", value="contemplative"),
+    ])
+    @app_commands.choices(activity=[
+        app_commands.Choice(name="Idle", value="idle"),
+        app_commands.Choice(name="Observing", value="observing"),
+        app_commands.Choice(name="Thinking", value="thinking"),
+        app_commands.Choice(name="Chatting", value="chatting"),
+        app_commands.Choice(name="Planning", value="planning"),
+        app_commands.Choice(name="Learning", value="learning"),
+        app_commands.Choice(name="Scheming", value="scheming"),
+        app_commands.Choice(name="Daydreaming", value="daydreaming"),
+    ])
+    async def mind_set(self, interaction: discord.Interaction, mood: str = None, activity: str = None):
+        """Manually sets the bot's mood and/or activity for testing."""
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            changes = []
+            
+            if mood:
+                bot_mind.bot_mind.update_mood(bot_mind.Mood(mood), f"Manually set by admin {interaction.user.name}")
+                changes.append(f"Mood → **{mood.title()}**")
+            
+            if activity:
+                bot_mind.bot_mind.update_activity(bot_mind.Activity(activity))
+                changes.append(f"Activity → **{activity.title()}**")
+            
+            if not changes:
+                await interaction.followup.send("❌ No changes specified. Please provide at least one parameter.")
+                return
+            
+            changes_str = "\n".join(changes)
+            await interaction.followup.send(f"✅ Mind state updated:\n{changes_str}")
+            logger.info(f"Admin {interaction.user.name} updated mind state: {changes_str}")
+            
+        except Exception as e:
+            logger.error(f"Error in mind_set command: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error setting mind state: {e}")
+
+    @app_commands.command(name="context", description="[Debug] Zeigt den Konversationskontext für einen Kanal an.")
+    @app_commands.describe(channel="Der Kanal (optional, Standard: aktueller Kanal)")
+    async def context(self, interaction: discord.Interaction, channel: discord.TextChannel = None):
+        """Displays the conversation context for a channel."""
+        await interaction.response.defer(ephemeral=True)
+        
+        target_channel = channel or interaction.channel
+        
+        try:
+            context_messages = await db_helpers.get_conversation_context(target_channel.id)
+            
+            if not context_messages:
+                await interaction.followup.send(f"No conversation context found for {target_channel.mention}.")
+                return
+            
+            embed = discord.Embed(
+                title=f"💬 Conversation Context: #{target_channel.name}",
+                description=f"Last {len(context_messages)} messages in context window",
+                color=get_embed_color(config)
+            )
+            
+            # Group by role
+            user_msgs = [m for m in context_messages if m['role'] == 'user']
+            bot_msgs = [m for m in context_messages if m['role'] == 'model']
+            
+            embed.add_field(
+                name="Statistics",
+                value=f"**User Messages**: {len(user_msgs)}\n**Bot Messages**: {len(bot_msgs)}\n**Total**: {len(context_messages)}",
+                inline=False
+            )
+            
+            # Show last few messages
+            last_msgs = context_messages[-5:]
+            msgs_preview = []
+            for msg in last_msgs:
+                role_icon = "🤖" if msg['role'] == 'model' else "👤"
+                content = msg['content'][:100] + "..." if len(msg['content']) > 100 else msg['content']
+                msgs_preview.append(f"{role_icon} {content}")
+            
+            if msgs_preview:
+                embed.add_field(
+                    name="Recent Messages",
+                    value="\n".join(msgs_preview),
+                    inline=False
+                )
+            
+            await interaction.followup.send(embed=embed)
+            
+        except Exception as e:
+            logger.error(f"Error in context command: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error viewing context: {e}")
+
+    @app_commands.command(name="test_ai", description="[Debug] Testet die KI-Antwort mit einem benutzerdefinierten Prompt.")
+    @app_commands.describe(prompt="Der Test-Prompt")
+    async def test_ai(self, interaction: discord.Interaction, prompt: str):
+        """Tests AI response with a custom prompt."""
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            # Call AI with test prompt
+            response = await get_chat_response(
+                prompt=prompt,
+                user_id=interaction.user.id,
+                username=interaction.user.display_name,
+                config=config,
+                gemini_key=GEMINI_API_KEY,
+                openai_key=OPENAI_API_KEY
+            )
+            
+            if not response:
+                await interaction.followup.send("❌ AI returned no response.")
+                return
+            
+            # Get current provider
+            current_provider = await get_current_provider(config)
+            model_name = config['api'][current_provider]['model'] if current_provider == 'gemini' else config['api'][current_provider]['chat_model']
+            
+            embed = discord.Embed(
+                title="🤖 AI Test Response",
+                description=response[:4000],  # Discord embed description limit
+                color=get_embed_color(config)
+            )
+            embed.add_field(name="Provider", value=current_provider.title(), inline=True)
+            embed.add_field(name="Model", value=f"`{model_name}`", inline=True)
+            embed.add_field(name="Prompt Length", value=f"{len(prompt)} chars", inline=True)
+            embed.set_footer(text=f"Response length: {len(response)} chars")
+            
+            await interaction.followup.send(embed=embed)
+            logger.info(f"Admin {interaction.user.name} tested AI with prompt: {prompt[:50]}...")
+            
+        except Exception as e:
+            logger.error(f"Error in test_ai command: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error testing AI: {e}")
+
+    @app_commands.command(name="observations", description="[Debug] Zeigt die letzten Beobachtungen des Bots an.")
+    @app_commands.describe(limit="Anzahl der anzuzeigenden Beobachtungen (max 15)")
+    async def observations(self, interaction: discord.Interaction, limit: int = 10):
+        """Displays the bot's recent observations."""
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            limit = min(max(1, limit), 15)
+            mind_state = bot_mind.get_mind_state_api()
+            observations = mind_state.get('recent_observations', [])
+            
+            if not observations:
+                await interaction.followup.send("No observations recorded yet.")
+                return
+            
+            embed = discord.Embed(
+                title="👁️ Recent Observations",
+                description=f"Last {min(limit, len(observations))} observations",
+                color=get_embed_color(config)
+            )
+            
+            for i, obs_data in enumerate(observations[-limit:], 1):
+                observation = obs_data.get('observation', 'Unknown')
+                timestamp = obs_data.get('time', 'Unknown')
+                
+                # Parse timestamp for better display
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(timestamp)
+                    time_str = dt.strftime('%H:%M:%S')
+                except:
+                    time_str = timestamp
+                
+                embed.add_field(
+                    name=f"{i}. @ {time_str}",
+                    value=observation,
+                    inline=False
+                )
+            
+            await interaction.followup.send(embed=embed)
+            
+        except Exception as e:
+            logger.error(f"Error in observations command: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error viewing observations: {e}")
+
+    @app_commands.command(name="trigger_thought", description="[Debug] Erzwingt, dass der Bot einen neuen Gedanken generiert.")
+    async def trigger_thought(self, interaction: discord.Interaction):
+        """Forces the bot to generate a new thought."""
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            # Gather context
+            online_count = sum(1 for guild in client.guilds for member in guild.members 
+                              if not member.bot and member.status != discord.Status.offline)
+            
+            context = {
+                'online_users': online_count,
+                'recent_activity': 'active' if online_count > 5 else 'quiet'
+            }
+            
+            # Generate thought using bot_mind module
+            thought = await bot_mind.generate_random_thought(context, get_chat_response)
+            bot_mind.bot_mind.think(thought)
+            
+            embed = discord.Embed(
+                title="💭 New Thought Generated",
+                description=f"_{thought}_",
+                color=get_embed_color(config)
+            )
+            embed.add_field(name="Current Mood", value=bot_mind.bot_mind.current_mood.value.title(), inline=True)
+            embed.add_field(name="Online Users", value=str(online_count), inline=True)
+            
+            await interaction.followup.send(embed=embed)
+            logger.info(f"Admin {interaction.user.name} triggered thought generation")
+            
+        except Exception as e:
+            logger.error(f"Error in trigger_thought command: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error generating thought: {e}")
+
+    @app_commands.command(name="interests", description="[Debug] Zeigt und verwaltet die Interessen des Bots.")
+    @app_commands.describe(
+        action="Was möchtest du tun?",
+        interest="Das Interesse (für add/remove)"
+    )
+    @app_commands.choices(action=[
+        app_commands.Choice(name="View All", value="view"),
+        app_commands.Choice(name="Add Interest", value="add"),
+        app_commands.Choice(name="Remove Interest", value="remove"),
+        app_commands.Choice(name="Clear All", value="clear"),
+    ])
+    async def interests(self, interaction: discord.Interaction, action: str, interest: str = None):
+        """Manages the bot's interests."""
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            if action == "view":
+                mind_state = bot_mind.get_mind_state_api()
+                interests_list = mind_state.get('interests', [])
+                
+                if not interests_list:
+                    await interaction.followup.send("Bot has no interests yet.")
+                    return
+                
+                embed = discord.Embed(
+                    title="🎯 Bot Interests",
+                    description=f"Total: {len(interests_list)} interests",
+                    color=get_embed_color(config)
+                )
+                
+                # Show interests in batches
+                interests_str = ", ".join(interests_list[-30:])  # Last 30
+                embed.add_field(
+                    name="Recent Interests",
+                    value=interests_str if interests_str else "None",
+                    inline=False
+                )
+                
+                await interaction.followup.send(embed=embed)
+                
+            elif action == "add":
+                if not interest:
+                    await interaction.followup.send("❌ Please specify an interest to add.")
+                    return
+                
+                bot_mind.bot_mind.add_interest(interest)
+                await interaction.followup.send(f"✅ Added interest: **{interest}**")
+                logger.info(f"Admin {interaction.user.name} added interest: {interest}")
+                
+            elif action == "remove":
+                if not interest:
+                    await interaction.followup.send("❌ Please specify an interest to remove.")
+                    return
+                
+                if interest in bot_mind.bot_mind.interests:
+                    bot_mind.bot_mind.interests.remove(interest)
+                    await interaction.followup.send(f"✅ Removed interest: **{interest}**")
+                    logger.info(f"Admin {interaction.user.name} removed interest: {interest}")
+                else:
+                    await interaction.followup.send(f"❌ Interest **{interest}** not found.")
+                    
+            elif action == "clear":
+                count = len(bot_mind.bot_mind.interests)
+                bot_mind.bot_mind.interests = []
+                await interaction.followup.send(f"✅ Cleared {count} interests.")
+                logger.info(f"Admin {interaction.user.name} cleared all interests")
+            
+        except Exception as e:
+            logger.error(f"Error in interests command: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error managing interests: {e}")
+
+    @app_commands.command(name="autonomous_status", description="[Debug] Zeigt den Status des autonomen Verhaltens an.")
+    async def autonomous_status(self, interaction: discord.Interaction):
+        """Displays autonomous behavior status."""
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            # Get stats from database
+            async with db_helpers.get_db_connection() as (conn, cursor):
+                # Count recent autonomous actions
+                await cursor.execute("""
+                    SELECT action_type, COUNT(*) as count, 
+                           SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successful
+                    FROM bot_autonomous_actions
+                    WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                    GROUP BY action_type
+                """)
+                action_stats = await cursor.fetchall()
+                
+                # Count users who opted out
+                await cursor.execute("""
+                    SELECT COUNT(*) as count
+                    FROM user_autonomous_settings
+                    WHERE allow_autonomous_messages = FALSE OR allow_autonomous_calls = FALSE
+                """)
+                opted_out_result = await cursor.fetchone()
+                opted_out = opted_out_result[0] if opted_out_result else 0
+            
+            embed = discord.Embed(
+                title="🤖 Autonomous Behavior Status",
+                description="Statistics from the last 7 days",
+                color=get_embed_color(config)
+            )
+            
+            if action_stats:
+                for action_type, count, successful in action_stats:
+                    success_rate = (successful / count * 100) if count > 0 else 0
+                    embed.add_field(
+                        name=f"{action_type.replace('_', ' ').title()}",
+                        value=f"**Total**: {count}\n**Successful**: {successful} ({success_rate:.1f}%)",
+                        inline=True
+                    )
+            else:
+                embed.add_field(
+                    name="No Actions",
+                    value="No autonomous actions recorded in the last 7 days.",
+                    inline=False
+                )
+            
+            embed.add_field(
+                name="User Settings",
+                value=f"**Users who opted out**: {opted_out}",
+                inline=False
+            )
+            
+            # Add mind state info
+            embed.add_field(
+                name="Current Mind State",
+                value=f"**Boredom**: {bot_mind.bot_mind.boredom_level:.1%} (triggers autonomous behavior when high)",
+                inline=False
+            )
+            
+            await interaction.followup.send(embed=embed)
+            
+        except Exception as e:
+            logger.error(f"Error in autonomous_status command: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error viewing autonomous status: {e}")
+
 
 # --- NEW: View for the AI Dashboard ---
 class AIDashboardView(discord.ui.View):
