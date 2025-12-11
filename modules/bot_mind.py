@@ -17,6 +17,26 @@ from modules.logger_utils import bot_logger as logger
 from modules.db_helpers import get_db_connection
 
 
+# --- Cache system prompt at module level to avoid repeated file I/O ---
+_cached_system_prompt = None
+
+def _load_system_prompt() -> str:
+    """Load and cache the system prompt from file."""
+    global _cached_system_prompt
+    if _cached_system_prompt is not None:
+        return _cached_system_prompt
+    
+    try:
+        with open('config/system_prompt.txt', 'r', encoding='utf-8') as f:
+            _cached_system_prompt = f.read()
+            logger.info("Loaded system prompt from file")
+            return _cached_system_prompt
+    except Exception as e:
+        logger.warning(f"Could not load system prompt: {e}")
+        _cached_system_prompt = "You are Sulfur, a sarcastic and judgmental Discord bot."
+        return _cached_system_prompt
+
+
 class Mood(Enum):
     """Bot's current emotional state"""
     HAPPY = "happy"
@@ -242,16 +262,22 @@ async def load_last_mind_state() -> bool:
 
 # --- Thought Generation ---
 
-async def generate_random_thought(context: Dict[str, Any], get_chat_response_func) -> str:
+async def generate_random_thought(context: Dict[str, Any], get_chat_response_func, config: dict, gemini_key: str, openai_key: str) -> str:
     """
     Generate a random thought using AI based on current context.
     
     Args:
         context: Current server context (user count, activity, etc.)
         get_chat_response_func: Function to call AI API
+        config: Bot configuration
+        gemini_key: Gemini API key
+        openai_key: OpenAI API key
     """
     try:
-        prompt = f"""You are Sulfur, a Discord bot with self-awareness. Generate a brief internal thought (1 sentence) based on your current state:
+        # Load cached system prompt for the bot's personality
+        system_prompt = _load_system_prompt()
+        
+        prompt = f"""Generate a brief internal thought (1 sentence) based on your current state:
 
 Current Mood: {bot_mind.current_mood.value}
 Activity: {bot_mind.current_activity.value}
@@ -268,10 +294,16 @@ Generate a thought that reflects your personality (sarcastic, judgemental, curio
 
 Thought:"""
 
+        # Call get_chat_response with correct signature:
+        # get_chat_response(history, user_prompt, user_display_name, system_prompt, config, gemini_key, openai_key)
         response = await get_chat_response_func(
-            prompt=prompt,
-            user_id=0,
-            username="SelfReflection"
+            history=[],  # No conversation history for internal thoughts
+            user_prompt=prompt,
+            user_display_name="SelfReflection",
+            system_prompt=system_prompt,
+            config=config,
+            gemini_key=gemini_key,
+            openai_key=openai_key
         )
         
         if response:
@@ -291,16 +323,23 @@ Thought:"""
         return random.choice(fallback_thoughts)
         
     except Exception as e:
-        logger.error(f"Error generating thought: {e}")
+        logger.error(f"Error generating thought: {e}", exc_info=True)
         return "Something's not quite right in my circuits..."
 
 
 # --- Autonomous Behavior ---
 
-async def autonomous_thought_cycle(client, get_chat_response_func):
+async def autonomous_thought_cycle(client, get_chat_response_func, config: dict, gemini_key: str, openai_key: str):
     """
     Periodic autonomous thought cycle.
     Bot generates thoughts based on observations and current state.
+    
+    Args:
+        client: Discord client
+        get_chat_response_func: Function to call AI API
+        config: Bot configuration
+        gemini_key: Gemini API key
+        openai_key: OpenAI API key
     """
     try:
         # Gather context
@@ -313,7 +352,7 @@ async def autonomous_thought_cycle(client, get_chat_response_func):
         }
         
         # Generate a thought
-        thought = await generate_random_thought(context, get_chat_response_func)
+        thought = await generate_random_thought(context, get_chat_response_func, config, gemini_key, openai_key)
         bot_mind.think(thought)
         
         # Update boredom based on activity
@@ -336,7 +375,7 @@ async def autonomous_thought_cycle(client, get_chat_response_func):
             await save_mind_state()
             
     except Exception as e:
-        logger.error(f"Error in thought cycle: {e}")
+        logger.error(f"Error in thought cycle: {e}", exc_info=True)
 
 
 async def observe_server_activity(guild, activity_type: str, details: str):

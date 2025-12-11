@@ -1149,8 +1149,8 @@ async def before_cleanup_temp_dm_access():
 async def bot_mind_state_task():
     """Periodically update bot mind state, generate thoughts, and save state."""
     try:
-        # Generate autonomous thought
-        await bot_mind.autonomous_thought_cycle(client, get_chat_response)
+        # Generate autonomous thought with correct parameters
+        await bot_mind.autonomous_thought_cycle(client, get_chat_response, config, GEMINI_API_KEY, OPENAI_API_KEY)
         
         # Periodically save mind state to database
         if random.random() < 0.3:  # 30% chance each cycle
@@ -1353,7 +1353,7 @@ async def flush_active_game_time(user_id: int):
             
             # Update quest progress
             quest_minutes = math.ceil(duration_minutes)
-            await quests.update_quest_progress(db_helpers, user_id, 'game_minutes', quest_minutes)
+            await quests.update_quest_progress(db_helpers, user_id, 'game_minutes', quest_minutes, config)
             
             # Reset the start time to now to prevent double-counting
             # The next flush or game stop will only count time from this point forward
@@ -1439,7 +1439,7 @@ async def on_presence_update(before, after):
                         # Round up to ensure partial minutes count (e.g., 1.5 minutes counts as 2)
                         # This is more player-friendly for quest tracking
                         quest_minutes = math.ceil(duration_minutes)
-                        quest_completed, _ = await quests.update_quest_progress(db_helpers, user_id, 'game_minutes', quest_minutes)
+                        quest_completed, _ = await quests.update_quest_progress(db_helpers, user_id, 'game_minutes', quest_minutes, config)
                         # Quest completion notifications will be sent when user checks /quests or uses /questclaim
                     except Exception as e:
                         logger.error(f"Error updating game quest progress for user {user_id}: {e}", exc_info=True)
@@ -1595,7 +1595,7 @@ async def grant_voice_xp():
                 
                 # --- NEW: Track VC minutes for quest progress ---
                 try:
-                    quest_completed, _ = await quests.update_quest_progress(db_helpers, member.id, 'vc_minutes', 1)
+                    quest_completed, _ = await quests.update_quest_progress(db_helpers, member.id, 'vc_minutes', 1, config)
                     # Quest completion notifications will be sent when user checks /quests or uses /questclaim
                 except Exception as e:
                     logger.error(f"Error updating VC quest progress for user {user_id}: {e}", exc_info=True)
@@ -4113,8 +4113,8 @@ class AdminGroup(app_commands.Group):
                 'recent_activity': 'active' if online_count > 5 else 'quiet'
             }
             
-            # Generate thought using bot_mind module
-            thought = await bot_mind.generate_random_thought(context, get_chat_response)
+            # Generate thought using bot_mind module with correct parameters
+            thought = await bot_mind.generate_random_thought(context, get_chat_response, config, GEMINI_API_KEY, OPENAI_API_KEY)
             bot_mind.bot_mind.think(thought)
             
             embed = discord.Embed(
@@ -9713,7 +9713,7 @@ async def view_news(interaction: discord.Interaction, limit: int = 5):
             return
         
         # Update quest progress for checking news
-        await quests.update_quest_progress(db_helpers, interaction.user.id, 'check_news', 1)
+        await quests.update_quest_progress(db_helpers, interaction.user.id, 'check_news', 1, config)
         
         # Use pagination view for better user experience
         view = news.NewsPaginationView(articles, interaction.user.id)
@@ -9758,7 +9758,7 @@ async def view_sports_news(interaction: discord.Interaction):
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         
         # Update quest progress
-        await quests.update_quest_progress(db_helpers, interaction.user.id, 'check_news', 1)
+        await quests.update_quest_progress(db_helpers, interaction.user.id, 'check_news', 1, config)
         
     except Exception as e:
         logger.error(f"Error viewing sports news: {e}", exc_info=True)
@@ -9828,7 +9828,7 @@ class StockMarketMainView(discord.ui.View):
         await interaction.response.defer()
         
         # Update quest progress for checking portfolio
-        await quests.update_quest_progress(db_helpers, interaction.user.id, 'check_portfolio', 1)
+        await quests.update_quest_progress(db_helpers, interaction.user.id, 'check_portfolio', 1, config)
         
         # Get user's portfolio
         portfolio = await stock_market.get_user_portfolio(db_helpers, self.user.id)
@@ -12071,7 +12071,7 @@ async def horserace(interaction: discord.Interaction, horses: int = 6):
         global race_counter
         
         # Update quest progress for watching horses
-        await quests.update_quest_progress(db_helpers, interaction.user.id, 'watch_horses', 1)
+        await quests.update_quest_progress(db_helpers, interaction.user.id, 'watch_horses', 1, config)
         
         # Check if user has casino access
         user_id = interaction.user.id
@@ -13649,7 +13649,7 @@ class WordGuessModal(discord.ui.Modal, title="Rate das Wort"):
             
             # Update quest progress for attempting daily word find (on first attempt only)
             if self.game_type == 'daily' and attempt_num == 1:
-                await quests.update_quest_progress(db_helpers, self.user_id, 'daily_word_attempt', 1)
+                await quests.update_quest_progress(db_helpers, self.user_id, 'daily_word_attempt', 1, config)
             
             # Check if correct
             if guess == correct_word:
@@ -14116,7 +14116,7 @@ class WordleGuessModal(discord.ui.Modal, title="Rate das Wort"):
             
             # Update quest progress for daily games only
             if self.game_type == 'daily':
-                await quests.update_quest_progress(db_helpers, self.user_id, 'daily_wordle', 1)
+                await quests.update_quest_progress(db_helpers, self.user_id, 'daily_wordle', 1, config)
             
             # Mark premium game as completed if applicable
             if self.game_type == 'premium':
@@ -15582,7 +15582,7 @@ async def on_message(message):
             
             # --- NEW: Track message quest progress ---
             try:
-                quest_completed, _ = await quests.update_quest_progress(db_helpers, message.author.id, 'messages', 1)
+                quest_completed, _ = await quests.update_quest_progress(db_helpers, message.author.id, 'messages', 1, config)
                 # Only notify on quest completion, not on every message
             except Exception as e:
                 logger.error(f"Error updating message quest progress: {e}", exc_info=True)
@@ -15613,7 +15613,7 @@ async def on_message(message):
             
             if has_media:
                 try:
-                    quest_completed, _ = await quests.update_quest_progress(db_helpers, message.author.id, 'daily_media', 1)
+                    quest_completed, _ = await quests.update_quest_progress(db_helpers, message.author.id, 'daily_media', 1, config)
                 except Exception as e:
                     logger.error(f"Error updating daily_media quest progress: {e}", exc_info=True)
 
@@ -15721,7 +15721,7 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
     
     # Track reaction quest progress
     try:
-        quest_completed, _ = await quests.update_quest_progress(db_helpers, payload.user_id, 'reactions', 1)
+        quest_completed, _ = await quests.update_quest_progress(db_helpers, payload.user_id, 'reactions', 1, config)
         # Quest completion notifications will be sent when user checks /quests or uses /questclaim
     except Exception as e:
         logger.error(f"Error updating reaction quest progress: {e}", exc_info=True)
