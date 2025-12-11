@@ -181,7 +181,7 @@ async def get_important_memories(limit: int = 5) -> List[Dict[str, Any]]:
     """Get the most important semantic memories."""
     async with get_db_connection() as (conn, cursor):
         await cursor.execute("""
-            SELECT memory_type, memory_content, importance, access_count
+            SELECT id, memory_type, memory_content, importance, access_count
             FROM semantic_memory
             ORDER BY importance DESC, access_count DESC, created_at DESC
             LIMIT %s
@@ -191,7 +191,7 @@ async def get_important_memories(limit: int = 5) -> List[Dict[str, Any]]:
         
         # Update access count for retrieved memories
         if results:
-            memory_ids = [row[0] for row in results]
+            memory_ids = [row[0] for row in results]  # row[0] is id
             placeholders = ','.join(['%s'] * len(memory_ids))
             await cursor.execute(f"""
                 UPDATE semantic_memory 
@@ -203,10 +203,10 @@ async def get_important_memories(limit: int = 5) -> List[Dict[str, Any]]:
         
         return [
             {
-                'type': row[0],
-                'content': row[1],
-                'importance': row[2],
-                'access_count': row[3]
+                'type': row[1],      # memory_type
+                'content': row[2],    # memory_content
+                'importance': row[3], # importance
+                'access_count': row[4] # access_count
             }
             for row in results
         ]

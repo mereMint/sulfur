@@ -15021,10 +15021,16 @@ async def on_reaction_add(reaction, user):
             )
             
             # Learn from the reaction
+            # Get the user's message if this was a reply, otherwise use empty string
+            user_message = ""
+            if reaction.message.reference and reaction.message.reference.resolved:
+                user_message = reaction.message.reference.resolved.content
+            
+            # Always learn from reactions, even without original context
             if reaction.message.content:
                 await personality_evolution.learn_from_interaction(
                     user_id=user.id,
-                    message=reaction.message.reference.resolved.content if reaction.message.reference and reaction.message.reference.resolved else "",
+                    message=user_message,  # May be empty if not a reply
                     bot_response=reaction.message.content,
                     user_reaction=str(reaction.emoji)
                 )
