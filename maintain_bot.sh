@@ -797,11 +797,14 @@ apply_updates() {
     
     # Run database initialization and apply migrations with retry
     local db_attempt=1
-    local db_max_attempts=3
+    local db_max_attempts=5
     local db_success=false
     
     while [ $db_attempt -le $db_max_attempts ]; do
         log_update "Database update attempt $db_attempt/$db_max_attempts..."
+        
+        # Calculate adaptive wait time
+        local wait_time=$((5 * db_attempt))
         
         if "$python_exe" -c "
 from modules.db_helpers import init_db_pool, initialize_database, apply_pending_migrations
@@ -816,15 +819,22 @@ try:
     DB_PASS = os.environ.get('DB_PASS', '')
     DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot')
     
-    # Initialize database pool
-    init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
+    # Initialize database pool with retry logic
+    print(f'Initializing database pool: {DB_USER}@{DB_HOST}/{DB_NAME}')
+    if not init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME):
+        print('ERROR: Failed to initialize database pool')
+        sys.exit(1)
     print('Database pool initialized')
     
-    # Create base tables
-    initialize_database()
+    # Create base tables with retry logic
+    print('Initializing database tables...')
+    if not initialize_database():
+        print('ERROR: Failed to initialize database tables')
+        sys.exit(1)
     print('Database tables initialized successfully')
     
     # Apply any pending migrations
+    print('Checking for pending migrations...')
     applied_count, errors = apply_pending_migrations()
     if applied_count > 0:
         print(f'Applied {applied_count} new database migrations')
@@ -832,7 +842,8 @@ try:
         print(f'WARNING: {len(errors)} migration errors occurred')
         for error in errors:
             print(f'  - {error}')
-        sys.exit(1)
+        # Don't exit on migration errors, just warn
+        print('Continuing despite migration errors...')
     else:
         print('All database migrations up to date')
     
@@ -848,9 +859,16 @@ except Exception as e:
             break
         else
             log_warning "Database update attempt $db_attempt failed"
+            
+            # Show last few lines of error from log
+            if [ -f "$MAIN_LOG" ]; then
+                log_warning "Last error from database update:"
+                tail -n 5 "$MAIN_LOG" | sed 's/^/  | /' | tee -a "$MAIN_LOG"
+            fi
+            
             if [ $db_attempt -lt $db_max_attempts ]; then
-                log_info "Retrying in 5 seconds..."
-                sleep 5
+                log_info "Retrying in $wait_time seconds..."
+                sleep $wait_time
             fi
         fi
         
@@ -1516,7 +1534,7 @@ ensure_database_running || log_warning "Database server check failed, continuing
 
 # Run database initialization and migrations on startup
 initialize_database_with_retry() {
-    local max_retries=3
+    local max_retries=5
     local attempt=1
     
     log_info "Initializing database and applying migrations..."
@@ -1528,6 +1546,9 @@ initialize_database_with_retry() {
     
     while [ $attempt -le $max_retries ]; do
         log_info "Database initialization attempt $attempt/$max_retries..."
+        
+        # Calculate adaptive wait time (exponential backoff)
+        local wait_time=$((5 * attempt))
         
         if "$python_exe" -c "
 from modules.db_helpers import init_db_pool, initialize_database, apply_pending_migrations
@@ -1542,15 +1563,22 @@ try:
     DB_PASS = os.environ.get('DB_PASS', '')
     DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot')
     
-    # Initialize database pool
-    init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
-    print('Database pool initialized')
+    # Initialize database pool with retry logic
+    print(f'Attempting to initialize database pool: {DB_USER}@{DB_HOST}/{DB_NAME}')
+    if not init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME):
+        print('ERROR: Failed to initialize database pool')
+        sys.exit(1)
+    print('Database pool initialized successfully')
     
-    # Create base tables
-    initialize_database()
+    # Create base tables with retry logic
+    print('Attempting to initialize database tables...')
+    if not initialize_database():
+        print('ERROR: Failed to initialize database tables')
+        sys.exit(1)
     print('Database tables initialized successfully')
     
     # Apply any pending migrations
+    print('Checking for pending migrations...')
     applied_count, errors = apply_pending_migrations()
     if applied_count > 0:
         print(f'Applied {applied_count} new database migrations')
@@ -1558,7 +1586,8 @@ try:
         print(f'WARNING: {len(errors)} migration errors occurred')
         for error in errors:
             print(f'  - {error}')
-        sys.exit(1)
+        # Don't exit on migration errors, just warn
+        print('Continuing despite migration errors...')
     else:
         print('All database migrations up to date')
     
@@ -1573,9 +1602,16 @@ except Exception as e:
             return 0
         else
             log_warning "Database initialization attempt $attempt failed"
+            
+            # Show last few lines of error from log
+            if [ -f "$MAIN_LOG" ]; then
+                log_warning "Last error from database initialization:"
+                tail -n 5 "$MAIN_LOG" | sed 's/^/  | /' | tee -a "$MAIN_LOG"
+            fi
+            
             if [ $attempt -lt $max_retries ]; then
-                log_info "Retrying in 5 seconds..."
-                sleep 5
+                log_info "Retrying in $wait_time seconds..."
+                sleep $wait_time
             fi
         fi
         
@@ -1583,7 +1619,14 @@ except Exception as e:
     done
     
     log_error "Database initialization failed after $max_retries attempts"
-    log_warning "Bot may experience database issues. Check $MAIN_LOG for details"
+    log_error "This indicates a serious problem with the database connection or configuration"
+    log_warning "Bot will start anyway, but database features will be unavailable"
+    log_warning "Check the following:"
+    log_info "  1. Database server is running: systemctl status mysql (or mariadb)"
+    log_info "  2. Database credentials in .env are correct"
+    log_info "  3. Database 'sulfur_bot' exists"
+    log_info "  4. User 'sulfur_bot_user' has proper permissions"
+    log_warning "Full log available at: $MAIN_LOG"
     return 1
 }
 

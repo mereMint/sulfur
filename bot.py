@@ -290,15 +290,53 @@ recent_user_message_cache = {}  # (user_id, content) -> timestamp
 from modules.db_helpers import init_db_pool, initialize_database, apply_pending_migrations, get_leaderboard, add_xp, get_player_rank, get_level_leaderboard, save_message_to_history, get_chat_history, get_relationship_summary, update_relationship_summary, save_bulk_history, clear_channel_history, update_user_presence, add_balance, update_spotify_history, get_all_managed_channels, remove_managed_channel, get_managed_channel_config, update_managed_channel_config, log_message_stat, log_vc_minutes, get_wrapped_stats_for_period, get_user_wrapped_stats, log_stat_increment, get_spotify_history, get_player_profile, cleanup_custom_status_entries, log_mention_reply, log_vc_session, get_wrapped_extra_stats, get_xp_for_level, register_for_wrapped, unregister_from_wrapped, is_registered_for_wrapped, get_wrapped_registrations, get_money_leaderboard, get_games_leaderboard
 import modules.db_helpers as db_helpers
 
-# Initialize database pool with error handling
-try:
-    db_helpers.init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
-    logger.info("Database pool initialized successfully")
-except Exception as e:
-    logger.error(f"Failed to initialize database pool: {e}")
-    print(f"ERROR: Failed to initialize database pool: {e}")
-    print("The bot will continue to run but database features may not work.")
-    print("Please check your database configuration in .env file.")
+# Initialize database pool with error handling and retry logic
+db_init_success = False
+db_init_max_retries = 3
+db_init_retry_delay = 5
+
+for db_attempt in range(1, db_init_max_retries + 1):
+    try:
+        logger.info(f"Initializing database pool (attempt {db_attempt}/{db_init_max_retries})...")
+        print(f"Initializing database pool (attempt {db_attempt}/{db_init_max_retries})...")
+        
+        if db_helpers.init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME):
+            logger.info("Database pool initialized successfully")
+            print("Database pool initialized successfully")
+            db_init_success = True
+            break
+        else:
+            logger.warning(f"Database pool initialization failed (attempt {db_attempt}/{db_init_max_retries})")
+            print(f"WARNING: Database pool initialization failed (attempt {db_attempt}/{db_init_max_retries})")
+            
+            if db_attempt < db_init_max_retries:
+                wait_time = db_init_retry_delay * db_attempt
+                logger.info(f"Retrying in {wait_time} seconds...")
+                print(f"Retrying in {wait_time} seconds...")
+                time.sleep(wait_time)
+                
+    except Exception as e:
+        logger.error(f"Failed to initialize database pool (attempt {db_attempt}/{db_init_max_retries}): {e}")
+        print(f"ERROR: Failed to initialize database pool (attempt {db_attempt}/{db_init_max_retries}): {e}")
+        
+        if db_attempt < db_init_max_retries:
+            wait_time = db_init_retry_delay * db_attempt
+            logger.info(f"Retrying in {wait_time} seconds...")
+            print(f"Retrying in {wait_time} seconds...")
+            time.sleep(wait_time)
+
+if not db_init_success:
+    logger.error("CRITICAL: Failed to initialize database pool after all retries")
+    print("=" * 70)
+    print("CRITICAL: Failed to initialize database pool after all retries")
+    print("=" * 70)
+    print("The bot will continue to run but database features will not work.")
+    print("Please check:")
+    print("  1. MySQL/MariaDB is running")
+    print("  2. Database credentials in .env file are correct")
+    print("  3. Database 'sulfur_bot' exists")
+    print("  4. Network connectivity to database server")
+    print("=" * 70)
 
 from modules.level_system import grant_xp
 # --- NEW: Import Voice Manager ---
@@ -309,34 +347,71 @@ from modules.economy import calculate_level_up_bonus
 import modules.quests as quests
 
 # --- MODIFIED: Initialize database and apply migrations with better error handling ---
-try:
-    db_helpers.initialize_database()
-    logger.info("Database tables initialized")
-    print("Database tables initialized")
-except Exception as e:
-    logger.error(f"Failed to initialize database tables: {e}")
-    print(f"WARNING: Failed to initialize database tables: {e}")
-    print("The bot will continue to run but may experience issues with database features.")
+if db_init_success:
+    table_init_success = False
+    table_init_max_retries = 3
+    
+    for table_attempt in range(1, table_init_max_retries + 1):
+        try:
+            logger.info(f"Initializing database tables (attempt {table_attempt}/{table_init_max_retries})...")
+            print(f"Initializing database tables (attempt {table_attempt}/{table_init_max_retries})...")
+            
+            if db_helpers.initialize_database():
+                logger.info("Database tables initialized")
+                print("Database tables initialized")
+                table_init_success = True
+                break
+            else:
+                logger.warning(f"Database table initialization failed (attempt {table_attempt}/{table_init_max_retries})")
+                print(f"WARNING: Database table initialization failed (attempt {table_attempt}/{table_init_max_retries})")
+                
+                if table_attempt < table_init_max_retries:
+                    wait_time = 5 * table_attempt
+                    logger.info(f"Retrying in {wait_time} seconds...")
+                    print(f"Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                    
+        except Exception as e:
+            logger.error(f"Failed to initialize database tables (attempt {table_attempt}/{table_init_max_retries}): {e}")
+            print(f"WARNING: Failed to initialize database tables (attempt {table_attempt}/{table_init_max_retries}): {e}")
+            
+            if table_attempt < table_init_max_retries:
+                wait_time = 5 * table_attempt
+                logger.info(f"Retrying in {wait_time} seconds...")
+                print(f"Retrying in {wait_time} seconds...")
+                time.sleep(wait_time)
+    
+    if not table_init_success:
+        logger.error("WARNING: Failed to initialize database tables after all retries")
+        print("WARNING: Failed to initialize database tables after all retries")
+        print("The bot will continue to run but may experience issues with database features.")
+else:
+    logger.warning("Skipping database table initialization (pool not initialized)")
+    print("Skipping database table initialization (pool not initialized)")
 
 # Apply pending migrations with error handling
-try:
-    applied_count, errors = db_helpers.apply_pending_migrations()
-    if applied_count > 0:
-        logger.info(f"Applied {applied_count} database migrations")
-        print(f"Applied {applied_count} database migrations")
-    if errors:
-        logger.warning(f"{len(errors)} migration errors occurred")
-        print(f"WARNING: {len(errors)} migration errors occurred:")
-        for error in errors:
-            logger.warning(f"Migration error: {error}")
-            print(f"  - {error}")
-    else:
-        logger.info("All database migrations are up to date")
-        print("All database migrations are up to date")
-except Exception as e:
-    logger.error(f"Failed to apply database migrations: {e}")
-    print(f"WARNING: Failed to apply database migrations: {e}")
-    print("The bot will continue to run but database schema may be outdated.")
+if db_init_success:
+    try:
+        applied_count, errors = db_helpers.apply_pending_migrations()
+        if applied_count > 0:
+            logger.info(f"Applied {applied_count} database migrations")
+            print(f"Applied {applied_count} database migrations")
+        if errors:
+            logger.warning(f"{len(errors)} migration errors occurred")
+            print(f"WARNING: {len(errors)} migration errors occurred:")
+            for error in errors:
+                logger.warning(f"Migration error: {error}")
+                print(f"  - {error}")
+        else:
+            logger.info("All database migrations are up to date")
+            print("All database migrations are up to date")
+    except Exception as e:
+        logger.error(f"Failed to apply database migrations: {e}")
+        print(f"WARNING: Failed to apply database migrations: {e}")
+        print("The bot will continue to run but database schema may be outdated.")
+else:
+    logger.warning("Skipping database migrations (pool not initialized)")
+    print("Skipping database migrations (pool not initialized)")
 
 # --- NEW: Gemini API Usage Tracking (DB Version) ---
 GEMINI_DAILY_LIMIT = 250 # Daily call limit for Gemini
