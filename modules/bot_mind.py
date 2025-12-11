@@ -23,6 +23,10 @@ BOREDOM_REDUCTION_PER_INTERACTION = 0.2
 ENERGY_COST_PER_INTERACTION = 0.08
 THOUGHT_GENERATION_CHANCE = 0.6  # 60% chance to generate thought per interaction
 
+# Mood configuration
+DEFAULT_SARCASM_THRESHOLD = 0.7  # Probability threshold for sarcastic mood with short messages
+MOOD_SELECTION_PROBABILITY = 0.6  # Probability of choosing amused over playful mood
+
 # Activity timeout
 CONVERSATION_IDLE_TIMEOUT_MINUTES = 5
 
@@ -213,7 +217,7 @@ class BotMind:
         
         # Check for humor
         elif any(word in message_lower for word in ['lol', 'haha', 'funny', '😂', '😄', '😊', 'lmao', 'rofl']):
-            if random.random() < 0.6:
+            if random.random() < MOOD_SELECTION_PROBABILITY:
                 self.update_mood(Mood.AMUSED, f"Laughing with {user_name}")
             else:
                 self.update_mood(Mood.PLAYFUL, f"Joking with {user_name}")
@@ -235,7 +239,7 @@ class BotMind:
             self.update_mood(Mood.CONTEMPLATIVE, f"Deep conversation with {user_name}")
         
         # Short messages might be sarcastic territory
-        elif len(message) < 20 and random.random() < self.personality_traits.get('sarcasm', 0.7):
+        elif len(message) < 20 and random.random() < self.personality_traits.get('sarcasm', DEFAULT_SARCASM_THRESHOLD):
             self.update_mood(Mood.SARCASTIC, f"Quick exchange with {user_name}")
         
         # Generate thoughts based on interaction with more variety
