@@ -20,14 +20,25 @@ from modules.db_helpers import get_db_connection
 
 async def get_user_autonomous_settings(user_id: int) -> Dict[str, Any]:
     """Get user's autonomous behavior settings."""
-    async with get_db_connection() as (conn, cursor):
-        await cursor.execute("""
+    conn = get_db_connection()
+    if not conn:
+        # Default settings if database unavailable
+        return {
+            'allow_messages': True,
+            'allow_calls': True,
+            'last_contact': None,
+            'frequency': 'normal'
+        }
+    
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
             SELECT allow_autonomous_messages, allow_autonomous_calls, 
                    last_autonomous_contact, autonomous_contact_frequency
             FROM user_autonomous_settings
             WHERE user_id = %s
         """, (user_id,))
-        result = await cursor.fetchone()
+        result = cursor.fetchone()
         
         if result:
             return {
@@ -44,6 +55,9 @@ async def get_user_autonomous_settings(user_id: int) -> Dict[str, Any]:
             'last_contact': None,
             'frequency': 'normal'
         }
+    finally:
+        cursor.close()
+        conn.close()
 
 
 async def update_user_autonomous_settings(
@@ -53,63 +67,79 @@ async def update_user_autonomous_settings(
     frequency: Optional[str] = None
 ) -> bool:
     """Update user's autonomous behavior settings."""
+    conn = get_db_connection()
+    if not conn:
+        logger.error(f"Could not connect to database to update autonomous settings for user {user_id}")
+        return False
+    
+    cursor = conn.cursor()
     try:
-        async with get_db_connection() as (conn, cursor):
-            # Build update query dynamically
-            updates = []
-            params = []
-            
-            if allow_messages is not None:
-                updates.append("allow_autonomous_messages = %s")
-                params.append(allow_messages)
-            
-            if allow_calls is not None:
-                updates.append("allow_autonomous_calls = %s")
-                params.append(allow_calls)
-            
-            if frequency is not None:
-                updates.append("autonomous_contact_frequency = %s")
-                params.append(frequency)
-            
-            if not updates:
-                return False
-            
-            params.append(user_id)
-            query = f"""
-                INSERT INTO user_autonomous_settings 
-                (user_id, allow_autonomous_messages, allow_autonomous_calls, autonomous_contact_frequency)
-                VALUES (%s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE {', '.join(updates)}
-            """
-            
-            # For INSERT, need all values
-            insert_params = [
-                user_id,
-                allow_messages if allow_messages is not None else True,
-                allow_calls if allow_calls is not None else True,
-                frequency if frequency is not None else 'normal'
-            ]
-            
-            await cursor.execute(query, insert_params)
-            await conn.commit()
-            return True
+        # Build update query dynamically
+        updates = []
+        params = []
+        
+        if allow_messages is not None:
+            updates.append("allow_autonomous_messages = %s")
+            params.append(allow_messages)
+        
+        if allow_calls is not None:
+            updates.append("allow_autonomous_calls = %s")
+            params.append(allow_calls)
+        
+        if frequency is not None:
+            updates.append("autonomous_contact_frequency = %s")
+            params.append(frequency)
+        
+        if not updates:
+            return False
+        
+        params.append(user_id)
+        query = f"""
+            INSERT INTO user_autonomous_settings 
+            (user_id, allow_autonomous_messages, allow_autonomous_calls, autonomous_contact_frequency)
+            VALUES (%s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE {', '.join(updates)}
+        """
+        
+        # For INSERT, need all values
+        insert_params = [
+            user_id,
+            allow_messages if allow_messages is not None else True,
+            allow_calls if allow_calls is not None else True,
+            frequency if frequency is not None else 'normal'
+        ]
+        
+        cursor.execute(query, insert_params)
+        conn.commit()
+        return True
     except Exception as e:
         logger.error(f"Error updating autonomous settings for user {user_id}: {e}")
         return False
+    finally:
+        cursor.close()
+        conn.close()
 
 
 async def record_autonomous_contact(user_id: int):
     """Record that the bot has autonomously contacted a user."""
+    conn = get_db_connection()
+    if not conn:
+        logger.error(f"Could not connect to database to record autonomous contact for user {user_id}")
+        return
+    
+    cursor = conn.cursor()
     try:
-        async with get_db_connection() as (conn, cursor):
-            await cursor.execute("""
-                UPDATE user_autonomous_settings
-                SET last_autonomous_contact = CURRENT_TIMESTAMP
-                WHERE user_id = %s
-            """, (user_id,))
-            await conn.commit()
+        cursor.execute("""
+            UPDATE user_autonomous_settings
+            SET last_autonomous_contact = CURRENT_TIMESTAMP
+            WHERE user_id = %s
+        """, (user_id,))
+        conn.commit()
     except Exception as e:
         logger.error(f"Error recording autonomous contact for user {user_id}: {e}")
+    finally:
+        cursor.close()
+        conn.close()
 
 
 async def grant_temp_dm_access(user_id: int, duration_hours: int = 1):
@@ -123,20 +153,28 @@ async def grant_temp_dm_access(user_id: int, duration_hours: int = 1):
         user_id: Discord user ID
         duration_hours: How long to grant access (default: 1 hour)
     """
+    conn = get_db_connection()
+    if not conn:
+        logger.error(f"Could not connect to database to grant temp DM access for user {user_id}")
+        return
+    
+    cursor = conn.cursor()
     try:
-        async with get_db_connection() as (conn, cursor):
-            expires_at = datetime.now() + timedelta(hours=duration_hours)
-            await cursor.execute("""
-                INSERT INTO temp_dm_access (user_id, expires_at)
-                VALUES (%s, %s)
-                ON DUPLICATE KEY UPDATE 
-                    expires_at = VALUES(expires_at),
-                    granted_at = CURRENT_TIMESTAMP
-            """, (user_id, expires_at))
-            await conn.commit()
-            logger.info(f"Granted temporary DM access to user {user_id} for {duration_hours} hour(s)")
+        expires_at = datetime.now() + timedelta(hours=duration_hours)
+        cursor.execute("""
+            INSERT INTO temp_dm_access (user_id, expires_at)
+            VALUES (%s, %s)
+            ON DUPLICATE KEY UPDATE 
+                expires_at = VALUES(expires_at),
+                granted_at = CURRENT_TIMESTAMP
+        """, (user_id, expires_at))
+        conn.commit()
+        logger.info(f"Granted temporary DM access to user {user_id} for {duration_hours} hour(s)")
     except Exception as e:
         logger.error(f"Error granting temporary DM access to user {user_id}: {e}")
+    finally:
+        cursor.close()
+        conn.close()
 
 
 async def has_temp_dm_access(user_id: int) -> bool:
@@ -146,50 +184,66 @@ async def has_temp_dm_access(user_id: int) -> bool:
     Returns True if the user has unexpired temporary access.
     Also cleans up expired access automatically.
     """
+    conn = get_db_connection()
+    if not conn:
+        logger.error(f"Could not connect to database to check temp DM access for user {user_id}")
+        return False
+    
+    cursor = conn.cursor()
     try:
-        async with get_db_connection() as (conn, cursor):
-            # Check for valid temp access
-            await cursor.execute("""
-                SELECT user_id 
-                FROM temp_dm_access 
-                WHERE user_id = %s AND expires_at > NOW()
+        # Check for valid temp access
+        cursor.execute("""
+            SELECT user_id 
+            FROM temp_dm_access 
+            WHERE user_id = %s AND expires_at > NOW()
+        """, (user_id,))
+        result = cursor.fetchone()
+        
+        has_access = result is not None
+        
+        # Clean up expired access for this user if found
+        if not has_access:
+            cursor.execute("""
+                DELETE FROM temp_dm_access 
+                WHERE user_id = %s AND expires_at <= NOW()
             """, (user_id,))
-            result = await cursor.fetchone()
-            
-            has_access = result is not None
-            
-            # Clean up expired access for this user if found
-            if not has_access:
-                await cursor.execute("""
-                    DELETE FROM temp_dm_access 
-                    WHERE user_id = %s AND expires_at <= NOW()
-                """, (user_id,))
-                await conn.commit()
-            
-            return has_access
+            conn.commit()
+        
+        return has_access
     except Exception as e:
         logger.error(f"Error checking temporary DM access for user {user_id}: {e}")
         return False
+    finally:
+        cursor.close()
+        conn.close()
 
 
 async def cleanup_expired_temp_dm_access():
     """Clean up all expired temporary DM access entries."""
+    conn = get_db_connection()
+    if not conn:
+        logger.error("Could not connect to database to cleanup expired temp DM access")
+        return 0
+    
+    cursor = conn.cursor()
     try:
-        async with get_db_connection() as (conn, cursor):
-            await cursor.execute("""
-                DELETE FROM temp_dm_access 
-                WHERE expires_at <= NOW()
-            """)
-            deleted = cursor.rowcount
-            await conn.commit()
-            
-            if deleted > 0:
-                logger.info(f"Cleaned up {deleted} expired temporary DM access entries")
-            
-            return deleted
+        cursor.execute("""
+            DELETE FROM temp_dm_access 
+            WHERE expires_at <= NOW()
+        """)
+        deleted = cursor.rowcount
+        conn.commit()
+        
+        if deleted > 0:
+            logger.info(f"Cleaned up {deleted} expired temporary DM access entries")
+        
+        return deleted
     except Exception as e:
         logger.error(f"Error cleaning up expired temp DM access: {e}")
         return 0
+    finally:
+        cursor.close()
+        conn.close()
 
 
 # --- Action Logging ---
@@ -203,39 +257,55 @@ async def log_autonomous_action(
     success: bool = True
 ) -> int:
     """Log an autonomous action taken by the bot."""
+    conn = get_db_connection()
+    if not conn:
+        logger.error("Could not connect to database to log autonomous action")
+        return 0
+    
+    cursor = conn.cursor()
     try:
-        async with get_db_connection() as (conn, cursor):
-            await cursor.execute("""
-                INSERT INTO bot_autonomous_actions
-                (action_type, target_user_id, guild_id, action_reason, context_data, success)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """, (
-                action_type,
-                target_user_id,
-                guild_id,
-                action_reason,
-                json.dumps(context_data) if context_data else None,
-                success
-            ))
-            await conn.commit()
-            return cursor.lastrowid
+        cursor.execute("""
+            INSERT INTO bot_autonomous_actions
+            (action_type, target_user_id, guild_id, action_reason, context_data, success)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, (
+            action_type,
+            target_user_id,
+            guild_id,
+            action_reason,
+            json.dumps(context_data) if context_data else None,
+            success
+        ))
+        conn.commit()
+        return cursor.lastrowid
     except Exception as e:
         logger.error(f"Error logging autonomous action: {e}")
         return 0
+    finally:
+        cursor.close()
+        conn.close()
 
 
 async def update_action_response(action_id: int, user_responded: bool):
     """Update whether user responded to an autonomous action."""
+    conn = get_db_connection()
+    if not conn:
+        logger.error(f"Could not connect to database to update action response for action {action_id}")
+        return
+    
+    cursor = conn.cursor()
     try:
-        async with get_db_connection() as (conn, cursor):
-            await cursor.execute("""
-                UPDATE bot_autonomous_actions
-                SET user_response = %s
-                WHERE id = %s
-            """, (user_responded, action_id))
-            await conn.commit()
+        cursor.execute("""
+            UPDATE bot_autonomous_actions
+            SET user_response = %s
+            WHERE id = %s
+        """, (user_responded, action_id))
+        conn.commit()
     except Exception as e:
         logger.error(f"Error updating action response: {e}")
+    finally:
+        cursor.close()
+        conn.close()
 
 
 # --- Decision Making ---
@@ -296,28 +366,36 @@ async def should_contact_user(user_id: int, member: discord.Member, min_cooldown
 
 async def get_conversation_context(user_id: int, limit: int = 10) -> List[Dict]:
     """Get recent conversation context for a user."""
+    conn = get_db_connection()
+    if not conn:
+        logger.error(f"Could not connect to database to get conversation context for user {user_id}")
+        return []
+    
+    cursor = conn.cursor()
     try:
-        async with get_db_connection() as (conn, cursor):
-            await cursor.execute("""
-                SELECT user_id, message, timestamp
-                FROM chat_history
-                WHERE user_id = %s
-                ORDER BY timestamp DESC
-                LIMIT %s
-            """, (user_id, limit))
-            
-            rows = await cursor.fetchall()
-            return [
-                {
-                    'user_id': row[0],
-                    'message': row[1],
-                    'timestamp': row[2]
-                }
-                for row in rows
-            ]
+        cursor.execute("""
+            SELECT user_id, message, timestamp
+            FROM chat_history
+            WHERE user_id = %s
+            ORDER BY timestamp DESC
+            LIMIT %s
+        """, (user_id, limit))
+        
+        rows = cursor.fetchall()
+        return [
+            {
+                'user_id': row[0],
+                'message': row[1],
+                'timestamp': row[2]
+            }
+            for row in rows
+        ]
     except Exception as e:
         logger.error(f"Error getting conversation context: {e}")
         return []
+    finally:
+        cursor.close()
+        conn.close()
 
 
 async def generate_conversation_starter(
@@ -383,89 +461,112 @@ async def update_user_memory(
     topics: Optional[List[str]] = None
 ):
     """Update enhanced user memory for better autonomous decisions."""
+    conn = get_db_connection()
+    if not conn:
+        logger.error(f"Could not connect to database to update user memory for user {user_id}")
+        return
+    
+    cursor = conn.cursor()
     try:
-        async with get_db_connection() as (conn, cursor):
-            # Get current memory
-            await cursor.execute("""
-                SELECT interests, usual_active_times, conversation_topics
-                FROM user_memory_enhanced
-                WHERE user_id = %s
-            """, (user_id,))
-            
-            result = await cursor.fetchone()
-            
-            if result:
-                current_interests = json.loads(result[0]) if result[0] else []
-                current_times = json.loads(result[1]) if result[1] else []
-                current_topics = json.loads(result[2]) if result[2] else []
-            else:
-                current_interests = []
-                current_times = []
-                current_topics = []
-            
-            # Merge new data
-            if interests:
-                current_interests = list(set(current_interests + interests))[-20:]  # Keep last 20
-            
-            if active_times:
-                current_times = list(set(current_times + active_times))[-24:]  # Keep last 24 hours
-            
-            if topics:
-                current_topics = list(set(topics + current_topics))[:30]  # Keep most recent 30
-            
-            # Update database
-            await cursor.execute("""
-                INSERT INTO user_memory_enhanced
-                (user_id, interests, usual_active_times, conversation_topics, last_significant_interaction)
-                VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
-                ON DUPLICATE KEY UPDATE
-                    interests = VALUES(interests),
-                    usual_active_times = VALUES(usual_active_times),
-                    conversation_topics = VALUES(conversation_topics),
-                    last_significant_interaction = CURRENT_TIMESTAMP
-            """, (
-                user_id,
-                json.dumps(current_interests),
-                json.dumps(current_times),
-                json.dumps(current_topics)
-            ))
-            await conn.commit()
+        # Get current memory
+        cursor.execute("""
+            SELECT interests, usual_active_times, conversation_topics
+            FROM user_memory_enhanced
+            WHERE user_id = %s
+        """, (user_id,))
+        
+        result = cursor.fetchone()
+        
+        if result:
+            current_interests = json.loads(result[0]) if result[0] else []
+            current_times = json.loads(result[1]) if result[1] else []
+            current_topics = json.loads(result[2]) if result[2] else []
+        else:
+            current_interests = []
+            current_times = []
+            current_topics = []
+        
+        # Merge new data
+        if interests:
+            current_interests = list(set(current_interests + interests))[-20:]  # Keep last 20
+        
+        if active_times:
+            current_times = list(set(current_times + active_times))[-24:]  # Keep last 24 hours
+        
+        if topics:
+            current_topics = list(set(topics + current_topics))[:30]  # Keep most recent 30
+        
+        # Update database
+        cursor.execute("""
+            INSERT INTO user_memory_enhanced
+            (user_id, interests, usual_active_times, conversation_topics, last_significant_interaction)
+            VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
+            ON DUPLICATE KEY UPDATE
+                interests = VALUES(interests),
+                usual_active_times = VALUES(usual_active_times),
+                conversation_topics = VALUES(conversation_topics),
+                last_significant_interaction = CURRENT_TIMESTAMP
+        """, (
+            user_id,
+            json.dumps(current_interests),
+            json.dumps(current_times),
+            json.dumps(current_topics)
+        ))
+        conn.commit()
     except Exception as e:
         logger.error(f"Error updating user memory: {e}")
+    finally:
+        cursor.close()
+        conn.close()
 
 
 async def get_user_memory(user_id: int) -> Dict[str, Any]:
     """Get enhanced memory data for a user."""
+    conn = get_db_connection()
+    if not conn:
+        logger.error(f"Could not connect to database to get user memory for user {user_id}")
+        return {
+            'interests': [],
+            'active_times': [],
+            'topics': [],
+            'last_interaction': None,
+            'frequency': 0.0,
+            'preferred_method': 'text'
+        }
+    
+    cursor = conn.cursor()
     try:
-        async with get_db_connection() as (conn, cursor):
-            await cursor.execute("""
-                SELECT interests, usual_active_times, conversation_topics,
-                       last_significant_interaction, interaction_frequency,
-                       preferred_contact_method
-                FROM user_memory_enhanced
-                WHERE user_id = %s
-            """, (user_id,))
-            
-            result = await cursor.fetchone()
-            
-            if result:
-                return {
-                    'interests': json.loads(result[0]) if result[0] else [],
-                    'active_times': json.loads(result[1]) if result[1] else [],
-                    'topics': json.loads(result[2]) if result[2] else [],
-                    'last_interaction': result[3],
-                    'frequency': result[4],
-                    'preferred_method': result[5]
-                }
-            
+        cursor.execute("""
+            SELECT interests, usual_active_times, conversation_topics,
+                   last_significant_interaction, interaction_frequency,
+                   preferred_contact_method
+            FROM user_memory_enhanced
+            WHERE user_id = %s
+        """, (user_id,))
+        
+        result = cursor.fetchone()
+        
+        if result:
             return {
-                'interests': [],
-                'active_times': [],
-                'topics': [],
-                'last_interaction': None,
-                'frequency': 0.0,
-                'preferred_method': 'text'
+                'interests': json.loads(result[0]) if result[0] else [],
+                'active_times': json.loads(result[1]) if result[1] else [],
+                'topics': json.loads(result[2]) if result[2] else [],
+                'last_interaction': result[3],
+                'frequency': result[4],
+                'preferred_method': result[5]
             }
+        
+        return {
+            'interests': [],
+            'active_times': [],
+            'topics': [],
+            'last_interaction': None,
+            'frequency': 0.0,
+            'preferred_method': 'text'
+        }
     except Exception as e:
         logger.error(f"Error getting user memory: {e}")
         return {}
+    finally:
+        cursor.close()
+        conn.close()

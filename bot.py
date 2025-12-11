@@ -4165,25 +4165,34 @@ class AdminGroup(app_commands.Group):
         
         try:
             # Get stats from database
-            async with db_helpers.get_db_connection() as (conn, cursor):
+            conn = db_helpers.get_db_connection()
+            if not conn:
+                await interaction.followup.send("❌ Error: Could not connect to database")
+                return
+            
+            cursor = conn.cursor()
+            try:
                 # Count recent autonomous actions
-                await cursor.execute("""
+                cursor.execute("""
                     SELECT action_type, COUNT(*) as count, 
                            SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successful
                     FROM bot_autonomous_actions
                     WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
                     GROUP BY action_type
                 """)
-                action_stats = await cursor.fetchall()
+                action_stats = cursor.fetchall()
                 
                 # Count users who opted out
-                await cursor.execute("""
+                cursor.execute("""
                     SELECT COUNT(*) as count
                     FROM user_autonomous_settings
                     WHERE allow_autonomous_messages = FALSE OR allow_autonomous_calls = FALSE
                 """)
-                opted_out_result = await cursor.fetchone()
+                opted_out_result = cursor.fetchone()
                 opted_out = opted_out_result[0] if opted_out_result else 0
+            finally:
+                cursor.close()
+                conn.close()
             
             embed = discord.Embed(
                 title="🤖 Autonomous Behavior Status",
