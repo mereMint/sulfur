@@ -111,6 +111,14 @@ CREATE TABLE IF NOT EXISTS temp_dm_access (
     INDEX idx_expires (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Bot mind state storage
+CREATE TABLE IF NOT EXISTS bot_mind_state (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    state_data JSON NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_created (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Default settings for existing users
 -- This will only run if the 'users' or 'user_stats' table exists
 -- If neither exists, the settings will be created on first user interaction

@@ -53,6 +53,7 @@ from modules import sport_betting_ui_v2 as sport_betting_ui  # NEW: Sport bettin
 from modules import autonomous_behavior  # NEW: Autonomous bot behavior
 from modules import focus_timer  # NEW: Focus timer with activity monitoring
 from modules import voice_tts  # NEW: Voice TTS and conversation
+from modules import bot_mind  # NEW: Bot mind state and consciousness
 from modules.bot_enhancements import (
     handle_image_attachment,
     handle_unknown_emojis_in_message,
