@@ -4587,6 +4587,57 @@ class AdminAIGroup(app_commands.Group):
             logger.error(f"Error in debug_voice command: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {e}")
 
+    @app_commands.command(name="force_voice_call", description="[Admin] Zwingt den Bot, einem Voice-Call beizutreten.")
+    @app_commands.describe(
+        user="Der Benutzer, dessen Voice-Channel der Bot beitreten soll"
+    )
+    async def force_voice_call(self, interaction: discord.Interaction, user: discord.Member):
+        """Forces the bot to join a user's voice channel."""
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            # Check if user is in a voice channel
+            if not user.voice or not user.voice.channel:
+                await interaction.followup.send(f"❌ {user.display_name} ist aktuell in keinem Voice-Channel!")
+                return
+            
+            voice_channel = user.voice.channel
+            
+            # Check if bot is already in a call
+            from modules.voice_conversation import get_all_active_calls, initiate_voice_call
+            
+            active_calls = get_all_active_calls()
+            if any(call.user.id == user.id for call in active_calls):
+                await interaction.followup.send(f"❌ Bot ist bereits in einem Call mit {user.display_name}!")
+                return
+            
+            # Check bot permissions
+            permissions = voice_channel.permissions_for(interaction.guild.me)
+            if not permissions.connect or not permissions.speak:
+                await interaction.followup.send(f"❌ Bot hat keine Berechtigung, dem Channel **{voice_channel.name}** beizutreten!")
+                return
+            
+            # Initiate the voice call
+            call_state = await initiate_voice_call(user, config)
+            
+            if call_state:
+                await interaction.followup.send(
+                    f"✅ Bot ist dem Voice-Channel **{voice_channel.name}** beigetreten!\n"
+                    f"📞 Call mit {user.display_name} gestartet."
+                )
+                logger.info(f"Admin {interaction.user.name} forced voice call with {user.display_name}")
+                
+                # Send a greeting message in the call
+                from modules.voice_conversation import speak_in_call
+                greeting = f"Hallo {user.display_name}, ich wurde hierher gerufen. Wie kann ich dir helfen?"
+                await speak_in_call(call_state, greeting)
+            else:
+                await interaction.followup.send(f"❌ Fehler beim Starten des Voice-Calls!")
+                
+        except Exception as e:
+            logger.error(f"Error in force_voice_call command: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error: {e}")
+
     @app_commands.command(name="debug_memory", description="[Debug] Zeigt den Speicherzustand des Bots an.")
     async def debug_memory(self, interaction: discord.Interaction):
         """Shows bot memory state."""
@@ -4602,32 +4653,42 @@ class AdminAIGroup(app_commands.Group):
             cache_size = len(_response_cache.cache)
             
             # Get database statistics
-            async with db_helpers.get_db_connection() as (conn, cursor):
-                # Recent conversations
-                await cursor.execute("""
-                    SELECT COUNT(DISTINCT channel_id) as channels,
-                           COUNT(*) as messages
-                    FROM conversation_context
-                    WHERE created_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
-                """)
-                recent_conv = await cursor.fetchone()
-                
-                # Personality evolution
-                await cursor.execute("""
-                    SELECT COUNT(*) as evolution_events
-                    FROM personality_evolution
-                    WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-                """)
-                personality_changes = await cursor.fetchone()
-                
-                # Learning entries
-                await cursor.execute("""
-                    SELECT COUNT(*) as learnings,
-                           AVG(confidence) as avg_confidence
-                    FROM interaction_learnings
-                    WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-                """)
-                learning_stats = await cursor.fetchone()
+            conn = db_helpers.get_db_connection()
+            if conn:
+                cursor = conn.cursor()
+                try:
+                    # Recent conversations
+                    cursor.execute("""
+                        SELECT COUNT(DISTINCT channel_id) as channels,
+                               COUNT(*) as messages
+                        FROM conversation_context
+                        WHERE created_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
+                    """)
+                    recent_conv = cursor.fetchone()
+                    
+                    # Personality evolution
+                    cursor.execute("""
+                        SELECT COUNT(*) as evolution_events
+                        FROM personality_evolution
+                        WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                    """)
+                    personality_changes = cursor.fetchone()
+                    
+                    # Learning entries
+                    cursor.execute("""
+                        SELECT COUNT(*) as learnings,
+                               AVG(confidence) as avg_confidence
+                        FROM interaction_learnings
+                        WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                    """)
+                    learning_stats = cursor.fetchone()
+                finally:
+                    cursor.close()
+                    conn.close()
+            else:
+                recent_conv = (0, 0)
+                personality_changes = (0,)
+                learning_stats = (0, 0.0)
             
             embed = discord.Embed(
                 title="🧠 Bot Memory State",
