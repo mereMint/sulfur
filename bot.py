@@ -289,7 +289,17 @@ recent_user_message_cache = {}  # (user_id, content) -> timestamp
 # --- NEW: Import and initialize DB helpers ---
 from modules.db_helpers import init_db_pool, initialize_database, apply_pending_migrations, get_leaderboard, add_xp, get_player_rank, get_level_leaderboard, save_message_to_history, get_chat_history, get_relationship_summary, update_relationship_summary, save_bulk_history, clear_channel_history, update_user_presence, add_balance, update_spotify_history, get_all_managed_channels, remove_managed_channel, get_managed_channel_config, update_managed_channel_config, log_message_stat, log_vc_minutes, get_wrapped_stats_for_period, get_user_wrapped_stats, log_stat_increment, get_spotify_history, get_player_profile, cleanup_custom_status_entries, log_mention_reply, log_vc_session, get_wrapped_extra_stats, get_xp_for_level, register_for_wrapped, unregister_from_wrapped, is_registered_for_wrapped, get_wrapped_registrations, get_money_leaderboard, get_games_leaderboard
 import modules.db_helpers as db_helpers
-db_helpers.init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
+
+# Initialize database pool with error handling
+try:
+    db_helpers.init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
+    logger.info("Database pool initialized successfully")
+except Exception as e:
+    logger.error(f"Failed to initialize database pool: {e}")
+    print(f"ERROR: Failed to initialize database pool: {e}")
+    print("The bot will continue to run but database features may not work.")
+    print("Please check your database configuration in .env file.")
+
 from modules.level_system import grant_xp
 # --- NEW: Import Voice Manager ---
 import modules.voice_manager as voice_manager
@@ -298,20 +308,35 @@ from modules.economy import calculate_level_up_bonus
 # --- NEW: Import Quest System ---
 import modules.quests as quests
 
-# --- MODIFIED: Initialize database and apply migrations ---
-db_helpers.initialize_database()
-print("Database tables initialized")
+# --- MODIFIED: Initialize database and apply migrations with better error handling ---
+try:
+    db_helpers.initialize_database()
+    logger.info("Database tables initialized")
+    print("Database tables initialized")
+except Exception as e:
+    logger.error(f"Failed to initialize database tables: {e}")
+    print(f"WARNING: Failed to initialize database tables: {e}")
+    print("The bot will continue to run but may experience issues with database features.")
 
-# Apply pending migrations
-applied_count, errors = db_helpers.apply_pending_migrations()
-if applied_count > 0:
-    print(f"Applied {applied_count} database migrations")
-if errors:
-    print(f"WARNING: {len(errors)} migration errors occurred:")
-    for error in errors:
-        print(f"  - {error}")
-else:
-    print("All database migrations are up to date")
+# Apply pending migrations with error handling
+try:
+    applied_count, errors = db_helpers.apply_pending_migrations()
+    if applied_count > 0:
+        logger.info(f"Applied {applied_count} database migrations")
+        print(f"Applied {applied_count} database migrations")
+    if errors:
+        logger.warning(f"{len(errors)} migration errors occurred")
+        print(f"WARNING: {len(errors)} migration errors occurred:")
+        for error in errors:
+            logger.warning(f"Migration error: {error}")
+            print(f"  - {error}")
+    else:
+        logger.info("All database migrations are up to date")
+        print("All database migrations are up to date")
+except Exception as e:
+    logger.error(f"Failed to apply database migrations: {e}")
+    print(f"WARNING: Failed to apply database migrations: {e}")
+    print("The bot will continue to run but database schema may be outdated.")
 
 # --- NEW: Gemini API Usage Tracking (DB Version) ---
 GEMINI_DAILY_LIMIT = 250 # Daily call limit for Gemini

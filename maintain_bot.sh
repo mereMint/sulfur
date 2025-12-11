@@ -17,8 +17,6 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
-GRAY='\033[0;37m'
-MAGENTA='\033[0;35m'
 NC='\033[0;m' # No Color
 
 # Configuration
@@ -94,7 +92,8 @@ log_message() {
     local color=$1
     local prefix=$2
     local message=$3
-    local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
+    local timestamp
+    timestamp=$(date +"%Y-%m-%d %H:%M:%S")
     
     echo -e "${color}[${timestamp}] ${prefix}${message}${NC}" | tee -a "$MAIN_LOG"
 }
@@ -161,7 +160,8 @@ cleanup() {
     
     # Also search for any bot.py processes that might have escaped
     if command -v pgrep >/dev/null 2>&1; then
-        local bot_pids=$(pgrep -f "python.*bot\.py" || true)
+        local bot_pids
+        bot_pids=$(pgrep -f "python.*bot\.py" || true)
         if [ -n "$bot_pids" ]; then
             log_warning "Found orphaned bot processes: $bot_pids"
             for pid in $bot_pids; do
@@ -173,14 +173,15 @@ cleanup() {
     
     # Stop web dashboard
     if [ -f "$WEB_PID_FILE" ]; then
-        WEB_PID=$(cat "$WEB_PID_FILE")
-        if kill -0 "$WEB_PID" 2>/dev/null; then
-            log_web "Stopping web dashboard (PID: $WEB_PID)..."
-            kill -TERM "$WEB_PID" 2>/dev/null
+        local web_pid
+        web_pid=$(cat "$WEB_PID_FILE" 2>/dev/null)
+        if [ -n "$web_pid" ] && kill -0 "$web_pid" 2>/dev/null; then
+            log_web "Stopping web dashboard (PID: $web_pid)..."
+            kill -TERM "$web_pid" 2>/dev/null
             sleep 2
             # Force kill if still running
-            if kill -0 "$WEB_PID" 2>/dev/null; then
-                kill -9 "$WEB_PID" 2>/dev/null
+            if kill -0 "$web_pid" 2>/dev/null; then
+                kill -9 "$web_pid" 2>/dev/null
             fi
         fi
         rm -f "$WEB_PID_FILE"
@@ -188,7 +189,8 @@ cleanup() {
     
     # Also search for any web_dashboard.py processes that might have escaped
     if command -v pgrep >/dev/null 2>&1; then
-        local web_pids=$(pgrep -f "python.*web_dashboard\.py" || true)
+        local web_pids
+        web_pids=$(pgrep -f "python.*web_dashboard\.py" || true)
         if [ -n "$web_pids" ]; then
             log_warning "Found orphaned web dashboard processes: $web_pids"
             for pid in $web_pids; do
@@ -255,6 +257,7 @@ cleanup_orphans() {
             
             if [ -n "$pids_to_kill" ]; then
                 log_warning "Killing orphaned PIDs:$pids_to_kill"
+                # shellcheck disable=SC2086
                 kill -9 $pids_to_kill 2>/dev/null || true
             else
                 log_info "No orphaned Python processes found (excluding current bot/web)"
@@ -284,6 +287,7 @@ cleanup_orphans() {
             
             if [ -n "$pids_to_kill" ]; then
                 log_warning "Killing orphaned PIDs:$pids_to_kill"
+                # shellcheck disable=SC2086
                 kill -9 $pids_to_kill 2>/dev/null || true
             else
                 log_info "No orphaned Python processes found (excluding current bot/web)"
