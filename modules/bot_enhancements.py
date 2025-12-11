@@ -123,7 +123,8 @@ async def handle_unknown_emojis_in_message(message, config, gemini_key, openai_k
         mind_state = bot_mind.get_mind_state_api()
         mood = mind_state.get('mood', 'neutral')
         sarcasm_level = mind_state.get('personality_traits', {}).get('sarcasm', 0.5)
-    except:
+    except (ImportError, AttributeError, KeyError) as e:
+        logger.debug(f"Could not load mind state for emoji interpretation: {e}")
         mood = 'neutral'
         sarcasm_level = 0.5
     

@@ -15013,8 +15013,8 @@ async def on_message(message):
             observation = f"User {message.author.display_name} sent a message in {channel_name}"
             bot_mind.bot_mind.observe(observation)
             
-        except Exception as e:
-            logger.warning(f"Mind state processing error: {e}")
+        except (AttributeError, ImportError) as e:
+            logger.warning(f"Mind state processing error (module may not be available): {e}")
         
         if not isinstance(message.channel, discord.DMChannel):
             stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
@@ -15200,8 +15200,8 @@ async def on_message(message):
                 recent_interests = ", ".join(interests[-5:])
                 dynamic_system_prompt += f"\n\nCurrent interests: {recent_interests}"
                 
-        except Exception as e:
-            logger.warning(f"Could not add mind state to prompt: {e}")
+        except (AttributeError, KeyError, ImportError) as e:
+            logger.warning(f"Could not add mind state to prompt (module or data unavailable): {e}")
         
         # Add compact user context (level, current activity)
         try:
