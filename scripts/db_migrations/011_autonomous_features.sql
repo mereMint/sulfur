@@ -124,4 +124,6 @@ CREATE TABLE IF NOT EXISTS bot_mind_state (
 -- If neither exists, the settings will be created on first user interaction
 INSERT IGNORE INTO user_autonomous_settings (user_id, allow_autonomous_messages, allow_autonomous_calls)
 SELECT DISTINCT user_id, TRUE, TRUE FROM user_stats WHERE user_id IS NOT NULL
-ON DUPLICATE KEY UPDATE user_id = user_id;
+ON DUPLICATE KEY UPDATE 
+    user_autonomous_settings.allow_autonomous_messages = VALUES(allow_autonomous_messages),
+    user_autonomous_settings.allow_autonomous_calls = VALUES(allow_autonomous_calls);
