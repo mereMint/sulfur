@@ -248,9 +248,10 @@
             <a href="/">🏠 Home</a>
             <a href="/ai_dashboard">📊 AI Dashboard</a>
             <a href="/ai_reasoning">🧠 Reasoning</a>
-            <a href="/voice_calls">🎙️ Voice Calls</a>
+            <a href="/voice_calls">🎙️ Voice</a>
             <a href="/database">💾 Database</a>
             <a href="/config">⚙️ Config</a>
+            <a href="/logs">📋 Logs</a>
         </div>
 
         <button class="refresh-btn" onclick="loadVoiceData()">🔄 Refresh Data</button>
@@ -378,14 +379,12 @@
                 const maxSeconds = Math.floor((stats.max_duration || 0) % 60);
                 document.getElementById('max-duration').textContent = `${maxMinutes}m ${maxSeconds}s`;
 
-                // Today's activity (mock data for now)
-                document.getElementById('calls-today').textContent = 
-                    Math.floor(Math.random() * 10);
-                document.getElementById('active-users').textContent = 
-                    Math.floor(Math.random() * 5);
-                document.getElementById('success-rate').textContent = '95%';
+                // Today's activity (TODO: Replace with real data from database)
+                document.getElementById('calls-today').textContent = '0';
+                document.getElementById('active-users').textContent = '0';  
+                document.getElementById('success-rate').textContent = '-';
 
-                // Render call history chart (mock data)
+                // Render call history chart
                 renderCallHistoryChart();
 
             } catch (error) {
@@ -396,14 +395,15 @@
         function renderCallHistoryChart() {
             const chartContainer = document.getElementById('call-history-chart');
             const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-            // Mock data - in production, this would come from the API
-            const callCounts = [3, 5, 2, 7, 4, 6, 3];
-            const maxCalls = Math.max(...callCounts);
+            // TODO: Replace with actual data from API
+            // For now, show empty chart
+            const callCounts = [0, 0, 0, 0, 0, 0, 0];
+            const maxCalls = 1;  // Avoid division by zero
 
             chartContainer.innerHTML = callCounts.map((count, index) => {
                 const heightPercent = (count / maxCalls) * 100;
                 return `
-                    <div class="bar" style="height: ${heightPercent}%">
+                    <div class="bar" style="height: ${Math.max(heightPercent, 5)}%">
                         <div class="bar-value">${count}</div>
                         <div class="bar-label">${days[index]}</div>
                     </div>

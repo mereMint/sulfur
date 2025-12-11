@@ -46,8 +46,15 @@ class ContextManager:
         logger.debug(f"Added message to context: role={role}, length={len(content)}")
         
     def estimate_tokens(self, text: str) -> int:
-        """Rough estimation of tokens (4 chars ≈ 1 token for English)."""
-        return len(text) // 4
+        """
+        Rough estimation of tokens.
+        Note: 4 chars ≈ 1 token is a rough estimate. For more accuracy,
+        consider using tiktoken for OpenAI models or language-specific adjustments.
+        This is intentionally simple to avoid dependencies.
+        """
+        # Rough estimate: ~4-5 characters per token for mixed language text
+        # Slightly more conservative estimate for German (longer words)
+        return max(1, len(text) // 4)
         
     def get_current_token_count(self) -> int:
         """Estimate total tokens in current context."""

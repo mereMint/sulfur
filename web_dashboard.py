@@ -2711,12 +2711,13 @@ def api_ai_reasoning_debug():
             ]
         
         # Mock data for reasoning (would come from logging in production)
-        context_data['cache_hit_rate'] = 15.3
-        context_data['avg_response_time'] = 1250
-        context_data['tokens_saved'] = 3421
-        context_data['complex_queries'] = 8
-        context_data['cot_used'] = 3
-        context_data['compressions'] = 2
+        # TODO: Replace with actual logging system that tracks reasoning events
+        context_data['cache_hit_rate'] = 0  # Placeholder
+        context_data['avg_response_time'] = 0  # Placeholder
+        context_data['tokens_saved'] = 0  # Placeholder
+        context_data['complex_queries'] = 0  # Placeholder
+        context_data['cot_used'] = 0  # Placeholder
+        context_data['compressions'] = 0  # Placeholder
         
         return jsonify(context_data)
         
