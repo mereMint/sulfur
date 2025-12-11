@@ -108,8 +108,10 @@ async def get_chat_response(history, user_prompt, user_display_name, system_prom
     print(f"[Chat API] Cleaned history to {len(final_history_for_api)} alternating messages")
 
     # Add the current user prompt to the history for this specific API call
-    final_history_for_api.append({"role": "user", "parts": [{"text": f"User '{user_display_name}' said: {user_prompt}"}]})
-    logger.debug(f"[Chat API] Added current user prompt to history")
+    # Format with clear attribution to help AI track who said what
+    user_message_with_attribution = f"User '{user_display_name}' said: {user_prompt}"
+    final_history_for_api.append({"role": "user", "parts": [{"text": user_message_with_attribution}]})
+    logger.debug(f"[Chat API] Added current user prompt to history with attribution")
     print(f"[Chat API] Added user prompt: '{user_prompt[:50]}...'")
 
     if provider == 'gemini':
@@ -240,6 +242,8 @@ async def get_relationship_summary_from_api(history, user_display_name, old_summ
     - Note any interesting patterns, inside jokes, or memorable moments
     - Reflect your sarcastic, judgmental personality while being useful for future conversations
     - Be in first person (e.g., "They're the type who...", "I've noticed they often...", "We have this running joke about...")
+    - ONLY include information that's actually in the provided chat history - don't make assumptions
+    - Focus on patterns and vibes rather than specific claims about what they said or did
     
     Make it personal, specific, and useful for remembering this person in future chats. Don't be generic.
     """

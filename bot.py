@@ -87,6 +87,9 @@ DISCORD_ERROR_MESSAGE_MAX_LENGTH = 1850
 # Discord HTTP error code for maximum emoji limit
 MAX_EMOJI_LIMIT_ERROR_CODE = 30008
 
+# Dynamic accuracy check for AI responses - prevents hallucinations
+ACCURACY_CHECK_TEMPLATE = "ACCURACY CHECK: You are currently responding to '{user_name}'. Check the message history carefully - each message shows who said what. ONLY reference things that are explicitly visible in the provided conversation history. Do NOT make assumptions about what was said or done."
+
 # --- REFACTORED: Add a more robust token check with diagnostics ---
 if not DISCORD_BOT_TOKEN:
     logger.critical("DISCORD_BOT_TOKEN environment variable is not set")
@@ -14023,6 +14026,9 @@ async def on_message(message):
         
         # Add language reminder to prevent language slips
         dynamic_system_prompt += "\n\nREMINDER: Antworte IMMER auf Deutsch!"
+        
+        # Add accuracy enforcement for current conversation using constant template
+        dynamic_system_prompt += "\n\n" + ACCURACY_CHECK_TEMPLATE.format(user_name=message.author.display_name)
         
         # Add compact user context (level, current activity)
         try:
