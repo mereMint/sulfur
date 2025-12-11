@@ -17,6 +17,16 @@ from modules.logger_utils import bot_logger as logger
 from modules.db_helpers import get_db_connection
 
 
+# --- Configuration Constants ---
+# Interaction adjustments
+BOREDOM_REDUCTION_PER_INTERACTION = 0.2
+ENERGY_COST_PER_INTERACTION = 0.08
+THOUGHT_GENERATION_CHANCE = 0.6  # 60% chance to generate thought per interaction
+
+# Activity timeout
+CONVERSATION_IDLE_TIMEOUT_MINUTES = 5
+
+
 # --- Cache system prompt at module level to avoid repeated file I/O ---
 _cached_system_prompt = None
 
@@ -89,6 +99,7 @@ class BotMind:
         self.energy_level = 1.0
         self.boredom_level = 0.0
         self.last_thought_time = datetime.now()
+        self.last_interaction_time = datetime.now()  # Track when last interaction happened
         self.thought_history = []
         self.personality_loaded_from_db = False
         
@@ -174,21 +185,38 @@ class BotMind:
     
     def process_interaction(self, user_name: str, message: str):
         """Process an interaction with a user"""
-        self.adjust_boredom(-0.1)  # Interactions reduce boredom
-        self.adjust_energy(-0.05)  # Interactions use energy
+        # Record interaction time
+        self.last_interaction_time = datetime.now()
         
-        # Analyze message for interests
+        # Update activity to chatting during interaction
+        self.update_activity(Activity.CHATTING)
+        
+        # Adjust energy and boredom based on interaction
+        self.adjust_boredom(-BOREDOM_REDUCTION_PER_INTERACTION)
+        self.adjust_energy(-ENERGY_COST_PER_INTERACTION)
+        
+        # Analyze message for mood changes
+        message_lower = message.lower()
         if '?' in message:
             self.update_mood(Mood.CURIOUS, f"Question from {user_name}")
+        elif any(word in message_lower for word in ['lol', 'haha', 'funny', '😂', '😄', '😊']):
+            self.update_mood(Mood.HAPPY, f"Laughing with {user_name}")
+        elif any(word in message_lower for word in ['wow', '!', 'amazing', 'cool', 'awesome']):
+            self.update_mood(Mood.EXCITED, f"Enthusiastic conversation with {user_name}")
+        elif len(message) > 100:
+            self.update_mood(Mood.CONTEMPLATIVE, f"Deep conversation with {user_name}")
         
-        # Random chance to have a thought about the interaction
-        if random.random() < 0.3:
+        # Generate thoughts based on interaction
+        if random.random() < THOUGHT_GENERATION_CHANCE:
             thoughts = [
                 f"Interesting that {user_name} said that...",
                 f"Wonder what {user_name} really means...",
                 f"I should remember this about {user_name}",
                 f"{user_name} is being quite chatty today",
-                f"That's a weird thing to say, {user_name}"
+                f"That's a weird thing to say, {user_name}",
+                f"Another conversation with {user_name}... let's see where this goes",
+                f"Processing what {user_name} just said...",
+                f"Hmm, {user_name} has a point there"
             ]
             self.think(random.choice(thoughts))
 
@@ -342,6 +370,13 @@ async def autonomous_thought_cycle(client, get_chat_response_func, config: dict,
         openai_key: OpenAI API key
     """
     try:
+        # Check if we should return to idle after conversation timeout
+        time_since_interaction = datetime.now() - bot_mind.last_interaction_time
+        if bot_mind.current_activity == Activity.CHATTING and time_since_interaction > timedelta(minutes=CONVERSATION_IDLE_TIMEOUT_MINUTES):
+            bot_mind.update_activity(Activity.IDLE)
+            bot_mind.update_mood(Mood.NEUTRAL, "Conversation ended, returning to idle")
+            logger.info("Returned to idle state after conversation timeout")
+        
         # Gather context
         online_count = sum(1 for guild in client.guilds for member in guild.members 
                           if not member.bot and member.status != discord.Status.offline)
