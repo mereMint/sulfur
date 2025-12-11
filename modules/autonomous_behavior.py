@@ -399,9 +399,6 @@ async def get_conversation_context(user_id: int, limit: int = 10) -> List[Dict]:
     finally:
         cursor.close()
         conn.close()
-    finally:
-        cursor.close()
-        conn.close()
 
 
 async def generate_conversation_starter(
@@ -429,7 +426,7 @@ async def generate_conversation_starter(
         # Build context summary
         if context:
             recent_topics = "\n".join([
-                f"- {msg.get('message', '')}[:100]"
+                f"- {msg.get('message', '')[:100]}"
                 for msg in context[:3]
             ])
         else:
