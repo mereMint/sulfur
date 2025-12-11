@@ -17,6 +17,16 @@ from modules.logger_utils import bot_logger as logger
 from modules.db_helpers import get_db_connection
 
 
+# --- Configuration Constants ---
+# Interaction adjustments
+BOREDOM_REDUCTION_PER_INTERACTION = 0.2
+ENERGY_COST_PER_INTERACTION = 0.08
+THOUGHT_GENERATION_CHANCE = 0.6  # 60% chance to generate thought per interaction
+
+# Activity timeout
+CONVERSATION_IDLE_TIMEOUT_MINUTES = 5
+
+
 # --- Cache system prompt at module level to avoid repeated file I/O ---
 _cached_system_prompt = None
 
@@ -181,9 +191,9 @@ class BotMind:
         # Update activity to chatting during interaction
         self.update_activity(Activity.CHATTING)
         
-        # More noticeable adjustments
-        self.adjust_boredom(-0.2)  # Interactions reduce boredom significantly
-        self.adjust_energy(-0.08)  # Interactions use energy
+        # Adjust energy and boredom based on interaction
+        self.adjust_boredom(-BOREDOM_REDUCTION_PER_INTERACTION)
+        self.adjust_energy(-ENERGY_COST_PER_INTERACTION)
         
         # Analyze message for mood changes
         message_lower = message.lower()
@@ -196,8 +206,8 @@ class BotMind:
         elif len(message) > 100:
             self.update_mood(Mood.CONTEMPLATIVE, f"Deep conversation with {user_name}")
         
-        # Higher chance to have a thought about the interaction
-        if random.random() < 0.6:
+        # Generate thoughts based on interaction
+        if random.random() < THOUGHT_GENERATION_CHANCE:
             thoughts = [
                 f"Interesting that {user_name} said that...",
                 f"Wonder what {user_name} really means...",
@@ -360,9 +370,9 @@ async def autonomous_thought_cycle(client, get_chat_response_func, config: dict,
         openai_key: OpenAI API key
     """
     try:
-        # Check if we should return to idle (5 minutes since last interaction)
+        # Check if we should return to idle after conversation timeout
         time_since_interaction = datetime.now() - bot_mind.last_interaction_time
-        if bot_mind.current_activity == Activity.CHATTING and time_since_interaction > timedelta(minutes=5):
+        if bot_mind.current_activity == Activity.CHATTING and time_since_interaction > timedelta(minutes=CONVERSATION_IDLE_TIMEOUT_MINUTES):
             bot_mind.update_activity(Activity.IDLE)
             bot_mind.update_mood(Mood.NEUTRAL, "Conversation ended, returning to idle")
             logger.info("Returned to idle state after conversation timeout")
