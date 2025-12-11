@@ -17,6 +17,26 @@ from modules.logger_utils import bot_logger as logger
 from modules.db_helpers import get_db_connection
 
 
+# --- Cache system prompt at module level to avoid repeated file I/O ---
+_cached_system_prompt = None
+
+def _load_system_prompt() -> str:
+    """Load and cache the system prompt from file."""
+    global _cached_system_prompt
+    if _cached_system_prompt is not None:
+        return _cached_system_prompt
+    
+    try:
+        with open('config/system_prompt.txt', 'r', encoding='utf-8') as f:
+            _cached_system_prompt = f.read()
+            logger.info("Loaded system prompt from file")
+            return _cached_system_prompt
+    except Exception as e:
+        logger.warning(f"Could not load system prompt: {e}")
+        _cached_system_prompt = "You are Sulfur, a sarcastic and judgmental Discord bot."
+        return _cached_system_prompt
+
+
 class Mood(Enum):
     """Bot's current emotional state"""
     HAPPY = "happy"
@@ -254,14 +274,8 @@ async def generate_random_thought(context: Dict[str, Any], get_chat_response_fun
         openai_key: OpenAI API key
     """
     try:
-        # Load system prompt for the bot's personality
-        system_prompt = ""
-        try:
-            with open('config/system_prompt.txt', 'r', encoding='utf-8') as f:
-                system_prompt = f.read()
-        except Exception as e:
-            logger.warning(f"Could not load system prompt: {e}")
-            system_prompt = "You are Sulfur, a sarcastic and judgmental Discord bot."
+        # Load cached system prompt for the bot's personality
+        system_prompt = _load_system_prompt()
         
         prompt = f"""Generate a brief internal thought (1 sentence) based on your current state:
 

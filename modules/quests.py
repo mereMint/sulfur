@@ -160,7 +160,12 @@ async def update_quest_progress(db_helpers, user_id: int, quest_type: str, incre
                 cnx.close()
                 
                 # Generate quests for this user
-                await generate_daily_quests(db_helpers, user_id, config)
+                generated_quests = await generate_daily_quests(db_helpers, user_id, config)
+                
+                # If generation failed, return early
+                if not generated_quests:
+                    logger.warning(f"Failed to auto-generate quests for user {user_id}")
+                    return False, 0
                 
                 # Reconnect and try again
                 cnx = db_helpers.db_pool.get_connection()
