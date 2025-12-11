@@ -76,36 +76,88 @@ def get_xp_for_level(level):
     return 5 * (level ** 2) + (50 * level) + 100
 
 
-def init_db_pool(host, user, password, database):
-    """Initializes the database connection pool."""
+def init_db_pool(host, user, password, database, max_retries=3, retry_delay=2):
+    """
+    Initializes the database connection pool with retry logic.
+    
+    Args:
+        host: Database host
+        user: Database user
+        password: Database password
+        database: Database name
+        max_retries: Maximum number of retry attempts (default: 3)
+        retry_delay: Initial delay between retries in seconds (default: 2)
+    
+    Returns:
+        bool: True if successful, False otherwise
+    """
     global db_pool
-    try:
-        logger.info(f"Initializing connection pool: {user}@{host}/{database}")
-        db_config = {
-            'host': host, 
-            'user': user, 
-            'password': password, 
-            'database': database,
-            'autocommit': False,
-            'pool_reset_session': True,
-            'get_warnings': True,
-            'raise_on_warnings': False
-        }
-        db_pool = pooling.MySQLConnectionPool(
-            pool_name="sulfur_pool", 
-            pool_size=32,  # Increased to 32 to handle concurrent operations (quests, shop, games, autonomous behavior, stats)
-            **db_config
-        )
-        logger.info("Database connection pool initialized successfully (size: 32)")
-    except mysql.connector.Error as err:
-        logger.error(f"FATAL: Could not initialize database pool: {err}")
-        logger.error(f"Error code: {err.errno}, Message: {err.msg}")
-        db_pool = None
-    except Exception as err:
-        logger.error(f"FATAL: Unexpected error during database pool initialization: {err}")
-        import traceback
-        logger.error(traceback.format_exc())
-        db_pool = None
+    
+    for attempt in range(1, max_retries + 1):
+        try:
+            logger.info(f"Initializing connection pool (attempt {attempt}/{max_retries}): {user}@{host}/{database}")
+            db_config = {
+                'host': host, 
+                'user': user, 
+                'password': password, 
+                'database': database,
+                'autocommit': False,
+                'pool_reset_session': True,
+                'get_warnings': True,
+                'raise_on_warnings': False,
+                'connect_timeout': 10  # Add connection timeout
+            }
+            db_pool = pooling.MySQLConnectionPool(
+                pool_name="sulfur_pool", 
+                pool_size=32,  # Increased to 32 to handle concurrent operations (quests, shop, games, autonomous behavior, stats)
+                **db_config
+            )
+            logger.info("Database connection pool initialized successfully (size: 32)")
+            return True
+            
+        except mysql.connector.Error as err:
+            logger.error(f"Database pool initialization failed (attempt {attempt}/{max_retries}): {err}")
+            if hasattr(err, 'errno'):
+                logger.error(f"Error code: {err.errno}, Message: {err.msg}")
+                
+                # Provide specific guidance for common errors
+                if err.errno == 2003:  # Can't connect to MySQL server
+                    logger.error("Database server is not running or not accessible")
+                    logger.error("Please ensure MySQL/MariaDB is running and accessible")
+                elif err.errno == 1045:  # Access denied
+                    logger.error("Database credentials are incorrect")
+                    logger.error(f"Check DB_USER ({user}) and DB_PASS in .env file")
+                elif err.errno == 1049:  # Unknown database
+                    logger.error(f"Database '{database}' does not exist")
+                    logger.error("Please create the database or check DB_NAME in .env file")
+            
+            db_pool = None
+            
+            # Retry with exponential backoff
+            if attempt < max_retries:
+                wait_time = retry_delay * (2 ** (attempt - 1))  # Exponential backoff
+                logger.info(f"Retrying in {wait_time} seconds...")
+                time.sleep(wait_time)
+            else:
+                logger.error("FATAL: Could not initialize database pool after all retries")
+                logger.error("Database features will be unavailable")
+                return False
+                
+        except Exception as err:
+            logger.error(f"Unexpected error during database pool initialization (attempt {attempt}/{max_retries}): {err}")
+            import traceback
+            logger.error(traceback.format_exc())
+            db_pool = None
+            
+            if attempt < max_retries:
+                wait_time = retry_delay * (2 ** (attempt - 1))
+                logger.info(f"Retrying in {wait_time} seconds...")
+                time.sleep(wait_time)
+            else:
+                logger.error("FATAL: Could not initialize database pool after all retries")
+                return False
+    
+    return False
 
 def get_db_connection():
     """Establishes a connection to the database, with retries."""
@@ -113,16 +165,18 @@ def get_db_connection():
     # All other functions get a connection directly from the pool.
     if db_pool:
         max_retries = 3
-        retry_delay = 0.1  # 100ms
+        base_retry_delay = 0.1  # 100ms base delay
         for attempt in range(max_retries):
             try:
                 return db_pool.get_connection()
             except mysql.connector.errors.PoolError as err:
                 if "Failed getting connection; pool exhausted" in str(err):
                     if attempt < max_retries - 1:
-                        logger.warning(f"Pool exhausted, retry {attempt + 1}/{max_retries} after {retry_delay}s")
-                        time.sleep(retry_delay)
-                        retry_delay *= 2  # Exponential backoff
+                        # Use exponential backoff consistent with other functions: base * 2^(attempt)
+                        # For attempt 0, 1, 2: delays are 0.1s, 0.2s, 0.4s
+                        current_delay = base_retry_delay * (2 ** (attempt + 1))
+                        logger.warning(f"Pool exhausted, retry {attempt + 1}/{max_retries} after {current_delay}s")
+                        time.sleep(current_delay)
                     else:
                         logger.error(f"Failed to get connection from pool after {max_retries} retries: pool exhausted")
                         return None
@@ -137,12 +191,44 @@ def get_db_connection():
         logger.warning("Database pool not initialized, cannot get connection")
         return None
 
-def initialize_database():
-    """Creates the necessary tables if they don't exist."""
-    cnx = get_db_connection()
+def initialize_database(max_retries=3, retry_delay=2):
+    """
+    Creates the necessary tables if they don't exist.
+    
+    Args:
+        max_retries: Maximum number of retry attempts (default: 3)
+        retry_delay: Initial delay between retries in seconds (default: 2)
+    
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    for attempt in range(1, max_retries + 1):
+        try:
+            cnx = get_db_connection()
+            if not cnx:
+                logger.error(f"Could not get DB connection for initialization (attempt {attempt}/{max_retries})")
+                if attempt < max_retries:
+                    wait_time = retry_delay * (2 ** (attempt - 1))
+                    logger.info(f"Retrying in {wait_time} seconds...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.error("Database tables will not be created")
+                    return False
+            
+            break  # Successfully got connection
+        except Exception as e:
+            logger.error(f"Error getting DB connection (attempt {attempt}/{max_retries}): {e}")
+            if attempt < max_retries:
+                wait_time = retry_delay * (2 ** (attempt - 1))
+                logger.info(f"Retrying in {wait_time} seconds...")
+                time.sleep(wait_time)
+            else:
+                return False
+    
     if not cnx:
-        logger.error("Could not connect to DB for initialization. Database tables will not be created.")
-        return
+        logger.error("Failed to get database connection after all retries")
+        return False
 
     cursor = cnx.cursor()
     logger.info("Starting database initialization...")
@@ -816,14 +902,37 @@ def initialize_database():
         cnx.commit()
 
         logger.info("Database tables checked/created successfully")
-    except mysql.connector.Error as err:
-        logger.error(f"Failed creating/modifying tables: {err}")
-        logger.error(f"Error code: {err.errno}")
-        import traceback
-        logger.error(traceback.format_exc())
-    finally:
         cursor.close()
         cnx.close()
+        return True
+        
+    except mysql.connector.Error as err:
+        logger.error(f"Failed creating/modifying tables: {err}")
+        if hasattr(err, 'errno'):
+            logger.error(f"Error code: {err.errno}")
+        import traceback
+        logger.error(traceback.format_exc())
+        
+        try:
+            cursor.close()
+            cnx.close()
+        except:
+            pass
+        
+        return False
+        
+    except Exception as err:
+        logger.error(f"Unexpected error during database initialization: {err}")
+        import traceback
+        logger.error(traceback.format_exc())
+        
+        try:
+            cursor.close()
+            cnx.close()
+        except:
+            pass
+        
+        return False
 
 # --- NEW: Database Migration System ---
 

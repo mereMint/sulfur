@@ -830,7 +830,7 @@ function Invoke-Update {
         }
     }
     
-    # Initialize/update database tables after pulling updates
+    # Initialize/update database tables after pulling updates with retry logic
     Write-ColorLog 'Updating database tables and applying migrations...' 'Cyan' '[UPDATE] '
     
     $pythonExe = 'python'
@@ -842,6 +842,7 @@ function Invoke-Update {
     $dbInitScript = @"
 from modules.db_helpers import init_db_pool, initialize_database, apply_pending_migrations
 import os
+import sys
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -850,33 +851,84 @@ DB_USER = os.environ.get('DB_USER', 'sulfur_bot_user')
 DB_PASS = os.environ.get('DB_PASS', '')
 DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot')
 
-# Initialize database pool
-init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
-
-# Create base tables
-initialize_database()
-print('Database tables initialized successfully')
-
-# Apply any pending migrations
-applied_count, errors = apply_pending_migrations()
-if applied_count > 0:
-    print(f'Applied {applied_count} new database migrations')
-if errors:
-    print(f'WARNING: {len(errors)} migration errors occurred')
-    for error in errors:
-        print(f'  - {error}')
-else:
-    print('All database migrations up to date')
+try:
+    # Initialize database pool with retry logic
+    print(f'Initializing database pool: {DB_USER}@{DB_HOST}/{DB_NAME}')
+    if not init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME):
+        print('ERROR: Failed to initialize database pool')
+        sys.exit(1)
+    print('Database pool initialized')
+    
+    # Create base tables with retry logic
+    print('Initializing database tables...')
+    if not initialize_database():
+        print('ERROR: Failed to initialize database tables')
+        sys.exit(1)
+    print('Database tables initialized successfully')
+    
+    # Apply any pending migrations
+    print('Checking for pending migrations...')
+    applied_count, errors = apply_pending_migrations()
+    if applied_count > 0:
+        print(f'Applied {applied_count} new database migrations')
+    if errors:
+        print(f'WARNING: {len(errors)} migration errors occurred')
+        for error in errors:
+            print(f'  - {error}')
+        # Don't exit on migration errors, just warn
+        print('Continuing despite migration errors...')
+    else:
+        print('All database migrations up to date')
+    
+    sys.exit(0)
+except Exception as e:
+    print(f'ERROR: Database update failed: {e}')
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
 "@
     
-    try {
-        $output = & $pythonExe -c $dbInitScript 2>&1
-        if ($output) {
-            $output | ForEach-Object { Write-ColorLog $_ 'White' '[DB] ' }
+    $dbUpdateSuccess = $false
+    $dbMaxAttempts = 5
+    for ($dbAttempt = 1; $dbAttempt -le $dbMaxAttempts; $dbAttempt++) {
+        try {
+            Write-ColorLog "Database update attempt $dbAttempt/$dbMaxAttempts..." 'Cyan' '[UPDATE] '
+            
+            $output = & $pythonExe -c $dbInitScript 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                if ($output) {
+                    $output | ForEach-Object { Write-ColorLog $_ 'White' '[DB] ' }
+                }
+                Write-ColorLog 'Database tables and migrations updated successfully' 'Green' '[UPDATE] '
+                $dbUpdateSuccess = $true
+                break
+            } else {
+                Write-ColorLog "Database update attempt $dbAttempt failed (exit code: $LASTEXITCODE)" 'Yellow' '[UPDATE] '
+                if ($output) {
+                    Write-ColorLog 'Last error output:' 'Yellow' '[UPDATE] '
+                    $output | Select-Object -Last 5 | ForEach-Object { Write-ColorLog "  $_" 'White' '[UPDATE] ' }
+                }
+                
+                if ($dbAttempt -lt $dbMaxAttempts) {
+                    $waitTime = 5 * $dbAttempt
+                    Write-ColorLog "Retrying in $waitTime seconds..." 'Cyan' '[UPDATE] '
+                    Start-Sleep -Seconds $waitTime
+                }
+            }
+        } catch {
+            Write-ColorLog "Database update attempt $dbAttempt error: $($_.Exception.Message)" 'Yellow' '[UPDATE] '
+            
+            if ($dbAttempt -lt $dbMaxAttempts) {
+                $waitTime = 5 * $dbAttempt
+                Write-ColorLog "Retrying in $waitTime seconds..." 'Cyan' '[UPDATE] '
+                Start-Sleep -Seconds $waitTime
+            }
         }
-        Write-ColorLog 'Database tables and migrations updated successfully' 'Green' '[UPDATE] '
-    } catch {
-        Write-ColorLog "Database initialization/migration had issues: $($_.Exception.Message)" 'Yellow' '[UPDATE] '
+    }
+    
+    if (-not $dbUpdateSuccess) {
+        Write-ColorLog 'WARNING: Database update failed after all retries' 'Yellow' '[UPDATE] '
+        Write-ColorLog 'Bot may experience database issues' 'Yellow' '[UPDATE] '
     }
     
     Write-ColorLog 'Update complete' 'Green' '[UPDATE] '
@@ -900,7 +952,7 @@ try {
     Write-ColorLog "Warning: Database server check error: $($_.Exception.Message)" 'Yellow'
 }
 
-# Run database initialization and migrations on startup
+# Run database initialization and migrations on startup with retry logic
 Write-ColorLog 'Initializing database and applying migrations...' 'Cyan' '[DB] '
 
 $pythonExe = 'python'
@@ -911,6 +963,7 @@ if (Test-Path 'venv\Scripts\python.exe') {
 $dbStartupScript = @"
 from modules.db_helpers import init_db_pool, initialize_database, apply_pending_migrations
 import os
+import sys
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -919,33 +972,91 @@ DB_USER = os.environ.get('DB_USER', 'sulfur_bot_user')
 DB_PASS = os.environ.get('DB_PASS', '')
 DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot')
 
-# Initialize database pool
-init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
-
-# Create base tables
-initialize_database()
-print('Database tables initialized successfully')
-
-# Apply any pending migrations
-applied_count, errors = apply_pending_migrations()
-if applied_count > 0:
-    print(f'Applied {applied_count} new database migrations')
-if errors:
-    print(f'WARNING: {len(errors)} migration errors occurred')
-    for error in errors:
-        print(f'  - {error}')
-else:
-    print('All database migrations up to date')
+try:
+    # Initialize database pool with retry logic
+    print(f'Initializing database pool: {DB_USER}@{DB_HOST}/{DB_NAME}')
+    if not init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME):
+        print('ERROR: Failed to initialize database pool')
+        sys.exit(1)
+    print('Database pool initialized successfully')
+    
+    # Create base tables with retry logic
+    print('Initializing database tables...')
+    if not initialize_database():
+        print('ERROR: Failed to initialize database tables')
+        sys.exit(1)
+    print('Database tables initialized successfully')
+    
+    # Apply any pending migrations
+    print('Checking for pending migrations...')
+    applied_count, errors = apply_pending_migrations()
+    if applied_count > 0:
+        print(f'Applied {applied_count} new database migrations')
+    if errors:
+        print(f'WARNING: {len(errors)} migration errors occurred')
+        for error in errors:
+            print(f'  - {error}')
+        # Don't exit on migration errors, just warn
+        print('Continuing despite migration errors...')
+    else:
+        print('All database migrations up to date')
+    
+    sys.exit(0)
+except Exception as e:
+    print(f'ERROR: Database initialization failed: {e}')
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
 "@
 
-try {
-    $output = & $pythonExe -c $dbStartupScript 2>&1
-    if ($output) {
-        $output | ForEach-Object { Write-ColorLog $_ 'White' '[DB] ' }
+$dbInitSuccess = $false
+$dbMaxAttempts = 5
+for ($attempt = 1; $attempt -le $dbMaxAttempts; $attempt++) {
+    try {
+        Write-ColorLog "Database initialization attempt $attempt/$dbMaxAttempts..." 'Cyan' '[DB] '
+        
+        $output = & $pythonExe -c $dbStartupScript 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            if ($output) {
+                $output | ForEach-Object { Write-ColorLog $_ 'White' '[DB] ' }
+            }
+            Write-ColorLog 'Database ready - tables and migrations up to date' 'Green' '[DB] '
+            $dbInitSuccess = $true
+            break
+        } else {
+            Write-ColorLog "Database initialization attempt $attempt failed (exit code: $LASTEXITCODE)" 'Yellow' '[DB] '
+            if ($output) {
+                Write-ColorLog 'Last error output:' 'Yellow' '[DB] '
+                $output | Select-Object -Last 5 | ForEach-Object { Write-ColorLog "  $_" 'White' '[DB] ' }
+            }
+            
+            if ($attempt -lt $dbMaxAttempts) {
+                $waitTime = 5 * $attempt
+                Write-ColorLog "Retrying in $waitTime seconds..." 'Cyan' '[DB] '
+                Start-Sleep -Seconds $waitTime
+            }
+        }
+    } catch {
+        Write-ColorLog "Database initialization attempt $attempt error: $($_.Exception.Message)" 'Yellow' '[DB] '
+        
+        if ($attempt -lt $dbMaxAttempts) {
+            $waitTime = 5 * $attempt
+            Write-ColorLog "Retrying in $waitTime seconds..." 'Cyan' '[DB] '
+            Start-Sleep -Seconds $waitTime
+        }
     }
-    Write-ColorLog 'Database ready - tables and migrations up to date' 'Green' '[DB] '
-} catch {
-    Write-ColorLog "Database initialization/migration had issues: $($_.Exception.Message)" 'Yellow' '[DB] '
+}
+
+if (-not $dbInitSuccess) {
+    Write-ColorLog '=' * 70 'Red'
+    Write-ColorLog 'WARNING: Database initialization failed after all retries' 'Red' '[DB] '
+    Write-ColorLog 'Bot will start anyway, but database features will be unavailable' 'Yellow' '[DB] '
+    Write-ColorLog 'Please check:' 'Yellow' '[DB] '
+    Write-ColorLog '  1. Database server is running (MySQL/MariaDB service)' 'White' '[DB] '
+    Write-ColorLog '  2. Database credentials in .env are correct' 'White' '[DB] '
+    Write-ColorLog '  3. Database sulfur_bot exists' 'White' '[DB] '
+    Write-ColorLog '  4. User sulfur_bot_user has proper permissions' 'White' '[DB] '
+    Write-ColorLog '=' * 70 'Red'
 }
 
 # Run advanced AI database migrations

@@ -52,13 +52,51 @@ DB_USER = os.environ.get("DB_USER", "sulfur_bot_user")
 DB_PASS = os.environ.get("DB_PASS", "")
 DB_NAME = os.environ.get("DB_NAME", "sulfur_bot")
 
-# Initialize the database pool for the web dashboard
-print(f"[Web Dashboard] Initializing database connection to {DB_HOST}:{DB_NAME}...")
-db_helpers.init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME)
-if not db_helpers.db_pool:
-    print("[Web Dashboard] WARNING: Database pool failed to initialize. Some features may be unavailable.")
-else:
-    print("[Web Dashboard] Database pool initialized successfully.")
+# Initialize the database pool for the web dashboard with retry logic
+print("[Web Dashboard] Initializing database connection...")
+logger.info("Initializing database connection...")
+
+db_init_success = False
+db_init_max_retries = 3
+db_init_retry_delay = 3
+
+for attempt in range(1, db_init_max_retries + 1):
+    try:
+        print(f"[Web Dashboard] Database connection attempt {attempt}/{db_init_max_retries} to {DB_HOST}:{DB_NAME}...")
+        logger.info(f"Database connection attempt {attempt}/{db_init_max_retries} to {DB_HOST}:{DB_NAME}")
+        
+        if db_helpers.init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME):
+            db_init_success = True
+            print("[Web Dashboard] Database pool initialized successfully.")
+            logger.info("Database pool initialized successfully")
+            break
+        else:
+            print(f"[Web Dashboard] WARNING: Database pool initialization failed (attempt {attempt}/{db_init_max_retries})")
+            logger.warning(f"Database pool initialization failed (attempt {attempt}/{db_init_max_retries})")
+            
+            if attempt < db_init_max_retries:
+                wait_time = db_init_retry_delay * attempt
+                print(f"[Web Dashboard] Retrying in {wait_time} seconds...")
+                logger.info(f"Retrying in {wait_time} seconds...")
+                time.sleep(wait_time)
+                
+    except Exception as e:
+        print(f"[Web Dashboard] ERROR: Database pool initialization error (attempt {attempt}/{db_init_max_retries}): {e}")
+        logger.error(f"Database pool initialization error (attempt {attempt}/{db_init_max_retries}): {e}")
+        
+        if attempt < db_init_max_retries:
+            wait_time = db_init_retry_delay * attempt
+            print(f"[Web Dashboard] Retrying in {wait_time} seconds...")
+            logger.info(f"Retrying in {wait_time} seconds...")
+            time.sleep(wait_time)
+
+if not db_init_success or not db_helpers.db_pool:
+    print("=" * 70)
+    print("[Web Dashboard] WARNING: Database pool failed to initialize after all retries")
+    print("[Web Dashboard] Some dashboard features may be unavailable")
+    print("[Web Dashboard] Please check database configuration and connectivity")
+    print("=" * 70)
+    logger.warning("Database pool failed to initialize - some features may be unavailable")
 
 # --- Flask App Setup ---
 
