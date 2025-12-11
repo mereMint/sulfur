@@ -3896,6 +3896,12 @@ class AdminGroup(app_commands.Group):
             logger.error(f"Error in addcurrency command: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Fehler beim Hinzufügen von Währung: {e}")
 
+
+# --- REFACTORED: Admin AI/Mind Management Commands Group ---
+@app_commands.check(is_admin_or_authorised)
+class AdminAIGroup(app_commands.Group):
+    """Admin-Befehle für KI- und Mind-Verwaltung."""
+
     @app_commands.command(name="mind", description="[Debug] Zeigt den aktuellen mentalen Zustand des Bots an.")
     async def mind(self, interaction: discord.Interaction):
         """Displays the bot's current mental state (mood, activity, thoughts)."""
@@ -8770,6 +8776,7 @@ tree.add_command(voice_group)
 
 # --- NEW: Add the admin command group to the tree ---
 tree.add_command(AdminGroup(name="admin"))
+tree.add_command(AdminAIGroup(name="adminai"))
 
 # --- NEW: Help Command with Pagination ---
 class HelpView(discord.ui.View):
