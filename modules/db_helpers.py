@@ -93,10 +93,10 @@ def init_db_pool(host, user, password, database):
         }
         db_pool = pooling.MySQLConnectionPool(
             pool_name="sulfur_pool", 
-            pool_size=10,  # Increased from 5 to 10 to handle concurrent operations like detective game
+            pool_size=32,  # Increased to 32 to handle concurrent operations (quests, shop, games, autonomous behavior, stats)
             **db_config
         )
-        logger.info("Database connection pool initialized successfully (size: 10)")
+        logger.info("Database connection pool initialized successfully (size: 32)")
     except mysql.connector.Error as err:
         logger.error(f"FATAL: Could not initialize database pool: {err}")
         logger.error(f"Error code: {err.errno}, Message: {err.msg}")
@@ -458,6 +458,32 @@ def initialize_database():
                 PRIMARY KEY (user_id, completion_date),
                 INDEX idx_user_month (user_id, completion_date)
             )
+        """)
+        
+        # --- NEW: Quest completion tracking tables (from migration 003) ---
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS daily_quest_completions (
+                user_id BIGINT NOT NULL,
+                completion_date DATE NOT NULL,
+                bonus_claimed BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, completion_date),
+                INDEX idx_completion_date (completion_date),
+                INDEX idx_user_completions (user_id, completion_date)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS monthly_milestones (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                month_key VARCHAR(7) NOT NULL COMMENT 'Format: YYYY-MM',
+                milestone_day INT NOT NULL COMMENT '7, 14, 21, or 30 days',
+                reward_amount INT NOT NULL,
+                claimed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_user_month (user_id, month_key),
+                UNIQUE KEY unique_user_milestone (user_id, month_key, milestone_day)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """)
         
         # --- NEW: Detective Game Tables ---
@@ -2765,14 +2791,22 @@ async def get_ai_usage_stats(days=30):
 async def has_feature_unlock(user_id, feature_name):
     """Checks if a user has unlocked a specific feature."""
     if not db_pool:
+        logger.warning(f"Database pool not available when checking feature unlock '{feature_name}' for user {user_id}")
         return False
     cnx = db_pool.get_connection()
     if not cnx:
+        logger.error(f"Could not get database connection when checking feature unlock '{feature_name}' for user {user_id} - pool may be exhausted")
         return False
     cursor = cnx.cursor()
     try:
         cursor.execute("SELECT 1 FROM feature_unlocks WHERE user_id = %s AND feature_name = %s", (user_id, feature_name))
-        return cursor.fetchone() is not None
+        has_unlock = cursor.fetchone() is not None
+        if has_unlock:
+            logger.debug(f"User {user_id} HAS feature unlock: {feature_name}")
+        return has_unlock
+    except Exception as e:
+        logger.error(f"Error checking feature unlock '{feature_name}' for user {user_id}: {e}", exc_info=True)
+        return False
     finally:
         cursor.close()
         cnx.close()

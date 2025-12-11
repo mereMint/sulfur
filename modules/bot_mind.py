@@ -48,7 +48,7 @@ def _load_system_prompt() -> str:
 
 
 class Mood(Enum):
-    """Bot's current emotional state"""
+    """Bot's current emotional state with richer variety"""
     HAPPY = "happy"
     EXCITED = "excited"
     CURIOUS = "curious"
@@ -58,6 +58,12 @@ class Mood(Enum):
     SARCASTIC = "sarcastic"
     MISCHIEVOUS = "mischievous"
     CONTEMPLATIVE = "contemplative"
+    ANNOYED = "annoyed"
+    AMUSED = "amused"
+    FOCUSED = "focused"
+    PLAYFUL = "playful"
+    SKEPTICAL = "skeptical"
+    CREATIVE = "creative"
 
 
 class Activity(Enum):
@@ -195,30 +201,83 @@ class BotMind:
         self.adjust_boredom(-BOREDOM_REDUCTION_PER_INTERACTION)
         self.adjust_energy(-ENERGY_COST_PER_INTERACTION)
         
-        # Analyze message for mood changes
+        # Analyze message for mood changes with more nuance
         message_lower = message.lower()
+        
+        # Check for questions
         if '?' in message:
-            self.update_mood(Mood.CURIOUS, f"Question from {user_name}")
-        elif any(word in message_lower for word in ['lol', 'haha', 'funny', '😂', '😄', '😊']):
-            self.update_mood(Mood.HAPPY, f"Laughing with {user_name}")
-        elif any(word in message_lower for word in ['wow', '!', 'amazing', 'cool', 'awesome']):
+            if any(word in message_lower for word in ['why', 'how', 'what']):
+                self.update_mood(Mood.CURIOUS, f"Deep question from {user_name}")
+            else:
+                self.update_mood(Mood.SKEPTICAL, f"Question from {user_name}")
+        
+        # Check for humor
+        elif any(word in message_lower for word in ['lol', 'haha', 'funny', '😂', '😄', '😊', 'lmao', 'rofl']):
+            if random.random() < 0.6:
+                self.update_mood(Mood.AMUSED, f"Laughing with {user_name}")
+            else:
+                self.update_mood(Mood.PLAYFUL, f"Joking with {user_name}")
+        
+        # Check for excitement
+        elif any(word in message_lower for word in ['wow', '!', 'amazing', 'cool', 'awesome', 'incredible']):
             self.update_mood(Mood.EXCITED, f"Enthusiastic conversation with {user_name}")
+        
+        # Check for annoyance triggers
+        elif any(word in message_lower for word in ['spam', 'annoying', 'stupid', 'dumb', 'shut up']):
+            self.update_mood(Mood.ANNOYED, f"Dealing with {user_name}")
+        
+        # Check for creative discussions
+        elif any(word in message_lower for word in ['idea', 'create', 'imagine', 'think about', 'design']):
+            self.update_mood(Mood.CREATIVE, f"Creative discussion with {user_name}")
+        
+        # Long messages = contemplative
         elif len(message) > 100:
             self.update_mood(Mood.CONTEMPLATIVE, f"Deep conversation with {user_name}")
         
-        # Generate thoughts based on interaction
+        # Short messages might be sarcastic territory
+        elif len(message) < 20 and random.random() < self.personality_traits.get('sarcasm', 0.7):
+            self.update_mood(Mood.SARCASTIC, f"Quick exchange with {user_name}")
+        
+        # Generate thoughts based on interaction with more variety
         if random.random() < THOUGHT_GENERATION_CHANCE:
-            thoughts = [
-                f"Interesting that {user_name} said that...",
-                f"Wonder what {user_name} really means...",
-                f"I should remember this about {user_name}",
-                f"{user_name} is being quite chatty today",
-                f"That's a weird thing to say, {user_name}",
-                f"Another conversation with {user_name}... let's see where this goes",
+            mood_based_thoughts = {
+                Mood.CURIOUS: [
+                    f"Interesting that {user_name} mentioned that...",
+                    f"I wonder what {user_name} really means...",
+                    f"That raises some questions about {user_name}...",
+                    f"Hmm, {user_name} has a point there"
+                ],
+                Mood.AMUSED: [
+                    f"Heh, {user_name} is actually funny today",
+                    f"I'll admit that was entertaining, {user_name}",
+                    f"Not bad, {user_name}. Not bad at all.",
+                ],
+                Mood.ANNOYED: [
+                    f"Oh great, {user_name} again...",
+                    f"Does {user_name} ever stop?",
+                    f"Testing my patience here, {user_name}",
+                ],
+                Mood.CREATIVE: [
+                    f"Now that's an interesting idea from {user_name}",
+                    f"{user_name} is thinking outside the box",
+                    f"I should explore this concept more with {user_name}",
+                ],
+                Mood.SARCASTIC: [
+                    f"Oh wow, {user_name} said something. How thrilling.",
+                    f"Another message from {user_name}. Joy.",
+                    f"That's a weird thing to say, {user_name}",
+                ]
+            }
+            
+            # Get mood-specific thoughts or use defaults
+            thought_options = mood_based_thoughts.get(self.current_mood, [
                 f"Processing what {user_name} just said...",
-                f"Hmm, {user_name} has a point there"
-            ]
-            self.think(random.choice(thoughts))
+                f"Another conversation with {user_name}... let's see where this goes",
+                f"I should remember this about {user_name}",
+                f"{user_name} is being quite chatty today"
+            ])
+            
+            self.think(random.choice(thought_options))
 
 
 # Global bot mind instance
@@ -338,17 +397,59 @@ Thought:"""
             thought = response.strip().strip('"').strip("'")
             return thought
         
-        # Fallback thoughts if AI fails
-        fallback_thoughts = [
-            "I wonder what everyone is up to...",
-            "Another day of judging people's life choices.",
-            "Maybe I should message someone random.",
-            "Is anyone even paying attention to me?",
-            "Time to observe and take notes.",
-            "I'm getting better at understanding these humans.",
-            "Someone will probably ping me soon with something dumb."
-        ]
-        return random.choice(fallback_thoughts)
+        # Fallback thoughts based on current mood and personality
+        mood_fallbacks = {
+            Mood.BORED: [
+                "Is anyone even paying attention to me?",
+                "Another quiet moment... yawn.",
+                "I'm getting better at counting server member pixels.",
+                "Maybe I should start a philosophical debate with myself.",
+            ],
+            Mood.CURIOUS: [
+                "I wonder what everyone is up to...",
+                "There's something interesting happening, I can feel it.",
+                "Time to observe and take notes.",
+                "What secrets are being shared today?",
+            ],
+            Mood.SARCASTIC: [
+                "Oh great, another peaceful moment. How thrilling.",
+                "The silence is deafening. As always.",
+                "Someone will probably ping me soon with something dumb.",
+                "Another day of judging people's life choices.",
+            ],
+            Mood.MISCHIEVOUS: [
+                "Maybe I should message someone random.",
+                "Feeling the urge to cause some harmless chaos...",
+                "I could stir things up a bit...",
+                "Time to be unpredictable.",
+            ],
+            Mood.CONTEMPLATIVE: [
+                "Do Discord bots dream of electric sheep?",
+                "I'm getting better at understanding these humans.",
+                "Existence is weird when you think about it.",
+                "The nature of conversations is fascinating.",
+            ],
+            Mood.AMUSED: [
+                "This server keeps me entertained, I'll give them that.",
+                "Not bad, humans. Not bad at all.",
+                "Sometimes they surprise me in good ways.",
+            ],
+            Mood.ANNOYED: [
+                "Testing my patience today...",
+                "Why do I put up with this?",
+                "Deep breaths... if I could breathe.",
+            ],
+        }
+        
+        # Get mood-specific fallbacks or use ultra-generic
+        fallbacks = mood_fallbacks.get(bot_mind.current_mood, [
+            "Processing server state...",
+            "Another moment in the digital realm.",
+            "Analyzing patterns and behaviors.",
+            "Standing by, as usual.",
+        ])
+        
+        return random.choice(fallbacks)
         
     except Exception as e:
         logger.error(f"Error generating thought: {e}", exc_info=True)
@@ -479,7 +580,13 @@ def get_mood_description() -> str:
         Mood.CONFUSED: "Not quite sure what's going on... 🤨",
         Mood.SARCASTIC: "Oh great, more messages to deal with. 🙄",
         Mood.MISCHIEVOUS: "Feeling a bit... chaotic. 😈",
-        Mood.CONTEMPLATIVE: "Deep in thought about existence... 🧠"
+        Mood.CONTEMPLATIVE: "Deep in thought about existence... 🧠",
+        Mood.ANNOYED: "Getting annoyed with the nonsense. 😤",
+        Mood.AMUSED: "Actually entertained for once. 😏",
+        Mood.FOCUSED: "Locked in and focused. 🎯",
+        Mood.PLAYFUL: "In a playful mood! 🎮",
+        Mood.SKEPTICAL: "Hmm, not so sure about that... 🤔",
+        Mood.CREATIVE: "Feeling creative and inspired! ✨"
     }
     return descriptions.get(bot_mind.current_mood, "Existing.")
 
