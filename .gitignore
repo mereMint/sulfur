@@ -27,3 +27,4 @@ last_update.txt
 test_chatbot_without_db.py
 /tmp/
 test_*.py
+*.bak
