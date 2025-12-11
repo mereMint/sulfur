@@ -24,16 +24,8 @@ CREATE TABLE IF NOT EXISTS api_usage_log (
     INDEX idx_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Conversation context table (enhanced)
-CREATE TABLE IF NOT EXISTS conversation_context (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id BIGINT NOT NULL,
-    channel_id BIGINT NOT NULL,
-    message_content TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_user_channel (user_id, channel_id),
-    INDEX idx_created_at (created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- Note: conversation_context table already exists from migration 002_medium_priority_features
+-- Skipping recreation to avoid schema conflicts with existing table
 
 -- Personality evolution tracking
 CREATE TABLE IF NOT EXISTS personality_evolution (
@@ -84,10 +76,10 @@ CREATE TABLE IF NOT EXISTS user_autonomous_settings (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Add indexes for better performance
--- Note: conversation_context uses last_bot_message_at instead of created_at
+-- Note: conversation_context table already exists with different schema from migration 002
+-- Skip adding index to conversation_context to avoid schema conflicts
 -- These will fail silently if indexes already exist (handled by migration system as idempotent)
 ALTER TABLE api_usage_log ADD INDEX idx_model_created (model_name, created_at);
-ALTER TABLE conversation_context ADD INDEX idx_channel_msg_at (channel_id, last_bot_message_at);
 ALTER TABLE personality_evolution ADD INDEX idx_trait_created (trait_name, created_at);
 
 -- Display success message
