@@ -4113,8 +4113,8 @@ class AdminGroup(app_commands.Group):
                 'recent_activity': 'active' if online_count > 5 else 'quiet'
             }
             
-            # Generate thought using bot_mind module
-            thought = await bot_mind.generate_random_thought(context, get_chat_response)
+            # Generate thought using bot_mind module with correct parameters
+            thought = await bot_mind.generate_random_thought(context, get_chat_response, config, GEMINI_API_KEY, OPENAI_API_KEY)
             bot_mind.bot_mind.think(thought)
             
             embed = discord.Embed(
