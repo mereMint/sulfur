@@ -14180,6 +14180,91 @@ async def focus_timer_completion_handler(user: discord.User, session_id: int, du
         logger.error(f"Error in focus timer completion handler: {e}", exc_info=True)
 
 
+@tree.command(name="focusstats", description="Zeige deine Focus-Timer Statistiken an")
+@app_commands.describe(days="Zeitraum in Tagen (Standard: 7)")
+async def focusstats(interaction: discord.Interaction, days: int = 7):
+    """Show focus timer statistics for a user."""
+    from modules import focus_timer
+    
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        user_id = interaction.user.id
+        
+        # Validate days
+        if days < 1 or days > 365:
+            await interaction.followup.send(
+                "❌ Bitte wähle einen Zeitraum zwischen 1 und 365 Tagen.",
+                ephemeral=True
+            )
+            return
+        
+        # Get stats
+        stats = await focus_timer.get_user_focus_stats(user_id, days)
+        
+        if stats['total_sessions'] == 0:
+            await interaction.followup.send(
+                f"📊 Du hast in den letzten {days} Tagen keine Focus-Sessions gestartet.",
+                ephemeral=True
+            )
+            return
+        
+        # Calculate additional stats
+        avg_duration = stats['total_minutes'] / stats['total_sessions'] if stats['total_sessions'] > 0 else 0
+        avg_distractions = stats['total_distractions'] / stats['total_sessions'] if stats['total_sessions'] > 0 else 0
+        
+        # Create embed
+        embed = discord.Embed(
+            title="📊 Focus-Timer Statistiken",
+            description=f"Statistiken der letzten **{days} Tage**",
+            color=discord.Color.blue()
+        )
+        
+        embed.add_field(
+            name="🎯 Sessions",
+            value=f"Gesamt: **{stats['total_sessions']}**\n"
+                  f"Abgeschlossen: **{stats['completed_sessions']}**\n"
+                  f"Erfolgsrate: **{stats['completion_rate']:.1f}%**",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="⏱️ Zeit",
+            value=f"Gesamt: **{stats['total_minutes']} Min**\n"
+                  f"Durchschnitt: **{avg_duration:.1f} Min**\n"
+                  f"Stunden: **{stats['total_minutes'] / 60:.1f}h**",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="⚠️ Ablenkungen",
+            value=f"Gesamt: **{stats['total_distractions']}**\n"
+                  f"Pro Session: **{avg_distractions:.1f}**",
+            inline=True
+        )
+        
+        # Get current active session
+        active_session = await focus_timer.get_active_session(user_id)
+        if active_session:
+            time_left = (active_session['end_time'] - datetime.now()).seconds // 60
+            embed.add_field(
+                name="🔴 Aktive Session",
+                value=f"Noch **{time_left} Minuten** verbleibend",
+                inline=False
+            )
+        
+        embed.set_footer(text="Starte eine neue Session mit /focus")
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error in focusstats command: {e}", exc_info=True)
+        await interaction.followup.send(
+            f"❌ Fehler beim Abrufen der Statistiken: {str(e)}",
+            ephemeral=True
+        )
+
+
 @tree.command(name="rr", description="Spiele Russian Roulette!")
 @app_commands.describe(bet="Einsatz (optional, Standard: 100)")
 async def russian_roulette(interaction: discord.Interaction, bet: int = None):
