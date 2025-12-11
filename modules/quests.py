@@ -114,15 +114,17 @@ async def generate_daily_quests(db_helpers, user_id: int, config: dict):
         return []
 
 
-async def update_quest_progress(db_helpers, user_id: int, quest_type: str, increment: int = 1):
+async def update_quest_progress(db_helpers, user_id: int, quest_type: str, increment: int = 1, config: dict = None):
     """
     Updates progress for a specific quest type.
+    Auto-generates quests if they don't exist yet.
     
     Args:
         db_helpers: Database helpers module
         user_id: Discord user ID
         quest_type: Type of quest (messages, vc_minutes, reactions, game_minutes)
         increment: Amount to increment progress by
+        config: Bot configuration (required for auto-generating quests)
     
     Returns:
         (quest_completed, reward_amount) tuple
@@ -151,7 +153,32 @@ async def update_quest_progress(db_helpers, user_id: int, quest_type: str, incre
             )
             quest = cursor.fetchone()
             
+            # If quest doesn't exist and we have config, try to generate quests
+            if not quest and config:
+                logger.info(f"Quest {quest_type} not found for user {user_id}, auto-generating daily quests")
+                cursor.close()
+                cnx.close()
+                
+                # Generate quests for this user
+                await generate_daily_quests(db_helpers, user_id, config)
+                
+                # Reconnect and try again
+                cnx = db_helpers.db_pool.get_connection()
+                if not cnx:
+                    return False, 0
+                cursor = cnx.cursor(dictionary=True)
+                
+                cursor.execute(
+                    """
+                    SELECT * FROM daily_quests 
+                    WHERE user_id = %s AND quest_date = %s AND quest_type = %s AND completed = FALSE
+                    """,
+                    (user_id, today, quest_type)
+                )
+                quest = cursor.fetchone()
+            
             if not quest:
+                logger.debug(f"No quest of type {quest_type} found for user {user_id} on {today}")
                 return False, 0
             
             # Update progress
