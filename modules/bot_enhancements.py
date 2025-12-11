@@ -117,6 +117,16 @@ async def handle_unknown_emojis_in_message(message, config, gemini_key, openai_k
     if not matches:
         return None
     
+    # --- NEW: Add personality-based emoji interpretation ---
+    try:
+        from modules import bot_mind
+        mind_state = bot_mind.get_mind_state_api()
+        mood = mind_state.get('mood', 'neutral')
+        sarcasm_level = mind_state.get('personality_traits', {}).get('sarcasm', 0.5)
+    except:
+        mood = 'neutral'
+        sarcasm_level = 0.5
+    
     # Cache application emojis to avoid repeated API calls
     app_emoji_cache = {}
     if client:
@@ -134,7 +144,15 @@ async def handle_unknown_emojis_in_message(message, config, gemini_key, openai_k
         
         if existing:
             # We know this emoji, add its description to context
-            emoji_contexts.append(f"Emoji :{emoji_name}: - {existing['description']}")
+            description = existing['description']
+            
+            # Add personality-aware commentary
+            if mood == 'sarcastic' and sarcasm_level > 0.6:
+                description += " (oh how original)"
+            elif mood == 'excited':
+                description += " (nice choice!)"
+                
+            emoji_contexts.append(f"Emoji :{emoji_name}: - {description}")
         else:
             # Unknown emoji - analyze it
             print(f"[Emoji Analysis] Analyzing unknown emoji: {emoji_name} (ID: {emoji_id})")
