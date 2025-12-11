@@ -172,10 +172,11 @@ def get_db_connection():
             except mysql.connector.errors.PoolError as err:
                 if "Failed getting connection; pool exhausted" in str(err):
                     if attempt < max_retries - 1:
-                        # Use exponential backoff for consistency
-                        retry_delay = base_retry_delay * (2 ** attempt)
-                        logger.warning(f"Pool exhausted, retry {attempt + 1}/{max_retries} after {retry_delay}s")
-                        time.sleep(retry_delay)
+                        # Use exponential backoff consistent with other functions: base * 2^(attempt)
+                        # For attempt 0, 1, 2: delays are 0.1s, 0.2s, 0.4s
+                        current_delay = base_retry_delay * (2 ** (attempt + 1))
+                        logger.warning(f"Pool exhausted, retry {attempt + 1}/{max_retries} after {current_delay}s")
+                        time.sleep(current_delay)
                     else:
                         logger.error(f"Failed to get connection from pool after {max_retries} retries: pool exhausted")
                         return None
