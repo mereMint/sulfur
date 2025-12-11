@@ -84,9 +84,11 @@ CREATE TABLE IF NOT EXISTS user_autonomous_settings (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Add indexes for better performance
-ALTER TABLE api_usage_log ADD INDEX IF NOT EXISTS idx_model_created (model_name, created_at);
-ALTER TABLE conversation_context ADD INDEX IF NOT EXISTS idx_channel_created (channel_id, created_at);
-ALTER TABLE personality_evolution ADD INDEX IF NOT EXISTS idx_trait_created (trait_name, created_at);
+-- Note: conversation_context uses last_bot_message_at instead of created_at
+-- These will fail silently if indexes already exist (handled by migration system as idempotent)
+ALTER TABLE api_usage_log ADD INDEX idx_model_created (model_name, created_at);
+ALTER TABLE conversation_context ADD INDEX idx_channel_msg_at (channel_id, last_bot_message_at);
+ALTER TABLE personality_evolution ADD INDEX idx_trait_created (trait_name, created_at);
 
 -- Display success message
 SELECT 'Advanced AI and Voice Call tables created successfully!' as Status;

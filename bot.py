@@ -11,6 +11,7 @@ import math
 from collections import deque
 import re
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 import aiohttp
 
 # --- NEW: Import structured logging ---
