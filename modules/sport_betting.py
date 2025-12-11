@@ -792,9 +792,9 @@ class OpenLigaDBProvider(FootballAPIProvider):
                 home_team_name = team1.get("teamName") or team1.get("shortName") or "Unknown"
                 away_team_name = team2.get("teamName") or team2.get("shortName") or "Unknown"
                 
-                # Get short names with fallbacks
-                home_short = team1.get("shortName") or (home_team_name[:3].upper() if home_team_name else "UNK")
-                away_short = team2.get("shortName") or (away_team_name[:3].upper() if away_team_name else "UNK")
+                # Get short names with fallbacks (truncate to 16 characters max)
+                home_short = (team1.get("shortName") or (home_team_name[:3].upper() if home_team_name else "UNK"))[:16]
+                away_short = (team2.get("shortName") or (away_team_name[:3].upper() if away_team_name else "UNK"))[:16]
                 
                 # Get league shortcut from match data
                 league_shortcut = match.get("leagueShortcut") or match.get("leagueName") or "bl1"
@@ -1203,8 +1203,8 @@ class FootballDataProvider(FootballAPIProvider):
                     "id": str(match.get("id")),
                     "home_team": home_team.get("name", "Unknown"),
                     "away_team": away_team.get("name", "Unknown"),
-                    "home_team_short": home_team.get("tla", home_team.get("name", "UNK")[:3].upper()),
-                    "away_team_short": away_team.get("tla", away_team.get("name", "UNK")[:3].upper()),
+                    "home_team_short": (home_team.get("tla") or (home_team.get("name") or "UNK")[:3].upper())[:16],
+                    "away_team_short": (away_team.get("tla") or (away_team.get("name") or "UNK")[:3].upper())[:16],
                     "home_logo": home_team.get("crest"),
                     "away_logo": away_team.get("crest"),
                     "home_score": full_time.get("home") or 0,
@@ -1949,8 +1949,8 @@ async def initialize_sport_betting_tables(db_helpers):
                     provider VARCHAR(32) NOT NULL,
                     home_team VARCHAR(128) NOT NULL,
                     away_team VARCHAR(128) NOT NULL,
-                    home_team_short VARCHAR(8),
-                    away_team_short VARCHAR(8),
+                    home_team_short VARCHAR(16),
+                    away_team_short VARCHAR(16),
                     home_score INT DEFAULT 0,
                     away_score INT DEFAULT 0,
                     status VARCHAR(32) NOT NULL DEFAULT 'scheduled',
