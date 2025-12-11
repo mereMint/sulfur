@@ -334,6 +334,26 @@ async def get_enriched_user_context(user_id: int, display_name: str, db_helpers_
     return ""
 
 
+def _smart_truncate(text: str, max_length: int = 200) -> str:
+    """
+    Truncates text at word boundary to preserve coherence.
+    If text is shorter than max_length, returns as-is.
+    Otherwise, truncates at last word boundary before max_length.
+    """
+    if len(text) <= max_length:
+        return text
+    
+    # Find last space before max_length
+    truncated = text[:max_length]
+    last_space = truncated.rfind(' ')
+    
+    if last_space > 0:
+        return truncated[:last_space] + "..."
+    else:
+        # No space found, hard truncate
+        return truncated + "..."
+
+
 async def enhance_prompt_with_context(user_id, channel_id, user_prompt):
     """
     Enhances user prompt with recent conversation context if within 2 minutes.
@@ -344,9 +364,13 @@ async def enhance_prompt_with_context(user_id, channel_id, user_prompt):
     if context and context['seconds_ago'] <= 120:
         # Add context to prompt with clear attribution and timing
         # Make it explicit that this is ONLY what this specific user said earlier
+        # Use smart truncation to preserve message coherence
+        user_msg_truncated = _smart_truncate(context['last_user_message'], 200)
+        bot_msg_truncated = _smart_truncate(context['last_bot_response'], 200)
+        
         enhanced_prompt = f"""[RECENT CONTEXT - {context['seconds_ago']} seconds ago:
-THIS SPECIFIC USER said: "{context['last_user_message'][:150]}"
-Your response was: "{context['last_bot_response'][:150]}"
+THIS SPECIFIC USER said: "{user_msg_truncated}"
+Your response was: "{bot_msg_truncated}"
 This is a follow-up to that exchange. Only reference what's shown above, nothing else.]
 
 {user_prompt}"""
