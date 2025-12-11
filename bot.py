@@ -55,6 +55,8 @@ from modules import focus_timer  # NEW: Focus timer with activity monitoring
 from modules import voice_tts  # NEW: Voice TTS and conversation
 from modules import bot_mind  # NEW: Bot mind state and consciousness
 from modules import personality_evolution  # NEW: Personality evolution and learning system
+from modules import advanced_ai  # NEW: Advanced AI reasoning and intelligence
+from modules import voice_conversation  # NEW: Voice call capabilities
 from modules.bot_enhancements import (
     handle_image_attachment,
     handle_unknown_emojis_in_message,
@@ -4278,6 +4280,320 @@ class AdminGroup(app_commands.Group):
         except Exception as e:
             logger.error(f"Error in autonomous_status command: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error viewing autonomous status: {e}")
+
+    @app_commands.command(name="debug_ai_reasoning", description="[Debug] Zeigt den Denkprozess der KI für eine Anfrage an.")
+    @app_commands.describe(prompt="Die Anfrage zum Analysieren")
+    async def debug_ai_reasoning(self, interaction: discord.Interaction, prompt: str):
+        """Shows AI reasoning process for a query."""
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            from modules.advanced_ai import get_advanced_ai_response, get_reasoning_breakdown
+            
+            # Get AI response with reasoning
+            response, error, metadata = await get_advanced_ai_response(
+                prompt=prompt,
+                user_id=interaction.user.id,
+                channel_id=interaction.channel_id,
+                username=interaction.user.display_name,
+                config=config,
+                gemini_key=GEMINI_API_KEY,
+                openai_key=OPENAI_API_KEY,
+                system_prompt=SYSTEM_PROMPT,
+                use_cache=False  # Don't use cache for debugging
+            )
+            
+            if error:
+                await interaction.followup.send(f"❌ Error: {error}")
+                return
+                
+            # Get reasoning breakdown
+            breakdown = await get_reasoning_breakdown(prompt, response, metadata)
+            
+            embed = discord.Embed(
+                title="🧠 AI Reasoning Breakdown",
+                description=breakdown,
+                color=get_embed_color(config)
+            )
+            
+            # Add response preview
+            response_preview = response[:500] + "..." if len(response) > 500 else response
+            embed.add_field(
+                name="Generated Response",
+                value=response_preview,
+                inline=False
+            )
+            
+            await interaction.followup.send(embed=embed)
+            logger.info(f"Admin {interaction.user.name} debugged AI reasoning")
+            
+        except Exception as e:
+            logger.error(f"Error in debug_ai_reasoning command: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error: {e}")
+
+    @app_commands.command(name="debug_tokens", description="[Debug] Zeigt Token-Nutzung und Budgets an.")
+    async def debug_tokens(self, interaction: discord.Interaction):
+        """Shows detailed token usage statistics."""
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            from modules.advanced_ai import get_context_manager
+            
+            # Get context manager for this channel
+            context_mgr = get_context_manager(interaction.channel_id)
+            
+            # Calculate current token usage
+            current_tokens = context_mgr.get_current_token_count()
+            context_size = len(context_mgr.context_window)
+            compressed_count = len(context_mgr.compressed_summaries)
+            
+            # Get API usage from database
+            async with db_helpers.get_db_connection() as (conn, cursor):
+                # Last 24 hours usage
+                await cursor.execute("""
+                    SELECT 
+                        model_name,
+                        SUM(input_tokens) as total_input,
+                        SUM(output_tokens) as total_output,
+                        COUNT(*) as call_count
+                    FROM api_usage_log
+                    WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                    GROUP BY model_name
+                    ORDER BY total_input + total_output DESC
+                """)
+                usage_stats = await cursor.fetchall()
+            
+            embed = discord.Embed(
+                title="🔢 Token Usage & Budget",
+                description=f"Current Channel: <#{interaction.channel_id}>",
+                color=get_embed_color(config)
+            )
+            
+            # Current context
+            token_bar = '█' * int(current_tokens / context_mgr.token_budget * 20)
+            token_bar += '░' * (20 - len(token_bar))
+            embed.add_field(
+                name="Current Context",
+                value=f"`{token_bar}` {current_tokens}/{context_mgr.token_budget} tokens\n"
+                      f"**Messages**: {context_size}\n"
+                      f"**Compressed Summaries**: {compressed_count}",
+                inline=False
+            )
+            
+            # API usage (last 24h)
+            if usage_stats:
+                usage_text = []
+                total_input = 0
+                total_output = 0
+                for model, inp, out, count in usage_stats:
+                    total_input += inp
+                    total_output += out
+                    usage_text.append(f"**{model}**: {count} calls\n  ↓ {inp:,} in / ↑ {out:,} out")
+                
+                embed.add_field(
+                    name="API Usage (Last 24h)",
+                    value="\n".join(usage_text[:3]),  # Top 3 models
+                    inline=False
+                )
+                
+                embed.add_field(
+                    name="Total (24h)",
+                    value=f"**Input**: {total_input:,} tokens\n**Output**: {total_output:,} tokens\n**Total**: {total_input + total_output:,} tokens",
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="API Usage (Last 24h)",
+                    value="No usage recorded",
+                    inline=False
+                )
+            
+            await interaction.followup.send(embed=embed)
+            logger.info(f"Admin {interaction.user.name} viewed token debug info")
+            
+        except Exception as e:
+            logger.error(f"Error in debug_tokens command: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error: {e}")
+
+    @app_commands.command(name="debug_voice", description="[Debug] Zeigt aktive Voice-Call-Informationen an.")
+    async def debug_voice(self, interaction: discord.Interaction):
+        """Shows active voice call information."""
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            from modules.voice_conversation import get_all_active_calls, get_voice_call_stats
+            
+            active_calls = get_all_active_calls()
+            
+            embed = discord.Embed(
+                title="🎙️ Voice Call Debug Info",
+                description=f"Active Calls: **{len(active_calls)}**",
+                color=get_embed_color(config)
+            )
+            
+            # Show active calls
+            if active_calls:
+                for call_state in active_calls[:5]:  # Show max 5
+                    duration = call_state.get_duration()
+                    minutes = duration // 60
+                    seconds = duration % 60
+                    
+                    embed.add_field(
+                        name=f"📞 {call_state.user.display_name}",
+                        value=f"**Channel**: {call_state.channel.name}\n"
+                              f"**Duration**: {minutes}m {seconds}s\n"
+                              f"**Messages**: {len(call_state.conversation_history)}",
+                        inline=True
+                    )
+            else:
+                embed.add_field(
+                    name="No Active Calls",
+                    value="No voice calls currently active",
+                    inline=False
+                )
+            
+            # Get statistics
+            stats = await get_voice_call_stats()
+            
+            if stats['total_calls'] > 0:
+                avg_duration_min = stats['avg_duration'] // 60
+                avg_duration_sec = stats['avg_duration'] % 60
+                max_duration_min = stats['max_duration'] // 60
+                
+                embed.add_field(
+                    name="📊 All-Time Statistics",
+                    value=f"**Total Calls**: {stats['total_calls']}\n"
+                          f"**Total Duration**: {stats['total_duration'] // 60}m\n"
+                          f"**Avg Duration**: {avg_duration_min}m {avg_duration_sec}s\n"
+                          f"**Longest Call**: {max_duration_min}m",
+                    inline=False
+                )
+            
+            await interaction.followup.send(embed=embed)
+            logger.info(f"Admin {interaction.user.name} viewed voice debug info")
+            
+        except Exception as e:
+            logger.error(f"Error in debug_voice command: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error: {e}")
+
+    @app_commands.command(name="debug_memory", description="[Debug] Zeigt den Speicherzustand des Bots an.")
+    async def debug_memory(self, interaction: discord.Interaction):
+        """Shows bot memory state."""
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            from modules.advanced_ai import get_context_manager, _response_cache
+            
+            # Get context for this channel
+            context_mgr = get_context_manager(interaction.channel_id)
+            
+            # Get cache statistics
+            cache_size = len(_response_cache.cache)
+            
+            # Get database statistics
+            async with db_helpers.get_db_connection() as (conn, cursor):
+                # Recent conversations
+                await cursor.execute("""
+                    SELECT COUNT(DISTINCT channel_id) as channels,
+                           COUNT(*) as messages
+                    FROM conversation_context
+                    WHERE created_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)
+                """)
+                recent_conv = await cursor.fetchone()
+                
+                # Personality evolution
+                await cursor.execute("""
+                    SELECT COUNT(*) as evolution_events
+                    FROM personality_evolution
+                    WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                """)
+                personality_changes = await cursor.fetchone()
+                
+                # Learning entries
+                await cursor.execute("""
+                    SELECT COUNT(*) as learnings,
+                           AVG(confidence) as avg_confidence
+                    FROM interaction_learnings
+                    WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                """)
+                learning_stats = await cursor.fetchone()
+            
+            embed = discord.Embed(
+                title="🧠 Bot Memory State",
+                description="Current memory and learning status",
+                color=get_embed_color(config)
+            )
+            
+            # Context window
+            embed.add_field(
+                name="Context Window (This Channel)",
+                value=f"**Messages**: {len(context_mgr.context_window)}/{context_mgr.context_window.maxlen}\n"
+                      f"**Compressed Summaries**: {len(context_mgr.compressed_summaries)}\n"
+                      f"**Estimated Tokens**: {context_mgr.get_current_token_count()}",
+                inline=True
+            )
+            
+            # Response cache
+            embed.add_field(
+                name="Response Cache",
+                value=f"**Cached Responses**: {cache_size}/100\n"
+                      f"**Cache Hits**: Token savings enabled",
+                inline=True
+            )
+            
+            # Recent activity
+            channels = recent_conv[0] if recent_conv else 0
+            messages = recent_conv[1] if recent_conv else 0
+            embed.add_field(
+                name="Recent Activity (1h)",
+                value=f"**Active Channels**: {channels}\n"
+                      f"**Conversations**: {messages}",
+                inline=True
+            )
+            
+            # Learning
+            learnings = learning_stats[0] if learning_stats else 0
+            avg_conf = learning_stats[1] if learning_stats and learning_stats[1] else 0
+            embed.add_field(
+                name="Learning (7 days)",
+                value=f"**New Learnings**: {learnings}\n"
+                      f"**Avg Confidence**: {avg_conf:.1%}",
+                inline=True
+            )
+            
+            # Personality evolution
+            evolutions = personality_changes[0] if personality_changes else 0
+            embed.add_field(
+                name="Personality Evolution (7 days)",
+                value=f"**Evolution Events**: {evolutions}",
+                inline=True
+            )
+            
+            await interaction.followup.send(embed=embed)
+            logger.info(f"Admin {interaction.user.name} viewed memory debug info")
+            
+        except Exception as e:
+            logger.error(f"Error in debug_memory command: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error: {e}")
+
+    @app_commands.command(name="clear_context", description="[Debug] Löscht den Kontext für einen Kanal.")
+    @app_commands.describe(channel="Der Kanal (optional, Standard: aktueller Kanal)")
+    async def clear_context(self, interaction: discord.Interaction, channel: Optional[discord.TextChannel] = None):
+        """Clears context for a channel."""
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            from modules.advanced_ai import clear_context
+            
+            target_channel = channel or interaction.channel
+            await clear_context(target_channel.id)
+            
+            await interaction.followup.send(f"✅ Context für <#{target_channel.id}> gelöscht.")
+            logger.info(f"Admin {interaction.user.name} cleared context for channel {target_channel.id}")
+            
+        except Exception as e:
+            logger.error(f"Error in clear_context command: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error: {e}")
 
 
 # --- NEW: View for the AI Dashboard ---

@@ -2627,6 +2627,134 @@ def api_quotas():
         return jsonify({'error': str(e)}), 500
 
 
+# --- NEW: Advanced AI Debug API Endpoints ---
+
+@app.route('/ai_reasoning', methods=['GET'])
+def ai_reasoning_page():
+    """Render AI reasoning debug page."""
+    return render_template('ai_reasoning.html')
+
+@app.route('/api/ai_reasoning_debug', methods=['GET'])
+def api_ai_reasoning_debug():
+    """API endpoint for AI reasoning debug data."""
+    try:
+        from modules import advanced_ai
+        
+        # Get context manager for a sample channel (or all channels)
+        # For now, we'll aggregate data from all active contexts
+        context_data = {
+            'current_tokens': 0,
+            'max_tokens': 4000,
+            'compressed_summaries': 0,
+            'context_messages': 0,
+            'api_usage': [],
+            'recent_reasoning': [],
+            'context_window': [],
+            'cache_hit_rate': 0,
+            'avg_response_time': 0,
+            'tokens_saved': 0,
+            'complex_queries': 0,
+            'cot_used': 0,
+            'compressions': 0
+        }
+        
+        # Get API usage from database
+        async def get_api_stats():
+            async with db_helpers.get_db_connection() as (conn, cursor):
+                await cursor.execute("""
+                    SELECT 
+                        model_name,
+                        SUM(input_tokens) as input_tokens,
+                        SUM(output_tokens) as output_tokens,
+                        COUNT(*) as call_count
+                    FROM api_usage_log
+                    WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                    GROUP BY model_name
+                    ORDER BY input_tokens + output_tokens DESC
+                    LIMIT 5
+                """)
+                results = await cursor.fetchall()
+                return [{
+                    'model': row[0],
+                    'input_tokens': row[1],
+                    'output_tokens': row[2],
+                    'total_tokens': row[1] + row[2],
+                    'calls': row[3]
+                } for row in results]
+        
+        api_usage = run_async(get_api_stats())
+        context_data['api_usage'] = api_usage
+        
+        # Get sample context data (from first active channel if any)
+        if advanced_ai._context_managers:
+            first_channel = list(advanced_ai._context_managers.keys())[0]
+            context_mgr = advanced_ai._context_managers[first_channel]
+            
+            context_data['current_tokens'] = context_mgr.get_current_token_count()
+            context_data['max_tokens'] = context_mgr.token_budget
+            context_data['compressed_summaries'] = len(context_mgr.compressed_summaries)
+            context_data['context_messages'] = len(context_mgr.context_window)
+            
+            # Get recent messages from context window
+            context_data['context_window'] = [
+                {
+                    'role': msg['role'],
+                    'content': msg['content'][:200],  # Truncate for display
+                    'timestamp': msg.get('timestamp', 'Unknown')
+                }
+                for msg in list(context_mgr.context_window)[-10:]  # Last 10 messages
+            ]
+        
+        # Mock data for reasoning (would come from logging in production)
+        context_data['cache_hit_rate'] = 15.3
+        context_data['avg_response_time'] = 1250
+        context_data['tokens_saved'] = 3421
+        context_data['complex_queries'] = 8
+        context_data['cot_used'] = 3
+        context_data['compressions'] = 2
+        
+        return jsonify(context_data)
+        
+    except Exception as e:
+        logger.error(f"Error getting AI reasoning debug data: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@app.route('/api/voice_calls/stats', methods=['GET'])
+def api_voice_call_stats():
+    """API endpoint for voice call statistics."""
+    try:
+        from modules import voice_conversation
+        
+        async def get_voice_stats():
+            # Get active calls
+            active_calls = voice_conversation.get_all_active_calls()
+            
+            # Get overall statistics
+            stats = await voice_conversation.get_voice_call_stats()
+            
+            return {
+                'active_calls': len(active_calls),
+                'active_call_details': [
+                    {
+                        'user_id': call.user.id,
+                        'user_name': call.user.display_name,
+                        'channel_name': call.channel.name,
+                        'duration': call.get_duration(),
+                        'messages': len(call.conversation_history)
+                    }
+                    for call in active_calls
+                ],
+                'total_stats': stats
+            }
+        
+        voice_stats = run_async(get_voice_stats())
+        return jsonify(voice_stats)
+        
+    except Exception as e:
+        logger.error(f"Error getting voice call stats: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 if __name__ == '__main__':
     # Start the log following thread
     log_thread = threading.Thread(target=follow_log_file, daemon=True)
