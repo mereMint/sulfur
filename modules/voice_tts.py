@@ -240,14 +240,23 @@ async def start_voice_conversation(
 ) -> Optional[int]:
     """Start logging a voice conversation."""
     try:
-        async with get_db_connection() as (conn, cursor):
-            await cursor.execute("""
+        conn = get_db_connection()
+        if not conn:
+            logger.error("Failed to get database connection for starting voice conversation")
+            return None
+        
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
                 INSERT INTO voice_conversations
                 (guild_id, channel_id, session_start, initiated_by, participant_count)
                 VALUES (%s, %s, CURRENT_TIMESTAMP, %s, %s)
             """, (guild_id, channel_id, initiated_by, participant_count))
-            await conn.commit()
+            conn.commit()
             return cursor.lastrowid
+        finally:
+            cursor.close()
+            conn.close()
     except Exception as e:
         logger.error(f"Error starting voice conversation log: {e}")
         return None
@@ -256,13 +265,22 @@ async def start_voice_conversation(
 async def end_voice_conversation(conversation_id: int):
     """End a voice conversation log."""
     try:
-        async with get_db_connection() as (conn, cursor):
-            await cursor.execute("""
+        conn = get_db_connection()
+        if not conn:
+            logger.error("Failed to get database connection for ending voice conversation")
+            return
+        
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
                 UPDATE voice_conversations
                 SET session_end = CURRENT_TIMESTAMP
                 WHERE id = %s
             """, (conversation_id,))
-            await conn.commit()
+            conn.commit()
+        finally:
+            cursor.close()
+            conn.close()
     except Exception as e:
         logger.error(f"Error ending voice conversation: {e}")
 
@@ -276,13 +294,22 @@ async def log_voice_message(
 ):
     """Log a voice message transcript."""
     try:
-        async with get_db_connection() as (conn, cursor):
-            await cursor.execute("""
+        conn = get_db_connection()
+        if not conn:
+            logger.error("Failed to get database connection for logging voice message")
+            return
+        
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
                 INSERT INTO voice_messages
                 (conversation_id, user_id, speaker_name, transcript, confidence)
                 VALUES (%s, %s, %s, %s, %s)
             """, (conversation_id, user_id, speaker_name, transcript, confidence))
-            await conn.commit()
+            conn.commit()
+        finally:
+            cursor.close()
+            conn.close()
     except Exception as e:
         logger.error(f"Error logging voice message: {e}")
 

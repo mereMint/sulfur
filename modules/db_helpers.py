@@ -660,6 +660,133 @@ def initialize_database():
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """)
         
+        # --- NEW: Autonomous Behavior Tables ---
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_autonomous_settings (
+                user_id BIGINT PRIMARY KEY,
+                allow_autonomous_messages BOOLEAN DEFAULT TRUE,
+                allow_autonomous_calls BOOLEAN DEFAULT TRUE,
+                last_autonomous_contact TIMESTAMP NULL,
+                autonomous_contact_frequency VARCHAR(20) DEFAULT 'normal',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_last_contact (last_autonomous_contact)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS bot_autonomous_actions (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                action_type VARCHAR(50) NOT NULL,
+                target_user_id BIGINT NOT NULL,
+                guild_id BIGINT NULL,
+                action_reason TEXT NULL,
+                context_data JSON NULL,
+                success BOOLEAN DEFAULT TRUE,
+                user_response BOOLEAN NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_user_id (target_user_id),
+                INDEX idx_created_at (created_at),
+                INDEX idx_action_type (action_type)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS temp_dm_access (
+                user_id BIGINT PRIMARY KEY,
+                granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP NOT NULL,
+                INDEX idx_expires_at (expires_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_memory_enhanced (
+                user_id BIGINT PRIMARY KEY,
+                interests JSON NULL,
+                usual_active_times JSON NULL,
+                conversation_topics JSON NULL,
+                last_significant_interaction TIMESTAMP NULL,
+                interaction_frequency DECIMAL(5, 2) DEFAULT 0.0,
+                preferred_contact_method VARCHAR(20) DEFAULT 'text',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_last_interaction (last_significant_interaction)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """)
+        
+        # --- NEW: Bot Mind State Table ---
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS bot_mind_state (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                state_data JSON NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_created_at (created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """)
+        
+        # --- NEW: Focus Timer Tables ---
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS focus_sessions (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                guild_id BIGINT NOT NULL,
+                session_type VARCHAR(50) NOT NULL,
+                duration_minutes INT NOT NULL,
+                start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                end_time TIMESTAMP NULL,
+                completed BOOLEAN DEFAULT FALSE,
+                distractions_count INT DEFAULT 0,
+                INDEX idx_user_id (user_id),
+                INDEX idx_guild_id (guild_id),
+                INDEX idx_start_time (start_time)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS focus_distractions (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                session_id INT NOT NULL,
+                user_id BIGINT NOT NULL,
+                distraction_type VARCHAR(50) NOT NULL,
+                distraction_details TEXT NULL,
+                logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_session_id (session_id),
+                INDEX idx_user_id (user_id),
+                FOREIGN KEY (session_id) REFERENCES focus_sessions(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """)
+        
+        # --- NEW: Voice TTS Tables ---
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS voice_conversations (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                guild_id BIGINT NOT NULL,
+                channel_id BIGINT NOT NULL,
+                session_start TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                session_end TIMESTAMP NULL,
+                initiated_by VARCHAR(255) NULL,
+                participant_count INT DEFAULT 0,
+                INDEX idx_guild_id (guild_id),
+                INDEX idx_session_start (session_start)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS voice_messages (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                conversation_id INT NOT NULL,
+                user_id BIGINT NOT NULL,
+                speaker_name VARCHAR(255) NOT NULL,
+                transcript TEXT NOT NULL,
+                confidence DECIMAL(5, 4) NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_conversation_id (conversation_id),
+                INDEX idx_user_id (user_id),
+                FOREIGN KEY (conversation_id) REFERENCES voice_conversations(id) ON DELETE CASCADE
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """)
+        
         cnx.commit()
 
         logger.info("Database tables checked/created successfully")

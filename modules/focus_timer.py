@@ -32,13 +32,19 @@ async def start_focus_session(
         if user_id in active_sessions:
             return None
         
-        async with get_db_connection() as (conn, cursor):
-            await cursor.execute("""
+        conn = get_db_connection()
+        if not conn:
+            logger.error("Failed to get database connection for starting focus session")
+            return None
+        
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
                 INSERT INTO focus_sessions
                 (user_id, guild_id, session_type, duration_minutes, start_time)
                 VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
             """, (user_id, guild_id, session_type, duration_minutes))
-            await conn.commit()
+            conn.commit()
             session_id = cursor.lastrowid
             
             # Store in memory
@@ -54,6 +60,9 @@ async def start_focus_session(
             
             logger.info(f"Started focus session {session_id} for user {user_id}")
             return session_id
+        finally:
+            cursor.close()
+            conn.close()
     except Exception as e:
         logger.error(f"Error starting focus session: {e}")
         return None
@@ -68,15 +77,24 @@ async def end_focus_session(user_id: int, completed: bool = True) -> bool:
         session = active_sessions[user_id]
         session_id = session['session_id']
         
-        async with get_db_connection() as (conn, cursor):
-            await cursor.execute("""
+        conn = get_db_connection()
+        if not conn:
+            logger.error("Failed to get database connection for ending focus session")
+            return False
+        
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
                 UPDATE focus_sessions
                 SET end_time = CURRENT_TIMESTAMP,
                     completed = %s,
                     distractions_count = %s
                 WHERE id = %s
             """, (completed, session['distractions'], session_id))
-            await conn.commit()
+            conn.commit()
+        finally:
+            cursor.close()
+            conn.close()
         
         # Remove from memory
         del active_sessions[user_id]
@@ -107,13 +125,22 @@ async def log_distraction(
         session_id = session['session_id']
         session['distractions'] += 1
         
-        async with get_db_connection() as (conn, cursor):
-            await cursor.execute("""
+        conn = get_db_connection()
+        if not conn:
+            logger.error("Failed to get database connection for logging distraction")
+            return False
+        
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
                 INSERT INTO focus_distractions
                 (session_id, user_id, distraction_type, distraction_details)
                 VALUES (%s, %s, %s, %s)
             """, (session_id, user_id, distraction_type, details))
-            await conn.commit()
+            conn.commit()
+        finally:
+            cursor.close()
+            conn.close()
         
         logger.debug(f"Logged distraction for user {user_id}: {distraction_type}")
         return True
@@ -205,9 +232,21 @@ async def detect_media_activity(user_id: int, activity_name: str, is_music: bool
 async def get_user_focus_stats(user_id: int, days: int = 7) -> Dict[str, Any]:
     """Get user's focus session statistics."""
     try:
-        async with get_db_connection() as (conn, cursor):
+        conn = get_db_connection()
+        if not conn:
+            logger.error("Failed to get database connection for focus stats")
+            return {
+                'total_sessions': 0,
+                'completed_sessions': 0,
+                'total_minutes': 0,
+                'total_distractions': 0,
+                'completion_rate': 0
+            }
+        
+        cursor = conn.cursor()
+        try:
             # Total sessions
-            await cursor.execute("""
+            cursor.execute("""
                 SELECT COUNT(*), 
                        SUM(CASE WHEN completed THEN 1 ELSE 0 END),
                        SUM(duration_minutes),
@@ -217,7 +256,7 @@ async def get_user_focus_stats(user_id: int, days: int = 7) -> Dict[str, Any]:
                 AND start_time >= DATE_SUB(CURRENT_TIMESTAMP, INTERVAL %s DAY)
             """, (user_id, days))
             
-            result = await cursor.fetchone()
+            result = cursor.fetchone()
             
             if result:
                 return {
@@ -235,6 +274,9 @@ async def get_user_focus_stats(user_id: int, days: int = 7) -> Dict[str, Any]:
                 'total_distractions': 0,
                 'completion_rate': 0
             }
+        finally:
+            cursor.close()
+            conn.close()
     except Exception as e:
         logger.error(f"Error getting focus stats: {e}")
         return {}
@@ -243,9 +285,15 @@ async def get_user_focus_stats(user_id: int, days: int = 7) -> Dict[str, Any]:
 async def get_leaderboard(guild_id: Optional[int] = None, limit: int = 10) -> list:
     """Get focus time leaderboard."""
     try:
-        async with get_db_connection() as (conn, cursor):
+        conn = get_db_connection()
+        if not conn:
+            logger.error("Failed to get database connection for leaderboard")
+            return []
+        
+        cursor = conn.cursor()
+        try:
             if guild_id:
-                await cursor.execute("""
+                cursor.execute("""
                     SELECT user_id, 
                            SUM(duration_minutes) as total_minutes,
                            COUNT(*) as sessions,
@@ -258,7 +306,7 @@ async def get_leaderboard(guild_id: Optional[int] = None, limit: int = 10) -> li
                     LIMIT %s
                 """, (guild_id, limit))
             else:
-                await cursor.execute("""
+                cursor.execute("""
                     SELECT user_id, 
                            SUM(duration_minutes) as total_minutes,
                            COUNT(*) as sessions,
@@ -270,7 +318,7 @@ async def get_leaderboard(guild_id: Optional[int] = None, limit: int = 10) -> li
                     LIMIT %s
                 """, (limit,))
             
-            rows = await cursor.fetchall()
+            rows = cursor.fetchall()
             return [
                 {
                     'user_id': row[0],
@@ -280,6 +328,9 @@ async def get_leaderboard(guild_id: Optional[int] = None, limit: int = 10) -> li
                 }
                 for row in rows
             ]
+        finally:
+            cursor.close()
+            conn.close()
     except Exception as e:
         logger.error(f"Error getting focus leaderboard: {e}")
         return []

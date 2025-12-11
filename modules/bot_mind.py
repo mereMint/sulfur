@@ -163,47 +163,63 @@ bot_mind = BotMind()
 
 async def save_mind_state():
     """Save current mind state to database"""
+    conn = get_db_connection()
+    if not conn:
+        logger.error("Could not connect to database to save mind state")
+        return
+    
+    cursor = conn.cursor()
     try:
-        async with get_db_connection() as (conn, cursor):
-            mind_data = bot_mind.to_dict()
-            await cursor.execute("""
-                INSERT INTO bot_mind_state (state_data, created_at)
-                VALUES (%s, NOW())
-            """, (json.dumps(mind_data),))
-            await conn.commit()
+        mind_data = bot_mind.to_dict()
+        cursor.execute("""
+            INSERT INTO bot_mind_state (state_data, created_at)
+            VALUES (%s, NOW())
+        """, (json.dumps(mind_data),))
+        conn.commit()
     except Exception as e:
         logger.error(f"Error saving mind state: {e}")
+    finally:
+        cursor.close()
+        conn.close()
 
 
 async def load_last_mind_state() -> bool:
     """Load the last saved mind state"""
+    conn = get_db_connection()
+    if not conn:
+        logger.error("Could not connect to database to load mind state")
+        return False
+    
+    cursor = conn.cursor()
     try:
-        async with get_db_connection() as (conn, cursor):
-            await cursor.execute("""
-                SELECT state_data 
-                FROM bot_mind_state 
-                ORDER BY created_at DESC 
-                LIMIT 1
-            """)
-            result = await cursor.fetchone()
-            
-            if result:
-                mind_data = json.loads(result[0])
-                bot_mind.current_mood = Mood(mind_data['mood'])
-                bot_mind.current_activity = Activity(mind_data['activity'])
-                bot_mind.current_thought = mind_data['current_thought']
-                bot_mind.interests = mind_data.get('interests', [])
-                bot_mind.recent_observations = mind_data.get('recent_observations', [])
-                bot_mind.personality_traits = mind_data.get('personality_traits', bot_mind.personality_traits)
-                bot_mind.energy_level = mind_data.get('energy_level', 1.0)
-                bot_mind.boredom_level = mind_data.get('boredom_level', 0.0)
-                logger.info("Loaded previous mind state from database")
-                return True
-            
-            return False
+        cursor.execute("""
+            SELECT state_data 
+            FROM bot_mind_state 
+            ORDER BY created_at DESC 
+            LIMIT 1
+        """)
+        result = cursor.fetchone()
+        
+        if result:
+            mind_data = json.loads(result[0])
+            bot_mind.current_mood = Mood(mind_data['mood'])
+            bot_mind.current_activity = Activity(mind_data['activity'])
+            bot_mind.current_thought = mind_data['current_thought']
+            bot_mind.interests = mind_data.get('interests', [])
+            bot_mind.recent_observations = mind_data.get('recent_observations', [])
+            bot_mind.personality_traits = mind_data.get('personality_traits', bot_mind.personality_traits)
+            bot_mind.energy_level = mind_data.get('energy_level', 1.0)
+            bot_mind.boredom_level = mind_data.get('boredom_level', 0.0)
+            logger.info("Loaded previous mind state from database")
+            return True
+        
+        return False
     except Exception as e:
         logger.error(f"Error loading mind state: {e}")
         return False
+    finally:
+        cursor.close()
+        conn.close()
 
 
 # --- Thought Generation ---
