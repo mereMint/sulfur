@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Reasoning Debug - Sulfur Bot</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: white;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .nav {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .nav a {
+            color: white;
+            text-decoration: none;
+            padding: 10px 20px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 5px;
+            transition: all 0.3s;
+        }
+
+        .nav a:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .card h2 {
+            color: #667eea;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .stat {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .stat:last-child {
+            border-bottom: none;
+        }
+
+        .stat-label {
+            font-weight: 600;
+            color: #555;
+        }
+
+        .stat-value {
+            color: #667eea;
+            font-weight: bold;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 25px;
+            background: #eee;
+            border-radius: 12px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+
+        .reasoning-flow {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+
+        .reasoning-step {
+            background: white;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+
+        .reasoning-step h4 {
+            color: #667eea;
+            margin-bottom: 8px;
+        }
+
+        .reasoning-step p {
+            color: #666;
+            line-height: 1.6;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            font-weight: 600;
+            margin-right: 8px;
+        }
+
+        .badge-success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .badge-info {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        .badge-warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .token-chart {
+            margin: 20px 0;
+        }
+
+        .context-window {
+            max-height: 400px;
+            overflow-y: auto;
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 15px;
+        }
+
+        .message {
+            background: white;
+            padding: 12px;
+            margin: 8px 0;
+            border-radius: 8px;
+            border-left: 3px solid #667eea;
+        }
+
+        .message.user {
+            border-left-color: #28a745;
+        }
+
+        .message.bot {
+            border-left-color: #667eea;
+        }
+
+        .message-header {
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+        }
+
+        .message-content {
+            color: #333;
+            line-height: 1.5;
+        }
+
+        .refresh-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        .refresh-btn:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .timestamp {
+            color: #999;
+            font-size: 0.85em;
+            font-style: italic;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.6;
+            }
+        }
+
+        .loading {
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧠 AI Reasoning Debug Dashboard</h1>
+
+        <div class="nav">
+            <a href="/">🏠 Home</a>
+            <a href="/ai_dashboard">📊 AI Dashboard</a>
+            <a href="/ai_reasoning">🧠 Reasoning</a>
+            <a href="/voice_calls">🎙️ Voice</a>
+            <a href="/database">💾 Database</a>
+            <a href="/config">⚙️ Config</a>
+            <a href="/logs">📋 Logs</a>
+        </div>
+
+        <div class="dashboard-grid">
+            <!-- Token Usage -->
+            <div class="card">
+                <h2>🔢 Token Budget</h2>
+                <div class="stat">
+                    <span class="stat-label">Current Context Tokens</span>
+                    <span class="stat-value" id="current-tokens">Loading...</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="token-progress" style="width: 0%">
+                        0%
+                    </div>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Compressed Summaries</span>
+                    <span class="stat-value" id="compressed-count">0</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Context Messages</span>
+                    <span class="stat-value" id="context-messages">0</span>
+                </div>
+            </div>
+
+            <!-- API Usage (24h) -->
+            <div class="card">
+                <h2>📡 API Usage (24h)</h2>
+                <div id="api-usage-stats">
+                    <p class="loading">Loading statistics...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Reasoning Flow -->
+        <div class="card">
+            <h2>🔍 Recent Reasoning Processes</h2>
+            <button class="refresh-btn" onclick="loadReasoningData()">🔄 Refresh Data</button>
+            <div id="reasoning-flow" class="reasoning-flow">
+                <p class="loading">Loading reasoning data...</p>
+            </div>
+        </div>
+
+        <!-- Context Window -->
+        <div class="card">
+            <h2>💬 Active Context Window</h2>
+            <div id="context-window" class="context-window">
+                <p class="loading">Loading context...</p>
+            </div>
+        </div>
+
+        <!-- Performance Metrics -->
+        <div class="dashboard-grid">
+            <div class="card">
+                <h2>⚡ Performance Metrics</h2>
+                <div class="stat">
+                    <span class="stat-label">Cache Hit Rate</span>
+                    <span class="stat-value" id="cache-hit-rate">0%</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Avg Response Time</span>
+                    <span class="stat-value" id="avg-response-time">0ms</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Tokens Saved (Cache)</span>
+                    <span class="stat-value" id="tokens-saved">0</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>🎯 Reasoning Quality</h2>
+                <div class="stat">
+                    <span class="stat-label">Complex Queries</span>
+                    <span class="stat-value" id="complex-queries">0</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Chain-of-Thought Used</span>
+                    <span class="stat-value" id="cot-used">0</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-label">Context Compressions</span>
+                    <span class="stat-value" id="compressions">0</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function loadReasoningData() {
+            try {
+                const response = await fetch('/api/ai_reasoning_debug');
+                const data = await response.json();
+
+                // Update token usage
+                document.getElementById('current-tokens').textContent = 
+                    `${data.current_tokens} / ${data.max_tokens}`;
+                const tokenPercentage = (data.current_tokens / data.max_tokens * 100).toFixed(1);
+                document.getElementById('token-progress').style.width = `${tokenPercentage}%`;
+                document.getElementById('token-progress').textContent = `${tokenPercentage}%`;
+                document.getElementById('compressed-count').textContent = data.compressed_summaries;
+                document.getElementById('context-messages').textContent = data.context_messages;
+
+                // Update API usage
+                const apiUsageDiv = document.getElementById('api-usage-stats');
+                if (data.api_usage && data.api_usage.length > 0) {
+                    apiUsageDiv.innerHTML = data.api_usage.map(stat => `
+                        <div class="stat">
+                            <span class="stat-label">${stat.model}</span>
+                            <span class="stat-value">${stat.total_tokens.toLocaleString()} tokens</span>
+                        </div>
+                    `).join('');
+                } else {
+                    apiUsageDiv.innerHTML = '<p>No API usage in last 24 hours</p>';
+                }
+
+                // Update reasoning flow
+                const reasoningDiv = document.getElementById('reasoning-flow');
+                if (data.recent_reasoning && data.recent_reasoning.length > 0) {
+                    reasoningDiv.innerHTML = data.recent_reasoning.map((item, index) => `
+                        <div class="reasoning-step">
+                            <h4>
+                                Query ${index + 1}
+                                ${item.cached ? '<span class="badge badge-success">Cached</span>' : ''}
+                                ${item.compressed ? '<span class="badge badge-info">Compressed</span>' : ''}
+                                ${item.reasoning_used ? '<span class="badge badge-warning">CoT</span>' : ''}
+                            </h4>
+                            <p><strong>Prompt:</strong> ${item.prompt.substring(0, 100)}${item.prompt.length > 100 ? '...' : ''}</p>
+                            <p><strong>Response:</strong> ${item.response.substring(0, 150)}${item.response.length > 150 ? '...' : ''}</p>
+                            <p class="timestamp">${item.timestamp}</p>
+                        </div>
+                    `).join('');
+                } else {
+                    reasoningDiv.innerHTML = '<p>No recent reasoning data available</p>';
+                }
+
+                // Update context window
+                const contextDiv = document.getElementById('context-window');
+                if (data.context_window && data.context_window.length > 0) {
+                    contextDiv.innerHTML = data.context_window.map(msg => `
+                        <div class="message ${msg.role}">
+                            <div class="message-header">${msg.role === 'user' ? '👤 User' : '🤖 Bot'} - ${msg.timestamp}</div>
+                            <div class="message-content">${msg.content}</div>
+                        </div>
+                    `).join('');
+                } else {
+                    contextDiv.innerHTML = '<p>No active context</p>';
+                }
+
+                // Update performance metrics
+                document.getElementById('cache-hit-rate').textContent = 
+                    `${data.cache_hit_rate || 0}%`;
+                document.getElementById('avg-response-time').textContent = 
+                    `${data.avg_response_time || 0}ms`;
+                document.getElementById('tokens-saved').textContent = 
+                    data.tokens_saved || 0;
+                document.getElementById('complex-queries').textContent = 
+                    data.complex_queries || 0;
+                document.getElementById('cot-used').textContent = 
+                    data.cot_used || 0;
+                document.getElementById('compressions').textContent = 
+                    data.compressions || 0;
+
+            } catch (error) {
+                console.error('Error loading reasoning data:', error);
+            }
+        }
+
+        // Load data on page load
+        loadReasoningData();
+
+        // Auto-refresh every 10 seconds
+        setInterval(loadReasoningData, 10000);
+    </script>
+</body>
+</html>

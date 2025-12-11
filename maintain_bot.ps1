@@ -828,6 +828,142 @@ function Start-WebDashboard {
     return $job
 }
 
+# ==============================================================================
+# Database Migration and Dependency Functions
+# ==============================================================================
+
+function Run-DatabaseMigrations {
+    Write-ColorLog 'Checking for pending database migrations...' 'Cyan' '[DB] '
+    
+    if(-not (Test-Path 'scripts\db_migrations')){
+        Write-ColorLog 'No migrations directory found, skipping' 'Yellow' '[DB] '
+        return
+    }
+    
+    # Get MySQL command
+    $mysqlCmd = $null
+    if(Get-Command mysql -ErrorAction SilentlyContinue){
+        $mysqlCmd = 'mysql'
+    } elseif(Get-Command mariadb -ErrorAction SilentlyContinue){
+        $mysqlCmd = 'mariadb'
+    } else {
+        Write-ColorLog 'MySQL/MariaDB client not found, cannot run migrations' 'Red' '[DB] '
+        return
+    }
+    
+    $dbUser = $env:DB_USER
+    if(-not $dbUser){$dbUser = 'sulfur_bot_user'}
+    $dbName = $env:DB_NAME
+    if(-not $dbName){$dbName = 'sulfur_bot'}
+    $dbPass = $env:DB_PASS
+    
+    # Create migration tracking table
+    $createTable = @"
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    migration_name VARCHAR(255) UNIQUE NOT NULL,
+    applied_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_migration_name (migration_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+"@
+    
+    if($dbPass){
+        $createTable | & $mysqlCmd -u $dbUser -p"$dbPass" $dbName 2>$null
+    } else {
+        $createTable | & $mysqlCmd -u $dbUser $dbName 2>$null
+    }
+    
+    # Find and apply migrations
+    $migrationsRun = 0
+    Get-ChildItem 'scripts\db_migrations\*.sql' -ErrorAction SilentlyContinue | ForEach-Object {
+        $migrationName = $_.Name
+        
+        # Check if already applied
+        $checkQuery = "SELECT COUNT(*) FROM schema_migrations WHERE migration_name = '$migrationName'"
+        if($dbPass){
+            $alreadyApplied = & $mysqlCmd -u $dbUser -p"$dbPass" $dbName -sN -e $checkQuery 2>$null
+        } else {
+            $alreadyApplied = & $mysqlCmd -u $dbUser $dbName -sN -e $checkQuery 2>$null
+        }
+        
+        if($alreadyApplied -eq '0'){
+            Write-ColorLog "Applying migration: $migrationName" 'Cyan' '[DB] '
+            
+            # Run migration
+            if($dbPass){
+                Get-Content $_.FullName | & $mysqlCmd -u $dbUser -p"$dbPass" $dbName 2>$null
+            } else {
+                Get-Content $_.FullName | & $mysqlCmd -u $dbUser $dbName 2>$null
+            }
+            
+            if($LASTEXITCODE -eq 0){
+                # Mark as applied
+                $insertQuery = "INSERT INTO schema_migrations (migration_name) VALUES ('$migrationName')"
+                if($dbPass){
+                    $insertQuery | & $mysqlCmd -u $dbUser -p"$dbPass" $dbName 2>$null
+                } else {
+                    $insertQuery | & $mysqlCmd -u $dbUser $dbName 2>$null
+                }
+                Write-ColorLog "Migration applied: $migrationName" 'Green' '[DB] '
+                $migrationsRun++
+            } else {
+                Write-ColorLog "Failed to apply migration: $migrationName" 'Red' '[DB] '
+            }
+        }
+    }
+    
+    if($migrationsRun -eq 0){
+        Write-ColorLog 'No pending migrations found' 'Green' '[DB] '
+    } else {
+        Write-ColorLog "Applied $migrationsRun migration(s)" 'Green' '[DB] '
+    }
+}
+
+function Install-OptionalDependencies {
+    Write-ColorLog 'Checking optional dependencies for advanced features...' 'Cyan' '[DEPS] '
+    
+    $pythonExe = 'python'
+    if(Test-Path 'venv\Scripts\python.exe'){
+        $pythonExe = 'venv\Scripts\python.exe'
+    }
+    
+    # Check for edge-tts
+    $hasTTS = & $pythonExe -c "import edge_tts" 2>$null
+    if($LASTEXITCODE -ne 0){
+        Write-ColorLog 'edge-tts not installed (optional for voice features)' 'Yellow' '[DEPS] '
+        Write-ColorLog 'Installing edge-tts...' 'Cyan' '[DEPS] '
+        & $pythonExe -m pip install edge-tts 2>$null
+        if($LASTEXITCODE -eq 0){
+            Write-ColorLog 'edge-tts installed successfully' 'Green' '[DEPS] '
+        } else {
+            Write-ColorLog 'Failed to install edge-tts (optional)' 'Yellow' '[DEPS] '
+        }
+    } else {
+        Write-ColorLog 'edge-tts is installed' 'Green' '[DEPS] '
+    }
+    
+    # Check for SpeechRecognition
+    $hasSR = & $pythonExe -c "import speech_recognition" 2>$null
+    if($LASTEXITCODE -ne 0){
+        Write-ColorLog 'SpeechRecognition not installed (optional for voice features)' 'Yellow' '[DEPS] '
+        Write-ColorLog 'Installing SpeechRecognition...' 'Cyan' '[DEPS] '
+        & $pythonExe -m pip install SpeechRecognition 2>$null
+        if($LASTEXITCODE -eq 0){
+            Write-ColorLog 'SpeechRecognition installed successfully' 'Green' '[DEPS] '
+        } else {
+            Write-ColorLog 'Failed to install SpeechRecognition (optional)' 'Yellow' '[DEPS] '
+        }
+    } else {
+        Write-ColorLog 'SpeechRecognition is installed' 'Green' '[DEPS] '
+    }
+    
+    Write-ColorLog 'Optional dependencies check complete' 'Green' '[DEPS] '
+}
+
+# ==============================================================================
+# Bot Start Function
+# ==============================================================================
+
 function Start-Bot {
     Write-ColorLog 'Starting bot...' 'Cyan' '[BOT] '
     Update-BotStatus 'Starting...'
@@ -1070,6 +1206,12 @@ try {
 } catch {
     Write-ColorLog "Database initialization/migration had issues: $($_.Exception.Message)" 'Yellow' '[DB] '
 }
+
+# Run advanced AI database migrations
+Run-DatabaseMigrations
+
+# Install optional dependencies for voice features
+Install-OptionalDependencies
 
 try {
     $script:webDashboardJob=Start-WebDashboard

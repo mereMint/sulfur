@@ -481,6 +481,142 @@ backup_database() {
 }
 
 # ==============================================================================
+# Database Migration Functions
+# ==============================================================================
+
+run_database_migrations() {
+    log_db "Checking for pending database migrations..."
+    
+    # Check if migrations directory exists
+    if [ ! -d "scripts/db_migrations" ]; then
+        log_warning "No migrations directory found, skipping"
+        return 0
+    fi
+    
+    # Get MySQL command
+    local mysql_cmd=""
+    if command -v mysql &> /dev/null; then
+        mysql_cmd="mysql"
+    elif command -v mariadb &> /dev/null; then
+        mysql_cmd="mariadb"
+    else
+        log_error "MySQL/MariaDB client not found, cannot run migrations"
+        return 1
+    fi
+    
+    # Check if migration tracking table exists
+    local create_tracking_table="
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        migration_name VARCHAR(255) UNIQUE NOT NULL,
+        applied_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_migration_name (migration_name)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;"
+    
+    if [ -n "$DB_PASS" ]; then
+        echo "$create_tracking_table" | $mysql_cmd -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" 2>>"$MAIN_LOG"
+    else
+        echo "$create_tracking_table" | $mysql_cmd -u "$DB_USER" "$DB_NAME" 2>>"$MAIN_LOG"
+    fi
+    
+    # Find all .sql migration files
+    local migrations_run=0
+    for migration_file in scripts/db_migrations/*.sql; do
+        if [ -f "$migration_file" ]; then
+            local migration_name=$(basename "$migration_file")
+            
+            # Check if migration already applied
+            local check_query="SELECT COUNT(*) FROM schema_migrations WHERE migration_name = '$migration_name'"
+            local already_applied
+            
+            if [ -n "$DB_PASS" ]; then
+                already_applied=$($mysql_cmd -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -sN -e "$check_query" 2>>"$MAIN_LOG")
+            else
+                already_applied=$($mysql_cmd -u "$DB_USER" "$DB_NAME" -sN -e "$check_query" 2>>"$MAIN_LOG")
+            fi
+            
+            if [ "$already_applied" = "0" ]; then
+                log_db "Applying migration: $migration_name"
+                
+                # Run the migration
+                if [ -n "$DB_PASS" ]; then
+                    if $mysql_cmd -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" < "$migration_file" 2>>"$MAIN_LOG"; then
+                        # Mark as applied
+                        echo "INSERT INTO schema_migrations (migration_name) VALUES ('$migration_name')" | \
+                            $mysql_cmd -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" 2>>"$MAIN_LOG"
+                        log_success "Migration applied: $migration_name"
+                        migrations_run=$((migrations_run + 1))
+                    else
+                        log_error "Failed to apply migration: $migration_name"
+                        log_warning "Check logs for details"
+                    fi
+                else
+                    if $mysql_cmd -u "$DB_USER" "$DB_NAME" < "$migration_file" 2>>"$MAIN_LOG"; then
+                        # Mark as applied
+                        echo "INSERT INTO schema_migrations (migration_name) VALUES ('$migration_name')" | \
+                            $mysql_cmd -u "$DB_USER" "$DB_NAME" 2>>"$MAIN_LOG"
+                        log_success "Migration applied: $migration_name"
+                        migrations_run=$((migrations_run + 1))
+                    else
+                        log_error "Failed to apply migration: $migration_name"
+                        log_warning "Check logs for details"
+                    fi
+                fi
+            fi
+        fi
+    done
+    
+    if [ $migrations_run -eq 0 ]; then
+        log_info "No pending migrations found"
+    else
+        log_success "Applied $migrations_run migration(s)"
+    fi
+    
+    return 0
+}
+
+install_optional_dependencies() {
+    log_info "Checking optional dependencies for advanced features..."
+    
+    # Find Python
+    local python_exe="$PYTHON_CMD"
+    local pip_exe="$PYTHON_CMD -m pip"
+    
+    if [ -f "venv/bin/python" ]; then
+        python_exe="venv/bin/python"
+        pip_exe="$python_exe -m pip"
+    fi
+    
+    # Check for edge-tts (voice TTS)
+    if ! $python_exe -c "import edge_tts" &>/dev/null; then
+        log_warning "edge-tts not installed (optional for voice features)"
+        log_info "Installing edge-tts for voice TTS support..."
+        if $pip_exe install edge-tts >>"$MAIN_LOG" 2>&1; then
+            log_success "edge-tts installed successfully"
+        else
+            log_warning "Failed to install edge-tts (optional, voice TTS won't work)"
+        fi
+    else
+        log_success "edge-tts is installed"
+    fi
+    
+    # Check for SpeechRecognition (voice transcription)
+    if ! $python_exe -c "import speech_recognition" &>/dev/null; then
+        log_warning "SpeechRecognition not installed (optional for voice features)"
+        log_info "Installing SpeechRecognition for voice transcription..."
+        if $pip_exe install SpeechRecognition >>"$MAIN_LOG" 2>&1; then
+            log_success "SpeechRecognition installed successfully"
+        else
+            log_warning "Failed to install SpeechRecognition (optional, voice transcription won't work)"
+        fi
+    else
+        log_success "SpeechRecognition is installed"
+    fi
+    
+    log_info "Optional dependencies check complete"
+}
+
+# ==============================================================================
 # Git Functions
 # ==============================================================================
 
@@ -1448,6 +1584,12 @@ except Exception as e:
 }
 
 initialize_database_with_retry
+
+# Run additional database migrations (for advanced AI features)
+run_database_migrations
+
+# Install optional dependencies for advanced features (voice, etc.)
+install_optional_dependencies
 
 # Start web dashboard
 start_web_dashboard || log_warning "Web Dashboard failed to start, continuing anyway..."
