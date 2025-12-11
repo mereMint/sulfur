@@ -2634,6 +2634,11 @@ def ai_reasoning_page():
     """Render AI reasoning debug page."""
     return render_template('ai_reasoning.html')
 
+@app.route('/voice_calls', methods=['GET'])
+def voice_calls_page():
+    """Render voice calls dashboard page."""
+    return render_template('voice_calls.html')
+
 @app.route('/api/ai_reasoning_debug', methods=['GET'])
 def api_ai_reasoning_debug():
     """API endpoint for AI reasoning debug data."""
