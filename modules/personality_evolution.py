@@ -17,8 +17,23 @@ from modules.db_helpers import get_db_connection
 
 async def get_current_personality() -> Dict[str, float]:
     """Get the current personality traits with their latest values."""
-    async with get_db_connection() as (conn, cursor):
-        await cursor.execute("""
+    conn = get_db_connection()
+    if not conn:
+        # Return defaults if database unavailable
+        return {
+            'sarcasm': 0.7,
+            'curiosity': 0.8,
+            'helpfulness': 0.6,
+            'mischief': 0.5,
+            'judgment': 0.9,
+            'creativity': 0.7,
+            'empathy': 0.4,
+            'playfulness': 0.8
+        }
+    
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
             SELECT DISTINCT 
                 pe1.trait_name, 
                 pe1.trait_value
@@ -30,7 +45,7 @@ async def get_current_personality() -> Dict[str, float]:
             ) pe2 ON pe1.trait_name = pe2.trait_name 
                 AND pe1.created_at = pe2.max_created
         """)
-        results = await cursor.fetchall()
+        results = cursor.fetchall()
         
         if results:
             return {row[0]: row[1] for row in results}
@@ -46,6 +61,9 @@ async def get_current_personality() -> Dict[str, float]:
                 'empathy': 0.4,
                 'playfulness': 0.8
             }
+    finally:
+        cursor.close()
+        conn.close()
 
 
 async def evolve_personality_trait(trait_name: str, delta: float, reason: str):
@@ -61,15 +79,23 @@ async def evolve_personality_trait(trait_name: str, delta: float, reason: str):
     current_value = current_personality.get(trait_name, 0.5)
     new_value = max(0.0, min(1.0, current_value + delta))
     
-    async with get_db_connection() as (conn, cursor):
-        await cursor.execute("""
+    conn = get_db_connection()
+    if not conn:
+        logger.error("Could not connect to database to evolve personality trait")
+        return current_value
+    
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
             INSERT INTO personality_evolution (trait_name, trait_value, reason)
             VALUES (%s, %s, %s)
         """, (trait_name, new_value, reason))
-        await conn.commit()
-    
-    logger.info(f"Personality evolved: {trait_name} {current_value:.2f} -> {new_value:.2f} ({reason})")
-    return new_value
+        conn.commit()
+        logger.info(f"Personality evolved: {trait_name} {current_value:.2f} -> {new_value:.2f} ({reason})")
+        return new_value
+    finally:
+        cursor.close()
+        conn.close()
 
 
 async def record_learning(learning_type: str, content: str, user_id: Optional[int] = None, 
@@ -83,9 +109,15 @@ async def record_learning(learning_type: str, content: str, user_id: Optional[in
         user_id: User this learning is specific to (or None for general)
         confidence: How confident we are in this learning (0.0 to 1.0)
     """
-    async with get_db_connection() as (conn, cursor):
+    conn = get_db_connection()
+    if not conn:
+        logger.error("Could not connect to database to record learning")
+        return
+    
+    cursor = conn.cursor()
+    try:
         # Check if similar learning already exists
-        await cursor.execute("""
+        cursor.execute("""
             SELECT id, interaction_count, confidence 
             FROM interaction_learnings 
             WHERE learning_type = %s 
@@ -95,14 +127,14 @@ async def record_learning(learning_type: str, content: str, user_id: Optional[in
             LIMIT 1
         """, (learning_type, content, user_id, user_id))
         
-        existing = await cursor.fetchone()
+        existing = cursor.fetchone()
         
         if existing:
             # Update existing learning
             new_count = existing[1] + 1
             new_confidence = min(1.0, existing[2] + 0.1)  # Increase confidence with repetition
             
-            await cursor.execute("""
+            cursor.execute("""
                 UPDATE interaction_learnings 
                 SET interaction_count = %s, 
                     confidence = %s, 
@@ -113,22 +145,31 @@ async def record_learning(learning_type: str, content: str, user_id: Optional[in
             logger.info(f"Updated learning: {learning_type} - {content} (count: {new_count}, confidence: {new_confidence:.2f})")
         else:
             # Create new learning
-            await cursor.execute("""
+            cursor.execute("""
                 INSERT INTO interaction_learnings 
                 (learning_type, learning_content, user_id, confidence)
                 VALUES (%s, %s, %s, %s)
             """, (learning_type, content, user_id, confidence))
             logger.info(f"New learning recorded: {learning_type} - {content}")
         
-        await conn.commit()
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
 
 
 async def get_relevant_learnings(limit: int = 10, user_id: Optional[int] = None) -> List[Dict[str, Any]]:
     """Get the most relevant learnings for context."""
-    async with get_db_connection() as (conn, cursor):
+    conn = get_db_connection()
+    if not conn:
+        logger.error("Could not connect to database to get learnings")
+        return []
+    
+    cursor = conn.cursor()
+    try:
         if user_id:
             # Get user-specific and general learnings
-            await cursor.execute("""
+            cursor.execute("""
                 SELECT learning_type, learning_content, confidence, interaction_count
                 FROM interaction_learnings
                 WHERE (user_id = %s OR user_id IS NULL)
@@ -143,7 +184,7 @@ async def get_relevant_learnings(limit: int = 10, user_id: Optional[int] = None)
             """, (user_id, limit))
         else:
             # Get only general learnings
-            await cursor.execute("""
+            cursor.execute("""
                 SELECT learning_type, learning_content, confidence, interaction_count
                 FROM interaction_learnings
                 WHERE user_id IS NULL
@@ -152,7 +193,7 @@ async def get_relevant_learnings(limit: int = 10, user_id: Optional[int] = None)
                 LIMIT %s
             """, (limit,))
         
-        results = await cursor.fetchall()
+        results = cursor.fetchall()
         return [
             {
                 'type': row[0],
@@ -162,44 +203,61 @@ async def get_relevant_learnings(limit: int = 10, user_id: Optional[int] = None)
             }
             for row in results
         ]
+    finally:
+        cursor.close()
+        conn.close()
 
 
 async def add_semantic_memory(memory_type: str, content: str, importance: float = 0.5, 
                               context: Optional[Dict] = None):
     """Add a semantic memory (long-term fact/insight)."""
-    async with get_db_connection() as (conn, cursor):
-        await cursor.execute("""
+    conn = get_db_connection()
+    if not conn:
+        logger.error("Could not connect to database")
+        return
+    
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
             INSERT INTO semantic_memory (memory_type, memory_content, importance, context)
             VALUES (%s, %s, %s, %s)
         """, (memory_type, content, importance, json.dumps(context) if context else None))
-        await conn.commit()
-    
-    logger.info(f"Semantic memory added: {memory_type} - {content} (importance: {importance:.2f})")
+        conn.commit()
+        logger.info(f"Semantic memory added: {memory_type} - {content} (importance: {importance:.2f})")
+    finally:
+        cursor.close()
+        conn.close()
 
 
 async def get_important_memories(limit: int = 5) -> List[Dict[str, Any]]:
     """Get the most important semantic memories."""
-    async with get_db_connection() as (conn, cursor):
-        await cursor.execute("""
+    conn = get_db_connection()
+    if not conn:
+        logger.error("Could not connect to database")
+        return []
+    
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
             SELECT id, memory_type, memory_content, importance, access_count
             FROM semantic_memory
             ORDER BY importance DESC, access_count DESC, created_at DESC
             LIMIT %s
         """, (limit,))
         
-        results = await cursor.fetchall()
+        results = cursor.fetchall()
         
         # Update access count for retrieved memories
         if results:
             memory_ids = [row[0] for row in results]  # row[0] is id
             placeholders = ','.join(['%s'] * len(memory_ids))
-            await cursor.execute(f"""
+            cursor.execute(f"""
                 UPDATE semantic_memory 
                 SET access_count = access_count + 1, 
                     last_accessed = NOW()
                 WHERE id IN ({placeholders})
             """, memory_ids)
-            await conn.commit()
+            conn.commit()
         
         return [
             {
@@ -210,24 +268,42 @@ async def get_important_memories(limit: int = 5) -> List[Dict[str, Any]]:
             }
             for row in results
         ]
+    finally:
+        cursor.close()
+        conn.close()
 
 
 async def record_conversation_feedback(user_id: int, message_id: int, feedback_type: str, 
                                       feedback_value: int = 0):
     """Record implicit feedback from user reactions to bot messages."""
-    async with get_db_connection() as (conn, cursor):
-        await cursor.execute("""
+    conn = get_db_connection()
+    if not conn:
+        logger.error("Could not connect to database")
+        return
+    
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
             INSERT INTO conversation_feedback 
             (user_id, message_id, feedback_type, feedback_value)
             VALUES (%s, %s, %s, %s)
         """, (user_id, message_id, feedback_type, feedback_value))
-        await conn.commit()
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
 
 
 async def analyze_feedback_patterns() -> Dict[str, Any]:
     """Analyze conversation feedback to understand what's working."""
-    async with get_db_connection() as (conn, cursor):
-        await cursor.execute("""
+    conn = get_db_connection()
+    if not conn:
+        logger.error("Could not connect to database")
+        return {}
+    
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
             SELECT 
                 feedback_type,
                 AVG(feedback_value) as avg_value,
@@ -237,7 +313,7 @@ async def analyze_feedback_patterns() -> Dict[str, Any]:
             GROUP BY feedback_type
         """)
         
-        results = await cursor.fetchall()
+        results = cursor.fetchall()
         return {
             row[0]: {
                 'average': row[1],
@@ -245,6 +321,9 @@ async def analyze_feedback_patterns() -> Dict[str, Any]:
             }
             for row in results
         }
+    finally:
+        cursor.close()
+        conn.close()
 
 
 async def perform_reflection(get_chat_response_func) -> Optional[str]:
@@ -260,25 +339,34 @@ async def perform_reflection(get_chat_response_func) -> Optional[str]:
     """
     try:
         # Get recent personality evolution
-        async with get_db_connection() as (conn, cursor):
-            await cursor.execute("""
+        conn = get_db_connection()
+        if not conn:
+            logger.error("Could not connect to database for reflection")
+            return None
+        
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
                 SELECT trait_name, trait_value, reason, created_at
                 FROM personality_evolution
                 WHERE created_at > DATE_SUB(NOW(), INTERVAL 7 DAY)
                 ORDER BY created_at DESC
                 LIMIT 20
             """)
-            recent_evolution = await cursor.fetchall()
+            recent_evolution = cursor.fetchall()
             
             # Get recent learnings
-            await cursor.execute("""
+            cursor.execute("""
                 SELECT learning_type, learning_content, confidence, interaction_count
                 FROM interaction_learnings
                 WHERE last_observed > DATE_SUB(NOW(), INTERVAL 7 DAY)
                 ORDER BY confidence DESC, interaction_count DESC
                 LIMIT 15
             """)
-            recent_learnings = await cursor.fetchall()
+            recent_learnings = cursor.fetchall()
+        finally:
+            cursor.close()
+            conn.close()
         
         # Get current personality
         current_personality = await get_current_personality()
@@ -336,13 +424,19 @@ Be honest and self-aware. Write in first person as Sulfur."""
                 'feedback_summary': feedback
             }
             
-            async with get_db_connection() as (conn, cursor):
-                await cursor.execute("""
-                    INSERT INTO reflection_sessions 
-                    (reflection_content, insights_generated)
-                    VALUES (%s, %s)
-                """, (reflection_text, json.dumps(insights)))
-                await conn.commit()
+            conn = get_db_connection()
+            if conn:
+                cursor = conn.cursor()
+                try:
+                    cursor.execute("""
+                        INSERT INTO reflection_sessions 
+                        (reflection_content, insights_generated)
+                        VALUES (%s, %s)
+                    """, (reflection_text, json.dumps(insights)))
+                    conn.commit()
+                finally:
+                    cursor.close()
+                    conn.close()
             
             logger.info("Reflection session completed successfully")
             return reflection_text
@@ -356,9 +450,15 @@ Be honest and self-aware. Write in first person as Sulfur."""
 
 async def decay_old_learnings():
     """Decay the relevance of old learnings over time."""
-    async with get_db_connection() as (conn, cursor):
+    conn = get_db_connection()
+    if not conn:
+        logger.error("Could not connect to database")
+        return
+    
+    cursor = conn.cursor()
+    try:
         # Decay learnings that haven't been observed in 30+ days
-        await cursor.execute("""
+        cursor.execute("""
             UPDATE interaction_learnings
             SET relevance_score = relevance_score * 0.9
             WHERE last_observed < DATE_SUB(NOW(), INTERVAL 30 DAY)
@@ -366,10 +466,13 @@ async def decay_old_learnings():
         """)
         
         affected = cursor.rowcount
-        await conn.commit()
+        conn.commit()
         
         if affected > 0:
             logger.info(f"Decayed relevance for {affected} old learnings")
+    finally:
+        cursor.close()
+        conn.close()
 
 
 async def learn_from_interaction(user_id: int, message: str, bot_response: str, 

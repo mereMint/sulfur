@@ -373,20 +373,23 @@ async def get_conversation_context(user_id: int, limit: int = 10) -> List[Dict]:
     
     cursor = conn.cursor()
     try:
+        # Note: chat_history table doesn't have user_id, we get the context from DM channel
+        # For autonomous messaging, we might not have history yet, so this is acceptable
         cursor.execute("""
-            SELECT user_id, message, timestamp
+            SELECT channel_id, role, content, created_at
             FROM chat_history
-            WHERE user_id = %s
-            ORDER BY timestamp DESC
+            WHERE channel_id = %s
+            ORDER BY created_at DESC
             LIMIT %s
-        """, (user_id, limit))
+        """, (user_id, limit))  # Using user_id as channel_id for DMs
         
         rows = cursor.fetchall()
         return [
             {
-                'user_id': row[0],
-                'message': row[1],
-                'timestamp': row[2]
+                'channel_id': row[0],
+                'role': row[1],
+                'message': row[2],
+                'timestamp': row[3]
             }
             for row in rows
         ]
@@ -401,7 +404,11 @@ async def get_conversation_context(user_id: int, limit: int = 10) -> List[Dict]:
 async def generate_conversation_starter(
     user: discord.User,
     context: List[Dict],
-    get_chat_response_func
+    get_chat_response_func,
+    system_prompt: str = None,
+    config: dict = None,
+    gemini_key: str = None,
+    openai_key: str = None
 ) -> Optional[str]:
     """
     Generate a natural conversation starter using AI.
@@ -410,12 +417,16 @@ async def generate_conversation_starter(
         user: Discord user to message
         context: Recent conversation history
         get_chat_response_func: Function to call AI API
+        system_prompt: System prompt for AI
+        config: Bot configuration
+        gemini_key: Gemini API key
+        openai_key: OpenAI API key
     """
     try:
         # Build context summary
         if context:
             recent_topics = "\n".join([
-                f"- {msg['message'][:100]}"
+                f"- {msg.get('message', '')[:100]}"
                 for msg in context[:3]
             ])
         else:
@@ -435,16 +446,35 @@ Generate a brief, friendly, and natural message to start a conversation. The mes
 
 Message:"""
         
+        # Use provided system prompt or default
+        if not system_prompt:
+            system_prompt = "You are Sulfur, a friendly and autonomous Discord bot."
+        
+        # Use provided config or minimal default
+        if not config:
+            config = {'api': {'provider': 'gemini', 'timeout': 30}}
+        
         response = await get_chat_response_func(
-            prompt=prompt,
-            user_id=user.id,
-            username=user.display_name
+            history=[],  # No history for autonomous starter
+            user_prompt=prompt,
+            user_display_name=user.display_name,
+            system_prompt=system_prompt,
+            config=config,
+            gemini_key=gemini_key,
+            openai_key=openai_key
         )
         
         if response:
+            # Response might be a tuple (text, error, metadata) or just text
+            if isinstance(response, tuple):
+                message = response[0]  # Get text from tuple
+            else:
+                message = response
+            
             # Clean up the response
-            message = response.strip().strip('"').strip("'")
-            return message
+            if message:
+                message = message.strip().strip('"').strip("'")
+                return message
         
         return None
     except Exception as e:
