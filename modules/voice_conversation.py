@@ -524,4 +524,3 @@ async def get_voice_call_stats(user_id: Optional[int] = None) -> Dict[str, Any]:
     finally:
         cursor.close()
         conn.close()
-            }
