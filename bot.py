@@ -1139,7 +1139,7 @@ async def before_update_presence_task():
     await client.wait_until_ready()
 
 # --- NEW: Autonomous messaging task ---
-@_tasks.loop(hours=2)
+@_tasks.loop(minutes=30)  # Check more frequently, but only act when bored
 async def autonomous_messaging_task():
     """Periodically consider autonomously messaging users."""
     try:
@@ -1147,6 +1147,17 @@ async def autonomous_messaging_task():
             return
         
         logger.info("Running autonomous messaging check...")
+        
+        # Check boredom level - only proceed if bot is sufficiently bored
+        # This ensures autonomous actions are more likely when the bot is idle
+        boredom_threshold = config.get('modules', {}).get('autonomous_behavior', {}).get('boredom_threshold', 0.3)
+        current_boredom = bot_mind.bot_mind.boredom_level if hasattr(bot_mind, 'bot_mind') else 0.0
+        
+        if current_boredom < boredom_threshold:
+            logger.debug(f"Skipping autonomous messaging - boredom level {current_boredom:.2f} below threshold {boredom_threshold:.2f}")
+            return
+        
+        logger.info(f"Bot boredom level {current_boredom:.2f} above threshold {boredom_threshold:.2f}, checking for users to message")
         
         # Get all online members
         all_online_members = []
@@ -1211,6 +1222,11 @@ async def autonomous_messaging_task():
                         
                         # Record contact
                         await autonomous_behavior.record_autonomous_contact(member.id)
+                        
+                        # Reduce boredom after successful autonomous action
+                        if hasattr(bot_mind, 'bot_mind'):
+                            bot_mind.bot_mind.adjust_boredom(-0.2)
+                            logger.debug(f"Reduced boredom by 0.2 after autonomous message (new level: {bot_mind.bot_mind.boredom_level:.2f})")
                         
                         logger.info(f"Successfully sent autonomous message to {member.display_name}")
                         
