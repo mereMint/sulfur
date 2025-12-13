@@ -60,6 +60,10 @@ TTS_RETRY_DELAY = 1.0  # Initial retry delay in seconds (exponential backoff)
 CIRCUIT_BREAKER_THRESHOLD = 5  # Number of consecutive failures before opening circuit
 CIRCUIT_BREAKER_TIMEOUT = 300  # Seconds to wait before trying again (5 minutes)
 
+# Edge TTS service configuration
+EDGE_TTS_HOST = 'speech.platform.bing.com'  # Microsoft Edge TTS service host
+EDGE_TTS_PORT = 443  # HTTPS port for Edge TTS service
+
 # TTS Service health tracking (circuit breaker pattern)
 class TTSServiceHealth:
     """
@@ -171,7 +175,8 @@ async def check_network_connectivity() -> Dict[str, Any]:
     results = {
         'dns_resolution': False,
         'tcp_connection': False,
-        'edge_tts_host': 'speech.platform.bing.com',
+        'edge_tts_host': EDGE_TTS_HOST,
+        'edge_tts_port': EDGE_TTS_PORT,
         'error': None
     }
     
@@ -180,9 +185,9 @@ async def check_network_connectivity() -> Dict[str, Any]:
         try:
             loop = asyncio.get_event_loop()
             # getaddrinfo returns address info, which confirms DNS resolution
-            await loop.getaddrinfo(results['edge_tts_host'], 443, family=socket.AF_INET)
+            await loop.getaddrinfo(EDGE_TTS_HOST, EDGE_TTS_PORT, family=socket.AF_INET)
             results['dns_resolution'] = True
-            logger.debug(f"DNS resolution successful for {results['edge_tts_host']}")
+            logger.debug(f"DNS resolution successful for {EDGE_TTS_HOST}")
         except socket.gaierror as dns_error:
             results['error'] = f"DNS resolution failed: {dns_error}"
             logger.warning(results['error'])
@@ -192,11 +197,11 @@ async def check_network_connectivity() -> Dict[str, Any]:
         try:
             # open_connection is async and non-blocking
             reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(results['edge_tts_host'], 443),
+                asyncio.open_connection(EDGE_TTS_HOST, EDGE_TTS_PORT),
                 timeout=5.0
             )
             results['tcp_connection'] = True
-            logger.debug(f"TCP connection successful to {results['edge_tts_host']}:443")
+            logger.debug(f"TCP connection successful to {EDGE_TTS_HOST}:{EDGE_TTS_PORT}")
             
             # Close the connection properly
             writer.close()
@@ -357,12 +362,18 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
                         await asyncio.sleep(retry_delay)
                         continue
                     else:
+                        # Last retry failed due to timeout
                         logger.warning(f"All {TTS_MAX_RETRIES} retries failed with voice {voice} due to timeouts")
+                        # Don't record failure yet - will try next voice
                         break
                 
                 # Verify the file was created and has content
                 if not os.path.exists(output_file):
                     logger.warning(f"TTS file was not created: {output_file}")
+                    # Record this as a failure since service didn't return data
+                    if attempt == TTS_MAX_RETRIES - 1:
+                        # Last attempt with this voice failed
+                        logger.debug("Recording file creation failure")
                     # Try next attempt
                     continue
                 
@@ -373,6 +384,10 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
                         os.remove(output_file)
                     except (OSError, FileNotFoundError):
                         pass
+                    # Record this as a failure since service returned empty data
+                    if attempt == TTS_MAX_RETRIES - 1:
+                        # Last attempt with this voice failed
+                        logger.debug("Recording empty file failure")
                     # Try next attempt
                     continue
                 
