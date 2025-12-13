@@ -424,17 +424,25 @@ def should_auto_disconnect(voice_client: discord.VoiceClient) -> bool:
     """
     Check if bot should start auto-disconnect timer.
     
+    Note: This function is synchronous and returns a bool.
+    For async checking, use check_voice_channel_empty() directly.
+    
     Args:
         voice_client: Voice client to check
     
     Returns:
-        True if should start disconnect timer
+        True if should start disconnect timer (basic check)
     """
     if not voice_client or not voice_client.is_connected():
         return False
     
-    # Check if alone immediately
-    return asyncio.create_task(check_voice_channel_empty(voice_client))
+    # Basic synchronous check - for full check use check_voice_channel_empty()
+    if not voice_client.channel:
+        return True
+    
+    # Count human members synchronously
+    human_members = [m for m in voice_client.channel.members if not m.bot]
+    return len(human_members) == 0
 
 
 async def join_voice_channel(channel: discord.VoiceChannel) -> Optional[discord.VoiceClient]:
@@ -572,7 +580,16 @@ async def generate_spotify_mix_station(user_id: int, username: str) -> Optional[
         if top_songs:
             top_song_key = top_songs[0][0]
             # The key format is "Song Title by Artist Name"
-            search_query = top_song_key.replace(' by ', ' ')
+            # Parse more carefully - split from the rightmost " by " to handle songs with "by" in title
+            if " by " in top_song_key:
+                parts = top_song_key.rsplit(" by ", 1)  # Split from right, max 1 split
+                if len(parts) == 2:
+                    song_title, artist = parts
+                    search_query = f"{artist} {song_title}"
+                else:
+                    search_query = top_song_key.replace(" by ", " ")
+            else:
+                search_query = top_song_key
             
             # Create a YouTube search URL
             # We'll use a playlist search for similar music
