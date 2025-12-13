@@ -10,7 +10,8 @@ import random
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Tuple
 from modules.logger_utils import bot_logger as logger
-from modules.db_helpers import get_db_connection
+# convert_decimals: Converts MySQL Decimal objects to int/float for JSON serialization
+from modules.db_helpers import get_db_connection, convert_decimals
 
 
 # --- Personality Evolution Functions ---
@@ -374,6 +375,11 @@ async def perform_reflection(get_chat_response_func) -> Optional[str]:
         # Get feedback patterns
         feedback = await analyze_feedback_patterns()
         
+        # Convert any Decimal objects to int/float for JSON serialization
+        # (MySQL AVG() returns Decimal objects which aren't JSON-serializable)
+        current_personality = convert_decimals(current_personality)
+        feedback = convert_decimals(feedback)
+        
         # Create reflection prompt
         reflection_prompt = f"""You are Sulfur, reflecting on your own growth and interactions over the past week.
 
@@ -418,6 +424,7 @@ Be honest and self-aware. Write in first person as Sulfur."""
         
         if reflection_text:
             # Store reflection
+            # Note: insights uses already-converted current_personality and feedback (no Decimals)
             insights = {
                 'personality_summary': current_personality,
                 'learning_count': len(recent_learnings),
