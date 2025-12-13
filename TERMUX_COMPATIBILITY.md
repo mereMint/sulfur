@@ -5,6 +5,7 @@
 ### Dependencies (requirements.txt)
 - ✅ **No Rust compilation required** - Removed `openai` and `google-generativeai` SDKs
 - ✅ **All packages install via pip** on Termux/aarch64/Python 3.12
+- ✅ **PyNaCl builds successfully** - By installing system dependencies (libsodium, clang)
 - ✅ **Core dependencies:**
   - `discord.py` - Discord bot library
   - `mysql-connector-python` - Database driver
@@ -12,6 +13,7 @@
   - `python-dotenv` - Environment variables
   - `Flask` + `Flask-SocketIO` - Web dashboard
   - `waitress` - WSGI server
+  - `PyNaCl` - Voice encryption (requires libsodium + clang)
 
 ### API Integration (modules/api_helpers.py)
 - ✅ **HTTP-based API calls** - No SDK imports, pure `aiohttp`
@@ -113,8 +115,8 @@
 ### Package Build Issues (SOLVED)
 - ❌ **openai SDK** - Requires Rust (`jiter` dependency) - REMOVED
 - ❌ **google-generativeai SDK** - Requires Rust (`pydantic-core`) - REMOVED
-- ⚠️ **PyNaCl** - Requires native C compilation - OPTIONAL (voice features disabled without it)
-- ✅ **Solution** - Bot uses HTTP for AI APIs; PyNaCl is optional and only needed for voice features
+- ✅ **PyNaCl** - Requires native C compilation - SOLVED by installing libsodium and clang
+- ✅ **Solution** - Bot uses HTTP for AI APIs; PyNaCl builds successfully with system dependencies
 
 ### System Differences
 - ⚠️ **No systemd** - Use `mysqld_safe &` instead of service commands

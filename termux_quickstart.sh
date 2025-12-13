@@ -265,10 +265,13 @@ REQUIRED_PACKAGES=(
     "nano"
     "wget"
     "curl"
+    "libsodium"
+    "clang"
 )
 
 print_info "Installing all required packages (this may take a few minutes)..."
-pkg install -y python git mariadb openssh nano wget curl
+print_info "Installing libsodium and clang for PyNaCl voice support..."
+pkg install -y python git mariadb openssh nano wget curl libsodium clang
 
 for package in "${REQUIRED_PACKAGES[@]}"; do
     if command -v "$package" &> /dev/null || pkg list-installed 2>/dev/null | grep -q "^${package}"; then
@@ -529,8 +532,7 @@ pip install --upgrade pip --quiet
 
 print_info "Installing required packages (this may take several minutes)..."
 print_warning "Don't worry if you see warnings about 'legacy setup.py install' - this is normal"
-print_info "Note: PyNaCl (voice support) is optional and commented out in requirements.txt"
-print_info "Voice features will be disabled, but all other features will work normally"
+print_info "PyNaCl will be compiled with the libsodium library we installed earlier"
 echo ""
 
 if pip install -r requirements.txt; then
@@ -541,9 +543,8 @@ else
     if pip install -r requirements.txt --no-cache-dir; then
         print_success "Dependencies installed successfully on retry!"
     else
-        print_error "Installation failed. This may be due to PyNaCl build issues."
-        print_info "The bot will still work without PyNaCl (voice features will be disabled)"
-        print_info "Continuing with setup..."
+        print_error "Installation failed. Continuing with setup..."
+        print_warning "Some features may not work without all dependencies"
     fi
 fi
 

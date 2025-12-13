@@ -94,8 +94,10 @@ pkg update && pkg upgrade
 
 #### 2. Install Required Packages
 ```bash
-pkg install -y python git mariadb openssh nano wget curl
+pkg install -y python git mariadb openssh nano wget curl libsodium clang
 ```
+
+**Note**: `libsodium` and `clang` are required for building PyNaCl (voice support).
 
 #### 3. Setup MariaDB
 ```bash
@@ -137,7 +139,7 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-**Note**: PyNaCl (voice support) is optional and may fail to build on Termux. The bot will work fine without it - voice features will simply be disabled. If installation fails due to PyNaCl, the bot will still function normally for all other features.
+**Note**: PyNaCl (voice support) will be compiled using the libsodium library installed earlier. This may take a few minutes but should complete successfully.
 
 #### 6. Configure Environment
 ```bash

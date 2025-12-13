@@ -7,12 +7,10 @@ Flask-SocketIO
 waitress
 psutil
 edge-tts
-# PyNaCl  # OPTIONAL: Required for Discord voice support. Commented out due to build issues on Termux/Android.
+PyNaCl
 # NOTE: OpenAI Python SDK is not required for runtime. We call OpenAI via HTTP in code.
 # Installing `openai` pulls in `jiter` which fails to build on Termux/Android.
 # If you need the SDK for local testing, install it manually: `pip install openai`.
-# NOTE: PyNaCl is required for Discord voice support. It's installed automatically with discord.py[voice],
-# but we list it explicitly to ensure it's present on platforms where it builds successfully.
-# On Termux/Android (aarch64), PyNaCl may fail to build due to native compilation issues.
-# The bot will work without it - voice features will be automatically disabled.
-# To install PyNaCl on supported platforms: `pip install PyNaCl`
+# NOTE: PyNaCl is required for Discord voice support.
+# On Termux/Android, you need to install libsodium and clang first: pkg install libsodium clang
+# The termux_quickstart.sh script handles this automatically.

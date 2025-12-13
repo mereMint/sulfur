@@ -93,6 +93,30 @@ elif [ ! -d "venv" ]; then
     echo -e "${CYAN}This may take a few minutes...${NC}"
     echo ""
     
+    # Check for system dependencies on Termux before creating venv
+    if [ "$IS_TERMUX" = true ]; then
+        echo -e "${YELLOW}Checking system dependencies...${NC}"
+        MISSING_PKGS=()
+        
+        if ! pkg list-installed 2>/dev/null | grep -q "^libsodium"; then
+            MISSING_PKGS+=("libsodium")
+        fi
+        if ! pkg list-installed 2>/dev/null | grep -q "^clang"; then
+            MISSING_PKGS+=("clang")
+        fi
+        
+        if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
+            echo -e "${YELLOW}Installing required system packages: ${MISSING_PKGS[*]}${NC}"
+            echo -e "${CYAN}This is needed for PyNaCl (voice support)${NC}"
+            pkg install -y "${MISSING_PKGS[@]}"
+            echo -e "${GREEN}✓ System packages installed${NC}"
+            echo ""
+        else
+            echo -e "${GREEN}✓ All system packages are installed${NC}"
+            echo ""
+        fi
+    fi
+    
     if $PYTHON_CMD -m venv venv 2>/dev/null; then
         echo -e "${GREEN}✓ Virtual environment created${NC}"
         
