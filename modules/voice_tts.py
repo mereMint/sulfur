@@ -9,7 +9,9 @@ import asyncio
 import tempfile
 import os
 import shutil
+import socket
 from typing import Optional, Dict, List, Any
+from datetime import datetime, timedelta
 import discord
 from discord import FFmpegPCMAudio
 
@@ -54,6 +56,166 @@ VOICE_PITCH = "+0Hz"  # Normal pitch
 TTS_MAX_RETRIES = 3  # Maximum number of retry attempts
 TTS_RETRY_DELAY = 1.0  # Initial retry delay in seconds (exponential backoff)
 
+# Circuit breaker configuration
+CIRCUIT_BREAKER_THRESHOLD = 5  # Number of consecutive failures before opening circuit
+CIRCUIT_BREAKER_TIMEOUT = 300  # Seconds to wait before trying again (5 minutes)
+
+# TTS Service health tracking (circuit breaker pattern)
+class TTSServiceHealth:
+    """Tracks TTS service health to avoid repeated attempts when service is down."""
+    def __init__(self):
+        self.consecutive_failures = 0
+        self.last_failure_time: Optional[datetime] = None
+        self.circuit_open = False
+        self.last_success_time: Optional[datetime] = None
+        
+    def record_success(self):
+        """Record successful TTS generation."""
+        self.consecutive_failures = 0
+        self.circuit_open = False
+        self.last_success_time = datetime.now()
+        logger.debug("TTS service health: Circuit closed, service is working")
+        
+    def record_failure(self):
+        """Record failed TTS generation."""
+        self.consecutive_failures += 1
+        self.last_failure_time = datetime.now()
+        
+        if self.consecutive_failures >= CIRCUIT_BREAKER_THRESHOLD:
+            self.circuit_open = True
+            logger.warning(
+                f"TTS service circuit breaker opened after {self.consecutive_failures} consecutive failures. "
+                f"Will wait {CIRCUIT_BREAKER_TIMEOUT}s before retrying."
+            )
+        else:
+            logger.debug(f"TTS service health: {self.consecutive_failures}/{CIRCUIT_BREAKER_THRESHOLD} failures")
+    
+    def is_circuit_open(self) -> bool:
+        """Check if circuit breaker is open (service unavailable)."""
+        if not self.circuit_open:
+            return False
+            
+        # Check if enough time has passed to try again
+        if self.last_failure_time:
+            time_since_failure = (datetime.now() - self.last_failure_time).total_seconds()
+            if time_since_failure >= CIRCUIT_BREAKER_TIMEOUT:
+                logger.info(f"TTS circuit breaker timeout expired ({CIRCUIT_BREAKER_TIMEOUT}s), allowing retry attempt")
+                # Reset to half-open state
+                self.consecutive_failures = CIRCUIT_BREAKER_THRESHOLD - 1
+                self.circuit_open = False
+                return False
+        
+        return True
+    
+    def get_status(self) -> Dict[str, Any]:
+        """Get current service health status."""
+        return {
+            'circuit_open': self.circuit_open,
+            'consecutive_failures': self.consecutive_failures,
+            'last_failure': self.last_failure_time,
+            'last_success': self.last_success_time,
+        }
+
+# Global service health tracker
+_tts_service_health = TTSServiceHealth()
+
+
+# --- Network Diagnostics ---
+
+async def check_network_connectivity() -> Dict[str, Any]:
+    """
+    Perform basic network connectivity checks.
+    
+    Returns:
+        Dictionary with connectivity test results
+    """
+    results = {
+        'dns_resolution': False,
+        'tcp_connection': False,
+        'edge_tts_host': 'speech.platform.bing.com',
+        'error': None
+    }
+    
+    try:
+        # Test DNS resolution
+        try:
+            socket.gethostbyname(results['edge_tts_host'])
+            results['dns_resolution'] = True
+            logger.debug(f"DNS resolution successful for {results['edge_tts_host']}")
+        except socket.gaierror as dns_error:
+            results['error'] = f"DNS resolution failed: {dns_error}"
+            logger.warning(results['error'])
+            return results
+        
+        # Test TCP connection (port 443 for HTTPS)
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(5)
+            sock.connect((results['edge_tts_host'], 443))
+            sock.close()
+            results['tcp_connection'] = True
+            logger.debug(f"TCP connection successful to {results['edge_tts_host']}:443")
+        except (socket.timeout, socket.error, OSError) as conn_error:
+            results['error'] = f"TCP connection failed: {conn_error}"
+            logger.warning(results['error'])
+            return results
+            
+    except Exception as e:
+        results['error'] = f"Network check failed: {e}"
+        logger.error(results['error'])
+    
+    return results
+
+
+async def diagnose_tts_failure() -> str:
+    """
+    Run diagnostics to identify TTS failure cause.
+    
+    Returns:
+        Diagnostic message string
+    """
+    diagnostics = []
+    
+    # Check if edge-tts is available
+    if not EDGE_TTS_AVAILABLE:
+        diagnostics.append("❌ edge-tts library is not installed")
+        diagnostics.append("   Install with: pip install edge-tts")
+        return "\n".join(diagnostics)
+    
+    # Check network connectivity
+    network_status = await check_network_connectivity()
+    
+    if not network_status['dns_resolution']:
+        diagnostics.append(f"❌ DNS resolution failed for {network_status['edge_tts_host']}")
+        diagnostics.append("   Possible causes:")
+        diagnostics.append("   - No internet connection")
+        diagnostics.append("   - DNS server issues")
+        diagnostics.append("   - Network firewall blocking DNS")
+        diagnostics.append(f"   Error: {network_status.get('error', 'Unknown')}")
+    elif not network_status['tcp_connection']:
+        diagnostics.append(f"❌ Cannot connect to {network_status['edge_tts_host']}:443")
+        diagnostics.append("   Possible causes:")
+        diagnostics.append("   - Firewall blocking HTTPS connections")
+        diagnostics.append("   - Proxy configuration required")
+        diagnostics.append("   - Microsoft services blocked in your region")
+        diagnostics.append(f"   Error: {network_status.get('error', 'Unknown')}")
+    else:
+        diagnostics.append(f"✓ Network connectivity to {network_status['edge_tts_host']} is working")
+        diagnostics.append("   The issue may be:")
+        diagnostics.append("   - Temporary service outage")
+        diagnostics.append("   - Rate limiting by Microsoft")
+        diagnostics.append("   - SSL/TLS certificate issues")
+    
+    # Check circuit breaker status
+    health_status = _tts_service_health.get_status()
+    if health_status['circuit_open']:
+        diagnostics.append(f"⚠️  TTS circuit breaker is OPEN")
+        diagnostics.append(f"   Failed {health_status['consecutive_failures']} times consecutively")
+        if health_status['last_failure']:
+            diagnostics.append(f"   Last failure: {health_status['last_failure'].strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    return "\n".join(diagnostics)
+
 
 # --- TTS Functions ---
 
@@ -63,6 +225,7 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
     
     Implements exponential backoff retry logic and fallback to alternative voice
     to handle intermittent network issues and service unavailability.
+    Includes circuit breaker pattern to avoid repeated failures when service is down.
     
     Args:
         text: Text to convert to speech
@@ -71,6 +234,12 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
     Returns:
         Path to the audio file, or None if failed after all retries
     """
+    # Check circuit breaker first
+    if _tts_service_health.is_circuit_open():
+        logger.warning("TTS circuit breaker is OPEN - service is unavailable, skipping TTS attempt")
+        logger.warning(f"Circuit will reset after {CIRCUIT_BREAKER_TIMEOUT}s timeout")
+        return None
+    
     if not EDGE_TTS_AVAILABLE:
         logger.error("edge-tts is not available - cannot generate TTS audio")
         logger.error("Install edge-tts with: pip install edge-tts")
@@ -160,6 +329,10 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
                 if voice_index > 0 or attempt > 0:
                     logger.info(f"TTS succeeded with voice {voice} on attempt {attempt + 1}")
                 logger.debug(f"Generated TTS audio: {output_file} ({file_size} bytes)")
+                
+                # Record success in circuit breaker
+                _tts_service_health.record_success()
+                
                 return output_file
                 
             except edge_tts.exceptions.NoAudioReceived as e:
@@ -219,12 +392,19 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
                     break
     
     # All retries and fallback voices exhausted
+    # Record failure in circuit breaker
+    _tts_service_health.record_failure()
+    
     logger.error("Failed to generate TTS audio after all retries and fallback voices")
     logger.error(f"TTS parameters - Voices tried: {voices_to_try}, Rate: {VOICE_RATE}, Pitch: {VOICE_PITCH}")
     logger.error(f"Text length: {len(text_stripped)} characters")
     logger.error(f"Text preview: {text_stripped[:100]}")
-    logger.error("Possible causes: 1) No internet connection, 2) Edge TTS service down, 3) Firewall blocking access")
-    logger.error("For Termux users: Check network connectivity with 'ping 8.8.8.8' and ensure no VPN/firewall blocking")
+    
+    # Run diagnostics to help identify the issue
+    logger.error("Running TTS diagnostics...")
+    diagnostic_msg = await diagnose_tts_failure()
+    for line in diagnostic_msg.split('\n'):
+        logger.error(f"  {line}")
     
     return None
 
@@ -616,6 +796,7 @@ def log_voice_system_status():
 async def test_tts_connectivity() -> bool:
     """
     Test if edge-tts service is accessible and working.
+    Runs network diagnostics if test fails.
     
     Returns:
         True if TTS is working, False otherwise
@@ -623,6 +804,22 @@ async def test_tts_connectivity() -> bool:
     if not EDGE_TTS_AVAILABLE:
         logger.warning("edge-tts is not installed")
         return False
+    
+    # First, run network diagnostics
+    logger.info("Testing TTS service connectivity...")
+    network_status = await check_network_connectivity()
+    
+    if not network_status['dns_resolution']:
+        logger.error("TTS connectivity test failed: DNS resolution failed")
+        logger.error(f"Error: {network_status.get('error', 'Unknown')}")
+        return False
+    
+    if not network_status['tcp_connection']:
+        logger.error("TTS connectivity test failed: Cannot connect to edge-tts service")
+        logger.error(f"Error: {network_status.get('error', 'Unknown')}")
+        return False
+    
+    logger.info("Network connectivity OK, testing actual TTS generation...")
     
     # Try to generate a very short test audio
     test_text = "Test"
@@ -642,17 +839,21 @@ async def test_tts_connectivity() -> bool:
         
         # Check if file was created and has content
         if os.path.exists(test_file) and os.path.getsize(test_file) > 0:
-            logger.info("TTS connectivity test passed")
+            logger.info("✓ TTS connectivity test passed - service is working")
+            _tts_service_health.record_success()
             return True
         else:
             logger.warning("TTS connectivity test failed - no audio generated")
+            _tts_service_health.record_failure()
             return False
             
     except asyncio.TimeoutError:
         logger.warning("TTS connectivity test timed out - edge-tts service may be unreachable")
+        _tts_service_health.record_failure()
         return False
     except Exception as e:
         logger.warning(f"TTS connectivity test failed: {e}")
+        _tts_service_health.record_failure()
         return False
     finally:
         # Always clean up test file
@@ -661,3 +862,23 @@ async def test_tts_connectivity() -> bool:
                 os.remove(test_file)
         except (OSError, FileNotFoundError):
             pass
+
+
+def get_tts_service_health() -> Dict[str, Any]:
+    """
+    Get the current TTS service health status.
+    
+    Returns:
+        Dictionary with service health information
+    """
+    return _tts_service_health.get_status()
+
+
+def reset_tts_circuit_breaker():
+    """
+    Manually reset the TTS circuit breaker.
+    Should only be called by admins when they know the service is back up.
+    """
+    global _tts_service_health
+    _tts_service_health = TTSServiceHealth()
+    logger.info("TTS circuit breaker manually reset")
