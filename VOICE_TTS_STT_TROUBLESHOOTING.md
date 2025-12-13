@@ -26,12 +26,15 @@ The bot's voice functionality has two parts:
 
 ```bash
 # Check Python packages
-pip list | grep -E "edge-tts|discord|SpeechRecognition"
+pip list | grep -E "edge-tts|discord|py-cord|SpeechRecognition"
 
-# Expected output:
-# discord.py         2.6.4    (or py-cord 2.x)
+# Expected output for working setup:
 # edge-tts           7.2.x
+# py-cord            2.x.x    (with voice support)
 # SpeechRecognition  3.x.x
+#
+# Note: You should have EITHER discord.py OR py-cord, not both
+# For STT (speech-to-text), you MUST use py-cord
 ```
 
 ### Step 2: Test TTS connectivity

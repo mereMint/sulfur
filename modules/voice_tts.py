@@ -652,11 +652,10 @@ async def test_tts_connectivity() -> bool:
         try:
             logger.debug("Testing edge-tts service connectivity by listing voices...")
             voices = await asyncio.wait_for(edge_tts.list_voices(), timeout=10.0)
-            if voices and len(voices) > 0:
-                logger.debug(f"Successfully fetched {len(voices)} voices from edge-tts service")
-            else:
+            if not voices:
                 logger.warning("Edge-tts service returned no voices - service may be unavailable")
                 return False
+            logger.debug(f"Successfully fetched {len(voices)} voices from edge-tts service")
         except asyncio.TimeoutError:
             logger.warning("Edge-tts voice list request timed out - service may be unreachable")
             logger.warning("This could indicate: 1) No internet, 2) Firewall blocking, 3) Service down")

@@ -5035,8 +5035,8 @@ class AdminAIGroup(app_commands.Group):
                 inline=False
             )
             
-            # Test TTS connectivity
-            await interaction.followup.send(embed=embed)
+            # Send initial status message
+            message = await interaction.followup.send(embed=embed, wait=True)
             
             # Run the actual test
             test_result = await voice_tts.test_tts_connectivity()
@@ -5080,8 +5080,8 @@ class AdminAIGroup(app_commands.Group):
                     inline=False
                 )
             
-            # Edit the original message with updated results
-            await interaction.edit_original_response(embed=embed)
+            # Edit the followup message with updated results
+            await message.edit(embed=embed)
             logger.info(f"Admin {interaction.user.name} ran TTS test, result: {test_result}")
             
         except Exception as e:
