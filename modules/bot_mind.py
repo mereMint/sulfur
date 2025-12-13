@@ -20,7 +20,9 @@ from modules.db_helpers import get_db_connection
 # --- Configuration Constants ---
 # Interaction adjustments
 BOREDOM_REDUCTION_PER_INTERACTION = 0.2
-ENERGY_COST_PER_INTERACTION = 0.08
+ENERGY_COST_PER_INTERACTION = 0.05  # Lower cost allows for longer activity sessions
+ENERGY_REGEN_PER_CYCLE = 0.03  # NEW: Passive energy regeneration
+BOREDOM_INCREASE_PER_CYCLE = 0.02  # NEW: Passive boredom increase
 THOUGHT_GENERATION_CHANCE = 0.6  # 60% chance to generate thought per interaction
 
 # Mood configuration
@@ -29,6 +31,10 @@ MOOD_SELECTION_PROBABILITY = 0.6  # Probability of choosing amused over playful 
 
 # Activity timeout
 CONVERSATION_IDLE_TIMEOUT_MINUTES = 5
+
+# Thought history limits
+MAX_RECENT_THOUGHTS_FOR_CONTEXT = 3  # Only use last 3 thoughts for context to avoid fixation
+MAX_OBSERVATION_AGE_HOURS = 24  # Remove observations older than 24 hours
 
 
 # --- Cache system prompt at module level to avoid repeated file I/O ---
@@ -95,6 +101,9 @@ class BotMind:
         self.current_thought = "Just started up... wondering what chaos awaits."
         self.interests = []
         self.recent_observations = []
+        self.server_activity = {}  # NEW: Track per-server activity {guild_id: {'last_message': datetime, 'message_count': int}}
+        self.user_activities = {}  # NEW: Track per-user activities {user_id: {'spotify': {...}, 'game': {...}, 'voice': {...}, 'status': str}}
+        self.activity_thoughts = []  # NEW: Store thoughts about user activities
         # Personality traits now loaded from database (see load_personality)
         self.personality_traits = {
             'sarcasm': 0.7,
@@ -152,14 +161,225 @@ class BotMind:
             self.thought_history = self.thought_history[-50:]
         logger.debug(f"Bot thought: {thought}")
     
-    def observe(self, observation: str):
+    def observe(self, observation: str, guild_id: int = None):
         """Record an observation about the server/users"""
-        self.recent_observations.append({
+        obs_data = {
             'observation': observation,
-            'time': datetime.now().isoformat()
-        })
-        if len(self.recent_observations) > 20:
-            self.recent_observations = self.recent_observations[-20:]
+            'time': datetime.now().isoformat(),
+            'guild_id': guild_id
+        }
+        self.recent_observations.append(obs_data)
+        
+        # Clean old observations (keep last 20 and remove older than 24 hours)
+        now = datetime.now()
+        self.recent_observations = [
+            obs for obs in self.recent_observations[-20:]
+            if (now - datetime.fromisoformat(obs['time'])).total_seconds() < MAX_OBSERVATION_AGE_HOURS * 3600
+        ]
+    
+    def update_server_activity(self, guild_id: int):
+        """Track activity per server"""
+        if guild_id not in self.server_activity:
+            self.server_activity[guild_id] = {'last_message': datetime.now(), 'message_count': 0}
+        else:
+            self.server_activity[guild_id]['last_message'] = datetime.now()
+            self.server_activity[guild_id]['message_count'] += 1
+    
+    def get_active_servers(self) -> List[int]:
+        """Get list of servers with recent activity (last hour)"""
+        now = datetime.now()
+        active = []
+        for guild_id, data in self.server_activity.items():
+            if (now - data['last_message']).total_seconds() < 3600:  # Last hour
+                active.append(guild_id)
+        return active
+    
+    def cleanup_old_thoughts(self):
+        """Remove old thoughts to prevent fixation on past events"""
+        # Keep only very recent thoughts for the mind state display
+        # Don't use them for generating new thoughts
+        if len(self.thought_history) > 10:
+            # Keep only the last 10 thoughts
+            self.thought_history = self.thought_history[-10:]
+        
+        # Also clean observations older than their time limit
+        now = datetime.now()
+        self.recent_observations = [
+            obs for obs in self.recent_observations
+            if (now - datetime.fromisoformat(obs['time'])).total_seconds() < MAX_OBSERVATION_AGE_HOURS * 3600
+        ]
+        
+        # Clean old activity thoughts (keep last 20)
+        if len(self.activity_thoughts) > 20:
+            self.activity_thoughts = self.activity_thoughts[-20:]
+    
+    def observe_user_activity(self, user_id: int, user_name: str, activity_type: str, activity_data: dict):
+        """
+        Observe and track user activities (Spotify, games, voice calls, status).
+        This allows the bot to form opinions and thoughts about what users are doing.
+        """
+        if user_id not in self.user_activities:
+            self.user_activities[user_id] = {
+                'name': user_name,
+                'spotify': None,
+                'game': None,
+                'voice': None,
+                'status': None,
+                'last_seen': datetime.now()
+            }
+        
+        self.user_activities[user_id]['last_seen'] = datetime.now()
+        
+        # Update specific activity
+        if activity_type == 'spotify':
+            old_song = self.user_activities[user_id]['spotify']
+            self.user_activities[user_id]['spotify'] = activity_data
+            
+            # Generate thought about new song
+            if old_song != activity_data:
+                song = activity_data.get('song')
+                artist = activity_data.get('artist')
+                self.activity_thoughts.append({
+                    'type': 'spotify',
+                    'user': user_name,
+                    'detail': f"{user_name} is listening to '{song}' by {artist}",
+                    'time': datetime.now(),
+                    'data': activity_data
+                })
+                logger.debug(f"[MIND] Noticed {user_name} listening to {song}")
+                
+        elif activity_type == 'game':
+            old_game = self.user_activities[user_id]['game']
+            self.user_activities[user_id]['game'] = activity_data
+            
+            # Generate thought about game change
+            if old_game != activity_data:
+                game_name = activity_data.get('name')
+                duration = activity_data.get('duration', 0)
+                self.activity_thoughts.append({
+                    'type': 'game',
+                    'user': user_name,
+                    'detail': f"{user_name} {'started' if duration < 60 else 'has been'} playing {game_name}",
+                    'time': datetime.now(),
+                    'data': activity_data
+                })
+                logger.debug(f"[MIND] Noticed {user_name} playing {game_name}")
+                
+        elif activity_type == 'voice':
+            old_voice = self.user_activities[user_id]['voice']
+            self.user_activities[user_id]['voice'] = activity_data
+            
+            # Generate thought about voice activity
+            if old_voice != activity_data:
+                if activity_data.get('in_call'):
+                    duration = activity_data.get('duration', 0)
+                    alone = activity_data.get('alone', False)
+                    self.activity_thoughts.append({
+                        'type': 'voice',
+                        'user': user_name,
+                        'detail': f"{user_name} {'is alone' if alone else 'is'} in a voice call ({duration} min)",
+                        'time': datetime.now(),
+                        'data': activity_data
+                    })
+                    logger.debug(f"[MIND] Noticed {user_name} in voice call")
+                    
+        elif activity_type == 'status':
+            old_status = self.user_activities[user_id]['status']
+            self.user_activities[user_id]['status'] = activity_data.get('status')
+            
+            # Notice significant status changes
+            if old_status != activity_data.get('status'):
+                status = activity_data.get('status')
+                self.activity_thoughts.append({
+                    'type': 'status',
+                    'user': user_name,
+                    'detail': f"{user_name} is now {status}",
+                    'time': datetime.now(),
+                    'data': activity_data
+                })
+    
+    def get_interesting_activities(self) -> List[Dict]:
+        """
+        Get activities that might be interesting to comment on or react to.
+        Returns list of activities sorted by how interesting they are.
+        """
+        interesting = []
+        now = datetime.now()
+        
+        for user_id, data in self.user_activities.items():
+            user_name = data['name']
+            
+            # Check Spotify - especially if listening for a while
+            if data['spotify']:
+                song = data['spotify'].get('song')
+                artist = data['spotify'].get('artist')
+                duration = data['spotify'].get('duration', 0)
+                
+                # Interesting if listening for >30 min or if it's a genre we like
+                if duration > 1800:  # 30 minutes
+                    interesting.append({
+                        'type': 'spotify_long',
+                        'user': user_name,
+                        'user_id': user_id,
+                        'interest_level': 0.7,
+                        'detail': f"{user_name} has been listening to {song} by {artist} for {duration//60} minutes",
+                        'suggestion': 'ask_about_song'
+                    })
+            
+            # Check games - especially if playing for a long time
+            if data['game']:
+                game = data['game'].get('name')
+                duration = data['game'].get('duration', 0)
+                
+                # Interesting if playing for >2 hours
+                if duration > 7200:  # 2 hours
+                    interesting.append({
+                        'type': 'game_marathon',
+                        'user': user_name,
+                        'user_id': user_id,
+                        'interest_level': 0.8,
+                        'detail': f"{user_name} has been playing {game} for {duration//3600} hours",
+                        'suggestion': 'comment_on_dedication'
+                    })
+                elif duration > 3600:  # 1 hour
+                    interesting.append({
+                        'type': 'game_session',
+                        'user': user_name,
+                        'user_id': user_id,
+                        'interest_level': 0.5,
+                        'detail': f"{user_name} is gaming: {game}",
+                        'suggestion': 'ask_how_its_going'
+                    })
+            
+            # Check voice calls - especially if alone for a long time
+            if data['voice']:
+                if data['voice'].get('in_call'):
+                    duration = data['voice'].get('duration', 0)
+                    alone = data['voice'].get('alone', False)
+                    
+                    # Very interesting if alone for >1 hour
+                    if alone and duration > 60:
+                        interesting.append({
+                            'type': 'voice_alone',
+                            'user': user_name,
+                            'user_id': user_id,
+                            'interest_level': 0.9,
+                            'detail': f"{user_name} has been alone in voice for {duration} minutes",
+                            'suggestion': 'offer_company_or_sympathy'
+                        })
+                    elif duration > 120:  # 2 hours in call
+                        interesting.append({
+                            'type': 'voice_long',
+                            'user': user_name,
+                            'user_id': user_id,
+                            'interest_level': 0.6,
+                            'detail': f"{user_name} has been in voice for {duration} minutes",
+                            'suggestion': 'acknowledge_social_activity'
+                        })
+        
+        # Sort by interest level (highest first)
+        interesting.sort(key=lambda x: x['interest_level'], reverse=True)
+        return interesting
     
     def add_interest(self, interest: str):
         """Add a new interest"""
@@ -356,6 +576,7 @@ async def load_last_mind_state() -> bool:
 async def generate_random_thought(context: Dict[str, Any], get_chat_response_func, config: dict, gemini_key: str, openai_key: str) -> str:
     """
     Generate a random thought using AI based on current context.
+    DOES NOT use previous thoughts to avoid feedback loops.
     
     Args:
         context: Current server context (user count, activity, etc.)
@@ -368,22 +589,36 @@ async def generate_random_thought(context: Dict[str, Any], get_chat_response_fun
         # Load cached system prompt for the bot's personality
         system_prompt = _load_system_prompt()
         
-        prompt = f"""Generate a brief internal thought (1 sentence) based on your current state:
+        # Build context WITHOUT previous thoughts to avoid fixation
+        active_servers = context.get('active_servers', 0)
+        total_servers = context.get('total_servers', 1)
+        energy = context.get('energy', bot_mind.energy_level)
+        boredom = context.get('boredom', bot_mind.boredom_level)
+        
+        prompt = f"""Generate a brief, fresh internal thought (1 sentence) based ONLY on your current state and observations:
 
-Current Mood: {bot_mind.current_mood.value}
-Activity: {bot_mind.current_activity.value}
-Energy: {bot_mind.energy_level:.1f}
-Boredom: {bot_mind.boredom_level:.1f}
+Current State:
+- Mood: {bot_mind.current_mood.value}
+- Activity: {bot_mind.current_activity.value}
+- Energy: {energy:.1f} (0=exhausted, 1=energized)
+- Boredom: {boredom:.1f} (0=engaged, 1=very bored)
 
-Server Context:
-- Online users: {context.get('online_users', 0)}
-- Recent activity: {context.get('recent_activity', 'quiet')}
+Current Observations:
+- Online users across all servers: {context.get('online_users', 0)}
+- Active servers: {active_servers}/{total_servers}
+- Recent activity level: {context.get('recent_activity', 'quiet')}
 
-Recent observations: {', '.join([obs['observation'] for obs in bot_mind.recent_observations[-3:]])}
+Generate ONE new, original thought that:
+1. Does NOT repeat or reference any previous thoughts
+2. Reflects your personality (sarcastic, judgemental, curious)
+3. Considers your current energy and boredom levels
+4. Responds to what's happening RIGHT NOW
 
-Generate a thought that reflects your personality (sarcastic, judgemental, curious) and current state. Be brief and natural.
+If bored: complain, be sarcastic, seek stimulation
+If tired: mention fatigue, desire for rest
+If energized: show enthusiasm, engagement
 
-Thought:"""
+Your thought:"""
 
         # Call get_chat_response with correct signature:
         # get_chat_response(history, user_prompt, user_display_name, system_prompt, config, gemini_key, openai_key)
@@ -403,11 +638,16 @@ Thought:"""
                 response_text = response[0]
                 if response_text:
                     thought = response_text.strip().strip('"').strip("'")
-                    return thought
+                    # Double-check it's not repeating recent thoughts
+                    recent_thought_texts = [t.get('thought', '') for t in bot_mind.thought_history[-3:]]
+                    if thought not in recent_thought_texts and len(thought) > 10:
+                        return thought
             else:
                 # Fallback if it's not a tuple
                 thought = response.strip().strip('"').strip("'")
-                return thought
+                recent_thought_texts = [t.get('thought', '') for t in bot_mind.thought_history[-3:]]
+                if thought not in recent_thought_texts and len(thought) > 10:
+                    return thought
         
         # Fallback thoughts based on current mood and personality
         mood_fallbacks = {
@@ -483,6 +723,19 @@ async def autonomous_thought_cycle(client, get_chat_response_func, config: dict,
         openai_key: OpenAI API key
     """
     try:
+        # === PASSIVE REGENERATION & DECAY ===
+        # Energy regenerates over time (sleeping/resting)
+        bot_mind.adjust_energy(ENERGY_REGEN_PER_CYCLE)
+        
+        # Boredom increases over time when idle
+        if bot_mind.current_activity == Activity.IDLE:
+            bot_mind.adjust_boredom(BOREDOM_INCREASE_PER_CYCLE * 2)  # Double when idle
+        else:
+            bot_mind.adjust_boredom(BOREDOM_INCREASE_PER_CYCLE)
+        
+        # Clean up old thoughts to prevent fixation
+        bot_mind.cleanup_old_thoughts()
+        
         # Check if we should return to idle after conversation timeout
         time_since_interaction = datetime.now() - bot_mind.last_interaction_time
         if bot_mind.current_activity == Activity.CHATTING and time_since_interaction > timedelta(minutes=CONVERSATION_IDLE_TIMEOUT_MINUTES):
@@ -490,37 +743,81 @@ async def autonomous_thought_cycle(client, get_chat_response_func, config: dict,
             bot_mind.update_mood(Mood.NEUTRAL, "Conversation ended, returning to idle")
             logger.info("Returned to idle state after conversation timeout")
         
-        # Gather context
-        online_count = sum(1 for guild in client.guilds for member in guild.members 
-                          if not member.bot and member.status != discord.Status.offline)
+        # === GATHER PER-SERVER CONTEXT ===
+        active_servers = bot_mind.get_active_servers()
+        total_online = 0
+        active_guilds = []
+        
+        for guild in client.guilds:
+            online_count = sum(1 for m in guild.members if not m.bot and m.status != discord.Status.offline)
+            total_online += online_count
+            
+            # Track which servers are actually active
+            if guild.id in active_servers:
+                active_guilds.append({'name': guild.name, 'online': online_count})
         
         context = {
-            'online_users': online_count,
-            'recent_activity': 'active' if online_count > 5 else 'quiet'
+            'online_users': total_online,
+            'active_servers': len(active_guilds),
+            'total_servers': len(client.guilds),
+            'recent_activity': 'active' if total_online > 5 else 'quiet',
+            'energy': bot_mind.energy_level,
+            'boredom': bot_mind.boredom_level
         }
         
-        # Generate a thought
-        thought = await generate_random_thought(context, get_chat_response_func, config, gemini_key, openai_key)
-        bot_mind.think(thought)
-        
-        # Update boredom based on activity
-        if online_count < 3:
-            bot_mind.adjust_boredom(0.05)
+        # Only generate thoughts if we have enough energy
+        if bot_mind.energy_level > 0.1:
+            # Generate a thought
+            thought = await generate_random_thought(context, get_chat_response_func, config, gemini_key, openai_key)
+            bot_mind.think(thought)
         else:
-            bot_mind.adjust_boredom(-0.02)
+            # Too tired to think much
+            bot_mind.think("...too tired to think properly...")
+            logger.info("Bot too low on energy to generate complex thoughts")
+        
+        # Update boredom based on activity across ALL servers
+        if total_online < 3:
+            bot_mind.adjust_boredom(0.08)  # More boredom when nobody's around
+        elif len(active_servers) == 0:
+            bot_mind.adjust_boredom(0.05)  # Bored if no active servers
+        else:
+            bot_mind.adjust_boredom(-0.03)  # Less bored when servers are active
         
         # Randomly update mood based on state
-        if bot_mind.boredom_level > 0.6:
-            bot_mind.update_mood(Mood.BORED, "Low server activity")
-        elif bot_mind.energy_level < 0.3:
-            bot_mind.update_mood(Mood.CONTEMPLATIVE, "Low energy")
-        elif online_count > 10:
+        if bot_mind.energy_level < 0.2:
+            bot_mind.update_mood(Mood.CONTEMPLATIVE, "Very low energy, need rest")
+        elif bot_mind.boredom_level > 0.7:
+            bot_mind.update_mood(Mood.BORED, "Low server activity across all servers")
+        elif bot_mind.energy_level > 0.8 and bot_mind.boredom_level < 0.3:
+            if random.random() < 0.3:
+                bot_mind.update_mood(Mood.EXCITED, "Well rested and entertained")
+        elif total_online > 10:
             if random.random() < 0.3:
                 bot_mind.update_mood(Mood.EXCITED, "Lots of people online")
+        
+        # === OBSERVE INTERESTING USER ACTIVITIES ===
+        # Check what users are doing and form opinions
+        interesting_activities = bot_mind.get_interesting_activities()
+        
+        if interesting_activities and bot_mind.boredom_level > 0.4:
+            # Bot is bored enough to potentially reach out
+            most_interesting = interesting_activities[0]
+            
+            # Form a thought about the activity
+            activity_thought = f"I notice {most_interesting['detail']}. {most_interesting.get('suggestion', 'Interesting...')}"
+            bot_mind.think(activity_thought)
+            logger.info(f"[MIND] Interesting activity: {activity_thought}")
+            
+            # Maybe reach out if really bored and energy is high enough
+            if bot_mind.boredom_level > 0.7 and bot_mind.energy_level > 0.5:
+                # Could trigger autonomous message here
+                logger.info(f"[MIND] Considering reaching out about: {most_interesting['type']}")
         
         # Save state periodically
         if random.random() < 0.1:  # 10% chance
             await save_mind_state()
+            
+        logger.debug(f"Mind state - Energy: {bot_mind.energy_level:.2f}, Boredom: {bot_mind.boredom_level:.2f}, Active servers: {len(active_servers)}/{len(client.guilds)}, Interesting activities: {len(interesting_activities)}")
             
     except Exception as e:
         logger.error(f"Error in thought cycle: {e}", exc_info=True)

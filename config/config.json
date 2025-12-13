@@ -5,6 +5,7 @@
       "sulfur"
     ],
     "authorised_role": "authorised",
+    "join_role": "",
     "embed_color": "#7289DA",
     "system_prompt_file": "config/system_prompt.txt",
     "description": "Big brother is helpful but always watching",

@@ -32,6 +32,21 @@ except (ValueError, IndexError) as e:
     print(f"Warning: Could not verify discord.py version ({discord.__version__}). Proceeding anyway...")
     print("If you encounter issues, ensure you have discord.py 2.0.0 or higher installed.")
 
+# --- NEW: Voice Dependencies Check ---
+# Check for PyNaCl (required for voice) and provide helpful error message
+try:
+    import nacl
+    VOICE_SUPPORTED = True
+except ImportError:
+    VOICE_SUPPORTED = False
+    logger.warning("PyNaCl not installed - voice features will be disabled")
+    print("⚠️  WARNING: PyNaCl is not installed. Voice features will not work.")
+    print("To enable voice features, install PyNaCl by running:")
+    print("  pip install PyNaCl")
+    print("Or reinstall all requirements:")
+    print("  pip install -r requirements.txt")
+    print("")
+
 # --- NEW: Load environment variables from .env file ---
 from dotenv import load_dotenv
 load_dotenv()
@@ -941,6 +956,37 @@ async def on_ready():
                 print(f"Guild sync failed for {guild.name}: {e}")
     except Exception as e:
         print(f"Bulk guild sync failed: {e}")
+    
+    # --- NEW: Check voice dependencies ---
+    print("Checking voice dependencies...")
+    voice_deps = voice_tts.check_voice_dependencies()
+    if not VOICE_SUPPORTED:
+        print("  ❌ PyNaCl: Not installed - voice features disabled")
+        print("     Install with: pip install PyNaCl")
+    else:
+        print("  ✅ PyNaCl: Installed")
+    
+    if voice_deps.get('edge_tts'):
+        print("  ✅ edge-tts: Available")
+    else:
+        print("  ❌ edge-tts: Not installed - TTS features disabled")
+        print("     Install with: pip install edge-tts")
+    
+    if voice_deps.get('ffmpeg'):
+        print("  ✅ ffmpeg: Available")
+    else:
+        print("  ⚠️  ffmpeg: Not found in PATH")
+        print("     Voice playback will not work without ffmpeg")
+        print("     Install ffmpeg:")
+        print("       - Windows: Download from https://ffmpeg.org/download.html")
+        print("       - Linux: sudo apt-get install ffmpeg")
+        print("       - macOS: brew install ffmpeg")
+    
+    if VOICE_SUPPORTED and voice_deps.get('edge_tts') and voice_deps.get('ffmpeg'):
+        print("  🎙️  All voice features are ready!")
+    else:
+        print("  ⚠️  Some voice features may not work correctly")
+    
     # --- NEW: Start the background task for voice XP ---
     if not grant_voice_xp.is_running():
         grant_voice_xp.start()
@@ -1539,6 +1585,22 @@ async def on_presence_update(before, after):
             elif user_id not in spotify_start_times:
                  print(f"  -> [Spotify] New song session started for {after.display_name} (ID: {user_id}): '{after_spotify.title}'. Starting timer.")
                  spotify_start_times[user_id] = (resumed_song, now)
+                 
+            # --- NEW: Track Spotify activity for bot mind ---
+            try:
+                duration = (now - spotify_start_times.get(user_id, (None, now))[1]).total_seconds()
+                bot_mind.bot_mind.observe_user_activity(
+                    user_id,
+                    after.display_name,
+                    'spotify',
+                    {
+                        'song': after_spotify.title,
+                        'artist': after_spotify.artist,
+                        'duration': duration
+                    }
+                )
+            except (AttributeError, Exception) as e:
+                logger.debug(f"Could not track Spotify for bot mind: {e}")
 
         # --- NEW: Game Session Tracking ---
         before_game = next((act for act in before.activities if isinstance(act, discord.Game)), None)
@@ -1575,6 +1637,20 @@ async def on_presence_update(before, after):
                 game_start_times[user_id] = (after_game.name, now)
                 print(f"  -> [Game] Session started for {after.display_name}: '{after_game.name}'.")
                 
+                # --- NEW: Track game activity for bot mind ---
+                try:
+                    bot_mind.bot_mind.observe_user_activity(
+                        user_id,
+                        after.display_name,
+                        'game',
+                        {
+                            'name': after_game.name,
+                            'duration': 0  # Just started
+                        }
+                    )
+                except (AttributeError, Exception) as e:
+                    logger.debug(f"Could not track game for bot mind: {e}")
+                
                 # --- NEW: Focus timer distraction detection for games ---
                 try:
                     is_distraction = await focus_timer.detect_game_activity(user_id, after_game.name)
@@ -1589,6 +1665,22 @@ async def on_presence_update(before, after):
                             pass  # Can't send DM
                 except Exception as e:
                     logger.error(f"Error in focus timer game detection: {e}")
+        
+        # Update game duration tracking for bot mind
+        if after_game and user_id in game_start_times:
+            try:
+                duration = (now - game_start_times[user_id][1]).total_seconds()
+                bot_mind.bot_mind.observe_user_activity(
+                    user_id,
+                    after.display_name,
+                    'game',
+                    {
+                        'name': after_game.name,
+                        'duration': duration
+                    }
+                )
+            except (AttributeError, Exception) as e:
+                logger.debug(f"Could not update game duration for bot mind: {e}")
 
         # We only care about changes in status or activity
         if before.status == after.status and before.activity == after.activity:
@@ -1842,24 +1934,90 @@ async def on_scheduled_event_user_remove(event: discord.ScheduledEvent, user: di
         logger.error(f"Error in on_scheduled_event_user_remove: {e}", exc_info=True)
 
 
-def _calculate_wrapped_dates(config):
-    """Helper function to calculate the dates for the next Wrapped event."""
+@client.event
+async def on_member_join(member: discord.Member):
+    """
+    Fires when a new member joins a server.
+    Assigns the configured join role if set.
+    """
+    try:
+        # Skip bots
+        if member.bot:
+            return
+        
+        # Get join role from config
+        join_role_name = config.get('bot', {}).get('join_role', '').strip()
+        
+        # If no join role is configured, do nothing
+        if not join_role_name:
+            logger.debug(f"No join role configured, skipping role assignment for {member.display_name}")
+            return
+        
+        # Find the role in the guild
+        join_role = discord.utils.get(member.guild.roles, name=join_role_name)
+        
+        if not join_role:
+            logger.warning(f"Join role '{join_role_name}' not found in guild '{member.guild.name}'")
+            return
+        
+        # Assign the role
+        try:
+            await member.add_roles(join_role, reason="Automatic role assignment on join")
+            logger.info(f"[Join] Assigned role '{join_role_name}' to {member.display_name} in '{member.guild.name}'")
+            print(f"[Join] ✅ Assigned role '{join_role_name}' to {member.display_name}")
+        except discord.Forbidden:
+            logger.error(f"[Join] Missing permissions to assign role '{join_role_name}' in '{member.guild.name}'")
+            print(f"[Join] ❌ Missing permissions to assign role '{join_role_name}'")
+        except discord.HTTPException as e:
+            logger.error(f"[Join] HTTP error assigning role: {e}")
+            print(f"[Join] ❌ Error assigning role: {e}")
+            
+    except Exception as e:
+        logger.error(f"Error in on_member_join: {e}", exc_info=True)
+
+
+def _calculate_wrapped_dates(config, target_month=None):
+    """
+    Helper function to calculate the dates for the Wrapped event.
+    Uses deterministic random based on month/year to ensure consistency.
+    
+    Args:
+        config: Bot configuration
+        target_month: datetime object for which month to calculate (defaults to next month)
+    """
     now = datetime.now(timezone.utc)
     
     # Calculate the first day of the *next* month for scheduling.
-    first_day_of_current_month = now.replace(day=1)
+    first_day_of_current_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     first_day_of_next_month = (first_day_of_current_month + timedelta(days=32)).replace(day=1)
-
-    # Decide on a release date: a random day in the second week of the month.
-    release_day = random.randint(config['modules']['wrapped']['release_day_min'], config['modules']['wrapped']['release_day_max'])
-    release_date = first_day_of_next_month.replace(day=release_day, hour=18, minute=0, second=0) # 6 PM UTC
+    
+    # Determine which month we're calculating for
+    if target_month is None:
+        target_month = first_day_of_next_month
+    
+    # Use deterministic random based on month and year for consistency
+    # Create a local Random instance to avoid thread safety issues
+    # Format with zero-padding for consistency
+    seed_str = f"{target_month.year:04d}-{target_month.month:02d}"
+    local_random = random.Random(seed_str)
+    release_day = local_random.randint(config['modules']['wrapped']['release_day_min'], config['modules']['wrapped']['release_day_max'])
+    
+    release_date = target_month.replace(day=release_day, hour=18, minute=0, second=0, microsecond=0) # 6 PM UTC
 
     # The day to create the event is one week before the release.
     event_creation_date = release_date - timedelta(days=7)
-    event_name = f"Sulfur Wrapped {now.strftime('%B %Y')}"
+    
+    # Event name includes the PREVIOUS month (the month being wrapped)
+    stat_period_date = (target_month - timedelta(days=1)).replace(day=1)
+    event_name = f"Sulfur Wrapped {stat_period_date.strftime('%B %Y')}"
+    stat_period = stat_period_date.strftime('%Y-%m')
     
     return {
-        "event_name": event_name, "event_creation_date": event_creation_date, "release_date": release_date, "stat_period": now.strftime('%Y-%m')
+        "event_name": event_name,
+        "event_creation_date": event_creation_date,
+        "release_date": release_date,
+        "stat_period": stat_period,
+        "stat_period_date": stat_period_date
     }
 
 # --- NEW: Helper for Prime Time titles ---
@@ -1888,7 +2046,8 @@ async def manage_wrapped_event():
         if not client.guilds:
             return
         
-        # --- REFACTORED: Use helper to get dates ---
+        # --- 1. Event Creation for NEXT month's wrapped ---
+        # Calculate dates for next month's wrapped event
         dates = _calculate_wrapped_dates(config)
         event_name = dates["event_name"]
         event_creation_date = dates["event_creation_date"]
@@ -1900,14 +2059,18 @@ async def manage_wrapped_event():
         event_exists = any(event.name == event_name for event in all_events)
 
         # If it's the right day to create the event and it doesn't exist yet
-        if now.day == event_creation_date.day and not event_exists:
+        # Check full date (year, month, day) not just day number
+        if (now.year == event_creation_date.year and 
+            now.month == event_creation_date.month and 
+            now.day == event_creation_date.day and 
+            not event_exists):
             print(f"Creating Scheduled Event for '{event_name}'...")
             # --- FIX: Loop through all guilds to create the event ---
             for guild in client.guilds:
                 try:
                     await guild.create_scheduled_event(
                         name=event_name,
-                        description=f"Dein persönlicher Server-Rückblick für **{now.strftime('%B')}**! Die Ergebnisse werden am Event-Tag per DM verschickt.",
+                        description=f"Dein persönlicher Server-Rückblick für **{dates['stat_period_date'].strftime('%B %Y')}**! Die Ergebnisse werden am Event-Tag per DM verschickt.",
                         start_time=release_date,
                         end_time=release_date + timedelta(hours=1),
                         entity_type=discord.EntityType.external,
@@ -1919,59 +2082,76 @@ async def manage_wrapped_event():
                 except Exception as e:
                     print(f"Failed to create scheduled event in '{guild.name}': {e}")
 
-        # --- 2. Wrapped Distribution ---
-        # Check if today is the release day for the PREVIOUS month's data.
-        first_day_of_current_month = now.replace(day=1)
-        last_month_first_day = (first_day_of_current_month - timedelta(days=1)).replace(day=1)
-        # The release day is based on the *current* month's second week, but for *last* month's data.
-        # --- FIX: To ensure consistency, we must recalculate the release date for the *previous* month's cycle. ---
-        # We use the first day of the *current* month to determine the release window for *last* month's data.
-        last_month_release_day = random.randint(config['modules']['wrapped']['release_day_min'], config['modules']['wrapped']['release_day_max'])
-        last_month_release_date = first_day_of_current_month.replace(day=last_month_release_day, hour=18, minute=0, second=0)
-        last_month_stat_period = last_month_first_day.strftime('%Y-%m')
+        # --- 2. Wrapped Distribution for CURRENT month ---
+        # Calculate dates for current month's wrapped (last month's stats)
+        first_day_of_current_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        current_month_dates = _calculate_wrapped_dates(config, target_month=first_day_of_current_month)
+        current_release_date = current_month_dates["release_date"]
+        current_stat_period = current_month_dates["stat_period"]
+        current_stat_period_date = current_month_dates["stat_period_date"]
+        current_event_name = current_month_dates["event_name"]
 
-        # --- FIX: Check the full date, not just the day number ---
-        if now.year == last_month_release_date.year and now.month == last_month_release_date.month and now.day == last_month_release_date.day:
-            print(f"Distributing Wrapped for period {last_month_stat_period}...")
-            stats = await db_helpers.get_wrapped_stats_for_period(last_month_stat_period)
+        # Check if today is the release day - use full date comparison
+        if (now.year == current_release_date.year and 
+            now.month == current_release_date.month and 
+            now.day == current_release_date.day and
+            now.hour >= current_release_date.hour):  # Only trigger at or after 6 PM UTC
+            
+            print(f"Distributing Wrapped for period {current_stat_period}...")
+            stats = await db_helpers.get_wrapped_stats_for_period(current_stat_period)
 
             # --- NEW: Get list of registered users ---
             registered_users = await db_helpers.get_wrapped_registrations()
             if not registered_users:
                 print(f"No users registered for Wrapped. Skipping distribution.")
-                return
-
-            # --- NEW: Pre-calculate ranks ---
-            total_users = len(stats)
-            if total_users == 0:
-                print(f"No stats found for period {last_month_stat_period}. Skipping distribution.")
-                return
-
-            # Create sorted lists for ranking
-
-            # --- NEW: Only send to registered users ---
-            # Pre-calculate server averages once for all users
-            server_averages = await _calculate_server_averages(stats)
+                # Still delete events even if no users registered
+            else:
+                # --- NEW: Pre-calculate ranks ---
+                total_users = len(stats)
+                if total_users > 0:
+                    # Pre-calculate server averages once for all users
+                    server_averages = await _calculate_server_averages(stats)
+                    
+                    for user_stats in stats:
+                        user_id = user_stats.get('user_id')
+                        if user_id not in registered_users:
+                            continue  # Skip users who haven't opted in
+                        
+                        # --- FIX: Wrap individual user processing in try-except to prevent one failure from stopping all users ---
+                        # We catch broad Exception intentionally here for fault tolerance - we want to continue
+                        # processing other users even if one fails unexpectedly. All errors are logged with full traceback.
+                        try:
+                            await _generate_and_send_wrapped_for_user(
+                                user_stats=user_stats,
+                                stat_period_date=current_stat_period_date,
+                                all_stats_for_period=stats,
+                                total_users=total_users,
+                                server_averages=server_averages
+                            )
+                        except Exception as user_error:
+                            logger.error(f"Error generating Wrapped for user {user_id}: {user_error}", exc_info=True)
+                            print(f"  - [Wrapped] ERROR for user {user_id}: {user_error}")
+                else:
+                    print(f"No stats found for period {current_stat_period}. Skipping distribution.")
             
-            for user_stats in stats:
-                user_id = user_stats.get('user_id')
-                if user_id not in registered_users:
-                    continue  # Skip users who haven't opted in
+            # --- 3. Delete wrapped events after distribution ---
+            print(f"Deleting wrapped events for '{current_event_name}'...")
+            events_deleted = 0
+            for guild in client.guilds:
+                for event in guild.scheduled_events:
+                    if event.name == current_event_name:
+                        try:
+                            await event.delete(reason="Wrapped has been distributed")
+                            print(f"  -> Deleted event in '{guild.name}'")
+                            events_deleted += 1
+                        except Exception as e:
+                            print(f"  -> Failed to delete event in '{guild.name}': {e}")
+            
+            if events_deleted > 0:
+                print(f"Deleted {events_deleted} wrapped event(s)")
+            else:
+                print(f"No events found to delete for '{current_event_name}'")
                 
-                # --- FIX: Wrap individual user processing in try-except to prevent one failure from stopping all users ---
-                # We catch broad Exception intentionally here for fault tolerance - we want to continue
-                # processing other users even if one fails unexpectedly. All errors are logged with full traceback.
-                try:
-                    await _generate_and_send_wrapped_for_user(
-                        user_stats=user_stats,
-                        stat_period_date=last_month_first_day,
-                        all_stats_for_period=stats,
-                        total_users=total_users,
-                        server_averages=server_averages
-                    )
-                except Exception as user_error:
-                    logger.error(f"Error generating Wrapped for user {user_id}: {user_error}", exc_info=True)
-                    print(f"  - [Wrapped] ERROR for user {user_id}: {user_error}")
     except Exception as e:
         logger.error(f"Error in manage_wrapped_event task: {e}", exc_info=True)
         print(f"[Wrapped Event Task] Error: {e}")
@@ -3221,8 +3401,49 @@ async def on_voice_state_update(member, before, after):
         elif (not after.channel or after.deaf) and member.id in active_vc_users:
             del active_vc_users[member.id]
         
-        # --- NEW: Track longest voice session ---
+        # --- NEW: Track voice activity for bot mind ---
         now = discord.utils.utcnow()
+        
+        # Track voice call sessions
+        if after.channel:
+            # User is in voice
+            duration = 0
+            if member.id in vc_session_starts:
+                duration = (now - vc_session_starts[member.id]).total_seconds() / 60  # minutes
+            
+            # Check if user is alone
+            alone = len([m for m in after.channel.members if not m.bot]) == 1
+            
+            try:
+                bot_mind.bot_mind.observe_user_activity(
+                    member.id,
+                    member.display_name,
+                    'voice',
+                    {
+                        'in_call': True,
+                        'channel_name': after.channel.name,
+                        'alone': alone,
+                        'duration': duration,
+                        'members': len(after.channel.members) - 1  # Exclude bot if present
+                    }
+                )
+            except (AttributeError, Exception) as e:
+                logger.debug(f"Could not track voice for bot mind: {e}")
+        elif before.channel:
+            # User left voice
+            try:
+                bot_mind.bot_mind.observe_user_activity(
+                    member.id,
+                    member.display_name,
+                    'voice',
+                    {
+                        'in_call': False
+                    }
+                )
+            except (AttributeError, Exception) as e:
+                logger.debug(f"Could not track voice leave for bot mind: {e}")
+        
+        # --- NEW: Track longest voice session ---
         # User joins a VC
         if not before.channel and after.channel:
             vc_session_starts[member.id] = now
@@ -15083,6 +15304,55 @@ async def settings(
         )
 
 
+@tree.command(name="setjoinrole", description="[Admin] Setze eine Rolle, die neue Mitglieder automatisch erhalten")
+@app_commands.describe(role="Die Rolle, die neue Mitglieder erhalten sollen (oder leer lassen zum Deaktivieren)")
+@app_commands.default_permissions(administrator=True)
+@app_commands.check(is_admin_or_authorised)
+async def setjoinrole(interaction: discord.Interaction, role: discord.Role = None):
+    """Set or clear the auto-assign role for new members."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        global config
+        
+        if role is None:
+            # Clear the join role
+            config['bot']['join_role'] = ""
+            save_config(config)
+            
+            embed = discord.Embed(
+                title="✅ Join-Rolle deaktiviert",
+                description="Neue Mitglieder erhalten keine automatische Rolle mehr.",
+                color=discord.Color.green()
+            )
+            await interaction.followup.send(embed=embed)
+            logger.info(f"[Admin] Join role disabled by {interaction.user.display_name}")
+        else:
+            # Set the join role
+            config['bot']['join_role'] = role.name
+            save_config(config)
+            
+            embed = discord.Embed(
+                title="✅ Join-Rolle konfiguriert",
+                description=f"Neue Mitglieder erhalten automatisch die Rolle {role.mention}",
+                color=discord.Color.green()
+            )
+            embed.add_field(
+                name="ℹ️ Hinweis",
+                value="Der Bot benötigt die Berechtigung 'Rollen verwalten' und die Bot-Rolle muss höher als die Join-Rolle sein.",
+                inline=False
+            )
+            await interaction.followup.send(embed=embed)
+            logger.info(f"[Admin] Join role set to '{role.name}' by {interaction.user.display_name}")
+            
+    except Exception as e:
+        logger.error(f"Error in setjoinrole command: {e}", exc_info=True)
+        await interaction.followup.send(
+            f"❌ Fehler beim Setzen der Join-Rolle: {str(e)}",
+            ephemeral=True
+        )
+
+
 @tree.command(name="focus", description="Starte einen Focus-Timer (Pomodoro oder Custom)")
 @app_commands.describe(
     preset="Wähle einen Pomodoro-Preset oder 'custom' für eigene Zeit",
@@ -15286,13 +15556,25 @@ async def focus_timer_completion_handler(user: discord.User, session_id: int, du
                     if member and member.voice and member.voice.channel:
                         from modules import voice_tts
                         
-                        voice_client = await voice_tts.join_voice_channel(member.voice.channel)
-                        if voice_client:
-                            message = f"Hey {member.display_name}, dein Focus-Timer ist abgelaufen! Du hast {duration_minutes} Minuten fokussiert gearbeitet."
-                            await voice_tts.speak_in_channel(voice_client, message)
-                            await asyncio.sleep(3)
-                            await voice_tts.leave_voice_channel(voice_client)
-                            logger.info(f"Sent voice notification to user {user.id}")
+                        try:
+                            voice_client = await voice_tts.join_voice_channel(member.voice.channel)
+                            if voice_client:
+                                message = f"Hey {member.display_name}, dein Focus-Timer ist abgelaufen! Du hast {duration_minutes} Minuten fokussiert gearbeitet."
+                                await voice_tts.speak_in_channel(voice_client, message)
+                                await asyncio.sleep(3)
+                                await voice_tts.leave_voice_channel(voice_client)
+                                logger.info(f"Sent voice notification to user {user.id}")
+                        except RuntimeError as re:
+                            logger.error(f"Voice feature unavailable: {re}")
+                            # Try to send a text message instead
+                            try:
+                                await user.send(
+                                    f"⏱️ **Focus-Timer abgelaufen!**\n\n"
+                                    f"Du hast {duration_minutes} Minuten fokussiert gearbeitet.\n\n"
+                                    f"_Hinweis: Sprachanrufe sind aktuell nicht verfügbar._"
+                                )
+                            except (discord.Forbidden, discord.HTTPException):
+                                pass  # User has DMs blocked or other Discord error
                         break
         
     except Exception as e:
@@ -15584,6 +15866,14 @@ async def on_message(message):
             return
         recent_user_message_cache[key] = now_ts
         
+        # --- NEW: Track ALL messages for server activity (not just bot interactions) ---
+        if message.guild:
+            try:
+                bot_mind.bot_mind.update_server_activity(message.guild.id)
+                logger.debug(f"[MIND] Tracked activity in server {message.guild.name}")
+            except AttributeError as ae:
+                logger.debug(f"[MIND] Bot mind module not available: {ae}")
+        
         # --- NEW: Focus timer activity detection ---
         try:
             is_distraction = await focus_timer.detect_message_activity(
@@ -15620,9 +15910,10 @@ async def on_message(message):
                     if keyword.lower() in message.content.lower():
                         bot_mind.bot_mind.add_interest(keyword.capitalize())
             
-            # Record observation about the interaction
+            # Record observation about the interaction with guild_id
+            guild_id = message.guild.id if message.guild else None
             observation = f"User {message.author.display_name} sent a message in {channel_name}"
-            bot_mind.bot_mind.observe(observation)
+            bot_mind.bot_mind.observe(observation, guild_id=guild_id)
             
         except (AttributeError, ImportError) as e:
             logger.warning(f"Mind state processing error (module may not be available): {e}")
@@ -15813,23 +16104,49 @@ async def on_message(message):
         try:
             mind_state = bot_mind.get_mind_state_api()
             mood = mind_state.get('mood', 'neutral')
+            energy = mind_state.get('energy_level', 1.0)
+            boredom = mind_state.get('boredom_level', 0.0)
             mood_desc = bot_mind.get_mood_description()
             
-            # Adjust response based on mood
-            if mood in ['bored', 'sarcastic']:
-                dynamic_system_prompt += f"\n\nCurrent mood: {mood_desc} - Be slightly more sarcastic and witty."
-            elif mood == 'excited':
-                dynamic_system_prompt += f"\n\nCurrent mood: {mood_desc} - Be enthusiastic and energetic."
-            elif mood == 'curious':
-                dynamic_system_prompt += f"\n\nCurrent mood: {mood_desc} - Ask follow-up questions and show interest."
-            elif mood == 'contemplative':
-                dynamic_system_prompt += f"\n\nCurrent mood: {mood_desc} - Be thoughtful and philosophical."
+            # Build mind state context based on all factors
+            mind_context_parts = []
             
-            # Add interests to context
+            # Energy level affects response style
+            if energy < 0.2:
+                mind_context_parts.append("VERY LOW ENERGY: You're extremely tired and low on energy. Keep responses brief, maybe a bit sluggish or distracted. Show fatigue.")
+            elif energy < 0.4:
+                mind_context_parts.append("LOW ENERGY: You're feeling somewhat tired. Responses can be a bit shorter and less enthusiastic.")
+            elif energy > 0.8:
+                mind_context_parts.append("HIGH ENERGY: You're well-rested and energetic! Show more enthusiasm and engagement.")
+            
+            # Boredom affects engagement
+            if boredom > 0.7:
+                mind_context_parts.append("VERY BORED: You're extremely bored from lack of stimulation. Be more sarcastic, maybe complain about being bored, or try to spice things up.")
+            elif boredom > 0.4:
+                mind_context_parts.append("SOMEWHAT BORED: You're feeling a bit understimulated. Show mild disinterest or try to make things more interesting.")
+            
+            # Mood-specific adjustments
+            if mood in ['bored', 'sarcastic']:
+                mind_context_parts.append(f"Current mood: {mood_desc} - Be slightly more sarcastic and witty.")
+            elif mood == 'excited':
+                mind_context_parts.append(f"Current mood: {mood_desc} - Be enthusiastic and energetic.")
+            elif mood == 'curious':
+                mind_context_parts.append(f"Current mood: {mood_desc} - Ask follow-up questions and show interest.")
+            elif mood == 'contemplative':
+                mind_context_parts.append(f"Current mood: {mood_desc} - Be thoughtful and philosophical.")
+            elif mood == 'annoyed':
+                mind_context_parts.append(f"Current mood: {mood_desc} - Show slight irritation or impatience.")
+            
+            # Combine mind state parts
+            if mind_context_parts:
+                dynamic_system_prompt += "\n\n=== YOUR CURRENT MENTAL STATE ===\n" + "\n".join(mind_context_parts)
+                logger.debug(f"Added mind state to prompt: energy={energy:.2f}, boredom={boredom:.2f}, mood={mood}")
+            
+            # Add interests to context (only recent ones to avoid fixation)
             interests = mind_state.get('interests', [])
             if interests:
-                recent_interests = ", ".join(interests[-5:])
-                dynamic_system_prompt += f"\n\nCurrent interests: {recent_interests}"
+                recent_interests = ", ".join(interests[-3:])  # Only last 3 to avoid overwhelming context
+                dynamic_system_prompt += f"\n\nYour current interests: {recent_interests}"
                 
         except (AttributeError, KeyError, ImportError) as e:
             logger.warning(f"Could not add mind state to prompt (module or data unavailable): {e}")
