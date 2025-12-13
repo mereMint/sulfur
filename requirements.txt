@@ -6,15 +6,7 @@ Flask
 Flask-SocketIO
 waitress
 psutil
-edge-tts
-PyNaCl
-SpeechRecognition
+yt-dlp
 # NOTE: OpenAI Python SDK is not required for runtime. We call OpenAI via HTTP in code.
 # Installing `openai` pulls in `jiter` which fails to build on Termux/Android.
 # If you need the SDK for local testing, install it manually: `pip install openai`.
-# NOTE: PyNaCl is required for Discord voice support.
-# On Termux/Android, you need to install libsodium and clang first: pkg install libsodium clang
-# Also set SODIUM_INSTALL=system before pip install to use the system libsodium library
-# The termux_quickstart.sh script handles this automatically.
-# NOTE: SpeechRecognition provides local STT support (Google Speech Recognition API)
-# For better quality, use Whisper API with your OpenAI key (already implemented)

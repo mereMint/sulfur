@@ -120,6 +120,7 @@ from modules import rpg_system  # NEW: RPG system
 from modules import sport_betting  # NEW: Sport betting system
 from modules import sport_betting_ui_v2 as sport_betting_ui  # NEW: Sport betting UI components (v2)
 from modules import focus_timer  # NEW: Focus timer with activity monitoring
+from modules import lofi_player  # NEW: Lofi music player
 from modules import personality_evolution  # NEW: Personality evolution and learning system
 from modules import advanced_ai  # NEW: Advanced AI reasoning and intelligence
 from modules.bot_enhancements import (
@@ -15218,6 +15219,11 @@ async def focus(
                 value=f"Timer endet um <t:{int((datetime.now() + timedelta(minutes=duration)).timestamp())}:t>",
                 inline=False
             )
+            embed.add_field(
+                name="🎵 Lofi-Musik",
+                value="Tipp: Nutze `/lofi action:Start` für beruhigende Hintergrundmusik!",
+                inline=False
+            )
             embed.set_footer(text="Beende den Timer mit /focus preset:stop")
             
             await interaction.followup.send(embed=embed, ephemeral=True)
@@ -15370,6 +15376,109 @@ async def focusstats(interaction: discord.Interaction, days: int = 7):
         logger.error(f"Error in focusstats command: {e}", exc_info=True)
         await interaction.followup.send(
             f"❌ Fehler beim Abrufen der Statistiken: {str(e)}",
+            ephemeral=True
+        )
+
+
+@tree.command(name="lofi", description="Spiele beruhigende Lofi-Musik im Voice-Channel")
+@app_commands.describe(
+    action="Start oder Stop",
+    stream="Wähle einen Lofi-Stream (Standard: 1)"
+)
+@app_commands.choices(action=[
+    app_commands.Choice(name="▶️ Start", value="start"),
+    app_commands.Choice(name="⏹️ Stop", value="stop")
+])
+@app_commands.choices(stream=[
+    app_commands.Choice(name="📚 Beats to Relax/Study", value=0),
+    app_commands.Choice(name="🎧 Beats to Sleep/Chill", value=1)
+])
+async def lofi(
+    interaction: discord.Interaction,
+    action: app_commands.Choice[str],
+    stream: app_commands.Choice[int] = None
+):
+    """Play or stop lofi music in voice channel."""
+    await interaction.response.defer()
+    
+    try:
+        # Check if user is in a voice channel
+        if not interaction.user.voice or not interaction.user.voice.channel:
+            await interaction.followup.send(
+                "❌ Du musst in einem Voice-Channel sein, um Lofi-Musik zu hören!",
+                ephemeral=True
+            )
+            return
+        
+        voice_channel = interaction.user.voice.channel
+        
+        if action.value == "start":
+            # Join voice channel
+            voice_client = await lofi_player.join_voice_channel(voice_channel)
+            
+            if not voice_client:
+                await interaction.followup.send(
+                    "❌ Fehler beim Beitreten des Voice-Channels!",
+                    ephemeral=True
+                )
+                return
+            
+            # Play lofi music
+            stream_index = stream.value if stream else 0
+            success = await lofi_player.play_lofi(voice_client, stream_index)
+            
+            if success:
+                stream_names = ["📚 Beats to Relax/Study", "🎧 Beats to Sleep/Chill"]
+                embed = discord.Embed(
+                    title="🎵 Lofi Music Player",
+                    description=f"Jetzt läuft: **{stream_names[stream_index]}**",
+                    color=discord.Color.purple()
+                )
+                embed.add_field(
+                    name="📍 Channel",
+                    value=voice_channel.name,
+                    inline=True
+                )
+                embed.add_field(
+                    name="⏯️ Steuerung",
+                    value="Nutze `/lofi action:Stop` zum Beenden",
+                    inline=True
+                )
+                embed.set_footer(text="Viel Spaß beim Entspannen! 🎧")
+                
+                await interaction.followup.send(embed=embed)
+                logger.info(f"Started lofi music for {interaction.user.name} in {voice_channel.name}")
+            else:
+                await interaction.followup.send(
+                    "❌ Fehler beim Starten der Lofi-Musik!\n"
+                    "💡 Stelle sicher, dass yt-dlp installiert ist: `pip install yt-dlp`",
+                    ephemeral=True
+                )
+                
+        elif action.value == "stop":
+            voice_client = interaction.guild.voice_client
+            
+            if not voice_client or not voice_client.is_connected():
+                await interaction.followup.send(
+                    "❌ Der Bot ist in keinem Voice-Channel!",
+                    ephemeral=True
+                )
+                return
+            
+            # Stop music and leave
+            await lofi_player.stop_lofi(voice_client)
+            await lofi_player.leave_voice_channel(voice_client)
+            
+            await interaction.followup.send(
+                "⏹️ Lofi-Musik gestoppt und Voice-Channel verlassen.",
+                ephemeral=True
+            )
+            logger.info(f"Stopped lofi music for {interaction.user.name}")
+            
+    except Exception as e:
+        logger.error(f"Error in lofi command: {e}", exc_info=True)
+        await interaction.followup.send(
+            f"❌ Fehler: {str(e)}",
             ephemeral=True
         )
 
