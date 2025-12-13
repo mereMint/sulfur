@@ -61,7 +61,10 @@ except ImportError as e:
         import discord
         # If discord is importable but app_commands is not, likely py-cord
         if hasattr(discord, 'commands') and not hasattr(discord, 'app_commands'):
-            logger.critical("py-cord detected instead of discord.py - app_commands not available")
+            try:
+                logger.critical("py-cord detected instead of discord.py - app_commands not available")
+            except NameError:
+                pass  # Logger may not be available yet
             print("\n" + "="*70)
             print("ERROR: Import Error - Wrong Discord Library Installed")
             print("="*70)
@@ -71,10 +74,10 @@ except ImportError as e:
             print("")
             print("To fix this issue:")
             print("")
-            print("1. Uninstall py-cord:")
+            print("1. Uninstall both libraries (to ensure clean state):")
             print("   pip uninstall -y py-cord discord.py")
             print("")
-            print("2. Reinstall discord.py from requirements.txt:")
+            print("2. Reinstall the correct library from requirements.txt:")
             print("   pip install -r requirements.txt")
             print("")
             print("3. Restart the bot")
@@ -87,7 +90,10 @@ except ImportError as e:
             raise e
     except ImportError:
         # discord module itself is not available
-        logger.critical("discord module not found")
+        try:
+            logger.critical("discord module not found")
+        except NameError:
+            pass  # Logger may not be available yet
         print("\n" + "="*70)
         print("ERROR: Discord Library Not Installed")
         print("="*70)
