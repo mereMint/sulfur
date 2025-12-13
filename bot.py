@@ -1253,7 +1253,10 @@ async def before_update_presence_task():
 # across bot restarts - it's acceptable to potentially DM the same user after a restart.
 last_autonomous_dm_user_id = None
 
-@_tasks.loop(minutes=60)  # Check every hour (reduced from 30 minutes to make DMs rarer)
+# Get messaging interval from config (default 1 hour, was 30 minutes before)
+_autonomous_messaging_interval_hours = config.get('modules', {}).get('autonomous_behavior', {}).get('messaging_interval_hours', 1)
+
+@_tasks.loop(minutes=_autonomous_messaging_interval_hours * 60)
 async def autonomous_messaging_task():
     """Periodically consider autonomously messaging users."""
     global last_autonomous_dm_user_id
@@ -1265,7 +1268,7 @@ async def autonomous_messaging_task():
         logger.info("Running autonomous messaging check...")
         
         # Add random chance to make DMs even rarer (configurable, default 50%)
-        # If random value >= dm_random_chance, we skip. Higher chance = more likely to proceed.
+        # Higher dm_random_chance = more likely to proceed (0.0=never, 1.0=always when bored)
         dm_random_chance = config.get('modules', {}).get('autonomous_behavior', {}).get('dm_random_chance', 0.5)
         if random.random() >= dm_random_chance:
             logger.debug(f"Skipping autonomous messaging - random chance check failed (chance: {dm_random_chance:.0%})")
