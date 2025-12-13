@@ -1265,8 +1265,9 @@ async def autonomous_messaging_task():
         logger.info("Running autonomous messaging check...")
         
         # Add random chance to make DMs even rarer (configurable, default 50%)
+        # If random value >= dm_random_chance, we skip. Higher chance = more likely to proceed.
         dm_random_chance = config.get('modules', {}).get('autonomous_behavior', {}).get('dm_random_chance', 0.5)
-        if random.random() > dm_random_chance:
+        if random.random() >= dm_random_chance:
             logger.debug(f"Skipping autonomous messaging - random chance check failed (chance: {dm_random_chance:.0%})")
             return
         
