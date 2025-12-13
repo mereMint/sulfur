@@ -20,7 +20,9 @@ from modules.db_helpers import get_db_connection
 # --- Configuration Constants ---
 # Interaction adjustments
 BOREDOM_REDUCTION_PER_INTERACTION = 0.2
-ENERGY_COST_PER_INTERACTION = 0.08
+ENERGY_COST_PER_INTERACTION = 0.05  # Reduced from 0.08
+ENERGY_REGEN_PER_CYCLE = 0.03  # NEW: Passive energy regeneration
+BOREDOM_INCREASE_PER_CYCLE = 0.02  # NEW: Passive boredom increase
 THOUGHT_GENERATION_CHANCE = 0.6  # 60% chance to generate thought per interaction
 
 # Mood configuration
@@ -29,6 +31,10 @@ MOOD_SELECTION_PROBABILITY = 0.6  # Probability of choosing amused over playful 
 
 # Activity timeout
 CONVERSATION_IDLE_TIMEOUT_MINUTES = 5
+
+# Thought history limits
+MAX_RECENT_THOUGHTS_FOR_CONTEXT = 3  # Only use last 3 thoughts for context to avoid fixation
+MAX_OBSERVATION_AGE_HOURS = 24  # Remove observations older than 24 hours
 
 
 # --- Cache system prompt at module level to avoid repeated file I/O ---
@@ -95,6 +101,7 @@ class BotMind:
         self.current_thought = "Just started up... wondering what chaos awaits."
         self.interests = []
         self.recent_observations = []
+        self.server_activity = {}  # NEW: Track per-server activity {guild_id: {'last_message': datetime, 'message_count': int}}
         # Personality traits now loaded from database (see load_personality)
         self.personality_traits = {
             'sarcasm': 0.7,
@@ -152,14 +159,45 @@ class BotMind:
             self.thought_history = self.thought_history[-50:]
         logger.debug(f"Bot thought: {thought}")
     
-    def observe(self, observation: str):
+    def observe(self, observation: str, guild_id: int = None):
         """Record an observation about the server/users"""
-        self.recent_observations.append({
+        obs_data = {
             'observation': observation,
-            'time': datetime.now().isoformat()
-        })
-        if len(self.recent_observations) > 20:
-            self.recent_observations = self.recent_observations[-20:]
+            'time': datetime.now().isoformat(),
+            'guild_id': guild_id
+        }
+        self.recent_observations.append(obs_data)
+        
+        # Clean old observations (keep last 20 and remove older than 24 hours)
+        now = datetime.now()
+        self.recent_observations = [
+            obs for obs in self.recent_observations[-20:]
+            if (now - datetime.fromisoformat(obs['time'])).total_seconds() < MAX_OBSERVATION_AGE_HOURS * 3600
+        ]
+    
+    def update_server_activity(self, guild_id: int):
+        """Track activity per server"""
+        if guild_id not in self.server_activity:
+            self.server_activity[guild_id] = {'last_message': datetime.now(), 'message_count': 0}
+        else:
+            self.server_activity[guild_id]['last_message'] = datetime.now()
+            self.server_activity[guild_id]['message_count'] += 1
+    
+    def get_active_servers(self) -> List[int]:
+        """Get list of servers with recent activity (last hour)"""
+        now = datetime.now()
+        active = []
+        for guild_id, data in self.server_activity.items():
+            if (now - data['last_message']).total_seconds() < 3600:  # Last hour
+                active.append(guild_id)
+        return active
+    
+    def cleanup_old_thoughts(self):
+        """Remove old thoughts to prevent fixation on past events"""
+        # Keep only recent thoughts for context
+        if len(self.thought_history) > MAX_RECENT_THOUGHTS_FOR_CONTEXT:
+            # Keep first thought and last N thoughts
+            self.thought_history = [self.thought_history[0]] + self.thought_history[-MAX_RECENT_THOUGHTS_FOR_CONTEXT:]
     
     def add_interest(self, interest: str):
         """Add a new interest"""
@@ -483,6 +521,19 @@ async def autonomous_thought_cycle(client, get_chat_response_func, config: dict,
         openai_key: OpenAI API key
     """
     try:
+        # === PASSIVE REGENERATION & DECAY ===
+        # Energy regenerates over time (sleeping/resting)
+        bot_mind.adjust_energy(ENERGY_REGEN_PER_CYCLE)
+        
+        # Boredom increases over time when idle
+        if bot_mind.current_activity == Activity.IDLE:
+            bot_mind.adjust_boredom(BOREDOM_INCREASE_PER_CYCLE * 2)  # Double when idle
+        else:
+            bot_mind.adjust_boredom(BOREDOM_INCREASE_PER_CYCLE)
+        
+        # Clean up old thoughts to prevent fixation
+        bot_mind.cleanup_old_thoughts()
+        
         # Check if we should return to idle after conversation timeout
         time_since_interaction = datetime.now() - bot_mind.last_interaction_time
         if bot_mind.current_activity == Activity.CHATTING and time_since_interaction > timedelta(minutes=CONVERSATION_IDLE_TIMEOUT_MINUTES):
@@ -490,37 +541,63 @@ async def autonomous_thought_cycle(client, get_chat_response_func, config: dict,
             bot_mind.update_mood(Mood.NEUTRAL, "Conversation ended, returning to idle")
             logger.info("Returned to idle state after conversation timeout")
         
-        # Gather context
-        online_count = sum(1 for guild in client.guilds for member in guild.members 
-                          if not member.bot and member.status != discord.Status.offline)
+        # === GATHER PER-SERVER CONTEXT ===
+        active_servers = bot_mind.get_active_servers()
+        total_online = 0
+        active_guilds = []
+        
+        for guild in client.guilds:
+            online_count = sum(1 for m in guild.members if not m.bot and m.status != discord.Status.offline)
+            total_online += online_count
+            
+            # Track which servers are actually active
+            if guild.id in active_servers:
+                active_guilds.append({'name': guild.name, 'online': online_count})
         
         context = {
-            'online_users': online_count,
-            'recent_activity': 'active' if online_count > 5 else 'quiet'
+            'online_users': total_online,
+            'active_servers': len(active_guilds),
+            'total_servers': len(client.guilds),
+            'recent_activity': 'active' if total_online > 5 else 'quiet',
+            'energy': bot_mind.energy_level,
+            'boredom': bot_mind.boredom_level
         }
         
-        # Generate a thought
-        thought = await generate_random_thought(context, get_chat_response_func, config, gemini_key, openai_key)
-        bot_mind.think(thought)
-        
-        # Update boredom based on activity
-        if online_count < 3:
-            bot_mind.adjust_boredom(0.05)
+        # Only generate thoughts if we have enough energy
+        if bot_mind.energy_level > 0.1:
+            # Generate a thought
+            thought = await generate_random_thought(context, get_chat_response_func, config, gemini_key, openai_key)
+            bot_mind.think(thought)
         else:
-            bot_mind.adjust_boredom(-0.02)
+            # Too tired to think much
+            bot_mind.think("...too tired to think properly...")
+            logger.info("Bot too low on energy to generate complex thoughts")
+        
+        # Update boredom based on activity across ALL servers
+        if total_online < 3:
+            bot_mind.adjust_boredom(0.08)  # More boredom when nobody's around
+        elif len(active_servers) == 0:
+            bot_mind.adjust_boredom(0.05)  # Bored if no active servers
+        else:
+            bot_mind.adjust_boredom(-0.03)  # Less bored when servers are active
         
         # Randomly update mood based on state
-        if bot_mind.boredom_level > 0.6:
-            bot_mind.update_mood(Mood.BORED, "Low server activity")
-        elif bot_mind.energy_level < 0.3:
-            bot_mind.update_mood(Mood.CONTEMPLATIVE, "Low energy")
-        elif online_count > 10:
+        if bot_mind.energy_level < 0.2:
+            bot_mind.update_mood(Mood.CONTEMPLATIVE, "Very low energy, need rest")
+        elif bot_mind.boredom_level > 0.7:
+            bot_mind.update_mood(Mood.BORED, "Low server activity across all servers")
+        elif bot_mind.energy_level > 0.8 and bot_mind.boredom_level < 0.3:
+            if random.random() < 0.3:
+                bot_mind.update_mood(Mood.EXCITED, "Well rested and entertained")
+        elif total_online > 10:
             if random.random() < 0.3:
                 bot_mind.update_mood(Mood.EXCITED, "Lots of people online")
         
         # Save state periodically
         if random.random() < 0.1:  # 10% chance
             await save_mind_state()
+            
+        logger.debug(f"Mind state - Energy: {bot_mind.energy_level:.2f}, Boredom: {bot_mind.boredom_level:.2f}, Active servers: {len(active_servers)}/{len(client.guilds)}")
             
     except Exception as e:
         logger.error(f"Error in thought cycle: {e}", exc_info=True)

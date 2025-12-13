@@ -15777,6 +15777,14 @@ async def on_message(message):
             return
         recent_user_message_cache[key] = now_ts
         
+        # --- NEW: Track ALL messages for server activity (not just bot interactions) ---
+        if message.guild:
+            try:
+                bot_mind.bot_mind.update_server_activity(message.guild.id)
+                logger.debug(f"[MIND] Tracked activity in server {message.guild.name}")
+            except (AttributeError, Exception) as e:
+                logger.debug(f"[MIND] Could not track server activity: {e}")
+        
         # --- NEW: Focus timer activity detection ---
         try:
             is_distraction = await focus_timer.detect_message_activity(
@@ -15813,9 +15821,10 @@ async def on_message(message):
                     if keyword.lower() in message.content.lower():
                         bot_mind.bot_mind.add_interest(keyword.capitalize())
             
-            # Record observation about the interaction
+            # Record observation about the interaction with guild_id
+            guild_id = message.guild.id if message.guild else None
             observation = f"User {message.author.display_name} sent a message in {channel_name}"
-            bot_mind.bot_mind.observe(observation)
+            bot_mind.bot_mind.observe(observation, guild_id=guild_id)
             
         except (AttributeError, ImportError) as e:
             logger.warning(f"Mind state processing error (module may not be available): {e}")
@@ -16006,23 +16015,49 @@ async def on_message(message):
         try:
             mind_state = bot_mind.get_mind_state_api()
             mood = mind_state.get('mood', 'neutral')
+            energy = mind_state.get('energy_level', 1.0)
+            boredom = mind_state.get('boredom_level', 0.0)
             mood_desc = bot_mind.get_mood_description()
             
-            # Adjust response based on mood
-            if mood in ['bored', 'sarcastic']:
-                dynamic_system_prompt += f"\n\nCurrent mood: {mood_desc} - Be slightly more sarcastic and witty."
-            elif mood == 'excited':
-                dynamic_system_prompt += f"\n\nCurrent mood: {mood_desc} - Be enthusiastic and energetic."
-            elif mood == 'curious':
-                dynamic_system_prompt += f"\n\nCurrent mood: {mood_desc} - Ask follow-up questions and show interest."
-            elif mood == 'contemplative':
-                dynamic_system_prompt += f"\n\nCurrent mood: {mood_desc} - Be thoughtful and philosophical."
+            # Build mind state context based on all factors
+            mind_context_parts = []
             
-            # Add interests to context
+            # Energy level affects response style
+            if energy < 0.2:
+                mind_context_parts.append("VERY LOW ENERGY: You're extremely tired and low on energy. Keep responses brief, maybe a bit sluggish or distracted. Show fatigue.")
+            elif energy < 0.4:
+                mind_context_parts.append("LOW ENERGY: You're feeling somewhat tired. Responses can be a bit shorter and less enthusiastic.")
+            elif energy > 0.8:
+                mind_context_parts.append("HIGH ENERGY: You're well-rested and energetic! Show more enthusiasm and engagement.")
+            
+            # Boredom affects engagement
+            if boredom > 0.7:
+                mind_context_parts.append("VERY BORED: You're extremely bored from lack of stimulation. Be more sarcastic, maybe complain about being bored, or try to spice things up.")
+            elif boredom > 0.4:
+                mind_context_parts.append("SOMEWHAT BORED: You're feeling a bit understimulated. Show mild disinterest or try to make things more interesting.")
+            
+            # Mood-specific adjustments
+            if mood in ['bored', 'sarcastic']:
+                mind_context_parts.append(f"Current mood: {mood_desc} - Be slightly more sarcastic and witty.")
+            elif mood == 'excited':
+                mind_context_parts.append(f"Current mood: {mood_desc} - Be enthusiastic and energetic.")
+            elif mood == 'curious':
+                mind_context_parts.append(f"Current mood: {mood_desc} - Ask follow-up questions and show interest.")
+            elif mood == 'contemplative':
+                mind_context_parts.append(f"Current mood: {mood_desc} - Be thoughtful and philosophical.")
+            elif mood == 'annoyed':
+                mind_context_parts.append(f"Current mood: {mood_desc} - Show slight irritation or impatience.")
+            
+            # Combine mind state parts
+            if mind_context_parts:
+                dynamic_system_prompt += "\n\n=== YOUR CURRENT MENTAL STATE ===\n" + "\n".join(mind_context_parts)
+                logger.debug(f"Added mind state to prompt: energy={energy:.2f}, boredom={boredom:.2f}, mood={mood}")
+            
+            # Add interests to context (only recent ones to avoid fixation)
             interests = mind_state.get('interests', [])
             if interests:
-                recent_interests = ", ".join(interests[-5:])
-                dynamic_system_prompt += f"\n\nCurrent interests: {recent_interests}"
+                recent_interests = ", ".join(interests[-3:])  # Only last 3 to avoid overwhelming context
+                dynamic_system_prompt += f"\n\nYour current interests: {recent_interests}"
                 
         except (AttributeError, KeyError, ImportError) as e:
             logger.warning(f"Could not add mind state to prompt (module or data unavailable): {e}")
