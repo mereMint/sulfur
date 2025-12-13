@@ -12,7 +12,7 @@ A feature-rich Discord bot with AI capabilities, economy system, mini-games, and
 - 🎮 **Complete Game Suite** - Werwolf, Blackjack, Roulette, Mines, Tower, Russian Roulette, Detective
 - 💰 **Full Economy System** - Virtual currency, shop, daily rewards, quests, stock market
 - 🤖 **Advanced AI** - Multi-model support (Gemini, OpenAI), vision capabilities
-- 🎵 **Lofi Music Player** - Stream relaxing lofi music for focus sessions
+- 🎵 **Music & Sounds Player** - Stream lofi, ambient sounds, no-copyright music, and Spotify-based mixes
 - 📊 **Web Dashboard** - Real-time monitoring, AI usage tracking, database management
 - 🔧 **Zero Maintenance** - Auto-updates, auto-backups, self-healing scripts
 - 📱 **Cross-Platform** - Windows, Linux, Android/Termux support
@@ -27,7 +27,7 @@ Use `/help` in Discord to see all available commands organized by category:
 - 📊 **Profile & Stats** - Profile, Leaderboards (Level, Money, Werwolf, Games), Summary, Spotify stats
 - 🎭 **Werwolf** - Multiplayer werewolf game with voice channels
 - 🎤 **Voice** - Join-to-create voice channels with custom settings
-- 🎵 **Lofi Music** - Stream relaxing lofi beats while you work or chill
+- 🎵 **Music & Sounds** - Stream lofi, ambient sounds, no-copyright music, and personalized Spotify mixes
 - ⏱️ **Focus Timer** - Pomodoro and custom timers with activity monitoring
 - ⚙️ **Other** - News, Privacy, Wrapped statistics
 
@@ -108,11 +108,16 @@ python bot.py
 - **Conversation Context** - Natural follow-up conversations
 - **Smart Emoji Analysis** - AI-powered custom emoji descriptions
 
-### 🎵 Lofi Music Player
-- **Streaming** - Play unlimited lofi music in voice channels
-- **Multiple Streams** - Choose between study/relax or sleep/chill beats
+### 🎵 Music & Sounds Player
+- **Multiple Station Types** - Lofi beats, ambient sounds, no-copyright music
+- **9+ Stations** - Rain, ocean, fireplace, coffee shop ambience, and more
+- **Spotify Integration** - Personalized stations based on your listening history
+- **Auto-Disconnect** - Bot automatically leaves when alone (after 2 minutes)
+- **Ephemeral Controls** - Clean interface with private command responses
 - **Focus Integration** - Perfect companion for focus timer sessions
-- **Simple Commands** - Easy start/stop controls
+- **Simple Commands** - Use `/music` for all audio needs
+
+See [`docs/MUSIC_PLAYER.md`](docs/MUSIC_PLAYER.md) for detailed usage and features.
 
 ### ⏱️ Focus Timer
 - **Pomodoro Presets** - Short, Long, Ultra, and Sprint sessions
@@ -247,7 +252,7 @@ Features:
 pip install -r requirements.txt
 ```
 
-### Lofi Music Not Working
+### Music Player Not Working
 
 **FFmpeg not found:**
 ```bash
