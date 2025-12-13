@@ -30,7 +30,7 @@
     "emoji_analysis_on_startup": true
   },
   "api": {
-    "provider": "gemini",
+    "provider": "openai",
     "timeout": 30,
     "vision_model": "gemini-2.0-flash-exp",
     "gemini": {
@@ -57,7 +57,7 @@
       "chat_model": "gpt-4o-mini",
       "utility_model": "gpt-4o-mini",
       "vision_model": "gpt-4o",
-      "chat_temperature": 0.7,
+      "chat_temperature": 0.6,
       "chat_max_tokens": 2048,
       "utility_temperature": 0.8,
       "utility_max_tokens": 800,
