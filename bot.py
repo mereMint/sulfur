@@ -15891,6 +15891,24 @@ async def on_message(message):
                     pass  # Can't send DM
         except Exception as e:
             logger.error(f"Error in focus timer detection: {e}")
+    
+    # --- NEW: Handle text messages during active voice calls ---
+    if not message.author.bot and message.content:
+        try:
+            from modules.voice_conversation import handle_text_in_voice_call
+            handled = await handle_text_in_voice_call(
+                message,
+                config,
+                GEMINI_API_KEY,
+                OPENAI_API_KEY,
+                system_prompt
+            )
+            if handled:
+                logger.info(f"Message from {message.author.name} handled in voice call context")
+                return  # Message was handled in voice call, don't process as normal chat
+        except Exception as e:
+            logger.error(f"Error handling text in voice call: {e}", exc_info=True)
+    
     async def run_chatbot(message):
         """Handles the core logic of fetching and sending an AI response."""
         channel_name = f"DM with {message.author.name}" if isinstance(message.channel, discord.DMChannel) else f"#{message.channel.name}"
