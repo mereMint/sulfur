@@ -4891,6 +4891,154 @@ class AdminAIGroup(app_commands.Group):
             logger.error(f"Error in force_voice_call command: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {e}")
 
+    @app_commands.command(name="voice_transcript", description="[Debug] Zeigt das Transkript einer aktiven Voice-Conversation an.")
+    @app_commands.describe(user="Der Benutzer, dessen Voice-Call-Transkript du sehen möchtest (optional - zeigt alle wenn nicht angegeben)")
+    async def voice_transcript(self, interaction: discord.Interaction, user: Optional[discord.Member] = None):
+        """Shows the conversation transcript for an active voice call."""
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            from modules.voice_conversation import get_all_active_calls, get_active_call
+            
+            if user:
+                # Show transcript for specific user
+                call_state = get_active_call(user.id)
+                
+                if not call_state:
+                    await interaction.followup.send(
+                        f"❌ Kein aktiver Voice-Call mit {user.display_name} gefunden.\n"
+                        f"💡 Benutze `/admin debug_voice` um alle aktiven Calls zu sehen."
+                    )
+                    return
+                
+                # Create embed with transcript
+                duration = call_state.get_duration()
+                minutes = duration // 60
+                seconds = duration % 60
+                
+                embed = discord.Embed(
+                    title=f"🎙️ Voice Call Transkript: {user.display_name}",
+                    description=f"**Channel**: {call_state.channel.name}\n"
+                                f"**Duration**: {minutes}m {seconds}s\n"
+                                f"**Messages**: {len(call_state.conversation_history)}",
+                    color=get_embed_color(config),
+                    timestamp=call_state.start_time
+                )
+                
+                if call_state.conversation_history:
+                    # Build transcript text
+                    transcript_lines = []
+                    for entry in call_state.conversation_history:
+                        timestamp = entry.get('timestamp', '')
+                        # Parse and format timestamp
+                        try:
+                            from datetime import datetime
+                            dt = datetime.fromisoformat(timestamp)
+                            time_str = dt.strftime('%H:%M:%S')
+                        except:
+                            time_str = 'N/A'
+                        
+                        speaker = entry.get('speaker', 'Unknown')
+                        text = entry.get('text', '')
+                        
+                        # Truncate long messages
+                        if len(text) > 100:
+                            text = text[:97] + "..."
+                        
+                        transcript_lines.append(f"`[{time_str}]` **{speaker}**: {text}")
+                    
+                    # Discord field value limit is 1024 characters
+                    # Split into multiple fields if needed
+                    current_field = []
+                    current_length = 0
+                    field_num = 1
+                    
+                    for line in transcript_lines:
+                        line_length = len(line) + 1  # +1 for newline
+                        
+                        if current_length + line_length > 1024:
+                            # Add current field
+                            embed.add_field(
+                                name=f"📝 Transkript (Teil {field_num})" if field_num > 1 else "📝 Transkript",
+                                value="\n".join(current_field),
+                                inline=False
+                            )
+                            current_field = [line]
+                            current_length = line_length
+                            field_num += 1
+                        else:
+                            current_field.append(line)
+                            current_length += line_length
+                    
+                    # Add remaining lines
+                    if current_field:
+                        embed.add_field(
+                            name=f"📝 Transkript (Teil {field_num})" if field_num > 1 else "📝 Transkript",
+                            value="\n".join(current_field),
+                            inline=False
+                        )
+                else:
+                    embed.add_field(
+                        name="📝 Transkript",
+                        value="*Noch keine Nachrichten in diesem Call*",
+                        inline=False
+                    )
+                
+                embed.set_footer(text=f"Angefordert von {interaction.user.display_name}")
+                await interaction.followup.send(embed=embed)
+                logger.info(f"Admin {interaction.user.name} viewed voice transcript for {user.display_name}")
+                
+            else:
+                # Show summary of all active calls with message counts
+                active_calls = get_all_active_calls()
+                
+                if not active_calls:
+                    await interaction.followup.send(
+                        "❌ Keine aktiven Voice-Calls gefunden.\n"
+                        "💡 Nutze `/admin force_voice_call` um einen Call zu starten."
+                    )
+                    return
+                
+                embed = discord.Embed(
+                    title="🎙️ Voice Call Transkripte - Übersicht",
+                    description=f"Aktive Calls: **{len(active_calls)}**\n"
+                                f"Wähle einen Benutzer mit `/admin voice_transcript user:<name>` für Details.",
+                    color=get_embed_color(config)
+                )
+                
+                for call_state in active_calls[:10]:  # Show max 10
+                    duration = call_state.get_duration()
+                    minutes = duration // 60
+                    seconds = duration % 60
+                    
+                    # Get last 3 messages as preview
+                    preview_lines = []
+                    for entry in list(call_state.conversation_history)[-3:]:
+                        speaker = entry.get('speaker', 'Unknown')
+                        text = entry.get('text', '')
+                        if len(text) > 50:
+                            text = text[:47] + "..."
+                        preview_lines.append(f"**{speaker}**: {text}")
+                    
+                    preview = "\n".join(preview_lines) if preview_lines else "*Keine Nachrichten*"
+                    
+                    embed.add_field(
+                        name=f"📞 {call_state.user.display_name}",
+                        value=f"**Channel**: {call_state.channel.name}\n"
+                              f"**Duration**: {minutes}m {seconds}s\n"
+                              f"**Messages**: {len(call_state.conversation_history)}\n"
+                              f"**Letzte Nachrichten**:\n{preview}",
+                        inline=False
+                    )
+                
+                embed.set_footer(text=f"Angefordert von {interaction.user.display_name}")
+                await interaction.followup.send(embed=embed)
+                logger.info(f"Admin {interaction.user.name} viewed voice transcript overview")
+                
+        except Exception as e:
+            logger.error(f"Error in voice_transcript command: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error: {e}")
+
     @app_commands.command(name="debug_memory", description="[Debug] Zeigt den Speicherzustand des Bots an.")
     async def debug_memory(self, interaction: discord.Interaction):
         """Shows bot memory state."""
