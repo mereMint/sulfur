@@ -444,6 +444,9 @@ async def get_werwolf_tts_message(event_text, config, gemini_key, openai_key):
                             if input_tokens > 0 or output_tokens > 0:
                                 from modules.db_helpers import log_api_usage
                                 await log_api_usage(fallback_model, input_tokens, output_tokens)
+                        else:
+                            error_text = await response.text()
+                            print(f"Fallback OpenAI API Error (Status {response.status}): {error_text}")
             except Exception as e:
                 print(f"Fallback to OpenAI failed for TTS: {e}")
         
@@ -535,6 +538,10 @@ async def get_random_names(count, db_helpers, config, gemini_key, openai_key):
                                 if input_tokens > 0 or output_tokens > 0:
                                     from modules.db_helpers import log_api_usage
                                     await log_api_usage(fallback_model, input_tokens, output_tokens)
+                                error = None
+                            else:
+                                error_text = await response.text()
+                                print(f"  [WW] Fallback OpenAI API Error (Status {response.status}): {error_text}")
                 except Exception as e:
                     print(f"  [WW] Fallback to OpenAI failed: {e}")
             
