@@ -61,6 +61,17 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
         logger.error("Install edge-tts with: pip install edge-tts")
         return None
     
+    # Validate input text
+    if not text or not isinstance(text, str):
+        logger.error("TTS text is None or not a string")
+        return None
+    
+    # Strip whitespace and check if text is empty
+    text_stripped = text.strip()
+    if not text_stripped:
+        logger.error("TTS text is empty or contains only whitespace")
+        return None
+    
     try:
         # Create temp file if output not specified
         if output_file is None:
@@ -73,10 +84,10 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
             output_file = temp_file.name
             temp_file.close()
         
-        # Generate TTS
-        logger.debug(f"Generating TTS for text: {text[:50]}...")
+        # Generate TTS with validated text
+        logger.debug(f"Generating TTS for text: {text_stripped[:50]}...")
         communicate = edge_tts.Communicate(
-            text=text,
+            text=text_stripped,
             voice=SULFUR_VOICE,
             rate=VOICE_RATE,
             pitch=VOICE_PITCH
@@ -98,7 +109,14 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
         logger.debug(f"Generated TTS audio: {output_file} ({file_size} bytes)")
         return output_file
     except Exception as e:
-        logger.error(f"Error generating TTS: {e}", exc_info=True)
+        # Provide more detailed error information
+        error_type = type(e).__name__
+        logger.error(f"Error generating TTS ({error_type}): {e}", exc_info=True)
+        
+        # Log additional context for debugging
+        logger.error(f"TTS parameters - Voice: {SULFUR_VOICE}, Rate: {VOICE_RATE}, Pitch: {VOICE_PITCH}")
+        logger.error(f"Text length: {len(text_stripped)} characters")
+        
         # Clean up partial file if it exists
         if output_file and os.path.exists(output_file):
             try:
@@ -180,6 +198,11 @@ async def speak_in_channel(
     try:
         if not voice_client or not voice_client.is_connected():
             logger.error("Voice client not connected")
+            return False
+        
+        # Validate text before attempting TTS
+        if not text or not text.strip():
+            logger.error("Cannot speak empty or whitespace-only text")
             return False
         
         # Stop current playback if any

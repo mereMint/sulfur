@@ -5,13 +5,18 @@ Implements Neuro-sama-like voice interaction including:
 - Text-to-speech (TTS) output
 - Text-based interaction during calls (speech-to-text requires additional setup)
 - Auto-leave when channel is empty
-- Automatic channel cleanup
+- Automatic channel and category cleanup
 - Conversation state tracking
+- Voice Activity Detection (VAD) support
 
 NOTE: Discord.py 2.x does not include built-in audio receiving.
 For speech-to-text functionality, you have two options:
 1. Use text messages in the voice channel (current implementation)
 2. Install discord-ext-voice-recv for audio receiving (advanced)
+
+Voice Activity Detection (VAD):
+When using audio receiving (option 2), VAD ensures we only process audio
+when a user is actually speaking, reducing CPU usage and API costs.
 """
 
 import asyncio
@@ -53,6 +58,12 @@ TRANSCRIPTION_CONFIDENCE_THRESHOLD = 0.5  # Minimum confidence for transcription
 EMPTY_CHANNEL_TIMEOUT_SECONDS = 30  # Auto-leave after 30 seconds if no other users
 CONNECTION_STABILIZATION_DELAY = 1.0  # Delay in seconds after connecting before speaking
 
+# Voice Activity Detection (VAD) settings
+VAD_ENABLED = True  # Enable VAD to only process audio when user is speaking
+VAD_ENERGY_THRESHOLD = 300  # Minimum audio energy to consider as speech (adjust based on testing)
+VAD_SILENCE_DURATION = 1.0  # Seconds of silence to consider speech ended
+VAD_MIN_SPEECH_DURATION = 0.3  # Minimum duration to consider as actual speech (filter out noise)
+
 
 class VoiceCallState:
     """Manages state for an active voice call."""
@@ -68,6 +79,7 @@ class VoiceCallState:
         self.transcription_queue = asyncio.Queue()
         self.response_queue = asyncio.Queue()
         self.temp_channel: Optional[discord.VoiceChannel] = None  # Track if this is a temporary channel
+        self.temp_category: Optional[discord.CategoryChannel] = None  # Track if we created the category
         self.empty_since: Optional[datetime] = None  # Track when channel became empty
         
     def update_activity(self):
@@ -118,6 +130,86 @@ class VoiceCallState:
 
 # --- Global state ---
 _active_calls: Dict[int, VoiceCallState] = {}  # user_id -> VoiceCallState
+
+
+# --- Voice Activity Detection (VAD) Helper Functions ---
+
+def detect_voice_activity(audio_data: bytes, sample_rate: int = 48000) -> bool:
+    """
+    Detect if audio data contains voice activity.
+    
+    This is a simple energy-based VAD implementation. For production use,
+    consider using more advanced VAD like WebRTC VAD or Silero VAD.
+    
+    Args:
+        audio_data: Raw PCM audio data
+        sample_rate: Audio sample rate in Hz
+        
+    Returns:
+        True if voice activity is detected, False otherwise
+    """
+    if not VAD_ENABLED or not audio_data:
+        return False
+    
+    try:
+        import struct
+        import math
+        
+        # Convert bytes to 16-bit integers
+        samples = struct.unpack(f"{len(audio_data)//2}h", audio_data)
+        
+        # Calculate RMS (Root Mean Square) energy
+        sum_squares = sum(sample * sample for sample in samples)
+        rms = math.sqrt(sum_squares / len(samples))
+        
+        # Check if energy exceeds threshold
+        return rms > VAD_ENERGY_THRESHOLD
+        
+    except Exception as e:
+        logger.debug(f"VAD error: {e}")
+        return False
+
+
+async def filter_audio_by_vad(audio_chunks: List[bytes], sample_rate: int = 48000) -> List[bytes]:
+    """
+    Filter audio chunks to only include those with voice activity.
+    
+    Args:
+        audio_chunks: List of audio data chunks
+        sample_rate: Audio sample rate
+        
+    Returns:
+        Filtered list of audio chunks containing speech
+    """
+    if not VAD_ENABLED:
+        return audio_chunks
+    
+    filtered_chunks = []
+    speech_detected = False
+    silence_start = None
+    
+    for chunk in audio_chunks:
+        has_speech = detect_voice_activity(chunk, sample_rate)
+        
+        if has_speech:
+            speech_detected = True
+            silence_start = None
+            filtered_chunks.append(chunk)
+        elif speech_detected:
+            # In potential silence period after speech
+            if silence_start is None:
+                silence_start = datetime.now()
+            
+            silence_duration = (datetime.now() - silence_start).total_seconds()
+            
+            if silence_duration < VAD_SILENCE_DURATION:
+                # Still within silence threshold, keep the chunk
+                filtered_chunks.append(chunk)
+            else:
+                # Silence too long, end of speech
+                break
+    
+    return filtered_chunks
 
 
 async def initiate_voice_call(user: discord.Member, config: dict, create_temp_channel: bool = True, invite_users: list = None) -> Optional[VoiceCallState]:
@@ -175,9 +267,12 @@ async def initiate_voice_call(user: discord.Member, config: dict, create_temp_ch
             
             # Find or create a category for temporary channels
             category = discord.utils.get(guild.categories, name="📞 Bot Calls")
+            category_created = False
             if not category:
                 try:
                     category = await guild.create_category("📞 Bot Calls", reason="Temporary voice call channels")
+                    category_created = True
+                    logger.info(f"Created temporary category: 📞 Bot Calls")
                 except discord.Forbidden:
                     logger.warning("Cannot create category, using default location")
                     category = None
@@ -252,6 +347,7 @@ async def initiate_voice_call(user: discord.Member, config: dict, create_temp_ch
         else:
             # Use existing channel
             voice_channel = user.voice.channel
+            category_created = False  # Not creating a category in this case
             await user.send("📞 Sulfur möchte dich anrufen! Ich werde deinem Voice Channel beitreten...")
         
         # Join voice channel
@@ -261,6 +357,7 @@ async def initiate_voice_call(user: discord.Member, config: dict, create_temp_ch
         call_state = VoiceCallState(voice_channel, user)
         call_state.voice_client = voice_client
         call_state.temp_channel = voice_channel if temp_channel_created else None
+        call_state.temp_category = category if (temp_channel_created and category_created) else None
         _active_calls[user.id] = call_state
         
         logger.info(f"Initiated voice call with {user.name} in channel {voice_channel.name}")
@@ -365,6 +462,30 @@ async def end_voice_call(user_id: int, reason: str = "normal"):
                 logger.warning(f"Temporary channel {call_state.temp_channel.name} already deleted")
             except Exception as del_error:
                 logger.error(f"Error deleting temporary channel: {del_error}")
+        
+        # Delete temporary category if it was created and is now empty
+        if call_state.temp_category:
+            try:
+                # Refresh category to get current state
+                guild = call_state.temp_category.guild
+                category = guild.get_channel(call_state.temp_category.id)
+                
+                if category and isinstance(category, discord.CategoryChannel):
+                    # Check if category is empty (no channels in it)
+                    if len(category.channels) == 0:
+                        logger.info(f"Deleting empty temporary category: {category.name}")
+                        await category.delete(reason=f"Category is empty after call ended")
+                        logger.info(f"Successfully deleted temporary category")
+                    else:
+                        logger.debug(f"Category {category.name} still has {len(category.channels)} channels, not deleting")
+                else:
+                    logger.debug(f"Category already deleted or not found")
+            except discord.Forbidden:
+                logger.warning(f"No permission to delete temporary category")
+            except discord.NotFound:
+                logger.debug(f"Temporary category already deleted")
+            except Exception as del_error:
+                logger.error(f"Error deleting temporary category: {del_error}")
             
         # Log call duration
         duration = call_state.get_duration()
@@ -405,6 +526,11 @@ async def speak_in_call(call_state: VoiceCallState, text: str):
         
     if not call_state.voice_client or not call_state.voice_client.is_connected():
         logger.warning("Voice client not connected")
+        return
+    
+    # Validate text before attempting TTS
+    if not text or not text.strip():
+        logger.warning("Cannot speak empty or whitespace-only text")
         return
         
     audio_file = None
@@ -557,7 +683,7 @@ async def process_voice_input(
     openai_key: Optional[str] = None
 ) -> Optional[str]:
     """
-    Process voice input from user.
+    Process voice input from user with Voice Activity Detection.
     
     Args:
         call_state: Current call state
@@ -568,6 +694,13 @@ async def process_voice_input(
     Returns:
         Transcribed text or None
     """
+    # Apply Voice Activity Detection to filter out silence
+    if VAD_ENABLED:
+        has_speech = detect_voice_activity(audio_data)
+        if not has_speech:
+            logger.debug("No voice activity detected in audio chunk, skipping processing")
+            return None
+    
     # Save audio to temporary file
     temp_file = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
     temp_path = temp_file.name
