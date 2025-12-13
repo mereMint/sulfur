@@ -1248,7 +1248,9 @@ async def before_update_presence_task():
     await client.wait_until_ready()
 
 # --- NEW: Autonomous messaging task ---
-# Track the last user who was DMed to avoid DMing the same person twice in a row
+# Track the last user who was DMed to avoid DMing the same person twice in a row.
+# NOTE: Using module-level variable for simplicity. This state is intentionally NOT persisted
+# across bot restarts - it's acceptable to potentially DM the same user after a restart.
 last_autonomous_dm_user_id = None
 
 @_tasks.loop(minutes=60)  # Check every hour (reduced from 30 minutes to make DMs rarer)
@@ -1262,9 +1264,10 @@ async def autonomous_messaging_task():
         
         logger.info("Running autonomous messaging check...")
         
-        # Add random chance to make DMs even rarer (50% chance of proceeding)
-        if random.random() > 0.5:
-            logger.debug("Skipping autonomous messaging - random chance check failed")
+        # Add random chance to make DMs even rarer (configurable, default 50%)
+        dm_random_chance = config.get('modules', {}).get('autonomous_behavior', {}).get('dm_random_chance', 0.5)
+        if random.random() > dm_random_chance:
+            logger.debug(f"Skipping autonomous messaging - random chance check failed (chance: {dm_random_chance:.0%})")
             return
         
         # Check boredom level - only proceed if bot is sufficiently bored
@@ -1303,11 +1306,6 @@ async def autonomous_messaging_task():
         
         for member in candidates:
             try:
-                # Skip if this is the last user we DMed (extra safety check)
-                if member.id == last_autonomous_dm_user_id:
-                    logger.debug(f"Skipping {member.display_name} - was last DMed user")
-                    continue
-                
                 # Check if we should contact this user
                 # Use 1 hour minimum cooldown to prevent spam
                 min_cooldown = config.get('modules', {}).get('autonomous_behavior', {}).get('min_dm_cooldown_hours', 1)
