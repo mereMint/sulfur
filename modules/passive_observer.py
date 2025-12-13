@@ -289,8 +289,10 @@ class PassiveObserver:
                 
                 logger.debug(f"[PASSIVE] Generated thought: {thought}")
                 
+            except (AttributeError, KeyError) as e:
+                logger.warning(f"[PASSIVE] Could not store thought in bot mind (module or attribute unavailable): {e}")
             except Exception as e:
-                logger.warning(f"[PASSIVE] Could not store thought in bot mind: {e}")
+                logger.warning(f"[PASSIVE] Unexpected error storing thought in bot mind: {e}", exc_info=True)
             
             # Update last thought time
             self.last_thought_time = datetime.now()
@@ -298,7 +300,13 @@ class PassiveObserver:
             return thought
             
         except Exception as e:
-            logger.error(f"[PASSIVE] Error in observe_message: {e}", exc_info=True)
+            channel_info = f"#{message.channel.name}" if hasattr(message.channel, 'name') else "DM"
+            content_preview = message.content[:50] if message.content else "<no content>"
+            logger.error(
+                f"[PASSIVE] Error in observe_message: {e} "
+                f"(channel: {channel_info}, user: {message.author.display_name}, content: '{content_preview}...')",
+                exc_info=True
+            )
             return None
     
     def get_channel_context(self, channel_id: int) -> Optional[Dict[str, Any]]:
