@@ -309,6 +309,11 @@ async def initiate_voice_call(user: discord.Member, config: dict, create_temp_ch
                     color=discord.Color.blue()
                 )
                 embed.add_field(
+                    name="🎙️ Spracheingabe",
+                    value="Ich kann deine Sprache hören und verstehen! Sprich einfach im Channel.",
+                    inline=False
+                )
+                embed.add_field(
                     name="ℹ️ Hinweis",
                     value="Der Channel wird automatisch gelöscht, sobald ich gehe.",
                     inline=False
@@ -365,23 +370,116 @@ async def initiate_voice_call(user: discord.Member, config: dict, create_temp_ch
         # Wait a moment for the connection to stabilize before speaking
         await asyncio.sleep(CONNECTION_STABILIZATION_DELAY)
         
+        # Check if voice receiving is supported
+        from modules import voice_audio_sink
+        receiving_supported = voice_audio_sink.check_voice_receiving_support()
+        
         # Play greeting
-        greeting_text = "Hey! Ich bin jetzt im Call. Schreib mir eine Nachricht und ich antworte per Sprache!"
+        if receiving_supported.get('discord_voice_recv', False):
+            greeting_text = "Hey! Ich bin jetzt im Call. Ich kann deine Sprache hören - sprich einfach los!"
+        else:
+            greeting_text = "Hey! Ich bin jetzt im Call. Schreib mir eine Nachricht und ich antworte per Sprache!"
+        
         await speak_in_call(call_state, greeting_text)
+        
+        # Try to start receiving audio if supported
+        if receiving_supported.get('discord_voice_recv', False):
+            try:
+                # Get API keys for AI and Whisper
+                import os
+                from dotenv import load_dotenv
+                load_dotenv()
+                gemini_key = os.getenv('GEMINI_API_KEY')
+                openai_key = os.getenv('OPENAI_API_KEY')
+                
+                # Get voice receiver
+                receiver = voice_audio_sink.get_voice_receiver(openai_key)
+                
+                # Define callback for transcribed speech
+                async def on_speech_transcribed(user_id: int, username: str, text: str):
+                    """Handle transcribed speech from user."""
+                    try:
+                        logger.info(f"Voice input from {username}: {text}")
+                        
+                        # Add to conversation history
+                        call_state.add_to_history(username, text)
+                        call_state.update_activity()
+                        
+                        # Get AI response and speak it
+                        # Import here to avoid circular dependency
+                        from modules.advanced_ai import get_advanced_ai_response
+                        
+                        # Load system prompt
+                        system_prompt_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'system_prompt.txt')
+                        try:
+                            with open(system_prompt_path, 'r', encoding='utf-8') as f:
+                                system_prompt = f.read()
+                        except:
+                            system_prompt = "Du bist Sulfur, ein hilfreicher Discord Bot."
+                        
+                        # Get AI response
+                        response, error, metadata = await get_advanced_ai_response(
+                            prompt=text,
+                            user_id=user_id,
+                            channel_id=call_state.channel.id,
+                            username=username,
+                            config=config,
+                            gemini_key=gemini_key,
+                            openai_key=openai_key,
+                            system_prompt=system_prompt,
+                            use_cache=True
+                        )
+                        
+                        if response and not error:
+                            # Speak the response
+                            await speak_in_call(call_state, response)
+                        else:
+                            logger.error(f"AI error in voice call: {error}")
+                            await speak_in_call(call_state, "Sorry, ich hatte einen Fehler. Kannst du das wiederholen?")
+                            
+                    except Exception as e:
+                        logger.error(f"Error processing voice input: {e}", exc_info=True)
+                
+                # Start receiving audio
+                await receiver.start_receiving(voice_client, on_speech_transcribed)
+                logger.info("Started receiving audio from voice channel")
+                
+            except RuntimeError as re:
+                # Voice receiving not supported - fall back to text
+                logger.warning(f"Voice receiving not supported: {re}")
+                logger.info("Using text message input as fallback")
+            except Exception as e:
+                logger.error(f"Error starting audio receiver: {e}", exc_info=True)
+                logger.info("Falling back to text message input")
         
         # Send text instruction
         try:
-            instruction_embed = discord.Embed(
-                title="📞 Voice Call aktiv",
-                description="Ich bin jetzt im Voice-Channel! Da ich deine Sprache (noch) nicht hören kann, "
-                           "**schreib mir einfach Nachrichten in einem Text-Channel** und ich antworte per Sprache.",
-                color=discord.Color.green()
-            )
-            instruction_embed.add_field(
-                name="💡 Tipp",
-                value="Ich reagiere auf deine Nachrichten mit 🎙️ und antworte dann im Voice-Channel.",
-                inline=False
-            )
+            if receiving_supported.get('discord_voice_recv', False):
+                instruction_embed = discord.Embed(
+                    title="📞 Voice Call aktiv",
+                    description="Ich bin jetzt im Voice-Channel und kann deine Sprache hören!\n\n"
+                               "**🎙️ Sprich einfach** - ich verstehe Deutsch und antworte per Sprache.\n"
+                               "Alternativ kannst du auch **Nachrichten schreiben**.",
+                    color=discord.Color.green()
+                )
+                instruction_embed.add_field(
+                    name="🤖 Spracherkennung",
+                    value="Ich verwende automatische Spracherkennung für Deutsch.",
+                    inline=False
+                )
+            else:
+                instruction_embed = discord.Embed(
+                    title="📞 Voice Call aktiv",
+                    description="Ich bin jetzt im Voice-Channel! Da ich deine Sprache (noch) nicht hören kann, "
+                               "**schreib mir einfach Nachrichten in einem Text-Channel** und ich antworte per Sprache.",
+                    color=discord.Color.green()
+                )
+                instruction_embed.add_field(
+                    name="💡 Tipp",
+                    value="Ich reagiere auf deine Nachrichten mit 🎙️ und antworte dann im Voice-Channel.",
+                    inline=False
+                )
+            
             instruction_embed.add_field(
                 name="⏱️ Auto-Leave",
                 value=f"Ich verlasse den Channel automatisch nach {EMPTY_CHANNEL_TIMEOUT_SECONDS} Sekunden, "
@@ -404,7 +502,7 @@ async def initiate_voice_call(user: discord.Member, config: dict, create_temp_ch
         return call_state
         
     except discord.Forbidden:
-        logger.warning(f"No permission to join voice channel {voice_channel.name}")
+        logger.warning(f"No permission to join voice channel {voice_channel.name if voice_channel else 'unknown'}")
         await user.send("❌ Ich habe keine Berechtigung, deinem Voice Channel beizutreten.")
         return None
     except Exception as e:
@@ -427,6 +525,16 @@ async def end_voice_call(user_id: int, reason: str = "normal"):
     call_state = _active_calls[user_id]
     
     try:
+        # Stop receiving audio if it was started
+        try:
+            from modules import voice_audio_sink
+            receiver = voice_audio_sink.get_voice_receiver()
+            if call_state.voice_client:
+                await receiver.stop_receiving(call_state.voice_client)
+                logger.info("Stopped receiving audio")
+        except Exception as e:
+            logger.debug(f"Error stopping audio receiver (may not have been started): {e}")
+        
         # Play goodbye message (skip if empty channel to avoid delay)
         if reason == "timeout":
             goodbye_text = "Der Call ist jetzt schon ziemlich lange. Ich gehe mal, bis später!"

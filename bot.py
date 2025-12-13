@@ -1113,6 +1113,43 @@ async def on_ready():
         print("  -> Sport betting sync and settle task started")
     
     # --- NEW: Start voice call monitoring task ---
+    # First check voice system dependencies
+    print("Checking voice system dependencies...")
+    try:
+        from modules import voice_tts
+        from modules import voice_audio_sink
+        
+        voice_system_ready = voice_tts.log_voice_system_status()
+        
+        # Also check voice receiving capabilities
+        print("Checking voice receiving capabilities...")
+        voice_receiving_ready = voice_audio_sink.log_voice_receiving_status()
+        
+        if voice_system_ready:
+            print("  ✓ Voice system is ready!")
+            # Test TTS connectivity
+            print("  -> Testing TTS connectivity...")
+            tts_working = await voice_tts.test_tts_connectivity()
+            if tts_working:
+                print("  ✓ TTS connectivity test passed!")
+            else:
+                print("  ⚠️  TTS connectivity test failed - voice features may not work properly")
+                print("  -> Check your internet connection and ensure edge-tts service is accessible")
+        else:
+            print("  ⚠️  Voice system has missing dependencies - voice features will be limited")
+            print("  -> See logs above for installation instructions")
+        
+        if voice_receiving_ready:
+            print("  ✓ Voice receiving (STT) is supported!")
+            print("  -> Bot can hear and transcribe German speech in voice channels")
+        else:
+            print("  ⚠️  Voice receiving not fully supported - using text fallback")
+            print("  -> Bot will use text messages during voice calls")
+            
+    except Exception as e:
+        logger.error(f"Error checking voice system: {e}")
+        print(f"  ⚠️  Error checking voice system: {e}")
+    
     # The monitor_voice_calls function has its own error handling and infinite loop
     # It will continue running even if individual calls encounter errors
     try:
