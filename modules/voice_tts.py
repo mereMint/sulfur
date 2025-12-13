@@ -362,19 +362,15 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
                         await asyncio.sleep(retry_delay)
                         continue
                     else:
-                        # Last retry failed due to timeout
+                        # All retries with this voice exhausted
                         logger.warning(f"All {TTS_MAX_RETRIES} retries failed with voice {voice} due to timeouts")
-                        # Don't record failure yet - will try next voice
+                        # Break to try next voice (failure recorded only after all voices exhausted)
                         break
                 
                 # Verify the file was created and has content
                 if not os.path.exists(output_file):
                     logger.warning(f"TTS file was not created: {output_file}")
-                    # Record this as a failure since service didn't return data
-                    if attempt == TTS_MAX_RETRIES - 1:
-                        # Last attempt with this voice failed
-                        logger.debug("Recording file creation failure")
-                    # Try next attempt
+                    # Try next attempt or next voice
                     continue
                 
                 file_size = os.path.getsize(output_file)
@@ -384,11 +380,7 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
                         os.remove(output_file)
                     except (OSError, FileNotFoundError):
                         pass
-                    # Record this as a failure since service returned empty data
-                    if attempt == TTS_MAX_RETRIES - 1:
-                        # Last attempt with this voice failed
-                        logger.debug("Recording empty file failure")
-                    # Try next attempt
+                    # Try next attempt or next voice
                     continue
                 
                 # Success!
