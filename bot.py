@@ -73,6 +73,7 @@ from modules import bot_mind  # NEW: Bot mind state and consciousness
 from modules import personality_evolution  # NEW: Personality evolution and learning system
 from modules import advanced_ai  # NEW: Advanced AI reasoning and intelligence
 from modules import voice_conversation  # NEW: Voice call capabilities
+from modules import passive_observer  # NEW: Passive message observation and thinking
 from modules.bot_enhancements import (
     handle_image_attachment,
     handle_unknown_emojis_in_message,
@@ -1111,6 +1112,11 @@ async def on_ready():
     if not sport_betting_sync_and_settle_task.is_running():
         sport_betting_sync_and_settle_task.start()
         print("  -> Sport betting sync and settle task started")
+    
+    # --- NEW: Start passive observer cleanup task ---
+    if not cleanup_passive_observer.is_running():
+        cleanup_passive_observer.start()
+        print("  -> Passive observer cleanup task started")
     
     # --- NEW: Start voice call monitoring task ---
     # First check voice system dependencies
@@ -2522,6 +2528,23 @@ async def sport_betting_sync_and_settle_task():
 
 @sport_betting_sync_and_settle_task.before_loop
 async def before_sport_betting_sync_and_settle():
+    await client.wait_until_ready()
+
+
+# --- NEW: Passive observer cleanup task ---
+@tasks.loop(hours=1)
+async def cleanup_passive_observer():
+    """Periodically clean up old passive observer data."""
+    try:
+        observer = passive_observer.get_passive_observer()
+        observer.cleanup_old_data()
+        logger.debug("[PASSIVE] Cleaned up old observer data")
+    except Exception as e:
+        logger.error(f"[PASSIVE] Error in cleanup_passive_observer: {e}", exc_info=True)
+
+@cleanup_passive_observer.before_loop
+async def before_cleanup_passive_observer():
+    """Wait for bot to be ready before starting cleanup loop."""
     await client.wait_until_ready()
 
 
@@ -16087,6 +16110,17 @@ async def on_message(message):
                 logger.debug(f"[MIND] Tracked activity in server {message.guild.name}")
             except AttributeError as ae:
                 logger.debug(f"[MIND] Bot mind module not available: {ae}")
+        
+        # --- NEW: Passive observation and thinking about messages ---
+        # The bot observes messages even when not mentioned to build context and awareness
+        if message.guild and not message.content.startswith('/'):
+            try:
+                observer = passive_observer.get_passive_observer()
+                thought = await observer.observe_message(message, bot_mind, config)
+                if thought:
+                    logger.info(f"[PASSIVE] Bot thought: {thought}")
+            except Exception as e:
+                logger.debug(f"[PASSIVE] Observation error: {e}")
         
         # --- NEW: Focus timer activity detection ---
         try:

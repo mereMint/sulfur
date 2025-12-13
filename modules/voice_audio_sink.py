@@ -37,8 +37,49 @@ except ImportError:
     AIOHTTP_AVAILABLE = False
     logger.warning("aiohttp not available for Whisper API")
 
+# Check for discord.sinks (voice receiving support)
+try:
+    from discord import sinks as discord_sinks
+    DISCORD_SINKS_AVAILABLE = True
+    logger.info("discord.sinks module available - voice receiving supported")
+except (ImportError, AttributeError):
+    DISCORD_SINKS_AVAILABLE = False
+    logger.warning("discord.sinks not available - voice receiving not supported in this discord.py version")
+    logger.info("Voice calls will work, but the bot cannot hear user speech. Users must use text messages during calls.")
 
-class AudioSinkRecorder(discord.sinks.WaveSink):
+
+# Base class for AudioSinkRecorder - use discord.sinks.WaveSink if available, otherwise use object
+if DISCORD_SINKS_AVAILABLE:
+    AudioSinkBase = discord_sinks.WaveSink
+else:
+    # Dummy base class when discord.sinks is not available
+    class AudioSinkBase:
+        """
+        Dummy audio sink base class when discord.sinks is not available.
+        
+        This provides a minimal interface for AudioSinkRecorder to function
+        even when voice receiving is not supported by discord.py.
+        """
+        def __init__(self):
+            """Initialize empty audio data storage."""
+            self.audio_data = {}
+            
+        def write(self, data, user):
+            """
+            Dummy write method - does nothing when voice receiving unavailable.
+            
+            Args:
+                data: Audio data bytes (ignored)
+                user: Discord user (ignored)
+            """
+            pass
+            
+        def cleanup(self):
+            """Dummy cleanup method - does nothing when voice receiving unavailable."""
+            pass
+
+
+class AudioSinkRecorder(AudioSinkBase):
     """
     Custom audio sink for recording voice channel audio.
     
@@ -410,15 +451,8 @@ def check_voice_receiving_support() -> Dict[str, bool]:
     support = {
         'speech_recognition': SPEECH_RECOGNITION_AVAILABLE,
         'aiohttp': AIOHTTP_AVAILABLE,
-        'discord_voice_recv': False,  # Will check dynamically
+        'discord_voice_recv': DISCORD_SINKS_AVAILABLE,
     }
-    
-    # Check if discord.py supports voice receiving
-    try:
-        # Check for WaveSink (discord.py 2.x voice receive)
-        support['discord_voice_recv'] = hasattr(discord.sinks, 'WaveSink')
-    except AttributeError:
-        support['discord_voice_recv'] = False
     
     return support
 
