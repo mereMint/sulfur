@@ -1,22 +1,44 @@
 # Voice TTS/STT Troubleshooting Guide
 
-## Problem: "NoAudioReceived" errors and voice not working
+## Problem: "NoAudioReceived" errors and voice features not working
 
-This guide helps you diagnose and fix issues with the bot's voice features (TTS and STT).
+This guide helps you diagnose and fix issues with the bot's voice features.
 
 ---
 
-## Understanding the Issue
+## Understanding Voice Capabilities
 
-The bot's voice functionality has two parts:
+### What Works with discord.py (Current Setup)
 
-1. **TTS (Text-to-Speech)**: Bot speaking responses in voice channels
-   - Requires: `edge-tts` package and internet connection
-   - Service: Microsoft Edge TTS
+The bot uses **discord.py 2.4+** which supports:
 
-2. **STT (Speech-to-Text)**: Bot hearing and understanding your voice
-   - Requires: `py-cord` (not standard discord.py) + `SpeechRecognition`
-   - Fallback: Text messages during voice calls
+✅ **TTS (Text-to-Speech)**: Bot can speak in voice channels
+- Uses Microsoft Edge TTS service (free)
+- Works perfectly with discord.py
+
+❌ **STT (Speech-to-Text)**: Bot CANNOT hear you speak
+- discord.py does NOT include voice receiving (`discord.sinks`)
+- Only available in py-cord, which breaks the bot
+- **Solution**: Use text messages during voice calls
+
+### Why Not Use Py-Cord?
+
+**Py-cord is incompatible with this bot.**
+
+- This bot uses `discord.app_commands` for slash commands
+- Py-cord uses `discord.commands` instead (different API)
+- Installing py-cord will break all slash commands
+- The bot explicitly checks for and rejects py-cord
+
+### How Voice Calls Work
+
+**With discord.py (Current Setup):**
+1. Bot joins voice channel ✅
+2. Bot speaks via TTS ✅
+3. You type messages in text channel 💬
+4. Bot responds via voice TTS ✅
+
+This is the **intended workflow** and is fully supported.
 
 ---
 
@@ -26,15 +48,15 @@ The bot's voice functionality has two parts:
 
 ```bash
 # Check Python packages
-pip list | grep -E "edge-tts|discord|py-cord|SpeechRecognition"
+pip list | grep -E "edge-tts|discord|SpeechRecognition"
 
-# Expected output for working setup:
+# Expected output for working TTS:
+# discord.py         2.6.x
 # edge-tts           7.2.x
-# py-cord            2.x.x    (with voice support)
-# SpeechRecognition  3.x.x
+# PyNaCl             1.5.x
 #
-# Note: You should have EITHER discord.py OR py-cord, not both
-# For STT (speech-to-text), you MUST use py-cord
+# Note: You should have discord.py, NOT py-cord
+# SpeechRecognition is not used with discord.py
 ```
 
 ### Step 2: Test TTS connectivity
@@ -170,72 +192,13 @@ pip install edge-tts
 
 ---
 
-## Issue 2: STT Not Working (Bot Can't Hear You)
-
-### Symptoms
-```
-Bot says: "Schreib mir eine Nachricht und ich antworte per Sprache!"
-Bot doesn't respond when you speak
-```
-
-### Root Cause
-
-**Standard discord.py does NOT support voice receiving!**
-
-The `discord.py` library version 2.x does not include the `discord.sinks` module needed for receiving audio from voice channels.
-
-### Solution: Use py-cord
-
-**Py-cord** is a fork of discord.py that includes voice receiving support.
-
-#### Installation Steps
-
-```bash
-cd ~/sulfur
-source venv/bin/activate  # Linux/Termux
-# OR
-.\venv\Scripts\Activate.ps1  # Windows
-
-# Uninstall discord.py first
-pip uninstall discord.py
-
-# Install py-cord with voice support
-pip install "py-cord[voice]>=2.6.0"
-
-# Install speech recognition
-pip install SpeechRecognition
-
-# Restart the bot
-```
-
-#### Verify Installation
-
-```python
-# Check if py-cord is installed correctly
-python3 -c "from discord import sinks; print('✓ Voice receiving supported!')"
-```
-
-If this works, the bot will now be able to hear and transcribe your speech!
-
-### Alternative: Use Text Messages
-
-If you don't want to install py-cord, you can still use voice calls:
-
-1. Bot joins voice channel and speaks via TTS
-2. You type messages in a text channel
-3. Bot responds via voice
-
-The bot will automatically detect that voice receiving is not available and fall back to text mode.
-
----
-
-## Issue 3: Both TTS and STT Not Working
+## Issue 1: TTS Not Working (NoAudioReceived Errors)
 
 ### Checklist
 
 1. **Install all dependencies**
    ```bash
-   pip install edge-tts SpeechRecognition "py-cord[voice]"
+   pip install edge-tts PyNaCl
    ```
 
 2. **Install FFmpeg** (required for audio playback)
@@ -251,15 +214,14 @@ The bot will automatically detect that voice receiving is not available and fall
    # Add to PATH
    ```
 
-3. **Install PyNaCl** (required for Discord voice)
+3. **Ensure discord.py is installed (NOT py-cord)**
    ```bash
-   # Termux (special steps)
-   pkg install libsodium clang
-   export SODIUM_INSTALL=system
-   pip install PyNaCl
+   # Check current installation
+   pip show discord.py
    
-   # Linux/Windows
-   pip install PyNaCl
+   # If py-cord is installed, uninstall and reinstall
+   pip uninstall -y py-cord discord.py
+   pip install -r requirements.txt
    ```
 
 4. **Restart the bot**
@@ -273,7 +235,7 @@ The bot will automatically detect that voice receiving is not available and fall
 
 5. **Check bot startup logs**
    ```bash
-   tail -f logs/session_*.log | grep -E "Voice|TTS|STT"
+   tail -f logs/session_*.log | grep -E "Voice|TTS"
    ```
 
    Look for:
@@ -282,33 +244,67 @@ The bot will automatically detect that voice receiving is not available and fall
      edge-tts (TTS):            ✓ Available
      FFmpeg (Audio playback):   ✓ Available
      PyNaCl (Voice encryption): ✓ Available
-     SpeechRecognition (STT):   ✓ Available
    =====================================
      ✓ Voice system is ready!
-   
-   === Voice Receiving System Check ===
-     SpeechRecognition (STT):   ✓ Available
-     aiohttp (Whisper API):     ✓ Available
-     Discord Voice Receiving:   ✓ Supported
-   =====================================
-     ✓ Voice receiving (STT) is supported!
    ```
 
 ---
 
-## Whisper API (Optional, for Better STT Quality)
+## Important: Bot Cannot Hear You Speak
 
-For the best speech recognition quality, use OpenAI's Whisper API:
+**This is expected behavior with discord.py!**
 
-1. Get an OpenAI API key from https://platform.openai.com/
-2. Add to `.env`:
-   ```
-   OPENAI_API_KEY=sk-your-key-here
-   ```
-3. Restart the bot
+The bot uses discord.py which does NOT support voice receiving. When you're in a voice call:
 
-The bot will automatically use Whisper for transcription if the key is available.
-Falls back to Google Speech Recognition if not.
+1. ✅ Bot can **speak** (TTS works)
+2. ❌ Bot **cannot hear** you (STT not available)
+3. 💬 **Solution**: Type messages in any text channel
+
+### Why Can't the Bot Use STT?
+
+- Voice receiving requires `discord.sinks` module
+- This is only available in **py-cord**, not discord.py
+- But py-cord is **incompatible** with this bot's slash command system
+- Installing py-cord will break the entire bot
+
+### How to Interact During Voice Calls
+
+**Correct Way:**
+1. Start voice call: `/admin force_voice_call @user`
+2. Bot joins and speaks: "Schreib mir eine Nachricht..."
+3. Type your message in **any text channel**
+4. Bot responds via voice TTS
+
+**Not Possible:**
+- Speaking into your microphone
+- Bot transcribing your voice
+- Real-time voice conversation
+
+This limitation is by design because the bot prioritizes compatibility with discord.py's slash command system over voice receiving features.
+
+---
+
+## FAQ: Why These Limitations?
+
+**Q: Can't you just add py-cord support?**  
+A: No. The bot uses `discord.app_commands` for all slash commands. Py-cord uses a different system (`discord.commands`). Converting the entire bot would require rewriting thousands of lines of code.
+
+**Q: Why not support both discord.py and py-cord?**  
+A: They use incompatible APIs for commands. You can only use one at a time. This bot chose discord.py for stability and broader compatibility.
+
+**Q: Will STT ever be added?**  
+A: Only if discord.py adds voice receiving support, or if the bot is completely rewritten for py-cord (unlikely).
+
+**Q: Is the text fallback solution good enough?**  
+A: Yes! Many users successfully use voice calls with text input. The bot still speaks naturally via TTS.
+
+---
+
+## Whisper API (Not Applicable with discord.py)
+
+~~For the best speech recognition quality, use OpenAI's Whisper API~~
+
+**Note**: Whisper API is only useful if the bot can receive audio, which requires py-cord. Since this bot uses discord.py, Whisper API cannot be used for voice calls.
 
 ---
 
@@ -325,9 +321,9 @@ pkg install -y ffmpeg libsodium clang python
 python -m venv venv
 source venv/bin/activate
 
-# Install Python packages
+# Install Python packages (discord.py, NOT py-cord)
 export SODIUM_INSTALL=system
-pip install edge-tts SpeechRecognition PyNaCl "py-cord[voice]"
+pip install -r requirements.txt
 
 # Run bot
 python bot.py
@@ -343,7 +339,7 @@ sudo apt install -y ffmpeg
 # Install Python packages
 cd ~/sulfur
 source venv/bin/activate
-pip install edge-tts SpeechRecognition "py-cord[voice]"
+pip install -r requirements.txt
 ```
 
 ### Windows
@@ -357,7 +353,7 @@ pip install edge-tts SpeechRecognition "py-cord[voice]"
    ```powershell
    cd sulfur
    .\venv\Scripts\Activate.ps1
-   pip install edge-tts SpeechRecognition "py-cord[voice]"
+   pip install -r requirements.txt
    ```
 
 ---
@@ -393,25 +389,25 @@ Shows active voice calls and statistics.
 
 ## Summary: What You Need
 
-### For TTS (Bot Speaking)
+### For TTS (Bot Speaking) - ✅ Fully Supported
 - ✅ `edge-tts` package
+- ✅ `discord.py[voice]` (from requirements.txt)
 - ✅ Internet connection
 - ✅ Access to `speech.platform.bing.com`
 - ✅ FFmpeg installed
 - ✅ PyNaCl installed
 
-### For STT (Bot Hearing)
-- ✅ `py-cord[voice]` (not discord.py)
-- ✅ `SpeechRecognition` package
-- ✅ FFmpeg installed
-- ✅ PyNaCl installed
-- ⚠️ Optional: OpenAI API key for Whisper
+### For STT (Bot Hearing) - ❌ Not Available
+- ❌ Not possible with discord.py
+- ❌ Would require py-cord (which breaks the bot)
+- ✅ **Text message fallback works perfectly**
 
-### For Text Fallback (No STT)
-- ✅ Just TTS requirements
-- ℹ️ Bot joins voice and speaks
-- ℹ️ You type messages
-- ℹ️ Bot responds via voice
+### For Voice Calls (Current Setup)
+- ✅ Bot joins voice channel
+- ✅ Bot speaks via TTS
+- ✅ You type messages in text channels
+- ✅ Bot responds via voice TTS
+- ❌ Bot cannot hear you speak (use text instead)
 
 ---
 
@@ -434,9 +430,14 @@ Shows active voice calls and statistics.
 
 4. **Try the manual Python test** (see "Test edge-tts directly" above)
 
-5. **Check if you're using py-cord**:
-   ```python
-   python -c "from discord import sinks; print('Using py-cord')" 2>&1
+5. **Check if you're using discord.py (not py-cord)**:
+   ```bash
+   pip show discord.py
+   # Should show discord.py, NOT py-cord
+   
+   # If py-cord is installed:
+   pip uninstall -y py-cord discord.py
+   pip install -r requirements.txt
    ```
 
 6. **Report the issue** with:
@@ -454,10 +455,11 @@ Shows active voice calls and statistics.
 | NoAudioReceived | edge-tts not installed | `pip install edge-tts` |
 | NoAudioReceived | Service unreachable | Check network/VPN/firewall |
 | NoAudioReceived | Rate limiting | Wait 10 minutes |
-| Bot can't hear | Using discord.py | Install py-cord instead |
+| Bot can't hear | Using discord.py | **Expected behavior** - use text messages |
+| Bot crashes on startup | py-cord installed | Uninstall py-cord, install discord.py |
 | No audio playback | FFmpeg missing | Install FFmpeg |
 | Voice connection fails | PyNaCl missing | Install PyNaCl |
-| Poor STT quality | Using Google STT | Add OPENAI_API_KEY for Whisper |
+| Import error | Mixed discord.py/py-cord | `pip uninstall -y discord.py py-cord && pip install -r requirements.txt` |
 
 ---
 
