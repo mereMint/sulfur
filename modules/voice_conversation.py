@@ -644,8 +644,9 @@ async def monitor_voice_calls():
                     try:
                         # Attempt cleanup for the failed call
                         await end_voice_call(user_id, reason="error")
-                    except:
-                        # Last resort: just remove from active calls
+                    except Exception as cleanup_error:
+                        # Last resort: just remove from active calls if cleanup also fails
+                        logger.error(f"Failed to cleanup call for user {user_id}: {cleanup_error}")
                         _active_calls.pop(user_id, None)
                     
         except Exception as e:
