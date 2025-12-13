@@ -58,6 +58,7 @@ class VoiceCallState:
         self.voice_client: Optional[discord.VoiceClient] = None
         self.transcription_queue = asyncio.Queue()
         self.response_queue = asyncio.Queue()
+        self.temp_channel: Optional[discord.VoiceChannel] = None  # Track if this is a temporary channel
         
     def update_activity(self):
         """Update last activity timestamp."""
@@ -84,13 +85,15 @@ class VoiceCallState:
 _active_calls: Dict[int, VoiceCallState] = {}  # user_id -> VoiceCallState
 
 
-async def initiate_voice_call(user: discord.Member, config: dict) -> Optional[VoiceCallState]:
+async def initiate_voice_call(user: discord.Member, config: dict, create_temp_channel: bool = True, invite_users: list = None) -> Optional[VoiceCallState]:
     """
     Initiate a voice call with a user.
     
     Args:
         user: Discord member to call
         config: Bot configuration
+        create_temp_channel: Whether to create a temporary channel for the call
+        invite_users: List of additional users to invite to the call
         
     Returns:
         VoiceCallState if successful, None otherwise
@@ -100,22 +103,17 @@ async def initiate_voice_call(user: discord.Member, config: dict) -> Optional[Vo
         logger.info("Voice calls are disabled in config")
         return None
         
-    # Check if user is already in a voice channel
-    if not user.voice or not user.voice.channel:
+    # Check if user is already in a voice channel (unless we're creating a temp channel)
+    if not create_temp_channel and (not user.voice or not user.voice.channel):
         logger.info(f"User {user.name} is not in a voice channel")
         return None
         
-    voice_channel = user.voice.channel
-    
     # Check if already in a call with this user
     if user.id in _active_calls:
         logger.info(f"Already in a call with {user.name}")
         return _active_calls[user.id]
         
     try:
-        # Send notification
-        await user.send("📞 Sulfur möchte dich anrufen! Ich werde deinem Voice Channel beitreten...")
-        
         # Check for PyNaCl before attempting to connect
         try:
             import nacl
@@ -132,12 +130,98 @@ async def initiate_voice_call(user: discord.Member, config: dict) -> Optional[Vo
             logger.error("PyNaCl is not installed - cannot use voice features")
             return None
         
+        voice_channel = None
+        temp_channel_created = False
+        
+        if create_temp_channel:
+            # Create a temporary voice channel for the call
+            guild = user.guild
+            
+            # Find or create a category for temporary channels
+            category = discord.utils.get(guild.categories, name="📞 Bot Calls")
+            if not category:
+                try:
+                    category = await guild.create_category("📞 Bot Calls", reason="Temporary voice call channels")
+                except discord.Forbidden:
+                    logger.warning("Cannot create category, using default location")
+                    category = None
+            
+            # Create the temporary voice channel
+            channel_name = f"🤖 Call mit {user.display_name}"
+            try:
+                voice_channel = await guild.create_voice_channel(
+                    name=channel_name,
+                    category=category,
+                    reason="Temporary bot voice call",
+                    user_limit=10  # Limit to prevent abuse
+                )
+                temp_channel_created = True
+                logger.info(f"Created temporary voice channel: {channel_name}")
+            except discord.Forbidden:
+                logger.error("Cannot create voice channel - missing permissions")
+                await user.send("❌ Ich habe keine Berechtigung, einen Voice-Channel zu erstellen.")
+                return None
+                
+            # Send invitation to the primary user
+            try:
+                invite = await voice_channel.create_invite(
+                    max_age=3600,  # 1 hour
+                    max_uses=0,  # Unlimited uses
+                    reason="Bot voice call invitation"
+                )
+                
+                embed = discord.Embed(
+                    title="📞 Sulfur möchte dich anrufen!",
+                    description=f"Ich habe einen temporären Voice-Channel für uns erstellt.\n\n"
+                                f"**Channel:** {voice_channel.mention}\n"
+                                f"**Einladung:** {invite.url}",
+                    color=discord.Color.blue()
+                )
+                embed.add_field(
+                    name="ℹ️ Hinweis",
+                    value="Der Channel wird automatisch gelöscht, sobald ich gehe.",
+                    inline=False
+                )
+                await user.send(embed=embed)
+            except:
+                # Fallback to simple message
+                await user.send(f"📞 Sulfur möchte dich anrufen! Tritt dem Channel {voice_channel.mention} bei!")
+            
+            # Send invitations to additional users if specified
+            if invite_users:
+                for invited_user in invite_users:
+                    if invited_user.id == user.id:
+                        continue  # Skip the primary user
+                    try:
+                        invite = await voice_channel.create_invite(
+                            max_age=3600,
+                            max_uses=0,
+                            reason="Bot voice call invitation"
+                        )
+                        
+                        embed = discord.Embed(
+                            title="📞 Einladung zu einem Voice-Call!",
+                            description=f"Sulfur lädt dich zu einem Call mit {user.display_name} ein.\n\n"
+                                        f"**Channel:** {voice_channel.mention}\n"
+                                        f"**Einladung:** {invite.url}",
+                            color=discord.Color.blue()
+                        )
+                        await invited_user.send(embed=embed)
+                        logger.info(f"Sent call invitation to {invited_user.display_name}")
+                    except Exception as e:
+                        logger.warning(f"Could not invite user {invited_user.display_name}: {e}")
+        else:
+            # Use existing channel
+            voice_channel = user.voice.channel
+            await user.send("📞 Sulfur möchte dich anrufen! Ich werde deinem Voice Channel beitreten...")
+        
         # Join voice channel
         voice_client = await voice_channel.connect()
         
         # Create call state
         call_state = VoiceCallState(voice_channel, user)
         call_state.voice_client = voice_client
+        call_state.temp_channel = voice_channel if temp_channel_created else None
         _active_calls[user.id] = call_state
         
         logger.info(f"Initiated voice call with {user.name} in channel {voice_channel.name}")
@@ -188,6 +272,19 @@ async def end_voice_call(user_id: int, reason: str = "normal"):
         # Disconnect
         if call_state.voice_client and call_state.voice_client.is_connected():
             await call_state.voice_client.disconnect()
+        
+        # Delete temporary channel if it was created
+        if call_state.temp_channel:
+            try:
+                logger.info(f"Deleting temporary voice channel: {call_state.temp_channel.name}")
+                await call_state.temp_channel.delete(reason="Temporary call ended")
+                logger.info(f"Successfully deleted temporary channel")
+            except discord.Forbidden:
+                logger.warning(f"No permission to delete temporary channel {call_state.temp_channel.name}")
+            except discord.NotFound:
+                logger.warning(f"Temporary channel {call_state.temp_channel.name} already deleted")
+            except Exception as del_error:
+                logger.error(f"Error deleting temporary channel: {del_error}")
             
         # Log call duration
         duration = call_state.get_duration()

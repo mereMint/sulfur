@@ -15216,6 +15216,55 @@ async def settings(
         )
 
 
+@tree.command(name="setjoinrole", description="[Admin] Setze eine Rolle, die neue Mitglieder automatisch erhalten")
+@app_commands.describe(role="Die Rolle, die neue Mitglieder erhalten sollen (oder leer lassen zum Deaktivieren)")
+@app_commands.default_permissions(administrator=True)
+@app_commands.check(is_admin_or_authorised)
+async def setjoinrole(interaction: discord.Interaction, role: discord.Role = None):
+    """Set or clear the auto-assign role for new members."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        global config
+        
+        if role is None:
+            # Clear the join role
+            config['bot']['join_role'] = ""
+            save_config(config)
+            
+            embed = discord.Embed(
+                title="✅ Join-Rolle deaktiviert",
+                description="Neue Mitglieder erhalten keine automatische Rolle mehr.",
+                color=discord.Color.green()
+            )
+            await interaction.followup.send(embed=embed)
+            logger.info(f"[Admin] Join role disabled by {interaction.user.display_name}")
+        else:
+            # Set the join role
+            config['bot']['join_role'] = role.name
+            save_config(config)
+            
+            embed = discord.Embed(
+                title="✅ Join-Rolle konfiguriert",
+                description=f"Neue Mitglieder erhalten automatisch die Rolle {role.mention}",
+                color=discord.Color.green()
+            )
+            embed.add_field(
+                name="ℹ️ Hinweis",
+                value="Der Bot benötigt die Berechtigung 'Rollen verwalten' und die Bot-Rolle muss höher als die Join-Rolle sein.",
+                inline=False
+            )
+            await interaction.followup.send(embed=embed)
+            logger.info(f"[Admin] Join role set to '{role.name}' by {interaction.user.display_name}")
+            
+    except Exception as e:
+        logger.error(f"Error in setjoinrole command: {e}", exc_info=True)
+        await interaction.followup.send(
+            f"❌ Fehler beim Setzen der Join-Rolle: {str(e)}",
+            ephemeral=True
+        )
+
+
 @tree.command(name="focus", description="Starte einen Focus-Timer (Pomodoro oder Custom)")
 @app_commands.describe(
     preset="Wähle einen Pomodoro-Preset oder 'custom' für eigene Zeit",
