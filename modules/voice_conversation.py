@@ -28,6 +28,7 @@ from discord import FFmpegPCMAudio
 from modules.logger_utils import bot_logger as logger
 from modules.db_helpers import get_db_connection
 from modules.voice_tts import text_to_speech, EDGE_TTS_AVAILABLE
+from modules.advanced_ai import get_advanced_ai_response
 
 # Try to import speech recognition libraries
 try:
@@ -593,8 +594,6 @@ async def handle_voice_conversation(
         openai_key: OpenAI API key
         system_prompt: System prompt for AI
     """
-    from modules.advanced_ai import get_advanced_ai_response
-    
     try:
         # Get AI response
         response, error, metadata = await get_advanced_ai_response(
@@ -764,8 +763,8 @@ async def handle_text_in_voice_call(
         try:
             await message.add_reaction("🎙️")
         except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
+            # Can't add reaction (missing permissions or message deleted)
             logger.debug(f"Could not add reaction to message: {e}")
-            pass  # Can't add reaction (missing permissions or message deleted)
         
         # Get AI response and speak it
         await handle_voice_conversation(
