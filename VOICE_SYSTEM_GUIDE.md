@@ -8,16 +8,22 @@ The Sulfur bot includes voice call capabilities with Text-to-Speech (TTS) and Sp
 
 ### Core Dependencies (Required for TTS)
 
-1. **edge-tts** - Free Microsoft Edge TTS service
+1. **py-cord[voice]** - Discord library with voice receiving support
+   - Install: `pip install py-cord[voice]`
+   - Replaces standard discord.py
+   - Includes voice receiving with discord.sinks
+   - See [PYCORD_MIGRATION_GUIDE.md](PYCORD_MIGRATION_GUIDE.md) for migration help
+
+2. **edge-tts** - Free Microsoft Edge TTS service
    - Install: `pip install edge-tts`
    - Used for generating speech from text
 
-2. **PyNaCl** - Voice encryption library
+3. **PyNaCl** - Voice encryption library
    - Install: `pip install PyNaCl`
    - Termux requires: `pkg install libsodium clang` first
    - Required for Discord voice connections
 
-3. **FFmpeg** - Audio processing tool
+4. **FFmpeg** - Audio processing tool
    - **Termux**: `pkg install ffmpeg`
    - **Linux**: `sudo apt install ffmpeg`
    - **Windows**: Download from https://ffmpeg.org/download.html
@@ -25,7 +31,7 @@ The Sulfur bot includes voice call capabilities with Text-to-Speech (TTS) and Sp
 
 ### Optional Dependencies (For STT)
 
-4. **SpeechRecognition** - Local speech recognition
+5. **SpeechRecognition** - Local speech recognition
    - Install: `pip install SpeechRecognition`
    - Provides Google Speech Recognition API (free but requires internet)
    - Optional: Use Whisper API with OpenAI key for better quality
@@ -230,25 +236,42 @@ RuntimeError: PyNaCl library needed in order to use voice
 
 ### STT: Transcription Not Working
 
-**Current Limitation:**
-The bot currently uses **text messages as input during voice calls** because Discord.py 2.x doesn't include built-in audio receiving.
+**Solution as of Latest Update:**
+The bot now uses **py-cord** which includes built-in voice receiving support!
 
 **How It Works:**
 1. Bot joins voice channel
 2. Bot speaks responses using TTS
-3. **Users type messages** in a text channel
-4. Bot responds via voice
+3. **Bot can now hear you speak** - Real-time audio capture
+4. Bot transcribes your speech using:
+   - Google Speech Recognition (free, requires internet)
+   - OpenAI Whisper API (best quality, requires API key in .env)
+5. Bot responds via voice TTS
 
-**Future Enhancement:**
-We plan to add `discord-ext-voice-recv` for actual audio receiving and transcription:
-- Capture user voice in real-time
-- Use Whisper API or Google Speech Recognition
-- Fully voice-based conversations
+**Setup Requirements:**
+- Install py-cord: `pip install py-cord[voice]` (done automatically with requirements.txt)
+- Optional: Add `OPENAI_API_KEY` to `.env` for Whisper transcription
+- Ensure FFmpeg and PyNaCl are installed
 
-**Current Workaround:**
-When in a voice call, send text messages in any text channel and the bot will:
-- Add a 🎙️ reaction to your message
-- Respond via TTS in the voice channel
+**Verification:**
+Check bot startup logs for:
+```
+Discord Voice Receiving:   ✓ Supported
+```
+
+If you see `✗ NOT SUPPORTED`, run:
+```bash
+pip uninstall discord.py
+pip install py-cord[voice]
+```
+
+See [PYCORD_MIGRATION_GUIDE.md](PYCORD_MIGRATION_GUIDE.md) for detailed instructions.
+
+**Fallback Mode:**
+If py-cord is not installed, the bot falls back to text message input:
+- Bot joins voice channel and speaks
+- You type messages in a text channel
+- Bot adds 🎙️ reaction and responds via voice
 
 ## Voice Call Features
 
@@ -350,30 +373,84 @@ The bot needs access to:
 3. **Use text fallback** - Bot sends text DM if TTS fails
 4. **Check dependencies** - Run `bash verify_termux_setup.sh` (Termux)
 
-## Advanced: Adding Audio Receiving (Future)
+## Advanced: Voice Receiving Setup
 
-### Option 1: discord-ext-voice-recv
+### Using Py-Cord (Recommended)
+
+Py-cord includes built-in voice receiving - just install it and it works!
 
 ```bash
-pip install discord-ext-voice-recv
+# Uninstall discord.py first
+pip uninstall discord.py
+
+# Install py-cord with voice support
+pip install py-cord[voice]
+
+# Or use requirements.txt (already updated)
+pip install -r requirements.txt
 ```
 
-Enables:
-- Real-time audio capture
-- Voice Activity Detection
-- Speaker identification (with training)
+**Verification:**
+```python
+python3 -c "from discord import sinks; print('✓ Voice receiving supported!')"
+```
 
-### Option 2: Whisper API Transcription
+**What It Enables:**
+- Real-time audio capture from voice channels
+- Automatic voice activity detection
+- Built-in audio sinks (WaveSink, MP3Sink, etc.)
+- Speaker identification support
 
-Already implemented in code (requires OpenAI key):
+### Whisper API Transcription
+
+Already implemented in code - just add your OpenAI key:
 
 ```python
 # Set in .env
 OPENAI_API_KEY=sk-...
 
-# Will automatically use Whisper for transcription
-# if audio receiving is enabled
+# Bot will automatically use Whisper for transcription
+# if py-cord is installed
 ```
+
+**Transcription Priority:**
+1. OpenAI Whisper API (best quality, if key provided)
+2. Google Speech Recognition (free, fallback)
+
+### Troubleshooting Voice Receiving
+
+**Check if py-cord is installed:**
+```bash
+pip list | grep py-cord
+# Should show: py-cord  x.x.x
+```
+
+**Check for discord.py (should NOT be installed):**
+```bash
+pip list | grep discord.py
+# Should be empty
+```
+
+**Test voice receiving support:**
+```python
+python3 -c "
+from modules.voice_audio_sink import check_voice_receiving_support
+support = check_voice_receiving_support()
+print(f'Voice Receiving: {support}')
+"
+```
+
+**Check bot logs on startup:**
+```bash
+grep "Voice Receiving System Check" logs/session_*.log
+```
+
+Should show:
+```
+Discord Voice Receiving:   ✓ Supported
+```
+
+See [PYCORD_MIGRATION_GUIDE.md](PYCORD_MIGRATION_GUIDE.md) for complete migration instructions.
 
 ## Logs and Debugging
 
@@ -407,7 +484,7 @@ This shows:
 ## FAQ
 
 **Q: Why can't the bot hear me?**  
-A: Discord.py 2.x doesn't include audio receiving by default. The bot currently relies on text messages during calls. We're working on adding `discord-ext-voice-recv` for real audio input.
+A: You need py-cord installed for voice receiving. Run: `pip uninstall discord.py && pip install py-cord[voice]`. The bot will automatically detect py-cord and enable voice receiving. See [PYCORD_MIGRATION_GUIDE.md](PYCORD_MIGRATION_GUIDE.md) for details.
 
 **Q: TTS fails with "NoAudioReceived" - what to do?**  
 A: This usually means network issues or edge-tts service unavailable. Check internet, try different network, wait a few minutes and retry.
@@ -422,7 +499,10 @@ A: Yes, edit `SULFUR_VOICE` in `modules/voice_tts.py`. Use `/admin test_voices` 
 A: TTS generation takes 1-5 seconds depending on text length and network speed. The bot uses retries with exponential backoff which can add delays.
 
 **Q: Voice features not working on Termux?**  
-A: Run `bash verify_termux_setup.sh` and check that FFmpeg, edge-tts, and PyNaCl are all installed.
+A: Run `bash verify_termux_setup.sh` and check that FFmpeg, edge-tts, PyNaCl, and py-cord are all installed.
+
+**Q: What's the difference between discord.py and py-cord?**  
+A: Py-cord is a fork of discord.py with additional features, including built-in voice receiving. They're API-compatible, so switching is seamless.
 
 ## Support
 

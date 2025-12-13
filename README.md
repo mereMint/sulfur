@@ -3,7 +3,7 @@
 A feature-rich Discord bot with AI capabilities, economy system, mini-games, and comprehensive management tools.
 
 [![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![Discord.py](https://img.shields.io/badge/discord.py-2.0+-blue.svg)](https://github.com/Rapptz/discord.py)
+[![Py-Cord](https://img.shields.io/badge/py--cord-2.0+-blue.svg)](https://github.com/Pycord-Development/pycord)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 **[Installation Guide](INSTALL.md)** • **[Quick Start](QUICKSTART.md)** • **[Commands](#-commands)** • **[Features](#-features)**
