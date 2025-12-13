@@ -15900,7 +15900,7 @@ async def on_message(message):
                 config,
                 GEMINI_API_KEY,
                 OPENAI_API_KEY,
-                system_prompt
+                config['bot']['system_prompt']
             )
             if handled:
                 logger.info(f"Message from {message.author.name} handled in voice call context")
