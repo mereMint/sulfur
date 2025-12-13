@@ -1248,14 +1248,24 @@ async def before_update_presence_task():
     await client.wait_until_ready()
 
 # --- NEW: Autonomous messaging task ---
-@_tasks.loop(minutes=30)  # Check more frequently, but only act when bored
+# Track the last user who was DMed to avoid DMing the same person twice in a row
+last_autonomous_dm_user_id = None
+
+@_tasks.loop(minutes=60)  # Check every hour (reduced from 30 minutes to make DMs rarer)
 async def autonomous_messaging_task():
     """Periodically consider autonomously messaging users."""
+    global last_autonomous_dm_user_id
+    
     try:
         if not client.guilds:
             return
         
         logger.info("Running autonomous messaging check...")
+        
+        # Add random chance to make DMs even rarer (50% chance of proceeding)
+        if random.random() > 0.5:
+            logger.debug("Skipping autonomous messaging - random chance check failed")
+            return
         
         # Check boredom level - only proceed if bot is sufficiently bored
         # This ensures autonomous actions are more likely when the bot is idle
@@ -1279,11 +1289,25 @@ async def autonomous_messaging_task():
         if not all_online_members:
             return
         
+        # Filter out the last DMed user to avoid DMing the same person twice in a row
+        if last_autonomous_dm_user_id:
+            all_online_members = [m for m in all_online_members if m.id != last_autonomous_dm_user_id]
+            logger.debug(f"Filtered out last DMed user (ID: {last_autonomous_dm_user_id}) from candidates")
+        
+        if not all_online_members:
+            logger.debug("No eligible users after filtering last DMed user")
+            return
+        
         # Check a few random users
         candidates = random.sample(all_online_members, min(5, len(all_online_members)))
         
         for member in candidates:
             try:
+                # Skip if this is the last user we DMed (extra safety check)
+                if member.id == last_autonomous_dm_user_id:
+                    logger.debug(f"Skipping {member.display_name} - was last DMed user")
+                    continue
+                
                 # Check if we should contact this user
                 # Use 1 hour minimum cooldown to prevent spam
                 min_cooldown = config.get('modules', {}).get('autonomous_behavior', {}).get('min_dm_cooldown_hours', 1)
@@ -1336,6 +1360,10 @@ async def autonomous_messaging_task():
                         if hasattr(bot_mind, 'bot_mind'):
                             bot_mind.bot_mind.adjust_boredom(-0.2)
                             logger.debug(f"Reduced boredom by 0.2 after autonomous message (new level: {bot_mind.bot_mind.boredom_level:.2f})")
+                        
+                        # Record this user as the last DMed user to prevent DMing them again next time
+                        last_autonomous_dm_user_id = member.id
+                        logger.debug(f"Recorded {member.display_name} (ID: {member.id}) as last DMed user")
                         
                         logger.info(f"Successfully sent autonomous message to {member.display_name}")
                         
