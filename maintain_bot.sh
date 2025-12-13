@@ -786,6 +786,7 @@ apply_updates() {
             else
                 log_error "Failed to update dependencies"
                 log_warning "Bot may experience import errors"
+                log_info "Note: PyNaCl (voice support) is optional - bot will work without it"
             fi
         fi
     else

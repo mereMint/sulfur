@@ -529,6 +529,8 @@ pip install --upgrade pip --quiet
 
 print_info "Installing required packages (this may take several minutes)..."
 print_warning "Don't worry if you see warnings about 'legacy setup.py install' - this is normal"
+print_info "Note: PyNaCl (voice support) is optional and commented out in requirements.txt"
+print_info "Voice features will be disabled, but all other features will work normally"
 echo ""
 
 if pip install -r requirements.txt; then
@@ -536,7 +538,13 @@ if pip install -r requirements.txt; then
 else
     print_error "Some packages failed to install"
     print_info "Trying again with --no-cache-dir flag..."
-    pip install -r requirements.txt --no-cache-dir
+    if pip install -r requirements.txt --no-cache-dir; then
+        print_success "Dependencies installed successfully on retry!"
+    else
+        print_error "Installation failed. This may be due to PyNaCl build issues."
+        print_info "The bot will still work without PyNaCl (voice features will be disabled)"
+        print_info "Continuing with setup..."
+    fi
 fi
 
 echo ""

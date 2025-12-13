@@ -113,7 +113,8 @@
 ### Package Build Issues (SOLVED)
 - ❌ **openai SDK** - Requires Rust (`jiter` dependency) - REMOVED
 - ❌ **google-generativeai SDK** - Requires Rust (`pydantic-core`) - REMOVED
-- ✅ **Solution** - Bot uses HTTP for both APIs; SDKs not needed
+- ⚠️ **PyNaCl** - Requires native C compilation - OPTIONAL (voice features disabled without it)
+- ✅ **Solution** - Bot uses HTTP for AI APIs; PyNaCl is optional and only needed for voice features
 
 ### System Differences
 - ⚠️ **No systemd** - Use `mysqld_safe &` instead of service commands

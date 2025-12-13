@@ -137,6 +137,8 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
+**Note**: PyNaCl (voice support) is optional and may fail to build on Termux. The bot will work fine without it - voice features will simply be disabled. If installation fails due to PyNaCl, the bot will still function normally for all other features.
+
 #### 6. Configure Environment
 ```bash
 # Create .env file
