@@ -103,8 +103,8 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
         if output_file and os.path.exists(output_file):
             try:
                 os.remove(output_file)
-            except:
-                pass
+            except (OSError, FileNotFoundError) as cleanup_error:
+                logger.debug(f"Could not remove partial TTS file: {cleanup_error}")
         return None
 
 
@@ -238,8 +238,8 @@ async def speak_in_channel(
         if audio_file:
             try:
                 os.remove(audio_file)
-            except:
-                pass
+            except (OSError, FileNotFoundError) as cleanup_error:
+                logger.debug(f"Could not remove audio file: {cleanup_error}")
         return False
 
 

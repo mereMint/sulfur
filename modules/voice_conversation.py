@@ -463,7 +463,7 @@ async def speak_in_call(call_state: VoiceCallState, text: str):
         if audio_file:
             try:
                 os.remove(audio_file)
-            except Exception as cleanup_error:
+            except (OSError, FileNotFoundError) as cleanup_error:
                 logger.debug(f"Could not remove temp file {audio_file}: {cleanup_error}")
 
 
