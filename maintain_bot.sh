@@ -84,6 +84,9 @@ fi
 DB_USER="${DB_USER:-sulfur_bot_user}"
 DB_NAME="${DB_NAME:-sulfur_bot}"
 
+# Termux system dependencies for PyNaCl (voice support)
+TERMUX_SYSTEM_DEPS=("libsodium" "clang")
+
 # ==============================================================================
 # Logging Functions
 # ==============================================================================
@@ -760,6 +763,13 @@ apply_updates() {
     
     # Update Python dependencies after code update
     log_update "Updating Python dependencies..."
+    
+    # Check and install system dependencies first (Termux only)
+    if [ "$IS_TERMUX" = true ]; then
+        log_update "Checking system dependencies..."
+        ensure_system_dependencies
+    fi
+    
     local python_exe="$PYTHON_CMD"
     if [ -f "venv/bin/python" ]; then
         python_exe="venv/bin/python"
@@ -786,6 +796,7 @@ apply_updates() {
             else
                 log_error "Failed to update dependencies"
                 log_warning "Bot may experience import errors"
+                log_info "If PyNaCl fails on Termux, install: pkg install ${TERMUX_SYSTEM_DEPS[*]}"
             fi
         fi
     else
@@ -1388,6 +1399,46 @@ preflight_check() {
     return 0
 }
 
+# Ensure system dependencies are installed (Termux-specific)
+ensure_system_dependencies() {
+    # Only run on Termux
+    if [ "$IS_TERMUX" != true ]; then
+        return 0
+    fi
+    
+    log_info "Checking system dependencies for Termux..."
+    
+    # Use the global constant for required packages
+    local missing_packages=()
+    
+    # Check each package
+    for pkg in "${TERMUX_SYSTEM_DEPS[@]}"; do
+        if ! pkg list-installed 2>/dev/null | grep -q "^${pkg}"; then
+            missing_packages+=("$pkg")
+            log_warning "System package '$pkg' is not installed"
+        fi
+    done
+    
+    # Install missing packages
+    if [ ${#missing_packages[@]} -gt 0 ]; then
+        log_info "Installing missing system packages: ${missing_packages[*]}"
+        log_info "This is required for PyNaCl (voice support) to build successfully"
+        
+        # Try to install packages
+        if pkg install -y "${missing_packages[@]}" >>"$MAIN_LOG" 2>&1; then
+            log_success "System packages installed successfully"
+        else
+            log_warning "Failed to install some system packages"
+            log_warning "PyNaCl may fail to build without these dependencies"
+            log_info "You can manually install them: pkg install ${missing_packages[*]}"
+        fi
+    else
+        log_success "All required system packages are installed"
+    fi
+    
+    return 0
+}
+
 # Ensure venv and dependencies are present
 ensure_python_env() {
     log_info "Ensuring Python virtual environment and dependencies..."
@@ -1518,12 +1569,15 @@ until preflight_check; do
     read -r _ || { log_error "Cannot read input in non-interactive mode"; sleep 60; }
 done
 
+# Ensure system dependencies are installed (Termux only)
+ensure_system_dependencies
+
 # Ensure venv/deps before starting services
 if ! ensure_python_env; then
     log_error "Cannot start without required Python packages"
     log_warning "Common fixes for Termux:"
     log_warning "  1. Ensure you have enough storage space"
-    log_warning "  2. Try: pkg install python python-pip"
+    log_warning "  2. Try: pkg install python python-pip libsodium clang"
     log_warning "  3. Check the error messages above for specific issues"
     log_warning "Full log available at: $MAIN_LOG"
     exit 1

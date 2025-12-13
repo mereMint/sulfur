@@ -265,10 +265,13 @@ REQUIRED_PACKAGES=(
     "nano"
     "wget"
     "curl"
+    "libsodium"
+    "clang"
 )
 
-print_info "Installing all required packages (this may take a few minutes)..."
-pkg install -y python git mariadb openssh nano wget curl
+print_info "Installing required packages: ${REQUIRED_PACKAGES[*]}"
+print_info "Note: libsodium and clang are needed for PyNaCl voice support"
+pkg install -y "${REQUIRED_PACKAGES[@]}"
 
 for package in "${REQUIRED_PACKAGES[@]}"; do
     if command -v "$package" &> /dev/null || pkg list-installed 2>/dev/null | grep -q "^${package}"; then
@@ -529,6 +532,7 @@ pip install --upgrade pip --quiet
 
 print_info "Installing required packages (this may take several minutes)..."
 print_warning "Don't worry if you see warnings about 'legacy setup.py install' - this is normal"
+print_info "PyNaCl will be compiled with the libsodium library we installed earlier"
 echo ""
 
 if pip install -r requirements.txt; then
@@ -536,7 +540,12 @@ if pip install -r requirements.txt; then
 else
     print_error "Some packages failed to install"
     print_info "Trying again with --no-cache-dir flag..."
-    pip install -r requirements.txt --no-cache-dir
+    if pip install -r requirements.txt --no-cache-dir; then
+        print_success "Dependencies installed successfully on retry!"
+    else
+        print_error "Installation failed. Continuing with setup..."
+        print_warning "Some features may not work without all dependencies"
+    fi
 fi
 
 echo ""
