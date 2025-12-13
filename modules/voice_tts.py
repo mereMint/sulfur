@@ -62,17 +62,26 @@ CIRCUIT_BREAKER_TIMEOUT = 300  # Seconds to wait before trying again (5 minutes)
 
 # TTS Service health tracking (circuit breaker pattern)
 class TTSServiceHealth:
-    """Tracks TTS service health to avoid repeated attempts when service is down."""
+    """
+    Tracks TTS service health to avoid repeated attempts when service is down.
+    
+    Implements a three-state circuit breaker:
+    - CLOSED: Normal operation, requests are allowed
+    - OPEN: Service is failing, requests are blocked
+    - HALF_OPEN: Testing if service recovered, one request allowed
+    """
     def __init__(self):
         self.consecutive_failures = 0
         self.last_failure_time: Optional[datetime] = None
         self.circuit_open = False
+        self.half_open = False  # Explicit half-open state
         self.last_success_time: Optional[datetime] = None
         
     def record_success(self):
-        """Record successful TTS generation."""
+        """Record successful TTS generation. Closes circuit completely."""
         self.consecutive_failures = 0
         self.circuit_open = False
+        self.half_open = False
         self.last_success_time = datetime.now()
         logger.debug("TTS service health: Circuit closed, service is working")
         
@@ -81,8 +90,17 @@ class TTSServiceHealth:
         self.consecutive_failures += 1
         self.last_failure_time = datetime.now()
         
+        # If we were in half-open state and failed, immediately re-open circuit
+        if self.half_open:
+            self.circuit_open = True
+            self.half_open = False
+            logger.warning("TTS service still failing, circuit re-opened immediately")
+            return
+        
+        # Otherwise, check if we've reached the threshold to open circuit
         if self.consecutive_failures >= CIRCUIT_BREAKER_THRESHOLD:
             self.circuit_open = True
+            self.half_open = False
             logger.warning(
                 f"TTS service circuit breaker opened after {self.consecutive_failures} consecutive failures. "
                 f"Will wait {CIRCUIT_BREAKER_TIMEOUT}s before retrying."
@@ -95,24 +113,32 @@ class TTSServiceHealth:
         if not self.circuit_open:
             return False
             
-        # Check if enough time has passed to try again
+        # Check if enough time has passed to try again (transition to half-open)
         if self.last_failure_time:
             time_since_failure = (datetime.now() - self.last_failure_time).total_seconds()
             if time_since_failure >= CIRCUIT_BREAKER_TIMEOUT:
-                logger.info(f"TTS circuit breaker timeout expired ({CIRCUIT_BREAKER_TIMEOUT}s), allowing retry attempt")
-                # Reset to half-open state: Allow one retry but keep failure count high
-                # so that another failure will re-open the circuit immediately.
-                # Subtract 1 so we're at threshold - 1, meaning one more failure opens circuit again.
-                self.consecutive_failures = CIRCUIT_BREAKER_THRESHOLD - 1
+                logger.info(f"TTS circuit breaker timeout expired ({CIRCUIT_BREAKER_TIMEOUT}s), entering half-open state")
+                # Transition to half-open: Allow one retry attempt
                 self.circuit_open = False
+                self.half_open = True
                 return False
         
         return True
     
     def get_status(self) -> Dict[str, Any]:
         """Get current service health status."""
+        # Determine state string for clarity
+        if self.circuit_open:
+            state = "OPEN"
+        elif self.half_open:
+            state = "HALF_OPEN"
+        else:
+            state = "CLOSED"
+        
         return {
+            'state': state,
             'circuit_open': self.circuit_open,
+            'half_open': self.half_open,
             'consecutive_failures': self.consecutive_failures,
             'last_failure': self.last_failure_time,
             'last_success': self.last_success_time,
@@ -126,6 +152,7 @@ class TTSServiceHealth:
         self.consecutive_failures = 0
         self.last_failure_time = None
         self.circuit_open = False
+        self.half_open = False
         logger.info("TTS service health reset to initial state")
 
 # Global service health tracker
@@ -136,7 +163,7 @@ _tts_service_health = TTSServiceHealth()
 
 async def check_network_connectivity() -> Dict[str, Any]:
     """
-    Perform basic network connectivity checks.
+    Perform basic network connectivity checks using async operations.
     
     Returns:
         Dictionary with connectivity test results
@@ -149,9 +176,11 @@ async def check_network_connectivity() -> Dict[str, Any]:
     }
     
     try:
-        # Test DNS resolution
+        # Test DNS resolution using asyncio (non-blocking)
         try:
-            socket.gethostbyname(results['edge_tts_host'])
+            loop = asyncio.get_event_loop()
+            # getaddrinfo returns address info, which confirms DNS resolution
+            await loop.getaddrinfo(results['edge_tts_host'], 443, family=socket.AF_INET)
             results['dns_resolution'] = True
             logger.debug(f"DNS resolution successful for {results['edge_tts_host']}")
         except socket.gaierror as dns_error:
@@ -159,25 +188,28 @@ async def check_network_connectivity() -> Dict[str, Any]:
             logger.warning(results['error'])
             return results
         
-        # Test TCP connection (port 443 for HTTPS)
-        sock = None
+        # Test TCP connection using asyncio (non-blocking)
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(5)
-            sock.connect((results['edge_tts_host'], 443))
+            # open_connection is async and non-blocking
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(results['edge_tts_host'], 443),
+                timeout=5.0
+            )
             results['tcp_connection'] = True
             logger.debug(f"TCP connection successful to {results['edge_tts_host']}:443")
-        except (socket.timeout, socket.error, OSError) as conn_error:
+            
+            # Close the connection properly
+            writer.close()
+            await writer.wait_closed()
+            
+        except asyncio.TimeoutError:
+            results['error'] = "TCP connection timed out"
+            logger.warning(results['error'])
+            return results
+        except (socket.error, OSError) as conn_error:
             results['error'] = f"TCP connection failed: {conn_error}"
             logger.warning(results['error'])
             return results
-        finally:
-            # Ensure socket is always closed
-            if sock:
-                try:
-                    sock.close()
-                except Exception:
-                    pass
             
     except Exception as e:
         results['error'] = f"Network check failed: {e}"
