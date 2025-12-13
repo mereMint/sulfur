@@ -385,10 +385,11 @@ async def initiate_voice_call(user: discord.Member, config: dict, create_temp_ch
         # Try to start receiving audio if supported
         if receiving_supported.get('discord_voice_recv', False):
             try:
-                # Get OpenAI key for Whisper (if available)
+                # Get API keys for AI and Whisper
                 import os
                 from dotenv import load_dotenv
                 load_dotenv()
+                gemini_key = os.getenv('GEMINI_API_KEY')
                 openai_key = os.getenv('OPENAI_API_KEY')
                 
                 # Get voice receiver
@@ -407,12 +408,6 @@ async def initiate_voice_call(user: discord.Member, config: dict, create_temp_ch
                         # Get AI response and speak it
                         # Import here to avoid circular dependency
                         from modules.advanced_ai import get_advanced_ai_response
-                        import os
-                        from dotenv import load_dotenv
-                        load_dotenv()
-                        
-                        gemini_key = os.getenv('GEMINI_API_KEY')
-                        openai_key = os.getenv('OPENAI_API_KEY')
                         
                         # Load system prompt
                         system_prompt_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'system_prompt.txt')

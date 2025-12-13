@@ -161,20 +161,23 @@ class VoiceReceiver:
             logger.info(f"Started receiving audio in guild {guild_id}")
             
             # Start listening with sink
-            voice_client.start_recording(
-                sink,
-                self._create_recording_callback(sink, transcription_callback),
-                voice_client.guild
-            )
+            try:
+                voice_client.start_recording(
+                    sink,
+                    self._create_recording_callback(sink, transcription_callback),
+                    voice_client.guild
+                )
+                logger.info("Voice recording started successfully")
+            except AttributeError:
+                logger.error("start_recording method not found - voice receiving not supported in this discord.py version")
+                raise RuntimeError(
+                    "Voice receiving not supported. "
+                    "The bot will use text message input during voice calls instead."
+                )
             
-        except AttributeError as e:
-            logger.error("Voice receiving not supported in current discord.py version")
-            logger.error("Audio receiving requires discord.py with voice recv support")
-            logger.info("Alternative: Use text messages during voice calls (current implementation)")
-            raise RuntimeError(
-                "Voice receiving not supported. "
-                "The bot will use text message input during voice calls instead."
-            )
+        except RuntimeError:
+            # Re-raise RuntimeError for proper handling upstream
+            raise
         except Exception as e:
             logger.error(f"Error starting audio receiver: {e}", exc_info=True)
             raise
@@ -364,8 +367,8 @@ class VoiceReceiver:
                 # Clean up temp file
                 try:
                     os.remove(temp_path)
-                except:
-                    pass
+                except (OSError, FileNotFoundError) as e:
+                    logger.debug(f"Could not remove temp file {temp_path}: {e}")
                     
         except Exception as e:
             logger.error(f"Error transcribing with Google: {e}", exc_info=True)
