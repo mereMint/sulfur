@@ -968,6 +968,17 @@ async def on_ready():
     
     if voice_deps.get('edge_tts'):
         print("  ✅ edge-tts: Available")
+        # Test TTS connectivity
+        print("  ⏳ Testing edge-tts connectivity...")
+        try:
+            tts_working = await voice_tts.test_tts_connectivity()
+            if tts_working:
+                print("  ✅ edge-tts service: Online and working")
+            else:
+                print("  ⚠️  edge-tts service: Connectivity issues detected")
+                print("     Voice calls may not work properly until edge-tts service is accessible")
+        except Exception as e:
+            print(f"  ⚠️  Could not test edge-tts connectivity: {e}")
     else:
         print("  ❌ edge-tts: Not installed - TTS features disabled")
         print("     Install with: pip install edge-tts")
@@ -1307,6 +1318,11 @@ async def autonomous_messaging_task():
 @autonomous_messaging_task.before_loop
 async def before_autonomous_messaging_task():
     await client.wait_until_ready()
+    # Wait additional time after startup before first autonomous check
+    # This prevents messaging users immediately on bot restart
+    startup_delay_minutes = config.get('modules', {}).get('autonomous_behavior', {}).get('startup_delay_minutes', 10)
+    logger.info(f"Autonomous messaging task will start after {startup_delay_minutes} minute startup delay")
+    await asyncio.sleep(startup_delay_minutes * 60)
 
 # --- NEW: Cleanup expired temporary DM access ---
 @_tasks.loop(hours=1)

@@ -129,12 +129,17 @@ async def record_autonomous_contact(user_id: int):
     
     cursor = conn.cursor()
     try:
+        # Use INSERT...ON DUPLICATE KEY UPDATE to ensure record exists
+        # This prevents the bug where UPDATE does nothing if no row exists
         cursor.execute("""
-            UPDATE user_autonomous_settings
-            SET last_autonomous_contact = CURRENT_TIMESTAMP
-            WHERE user_id = %s
+            INSERT INTO user_autonomous_settings 
+            (user_id, last_autonomous_contact, allow_autonomous_messages, allow_autonomous_calls, autonomous_contact_frequency)
+            VALUES (%s, CURRENT_TIMESTAMP, TRUE, TRUE, 'normal')
+            ON DUPLICATE KEY UPDATE 
+                last_autonomous_contact = CURRENT_TIMESTAMP
         """, (user_id,))
         conn.commit()
+        logger.debug(f"Recorded autonomous contact for user {user_id}")
     except Exception as e:
         logger.error(f"Error recording autonomous contact for user {user_id}: {e}")
     finally:
