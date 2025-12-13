@@ -582,7 +582,7 @@ async def test_tts_connectivity() -> bool:
             # Clean up test file
             try:
                 os.remove(test_file)
-            except:
+            except (OSError, FileNotFoundError):
                 pass
             logger.info("TTS connectivity test passed")
             return True
@@ -590,7 +590,7 @@ async def test_tts_connectivity() -> bool:
             logger.warning("TTS connectivity test failed - no audio generated")
             try:
                 os.remove(test_file)
-            except:
+            except (OSError, FileNotFoundError):
                 pass
             return False
             
