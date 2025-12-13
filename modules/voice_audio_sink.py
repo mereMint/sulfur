@@ -21,6 +21,12 @@ import discord
 
 from modules.logger_utils import bot_logger as logger
 
+# Configuration constants
+MIN_AUDIO_SIZE_BYTES = 1000  # Minimum audio size to process (filter out noise)
+
+# Installation command for consistency
+PYCORD_INSTALL_CMD = "pip uninstall discord.py && pip install py-cord[voice]"
+
 # Check for speech recognition
 try:
     import speech_recognition as sr
@@ -91,7 +97,14 @@ class AudioSinkRecorder(AudioSinkBase):
     
     def __init__(self):
         """Initialize audio sink."""
-        super().__init__()
+        # Only call super().__init__() if py-cord is available
+        # The dummy base class doesn't need initialization
+        if DISCORD_SINKS_AVAILABLE:
+            super().__init__()
+        else:
+            # Initialize dummy base class attributes manually
+            self.audio_data = {}
+        
         self.recordings: Dict[int, io.BytesIO] = {}
         self.last_speech: Dict[int, datetime] = {}
         self.silence_threshold = 1.0  # Seconds of silence before processing
@@ -159,7 +172,7 @@ class VoiceReceiver:
         """
         Start receiving audio from voice channel.
         
-        Requires py-cord (pip install py-cord[voice]) for voice receiving support.
+        Requires py-cord for voice receiving support.
         Falls back to text-only mode if not available.
         
         Args:
@@ -171,9 +184,9 @@ class VoiceReceiver:
         """
         if not DISCORD_SINKS_AVAILABLE:
             logger.warning("Voice receiving not available - discord.sinks module not found")
-            logger.info("Install py-cord for voice receiving: pip install py-cord[voice]")
+            logger.info(f"Install py-cord for voice receiving: {PYCORD_INSTALL_CMD}")
             raise RuntimeError(
-                "Voice receiving requires py-cord. Install with: pip install py-cord[voice]\n"
+                f"Voice receiving requires py-cord. Install with: {PYCORD_INSTALL_CMD}\n"
                 "The bot will use text message input during voice calls as fallback."
             )
         
@@ -201,9 +214,9 @@ class VoiceReceiver:
                 audio_size = len(audio_data) if audio_data else 0
                 logger.debug(f"Processing audio from {username} ({audio_size} bytes)")
                 
-                # Skip if audio is too small
-                if audio_size < 1000:  # Less than 1KB, likely just noise
-                    logger.debug(f"Audio chunk too small from {username}, skipping")
+                # Skip if audio is too small (likely just noise)
+                if audio_size < MIN_AUDIO_SIZE_BYTES:
+                    logger.debug(f"Audio chunk too small from {username} ({audio_size} < {MIN_AUDIO_SIZE_BYTES} bytes), skipping")
                     return
                 
                 # Transcribe audio
@@ -236,8 +249,7 @@ class VoiceReceiver:
             if not hasattr(voice_client, 'start_recording'):
                 logger.error("start_recording method not found - py-cord not installed?")
                 raise RuntimeError(
-                    "Voice receiving requires py-cord. "
-                    "Replace discord.py with: pip uninstall discord.py && pip install py-cord[voice]"
+                    f"Voice receiving requires py-cord. Install with: {PYCORD_INSTALL_CMD}"
                 )
             
             voice_client.start_recording(
@@ -253,7 +265,7 @@ class VoiceReceiver:
             if guild_id in self.active_sinks:
                 del self.active_sinks[guild_id]
             raise RuntimeError(
-                "Voice receiving not supported. Install py-cord: pip install py-cord[voice]\n"
+                f"Voice receiving not supported. Install py-cord: {PYCORD_INSTALL_CMD}\n"
                 "The bot will use text message input during voice calls instead."
             )
         except RuntimeError:
