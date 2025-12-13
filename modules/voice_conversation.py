@@ -116,6 +116,22 @@ async def initiate_voice_call(user: discord.Member, config: dict) -> Optional[Vo
         # Send notification
         await user.send("📞 Sulfur möchte dich anrufen! Ich werde deinem Voice Channel beitreten...")
         
+        # Check for PyNaCl before attempting to connect
+        try:
+            import nacl
+        except ImportError:
+            error_msg = (
+                "❌ Sprachanrufe sind aktuell nicht verfügbar.\n\n"
+                "**Grund:** PyNaCl library ist nicht installiert.\n"
+                "**Lösung:** Der Bot-Administrator muss folgendes ausführen:\n"
+                "```\npip install PyNaCl\n```\n"
+                "Oder alle Requirements neu installieren:\n"
+                "```\npip install -r requirements.txt\n```"
+            )
+            await user.send(error_msg)
+            logger.error("PyNaCl is not installed - cannot use voice features")
+            return None
+        
         # Join voice channel
         voice_client = await voice_channel.connect()
         

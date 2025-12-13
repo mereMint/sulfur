@@ -96,6 +96,16 @@ async def cleanup_audio_file(file_path: str):
 async def join_voice_channel(channel: discord.VoiceChannel) -> Optional[discord.VoiceClient]:
     """Join a voice channel."""
     try:
+        # Check for PyNaCl
+        try:
+            import nacl
+        except ImportError:
+            logger.error("PyNaCl library is not installed. Voice features require PyNaCl.")
+            raise RuntimeError(
+                "PyNaCl library needed in order to use voice. "
+                "Install it with: pip install PyNaCl"
+            )
+        
         if channel.guild.voice_client:
             # Already connected, move to new channel
             await channel.guild.voice_client.move_to(channel)
@@ -105,6 +115,10 @@ async def join_voice_channel(channel: discord.VoiceChannel) -> Optional[discord.
             voice_client = await channel.connect()
             logger.info(f"Joined voice channel: {channel.name}")
             return voice_client
+    except RuntimeError as re:
+        # Re-raise PyNaCl errors with clear message
+        logger.error(f"Voice dependency error: {re}")
+        raise
     except Exception as e:
         logger.error(f"Error joining voice channel: {e}")
         return None
