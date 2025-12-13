@@ -406,6 +406,11 @@ async def speak_in_call(call_state: VoiceCallState, text: str):
     if not call_state.voice_client or not call_state.voice_client.is_connected():
         logger.warning("Voice client not connected")
         return
+    
+    # Validate text before attempting TTS
+    if not text or not text.strip():
+        logger.warning("Cannot speak empty or whitespace-only text")
+        return
         
     audio_file = None
     try:
