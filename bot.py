@@ -1951,7 +1951,9 @@ def _calculate_wrapped_dates(config, target_month=None):
     
     # Use deterministic random based on month and year for consistency
     # Create a local Random instance to avoid thread safety issues
-    local_random = random.Random(f"{target_month.year}-{target_month.month}")
+    # Format with zero-padding for consistency
+    seed_str = f"{target_month.year:04d}-{target_month.month:02d}"
+    local_random = random.Random(seed_str)
     release_day = local_random.randint(config['modules']['wrapped']['release_day_min'], config['modules']['wrapped']['release_day_max'])
     
     release_date = target_month.replace(day=release_day, hour=18, minute=0, second=0, microsecond=0) # 6 PM UTC

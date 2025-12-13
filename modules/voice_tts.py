@@ -27,7 +27,7 @@ except ImportError:
 
 # Check for PyNaCl (required for voice)
 try:
-    import nacl
+    import nacl  # Note: PyNaCl package imports as 'nacl'
     PYNACL_AVAILABLE = True
 except ImportError:
     PYNACL_AVAILABLE = False

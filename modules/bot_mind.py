@@ -20,7 +20,7 @@ from modules.db_helpers import get_db_connection
 # --- Configuration Constants ---
 # Interaction adjustments
 BOREDOM_REDUCTION_PER_INTERACTION = 0.2
-ENERGY_COST_PER_INTERACTION = 0.05  # Reduced from 0.08
+ENERGY_COST_PER_INTERACTION = 0.05  # Lower cost allows for longer activity sessions
 ENERGY_REGEN_PER_CYCLE = 0.03  # NEW: Passive energy regeneration
 BOREDOM_INCREASE_PER_CYCLE = 0.02  # NEW: Passive boredom increase
 THOUGHT_GENERATION_CHANCE = 0.6  # 60% chance to generate thought per interaction
@@ -194,10 +194,18 @@ class BotMind:
     
     def cleanup_old_thoughts(self):
         """Remove old thoughts to prevent fixation on past events"""
-        # Keep only recent thoughts for context
-        if len(self.thought_history) > MAX_RECENT_THOUGHTS_FOR_CONTEXT:
-            # Keep first thought and last N thoughts
-            self.thought_history = [self.thought_history[0]] + self.thought_history[-MAX_RECENT_THOUGHTS_FOR_CONTEXT:]
+        # Keep only very recent thoughts for the mind state display
+        # Don't use them for generating new thoughts
+        if len(self.thought_history) > 10:
+            # Keep only the last 10 thoughts
+            self.thought_history = self.thought_history[-10:]
+        
+        # Also clean observations older than their time limit
+        now = datetime.now()
+        self.recent_observations = [
+            obs for obs in self.recent_observations
+            if (now - datetime.fromisoformat(obs['time'])).total_seconds() < MAX_OBSERVATION_AGE_HOURS * 3600
+        ]
     
     def add_interest(self, interest: str):
         """Add a new interest"""
@@ -394,6 +402,7 @@ async def load_last_mind_state() -> bool:
 async def generate_random_thought(context: Dict[str, Any], get_chat_response_func, config: dict, gemini_key: str, openai_key: str) -> str:
     """
     Generate a random thought using AI based on current context.
+    DOES NOT use previous thoughts to avoid feedback loops.
     
     Args:
         context: Current server context (user count, activity, etc.)
@@ -406,22 +415,36 @@ async def generate_random_thought(context: Dict[str, Any], get_chat_response_fun
         # Load cached system prompt for the bot's personality
         system_prompt = _load_system_prompt()
         
-        prompt = f"""Generate a brief internal thought (1 sentence) based on your current state:
+        # Build context WITHOUT previous thoughts to avoid fixation
+        active_servers = context.get('active_servers', 0)
+        total_servers = context.get('total_servers', 1)
+        energy = context.get('energy', bot_mind.energy_level)
+        boredom = context.get('boredom', bot_mind.boredom_level)
+        
+        prompt = f"""Generate a brief, fresh internal thought (1 sentence) based ONLY on your current state and observations:
 
-Current Mood: {bot_mind.current_mood.value}
-Activity: {bot_mind.current_activity.value}
-Energy: {bot_mind.energy_level:.1f}
-Boredom: {bot_mind.boredom_level:.1f}
+Current State:
+- Mood: {bot_mind.current_mood.value}
+- Activity: {bot_mind.current_activity.value}
+- Energy: {energy:.1f} (0=exhausted, 1=energized)
+- Boredom: {boredom:.1f} (0=engaged, 1=very bored)
 
-Server Context:
-- Online users: {context.get('online_users', 0)}
-- Recent activity: {context.get('recent_activity', 'quiet')}
+Current Observations:
+- Online users across all servers: {context.get('online_users', 0)}
+- Active servers: {active_servers}/{total_servers}
+- Recent activity level: {context.get('recent_activity', 'quiet')}
 
-Recent observations: {', '.join([obs['observation'] for obs in bot_mind.recent_observations[-3:]])}
+Generate ONE new, original thought that:
+1. Does NOT repeat or reference any previous thoughts
+2. Reflects your personality (sarcastic, judgemental, curious)
+3. Considers your current energy and boredom levels
+4. Responds to what's happening RIGHT NOW
 
-Generate a thought that reflects your personality (sarcastic, judgemental, curious) and current state. Be brief and natural.
+If bored: complain, be sarcastic, seek stimulation
+If tired: mention fatigue, desire for rest
+If energized: show enthusiasm, engagement
 
-Thought:"""
+Your thought:"""
 
         # Call get_chat_response with correct signature:
         # get_chat_response(history, user_prompt, user_display_name, system_prompt, config, gemini_key, openai_key)
@@ -441,11 +464,16 @@ Thought:"""
                 response_text = response[0]
                 if response_text:
                     thought = response_text.strip().strip('"').strip("'")
-                    return thought
+                    # Double-check it's not repeating recent thoughts
+                    recent_thought_texts = [t.get('thought', '') for t in bot_mind.thought_history[-3:]]
+                    if thought not in recent_thought_texts and len(thought) > 10:
+                        return thought
             else:
                 # Fallback if it's not a tuple
                 thought = response.strip().strip('"').strip("'")
-                return thought
+                recent_thought_texts = [t.get('thought', '') for t in bot_mind.thought_history[-3:]]
+                if thought not in recent_thought_texts and len(thought) > 10:
+                    return thought
         
         # Fallback thoughts based on current mood and personality
         mood_fallbacks = {
