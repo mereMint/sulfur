@@ -13,4 +13,5 @@ PyNaCl
 # If you need the SDK for local testing, install it manually: `pip install openai`.
 # NOTE: PyNaCl is required for Discord voice support.
 # On Termux/Android, you need to install libsodium and clang first: pkg install libsodium clang
+# Also set SODIUM_INSTALL=system before pip install to use the system libsodium library
 # The termux_quickstart.sh script handles this automatically.

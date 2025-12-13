@@ -532,8 +532,12 @@ pip install --upgrade pip --quiet
 
 print_info "Installing required packages (this may take several minutes)..."
 print_warning "Don't worry if you see warnings about 'legacy setup.py install' - this is normal"
-print_info "PyNaCl will be compiled with the libsodium library we installed earlier"
+print_info "PyNaCl will use the system libsodium library we installed earlier"
 echo ""
+
+# Set SODIUM_INSTALL=system to use system libsodium instead of building from source
+# This prevents PyNaCl build failures on Termux where the bundled libsodium configure fails
+export SODIUM_INSTALL=system
 
 if pip install -r requirements.txt; then
     print_success "All Python dependencies installed!"

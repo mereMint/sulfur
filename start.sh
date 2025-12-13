@@ -129,6 +129,8 @@ elif [ ! -d "venv" ]; then
         echo ""
         echo -e "${YELLOW}Installing dependencies...${NC}"
         $PYTHON_CMD -m pip install --upgrade pip
+        # Set SODIUM_INSTALL=system to use system libsodium for PyNaCl
+        export SODIUM_INSTALL=system
         pip install -r requirements.txt
         echo -e "${GREEN}✓ Dependencies installed${NC}"
         echo ""
