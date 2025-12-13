@@ -72,11 +72,6 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
         logger.error("TTS text is empty or contains only whitespace")
         return None
     
-    # Check minimum length - edge-tts needs actual content
-    if len(text_stripped) < 1:
-        logger.error("TTS text is too short")
-        return None
-    
     try:
         # Create temp file if output not specified
         if output_file is None:
@@ -120,7 +115,7 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
         
         # Log additional context for debugging
         logger.error(f"TTS parameters - Voice: {SULFUR_VOICE}, Rate: {VOICE_RATE}, Pitch: {VOICE_PITCH}")
-        logger.error(f"Text length: {len(text_stripped) if 'text_stripped' in locals() else len(text) if text else 0} characters")
+        logger.error(f"Text length: {len(text_stripped)} characters")
         
         # Clean up partial file if it exists
         if output_file and os.path.exists(output_file):
