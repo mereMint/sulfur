@@ -115,9 +115,10 @@ async def initiate_voice_call(user: discord.Member, config: dict, create_temp_ch
         
     try:
         # Check for PyNaCl before attempting to connect
-        try:
-            import nacl
-        except ImportError:
+        # Import at module level for reuse
+        from modules.voice_tts import PYNACL_AVAILABLE
+        
+        if not PYNACL_AVAILABLE:
             error_msg = (
                 "❌ Sprachanrufe sind aktuell nicht verfügbar.\n\n"
                 "**Grund:** PyNaCl library ist nicht installiert.\n"
@@ -183,9 +184,12 @@ async def initiate_voice_call(user: discord.Member, config: dict, create_temp_ch
                     inline=False
                 )
                 await user.send(embed=embed)
-            except:
-                # Fallback to simple message
-                await user.send(f"📞 Sulfur möchte dich anrufen! Tritt dem Channel {voice_channel.mention} bei!")
+            except (discord.Forbidden, discord.HTTPException) as dm_error:
+                # Fallback to simple message if embed fails
+                try:
+                    await user.send(f"📞 Sulfur möchte dich anrufen! Tritt dem Channel {voice_channel.mention} bei!")
+                except Exception:
+                    logger.warning(f"Could not send DM to user {user.name}")
             
             # Send invitations to additional users if specified
             if invite_users:

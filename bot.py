@@ -1950,10 +1950,9 @@ def _calculate_wrapped_dates(config, target_month=None):
         target_month = first_day_of_next_month
     
     # Use deterministic random based on month and year for consistency
-    # This ensures the same release day is calculated every time for a given month
-    random.seed(f"{target_month.year}-{target_month.month}")
-    release_day = random.randint(config['modules']['wrapped']['release_day_min'], config['modules']['wrapped']['release_day_max'])
-    random.seed()  # Reset seed to random state
+    # Create a local Random instance to avoid thread safety issues
+    local_random = random.Random(f"{target_month.year}-{target_month.month}")
+    release_day = local_random.randint(config['modules']['wrapped']['release_day_min'], config['modules']['wrapped']['release_day_max'])
     
     release_date = target_month.replace(day=release_day, hour=18, minute=0, second=0, microsecond=0) # 6 PM UTC
 
@@ -15485,8 +15484,8 @@ async def focus_timer_completion_handler(user: discord.User, session_id: int, du
                                     f"Du hast {duration_minutes} Minuten fokussiert gearbeitet.\n\n"
                                     f"_Hinweis: Sprachanrufe sind aktuell nicht verfügbar._"
                                 )
-                            except:
-                                pass  # User has DMs blocked
+                            except (discord.Forbidden, discord.HTTPException):
+                                pass  # User has DMs blocked or other Discord error
                         break
         
     except Exception as e:

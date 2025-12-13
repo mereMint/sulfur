@@ -25,6 +25,14 @@ except ImportError:
     EDGE_TTS_AVAILABLE = False
     logger.warning("edge-tts not available. Install with: pip install edge-tts")
 
+# Check for PyNaCl (required for voice)
+try:
+    import nacl
+    PYNACL_AVAILABLE = True
+except ImportError:
+    PYNACL_AVAILABLE = False
+    logger.warning("PyNaCl not available. Install with: pip install PyNaCl")
+
 
 # Sulfur's voice configuration
 SULFUR_VOICE = "de-DE-KillianNeural"  # Male German voice with personality
@@ -97,9 +105,7 @@ async def join_voice_channel(channel: discord.VoiceChannel) -> Optional[discord.
     """Join a voice channel."""
     try:
         # Check for PyNaCl
-        try:
-            import nacl
-        except ImportError:
+        if not PYNACL_AVAILABLE:
             logger.error("PyNaCl library is not installed. Voice features require PyNaCl.")
             raise RuntimeError(
                 "PyNaCl library needed in order to use voice. "
