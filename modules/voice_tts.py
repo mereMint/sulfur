@@ -157,9 +157,14 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
                     break
                     
             except Exception as e:
-                # Other unexpected errors
+                # Other unexpected errors (including if NoAudioReceived doesn't exist in edge-tts version)
                 error_type = type(e).__name__
-                logger.error(f"Unexpected error generating TTS ({error_type}) on attempt {attempt + 1}: {e}")
+                
+                # Check if this is a NoAudioReceived error by name (for compatibility)
+                if error_type == "NoAudioReceived":
+                    logger.warning(f"NoAudioReceived error on attempt {attempt + 1}/{TTS_MAX_RETRIES} with voice {voice}: {e}")
+                else:
+                    logger.error(f"Unexpected error generating TTS ({error_type}) on attempt {attempt + 1}: {e}")
                 
                 # Clean up partial file if it exists
                 if output_file and os.path.exists(output_file):
@@ -168,11 +173,15 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
                     except (OSError, FileNotFoundError):
                         pass
                 
-                # For unexpected errors, only retry once more
-                if attempt < 1:
-                    await asyncio.sleep(TTS_RETRY_DELAY)
+                # Use exponential backoff for all errors on retries
+                if attempt < TTS_MAX_RETRIES - 1:
+                    retry_delay = TTS_RETRY_DELAY * (2 ** attempt)  # 1s, 2s, 4s
+                    logger.info(f"Waiting {retry_delay}s before retry...")
+                    await asyncio.sleep(retry_delay)
                     continue
                 else:
+                    # Last retry with this voice failed
+                    logger.warning(f"All {TTS_MAX_RETRIES} retries failed with voice {voice}")
                     break
     
     # All retries and fallback voices exhausted

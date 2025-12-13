@@ -543,13 +543,25 @@ async def speak_in_call(call_state: VoiceCallState, text: str):
             
             # Send text fallback to user via DM
             try:
+                # Truncate text intelligently at word boundaries
+                max_length = 1024
+                truncated_text = text
+                if len(text) > max_length:
+                    # Find the last space before the limit
+                    truncated_text = text[:max_length].rsplit(' ', 1)[0] + "..."
+                
                 fallback_embed = discord.Embed(
                     title="🔇 TTS Fehler",
                     description="Konnte keine Sprachausgabe generieren. Hier ist meine Antwort als Text:",
                     color=discord.Color.orange()
                 )
-                fallback_embed.add_field(name="Antwort", value=text[:1024], inline=False)
-                fallback_embed.set_footer(text="Der TTS-Service ist möglicherweise vorübergehend nicht verfügbar.")
+                fallback_embed.add_field(name="Antwort", value=truncated_text, inline=False)
+                
+                if len(text) > max_length:
+                    fallback_embed.set_footer(text=f"Text gekürzt ({len(text)} Zeichen) • TTS-Service vorübergehend nicht verfügbar")
+                else:
+                    fallback_embed.set_footer(text="Der TTS-Service ist möglicherweise vorübergehend nicht verfügbar.")
+                
                 await call_state.user.send(embed=fallback_embed)
                 logger.info(f"Sent text fallback to {call_state.user.display_name}")
             except (discord.Forbidden, discord.HTTPException) as dm_error:
