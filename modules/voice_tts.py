@@ -223,8 +223,25 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
     logger.error(f"TTS parameters - Voices tried: {voices_to_try}, Rate: {VOICE_RATE}, Pitch: {VOICE_PITCH}")
     logger.error(f"Text length: {len(text_stripped)} characters")
     logger.error(f"Text preview: {text_stripped[:100]}")
-    logger.error("Possible causes: 1) No internet connection, 2) Edge TTS service down, 3) Firewall blocking access")
-    logger.error("For Termux users: Check network connectivity with 'ping 8.8.8.8' and ensure no VPN/firewall blocking")
+    logger.error("=== TTS Troubleshooting Guide ===")
+    logger.error("Possible causes:")
+    logger.error("  1) Edge TTS service is temporarily unavailable or down")
+    logger.error("  2) Network firewall is blocking access to Microsoft Edge TTS service")
+    logger.error("  3) ISP/organization is blocking Microsoft services")
+    logger.error("  4) VPN/proxy is interfering with the connection")
+    logger.error("  5) Rate limiting (too many requests in short time)")
+    logger.error("")
+    logger.error("Troubleshooting steps:")
+    logger.error("  1. Check basic internet: ping 8.8.8.8")
+    logger.error("  2. Check DNS resolution: ping speech.platform.bing.com")
+    logger.error("  3. Try disabling VPN/proxy temporarily")
+    logger.error("  4. Wait 5-10 minutes and try again (in case of rate limiting)")
+    logger.error("  5. Check if your network allows access to Microsoft services")
+    logger.error("  6. For Termux users: Try switching between WiFi and mobile data")
+    logger.error("")
+    logger.error("If the issue persists, the Edge TTS service may be experiencing an outage.")
+    logger.error("Check service status or try again later.")
+    logger.error("================================")
     
     return None
 
@@ -631,6 +648,23 @@ async def test_tts_connectivity() -> bool:
     temp_file.close()
     
     try:
+        # First try to list voices to check basic connectivity
+        try:
+            logger.debug("Testing edge-tts service connectivity by listing voices...")
+            voices = await asyncio.wait_for(edge_tts.list_voices(), timeout=10.0)
+            if voices and len(voices) > 0:
+                logger.debug(f"Successfully fetched {len(voices)} voices from edge-tts service")
+            else:
+                logger.warning("Edge-tts service returned no voices - service may be unavailable")
+                return False
+        except asyncio.TimeoutError:
+            logger.warning("Edge-tts voice list request timed out - service may be unreachable")
+            logger.warning("This could indicate: 1) No internet, 2) Firewall blocking, 3) Service down")
+            return False
+        except Exception as list_error:
+            logger.warning(f"Could not fetch voice list: {list_error}")
+            logger.debug("Continuing with TTS test despite voice list failure...")
+        
         # Try to communicate with edge-tts service
         communicate = edge_tts.Communicate(
             text=test_text,

@@ -4992,6 +4992,102 @@ class AdminAIGroup(app_commands.Group):
             logger.error(f"Error in debug_voice command: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {e}")
 
+    @app_commands.command(name="test_tts", description="[Debug] Testet die TTS (Text-to-Speech) Funktionalität des Bots.")
+    async def test_tts(self, interaction: discord.Interaction):
+        """Tests TTS functionality and connectivity."""
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            from modules import voice_tts
+            
+            # Check if edge-tts is available
+            if not voice_tts.EDGE_TTS_AVAILABLE:
+                embed = discord.Embed(
+                    title="❌ TTS Nicht Verfügbar",
+                    description="**edge-tts** ist nicht installiert.",
+                    color=discord.Color.red()
+                )
+                embed.add_field(
+                    name="Installation",
+                    value="```bash\npip install edge-tts\n```",
+                    inline=False
+                )
+                await interaction.followup.send(embed=embed)
+                return
+            
+            # Run connectivity test
+            embed = discord.Embed(
+                title="🔧 TTS Diagnose",
+                description="Teste TTS-Funktionalität...",
+                color=discord.Color.blue()
+            )
+            
+            # Check dependencies
+            deps = voice_tts.check_voice_dependencies()
+            dep_status = []
+            for dep, available in deps.items():
+                status_icon = "✅" if available else "❌"
+                dep_status.append(f"{status_icon} **{dep}**: {'Verfügbar' if available else 'Nicht verfügbar'}")
+            
+            embed.add_field(
+                name="📦 Abhängigkeiten",
+                value="\n".join(dep_status),
+                inline=False
+            )
+            
+            # Test TTS connectivity
+            await interaction.followup.send(embed=embed)
+            
+            # Run the actual test
+            test_result = await voice_tts.test_tts_connectivity()
+            
+            # Update embed with results
+            if test_result:
+                embed.color = discord.Color.green()
+                embed.title = "✅ TTS Test Erfolgreich"
+                embed.add_field(
+                    name="🎉 Ergebnis",
+                    value="✓ TTS-Service ist erreichbar und funktioniert\n"
+                          "✓ Audio wurde erfolgreich generiert\n"
+                          "✓ Voice-Funktionen sollten funktionieren",
+                    inline=False
+                )
+            else:
+                embed.color = discord.Color.red()
+                embed.title = "❌ TTS Test Fehlgeschlagen"
+                embed.add_field(
+                    name="⚠️ Fehler",
+                    value="Der Edge TTS Service ist nicht erreichbar oder antwortet nicht.",
+                    inline=False
+                )
+                embed.add_field(
+                    name="🔍 Mögliche Ursachen",
+                    value="• Edge TTS Service ist down\n"
+                          "• Firewall blockiert Zugriff\n"
+                          "• VPN/Proxy Probleme\n"
+                          "• Netzwerk-Routing-Probleme\n"
+                          "• Rate-Limiting (zu viele Anfragen)",
+                    inline=False
+                )
+                embed.add_field(
+                    name="💡 Lösungsvorschläge",
+                    value="1. Prüfe Internet-Verbindung: `ping 8.8.8.8`\n"
+                          "2. Prüfe DNS: `ping speech.platform.bing.com`\n"
+                          "3. Deaktiviere VPN/Proxy vorübergehend\n"
+                          "4. Warte 5-10 Minuten (Rate-Limiting)\n"
+                          "5. Wechsle Netzwerk (WiFi ↔ Mobile Daten)\n"
+                          "6. Prüfe Firewall-Einstellungen",
+                    inline=False
+                )
+            
+            # Edit the original message with updated results
+            await interaction.edit_original_response(embed=embed)
+            logger.info(f"Admin {interaction.user.name} ran TTS test, result: {test_result}")
+            
+        except Exception as e:
+            logger.error(f"Error in test_tts command: {e}", exc_info=True)
+            await interaction.followup.send(f"❌ Error: {e}")
+
     @app_commands.command(name="force_voice_call", description="[Admin] Zwingt den Bot, einem Voice-Call beizutreten.")
     @app_commands.describe(
         user="Der Benutzer, dessen Voice-Channel der Bot beitreten soll (optional - erstellt neuen Channel wenn nicht angegeben)",
