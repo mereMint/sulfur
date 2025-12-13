@@ -314,7 +314,14 @@ def database_viewer():
     cursor = None
     try:
         # Get all tables
-        conn = db_helpers.db_pool.get_connection()
+        conn = db_helpers.get_db_connection()
+        if not conn:
+            return render_template('database.html', 
+                                 all_tables=[], 
+                                 selected_table=None, 
+                                 table_data=None,
+                                 error='Failed to get database connection')
+        
         cursor = conn.cursor(dictionary=True)
         cursor.execute("SHOW TABLES")
         all_tables = [list(row.values())[0] for row in cursor.fetchall()]
@@ -365,13 +372,18 @@ def ai_usage_viewer():
     conn = None
     cursor = None
     try:
-        conn = db_helpers.db_pool.get_connection()
+        conn = db_helpers.get_db_connection()
+        if not conn:
+            usage_data = [{'error': 'Failed to get database connection'}]
+            return render_template('ai_usage.html', usage_data=usage_data)
+        
         cursor = conn.cursor(dictionary=True)
         cursor.execute("SELECT usage_date, model_name, call_count, input_tokens, output_tokens FROM api_usage ORDER BY usage_date DESC, model_name ASC")
         raw_data = cursor.fetchall()
         # Convert Decimal values for proper JSON serialization
         usage_data = [db_helpers.convert_decimals(row) for row in raw_data]
     except Exception as e:
+        logger.error(f"Error fetching AI usage: {e}")
         usage_data = [{'error': str(e)}]
     finally:
         if cursor:
@@ -697,7 +709,10 @@ def api_recent_activity():
         if not db_helpers.db_pool:
             return jsonify({'error': 'Database not available', 'activities': []}), 500
         
-        conn = db_helpers.db_pool.get_connection()
+        conn = db_helpers.get_db_connection()
+        if not conn:
+            logger.error("Failed to get database connection")
+            return jsonify({'error': 'Failed to get database connection'}), 500
         cursor = conn.cursor(dictionary=True)
         activities = []
         
@@ -838,7 +853,10 @@ def api_activity_stats():
         if not db_helpers.db_pool:
             return jsonify({'error': 'Database not available'}), 500
         
-        conn = db_helpers.db_pool.get_connection()
+        conn = db_helpers.get_db_connection()
+        if not conn:
+            logger.error("Failed to get database connection")
+            return jsonify({'error': 'Failed to get database connection'}), 500
         cursor = conn.cursor(dictionary=True)
         
         try:
@@ -1082,7 +1100,7 @@ def admin_delete_user_data():
         deleted_tables = []
         
         try:
-            conn = db_helpers.db_pool.get_connection()
+            conn = db_helpers.get_db_connection()
             cursor = conn.cursor()
             
             # List of tables to delete user data from
@@ -1337,7 +1355,10 @@ def verify_rpg_data():
         if not db_helpers.db_pool:
             return jsonify({'error': 'Database not available'}), 500
         
-        conn = db_helpers.db_pool.get_connection()
+        conn = db_helpers.get_db_connection()
+        if not conn:
+            logger.error("Failed to get database connection")
+            return jsonify({'error': 'Failed to get database connection'}), 500
         cursor = conn.cursor(dictionary=True)
         
         try:
@@ -1404,7 +1425,7 @@ def rpg_stats():
         if not db_helpers.db_pool:
             return jsonify({'error': 'Database not available'}), 500
         
-        conn = db_helpers.db_pool.get_connection()
+        conn = db_helpers.get_db_connection()
         cursor = conn.cursor()
         
         try:
@@ -1447,7 +1468,10 @@ def rpg_items():
         if not db_helpers.db_pool:
             return jsonify({'error': 'Database not available'}), 500
         
-        conn = db_helpers.db_pool.get_connection()
+        conn = db_helpers.get_db_connection()
+        if not conn:
+            logger.error("Failed to get database connection")
+            return jsonify({'error': 'Failed to get database connection'}), 500
         cursor = conn.cursor(dictionary=True)
         
         if request.method == 'GET':
@@ -1504,7 +1528,7 @@ def delete_rpg_item(item_id):
         if not db_helpers.db_pool:
             return jsonify({'error': 'Database not available'}), 500
         
-        conn = db_helpers.db_pool.get_connection()
+        conn = db_helpers.get_db_connection()
         cursor = conn.cursor()
         
         cursor.execute("DELETE FROM rpg_items WHERE id = %s", (item_id,))
@@ -1526,7 +1550,10 @@ def rpg_monsters():
         if not db_helpers.db_pool:
             return jsonify({'error': 'Database not available'}), 500
         
-        conn = db_helpers.db_pool.get_connection()
+        conn = db_helpers.get_db_connection()
+        if not conn:
+            logger.error("Failed to get database connection")
+            return jsonify({'error': 'Failed to get database connection'}), 500
         cursor = conn.cursor(dictionary=True)
         
         if request.method == 'GET':
@@ -1589,7 +1616,7 @@ def delete_rpg_monster(monster_id):
         if not db_helpers.db_pool:
             return jsonify({'error': 'Database not available'}), 500
         
-        conn = db_helpers.db_pool.get_connection()
+        conn = db_helpers.get_db_connection()
         cursor = conn.cursor()
         
         cursor.execute("DELETE FROM rpg_monsters WHERE id = %s", (monster_id,))
@@ -1873,7 +1900,7 @@ def reset_rpg_player():
         deleted_tables = []
         
         try:
-            conn = db_helpers.db_pool.get_connection()
+            conn = db_helpers.get_db_connection()
             cursor = conn.cursor()
             
             # Pre-defined queries for each table to prevent SQL injection
@@ -1932,7 +1959,11 @@ def economy_stats():
         if not db_helpers.db_pool:
             return jsonify({'error': 'Database not available'}), 500
         
-        conn = db_helpers.db_pool.get_connection()
+        conn = db_helpers.get_db_connection()
+        if not conn:
+            logger.error("Failed to get connection for economy_stats")
+            return jsonify({'error': 'Failed to get database connection'}), 500
+        
         cursor = conn.cursor(dictionary=True)
         
         try:
@@ -2004,7 +2035,11 @@ def economy_stocks():
         if not db_helpers.db_pool:
             return jsonify({'error': 'Database not available'}), 500
         
-        conn = db_helpers.db_pool.get_connection()
+        conn = db_helpers.get_db_connection()
+        if not conn:
+            logger.error("Failed to get connection for economy_stocks")
+            return jsonify({'error': 'Failed to get database connection'}), 500
+        
         cursor = conn.cursor(dictionary=True)
         
         try:
@@ -2070,7 +2105,10 @@ def api_get_stocks():
         if not db_helpers.db_pool:
             return jsonify({'error': 'Database not available'}), 500
         
-        conn = db_helpers.db_pool.get_connection()
+        conn = db_helpers.get_db_connection()
+        if not conn:
+            logger.error("Failed to get database connection")
+            return jsonify({'error': 'Failed to get database connection'}), 500
         cursor = conn.cursor(dictionary=True)
         
         try:
@@ -2101,7 +2139,10 @@ def api_get_stock(symbol):
         if not db_helpers.db_pool:
             return jsonify({'error': 'Database not available'}), 500
         
-        conn = db_helpers.db_pool.get_connection()
+        conn = db_helpers.get_db_connection()
+        if not conn:
+            logger.error("Failed to get database connection")
+            return jsonify({'error': 'Failed to get database connection'}), 500
         cursor = conn.cursor(dictionary=True)
         
         try:
@@ -2144,7 +2185,7 @@ def api_create_stock():
         if len(symbol) > 10:
             return jsonify({'error': 'Symbol too long (max 10 characters)'}), 400
         
-        conn = db_helpers.db_pool.get_connection()
+        conn = db_helpers.get_db_connection()
         cursor = conn.cursor()
         
         try:
@@ -2177,7 +2218,7 @@ def api_update_stock(symbol):
         
         data = request.get_json()
         
-        conn = db_helpers.db_pool.get_connection()
+        conn = db_helpers.get_db_connection()
         cursor = conn.cursor()
         
         try:
@@ -2242,7 +2283,7 @@ def api_delete_stock(symbol):
         if not db_helpers.db_pool:
             return jsonify({'error': 'Database not available'}), 500
         
-        conn = db_helpers.db_pool.get_connection()
+        conn = db_helpers.get_db_connection()
         cursor = conn.cursor()
         
         try:
@@ -2276,7 +2317,11 @@ def games_stats():
         if not db_helpers.db_pool:
             return jsonify({'error': 'Database not available'}), 500
         
-        conn = db_helpers.db_pool.get_connection()
+        conn = db_helpers.get_db_connection()
+        if not conn:
+            logger.error("Failed to get connection for games_stats")
+            return jsonify({'error': 'Failed to get database connection'}), 500
+        
         cursor = conn.cursor(dictionary=True)
         
         stats = {}
@@ -2373,7 +2418,7 @@ def verify_all_tables():
         if not db_helpers.db_pool:
             return jsonify({'error': 'Database not available'}), 500
         
-        conn = db_helpers.db_pool.get_connection()
+        conn = db_helpers.get_db_connection()
         cursor = conn.cursor()
         
         try:
@@ -2431,7 +2476,10 @@ def game_leaderboard(game_type):
         if not db_helpers.db_pool:
             return jsonify({'error': 'Database not available'}), 500
         
-        conn = db_helpers.db_pool.get_connection()
+        conn = db_helpers.get_db_connection()
+        if not conn:
+            logger.error("Failed to get database connection")
+            return jsonify({'error': 'Failed to get database connection'}), 500
         cursor = conn.cursor(dictionary=True)
         
         try:
@@ -2520,7 +2568,7 @@ def system_health():
         db_size_mb = 0
         if db_helpers.db_pool:
             try:
-                conn = db_helpers.db_pool.get_connection()
+                conn = db_helpers.get_db_connection()
                 if conn:
                     db_healthy = True
                     cursor = conn.cursor(dictionary=True)

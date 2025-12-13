@@ -2863,9 +2863,14 @@ async def track_ai_model_usage(model_name, feature, input_tokens, output_tokens,
 async def get_ai_usage_stats(days=30):
     """Retrieves AI usage statistics for the specified number of days."""
     if not db_pool:
+        logger.warning("Database pool not available for get_ai_usage_stats")
         return []
     
-    cnx = db_pool.get_connection()
+    cnx = get_db_connection()
+    if not cnx:
+        logger.error("Failed to get connection for get_ai_usage_stats")
+        return []
+    
     cursor = cnx.cursor(dictionary=True)
     try:
         query = """
@@ -2885,7 +2890,7 @@ async def get_ai_usage_stats(days=30):
         # Convert Decimal values for JSON serialization
         return [convert_decimals(row) for row in rows]
     except mysql.connector.Error as err:
-        print(f"Error in get_ai_usage_stats: {err}")
+        logger.error(f"Error in get_ai_usage_stats: {err}")
         return []
     finally:
         cursor.close()
