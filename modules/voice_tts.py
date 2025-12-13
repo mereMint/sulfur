@@ -161,7 +161,11 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
                 error_type = type(e).__name__
                 
                 # Check if this is a NoAudioReceived error by name (for compatibility)
-                if error_type == "NoAudioReceived":
+                is_no_audio = (error_type == "NoAudioReceived" or 
+                              "NoAudioReceived" in str(type(e)) or
+                              "no audio" in str(e).lower())
+                
+                if is_no_audio:
                     logger.warning(f"NoAudioReceived error on attempt {attempt + 1}/{TTS_MAX_RETRIES} with voice {voice}: {e}")
                 else:
                     logger.error(f"Unexpected error generating TTS ({error_type}) on attempt {attempt + 1}: {e}")

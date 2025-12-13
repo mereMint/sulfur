@@ -4907,7 +4907,7 @@ class AdminAIGroup(app_commands.Group):
                 if not call_state:
                     await interaction.followup.send(
                         f"❌ Kein aktiver Voice-Call mit {user.display_name} gefunden.\n"
-                        f"💡 Benutze `/admin debug_voice` um alle aktiven Calls zu sehen."
+                        f"💡 Benutze `/admin voice_transcript` (ohne User) um alle aktiven Calls zu sehen."
                     )
                     return
                 
@@ -4935,7 +4935,7 @@ class AdminAIGroup(app_commands.Group):
                             from datetime import datetime
                             dt = datetime.fromisoformat(timestamp)
                             time_str = dt.strftime('%H:%M:%S')
-                        except:
+                        except Exception:
                             time_str = 'N/A'
                         
                         speaker = entry.get('speaker', 'Unknown')
