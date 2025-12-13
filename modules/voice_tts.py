@@ -42,19 +42,26 @@ SULFUR_VOICE_ALT = "de-DE-ConradNeural"  # Alternative voice
 VOICE_RATE = "+0%"  # Normal speed
 VOICE_PITCH = "+0Hz"  # Normal pitch
 
+# Retry configuration for TTS
+TTS_MAX_RETRIES = 3  # Maximum number of retry attempts
+TTS_RETRY_DELAY = 1.0  # Initial retry delay in seconds (exponential backoff)
+
 
 # --- TTS Functions ---
 
 async def text_to_speech(text: str, output_file: Optional[str] = None) -> Optional[str]:
     """
-    Convert text to speech using edge-tts.
+    Convert text to speech using edge-tts with retry mechanism.
+    
+    Implements exponential backoff retry logic and fallback to alternative voice
+    to handle intermittent network issues and service unavailability.
     
     Args:
         text: Text to convert to speech
         output_file: Optional output file path. If None, creates temp file.
     
     Returns:
-        Path to the audio file, or None if failed
+        Path to the audio file, or None if failed after all retries
     """
     if not EDGE_TTS_AVAILABLE:
         logger.error("edge-tts is not available - cannot generate TTS audio")
@@ -72,58 +79,122 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
         logger.error("TTS text is empty or contains only whitespace")
         return None
     
-    try:
-        # Create temp file if output not specified
-        if output_file is None:
-            # Use NamedTemporaryFile for safer temp file handling
-            temp_file = tempfile.NamedTemporaryFile(
-                suffix='.mp3', 
-                prefix='sulfur_tts_', 
-                delete=False
-            )
-            output_file = temp_file.name
-            temp_file.close()
-        
-        # Generate TTS with validated text
-        logger.debug(f"Generating TTS for text: {text_stripped[:50]}...")
-        communicate = edge_tts.Communicate(
-            text=text_stripped,
-            voice=SULFUR_VOICE,
-            rate=VOICE_RATE,
-            pitch=VOICE_PITCH
+    # Create temp file if output not specified
+    if output_file is None:
+        # Use NamedTemporaryFile for safer temp file handling
+        temp_file = tempfile.NamedTemporaryFile(
+            suffix='.mp3', 
+            prefix='sulfur_tts_', 
+            delete=False
         )
-        
-        await communicate.save(output_file)
-        
-        # Verify the file was created and has content
-        if not os.path.exists(output_file):
-            logger.error(f"TTS file was not created: {output_file}")
-            return None
-        
-        file_size = os.path.getsize(output_file)
-        if file_size == 0:
-            logger.error(f"TTS file is empty: {output_file}")
-            os.remove(output_file)
-            return None
-        
-        logger.debug(f"Generated TTS audio: {output_file} ({file_size} bytes)")
-        return output_file
-    except Exception as e:
-        # Provide more detailed error information
-        error_type = type(e).__name__
-        logger.error(f"Error generating TTS ({error_type}): {e}", exc_info=True)
-        
-        # Log additional context for debugging
-        logger.error(f"TTS parameters - Voice: {SULFUR_VOICE}, Rate: {VOICE_RATE}, Pitch: {VOICE_PITCH}")
-        logger.error(f"Text length: {len(text_stripped)} characters")
-        
-        # Clean up partial file if it exists
-        if output_file and os.path.exists(output_file):
+        output_file = temp_file.name
+        temp_file.close()
+    
+    # Try with primary voice, then fallback voice with retries
+    voices_to_try = [SULFUR_VOICE, SULFUR_VOICE_ALT]
+    
+    for voice_index, voice in enumerate(voices_to_try):
+        for attempt in range(TTS_MAX_RETRIES):
             try:
-                os.remove(output_file)
-            except (OSError, FileNotFoundError) as cleanup_error:
-                logger.debug(f"Could not remove partial TTS file: {cleanup_error}")
-        return None
+                # Log attempt info
+                if attempt > 0:
+                    logger.info(f"TTS retry attempt {attempt + 1}/{TTS_MAX_RETRIES} with voice {voice}")
+                else:
+                    logger.debug(f"Generating TTS for text: {text_stripped[:50]}... (voice: {voice})")
+                
+                # Generate TTS with validated text
+                communicate = edge_tts.Communicate(
+                    text=text_stripped,
+                    voice=voice,
+                    rate=VOICE_RATE,
+                    pitch=VOICE_PITCH
+                )
+                
+                await communicate.save(output_file)
+                
+                # Verify the file was created and has content
+                if not os.path.exists(output_file):
+                    logger.warning(f"TTS file was not created: {output_file}")
+                    # Try next attempt
+                    continue
+                
+                file_size = os.path.getsize(output_file)
+                if file_size == 0:
+                    logger.warning(f"TTS file is empty: {output_file}")
+                    try:
+                        os.remove(output_file)
+                    except (OSError, FileNotFoundError):
+                        pass
+                    # Try next attempt
+                    continue
+                
+                # Success!
+                if voice_index > 0 or attempt > 0:
+                    logger.info(f"TTS succeeded with voice {voice} on attempt {attempt + 1}")
+                logger.debug(f"Generated TTS audio: {output_file} ({file_size} bytes)")
+                return output_file
+                
+            except edge_tts.exceptions.NoAudioReceived as e:
+                # Specific handling for NoAudioReceived error
+                logger.warning(f"NoAudioReceived error on attempt {attempt + 1}/{TTS_MAX_RETRIES} with voice {voice}: {e}")
+                
+                # Clean up any partial file
+                if output_file and os.path.exists(output_file):
+                    try:
+                        os.remove(output_file)
+                    except (OSError, FileNotFoundError):
+                        pass
+                
+                # If not the last retry, wait before retrying (exponential backoff)
+                if attempt < TTS_MAX_RETRIES - 1:
+                    retry_delay = TTS_RETRY_DELAY * (2 ** attempt)  # 1s, 2s, 4s
+                    logger.info(f"Waiting {retry_delay}s before retry...")
+                    await asyncio.sleep(retry_delay)
+                    continue
+                else:
+                    # Last retry with this voice failed
+                    logger.warning(f"All {TTS_MAX_RETRIES} retries failed with voice {voice}")
+                    break
+                    
+            except Exception as e:
+                # Other unexpected errors (including if NoAudioReceived doesn't exist in edge-tts version)
+                error_type = type(e).__name__
+                
+                # Check if this is a NoAudioReceived error by name (for compatibility)
+                is_no_audio = (error_type == "NoAudioReceived" or 
+                              "NoAudioReceived" in str(type(e)) or
+                              "no audio" in str(e).lower())
+                
+                if is_no_audio:
+                    logger.warning(f"NoAudioReceived error on attempt {attempt + 1}/{TTS_MAX_RETRIES} with voice {voice}: {e}")
+                else:
+                    logger.error(f"Unexpected error generating TTS ({error_type}) on attempt {attempt + 1}: {e}")
+                
+                # Clean up partial file if it exists
+                if output_file and os.path.exists(output_file):
+                    try:
+                        os.remove(output_file)
+                    except (OSError, FileNotFoundError):
+                        pass
+                
+                # Use exponential backoff for all errors on retries
+                if attempt < TTS_MAX_RETRIES - 1:
+                    retry_delay = TTS_RETRY_DELAY * (2 ** attempt)  # 1s, 2s, 4s
+                    logger.info(f"Waiting {retry_delay}s before retry...")
+                    await asyncio.sleep(retry_delay)
+                    continue
+                else:
+                    # Last retry with this voice failed
+                    logger.warning(f"All {TTS_MAX_RETRIES} retries failed with voice {voice}")
+                    break
+    
+    # All retries and fallback voices exhausted
+    logger.error("Failed to generate TTS audio after all retries and fallback voices")
+    logger.error(f"TTS parameters - Voices tried: {voices_to_try}, Rate: {VOICE_RATE}, Pitch: {VOICE_PITCH}")
+    logger.error(f"Text length: {len(text_stripped)} characters")
+    logger.error(f"Text preview: {text_stripped[:100]}")
+    
+    return None
 
 
 async def cleanup_audio_file(file_path: str):
