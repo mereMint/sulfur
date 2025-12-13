@@ -209,7 +209,14 @@
     async function loadGamesStats() {
         try {
             const response = await fetch('/api/games/stats');
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
             const data = await response.json();
+            
+            if (data.error) {
+                throw new Error(data.error);
+            }
             
             // Update Werwolf stats
             if (data.werwolf) {
@@ -251,6 +258,17 @@
             }
         } catch (error) {
             console.error('Error loading games stats:', error);
+            // Show error message in UI
+            const errorMsg = `
+                <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                    <strong>Error loading games stats:</strong> ${error.message || 'Connection failed'}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            `;
+            // Insert error at top of page if not already shown
+            if (!document.querySelector('.alert-danger')) {
+                document.querySelector('.container').insertAdjacentHTML('afterbegin', errorMsg);
+            }
         }
     }
     

@@ -214,7 +214,14 @@
     async function loadEconomyStats() {
         try {
             const response = await fetch('/api/economy/stats');
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
             const data = await response.json();
+            
+            if (data.error) {
+                throw new Error(data.error);
+            }
             
             // Update summary stats
             document.getElementById('total-coins').textContent = data.total_coins.toLocaleString();
@@ -284,6 +291,17 @@
             }
         } catch (error) {
             console.error('Error loading economy stats:', error);
+            // Show error message in UI
+            const errorMsg = `
+                <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                    <strong>Error loading economy stats:</strong> ${error.message || 'Connection failed'}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                </div>
+            `;
+            // Insert error at top of page if not already shown
+            if (!document.querySelector('.alert-danger')) {
+                document.querySelector('.container').insertAdjacentHTML('afterbegin', errorMsg);
+            }
         }
     }
     
