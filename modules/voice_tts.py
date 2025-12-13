@@ -183,7 +183,8 @@ async def check_network_connectivity() -> Dict[str, Any]:
     try:
         # Test DNS resolution using asyncio (non-blocking)
         try:
-            loop = asyncio.get_event_loop()
+            # Use get_running_loop() which is the modern approach
+            loop = asyncio.get_running_loop()
             # getaddrinfo returns address info, which confirms DNS resolution
             await loop.getaddrinfo(EDGE_TTS_HOST, EDGE_TTS_PORT, family=socket.AF_INET)
             results['dns_resolution'] = True
@@ -264,11 +265,14 @@ async def diagnose_tts_failure() -> str:
     
     # Check circuit breaker status
     health_status = _tts_service_health.get_status()
-    if health_status['circuit_open']:
-        diagnostics.append(f"⚠️  TTS circuit breaker is OPEN")
+    state = health_status.get('state', 'UNKNOWN')
+    if state != 'CLOSED':
+        diagnostics.append(f"⚠️  TTS circuit breaker is {state}")
         diagnostics.append(f"   Failed {health_status['consecutive_failures']} times consecutively")
         if health_status['last_failure']:
             diagnostics.append(f"   Last failure: {health_status['last_failure'].strftime('%Y-%m-%d %H:%M:%S')}")
+        if state == 'HALF_OPEN':
+            diagnostics.append("   Currently testing if service has recovered")
     
     return "\n".join(diagnostics)
 
