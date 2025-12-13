@@ -541,9 +541,62 @@ def check_voice_dependencies() -> Dict[str, bool]:
     dependencies = {
         'edge_tts': EDGE_TTS_AVAILABLE,
         'ffmpeg': False,  # Will be checked dynamically
+        'pynacl': PYNACL_AVAILABLE,
     }
     
     # Check for ffmpeg
     dependencies['ffmpeg'] = shutil.which('ffmpeg') is not None
     
     return dependencies
+
+
+async def test_tts_connectivity() -> bool:
+    """
+    Test if edge-tts service is accessible and working.
+    
+    Returns:
+        True if TTS is working, False otherwise
+    """
+    if not EDGE_TTS_AVAILABLE:
+        logger.warning("edge-tts is not installed")
+        return False
+    
+    try:
+        # Try to generate a very short test audio
+        test_text = "Test"
+        temp_file = tempfile.NamedTemporaryFile(suffix='.mp3', prefix='tts_test_', delete=False)
+        test_file = temp_file.name
+        temp_file.close()
+        
+        # Try to communicate with edge-tts service
+        communicate = edge_tts.Communicate(
+            text=test_text,
+            voice=SULFUR_VOICE
+        )
+        
+        # Set a timeout for the test
+        await asyncio.wait_for(communicate.save(test_file), timeout=10.0)
+        
+        # Check if file was created and has content
+        if os.path.exists(test_file) and os.path.getsize(test_file) > 0:
+            # Clean up test file
+            try:
+                os.remove(test_file)
+            except:
+                pass
+            logger.info("TTS connectivity test passed")
+            return True
+        else:
+            logger.warning("TTS connectivity test failed - no audio generated")
+            try:
+                os.remove(test_file)
+            except:
+                pass
+            return False
+            
+    except asyncio.TimeoutError:
+        logger.warning("TTS connectivity test timed out - edge-tts service may be unreachable")
+        return False
+    except Exception as e:
+        logger.warning(f"TTS connectivity test failed: {e}")
+        return False

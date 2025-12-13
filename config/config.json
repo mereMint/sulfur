@@ -389,6 +389,7 @@
       "min_cooldown_hours": 24,
       "min_dm_cooldown_hours": 1,
       "temp_dm_access_hours": 1,
+      "startup_delay_minutes": 10,
       "allow_voice_calls": true,
       "voice_call_probability": 0.1,
       "boredom_threshold": 0.3
