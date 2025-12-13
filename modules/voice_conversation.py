@@ -627,19 +627,30 @@ async def monitor_voice_calls():
             
             # Check for timeouts and empty channels
             for user_id, call_state in list(_active_calls.items()):
-                # Check if channel is empty and should leave
-                if call_state.should_leave_empty_channel():
-                    logger.info(f"Voice channel empty for {EMPTY_CHANNEL_TIMEOUT_SECONDS}s, leaving call with user {user_id}")
-                    await end_voice_call(user_id, reason="empty_channel")
-                    continue
-                
-                # Check for general timeout
-                if call_state.is_timed_out():
-                    logger.info(f"Voice call with user {user_id} timed out")
-                    await end_voice_call(user_id, reason="timeout")
+                try:
+                    # Check if channel is empty and should leave
+                    if call_state.should_leave_empty_channel():
+                        logger.info(f"Voice channel empty for {EMPTY_CHANNEL_TIMEOUT_SECONDS}s, leaving call with user {user_id}")
+                        await end_voice_call(user_id, reason="empty_channel")
+                        continue
+                    
+                    # Check for general timeout
+                    if call_state.is_timed_out():
+                        logger.info(f"Voice call with user {user_id} timed out")
+                        await end_voice_call(user_id, reason="timeout")
+                except Exception as call_error:
+                    # Isolate errors per call to prevent one failing call from stopping the monitor
+                    logger.error(f"Error processing call for user {user_id}: {call_error}", exc_info=True)
+                    try:
+                        # Attempt cleanup for the failed call
+                        await end_voice_call(user_id, reason="error")
+                    except:
+                        # Last resort: just remove from active calls
+                        _active_calls.pop(user_id, None)
                     
         except Exception as e:
-            logger.error(f"Error in voice call monitor: {e}", exc_info=True)
+            logger.error(f"Error in voice call monitor loop: {e}", exc_info=True)
+            # Monitor continues even if there's an error
 
 
 def get_active_call(user_id: int) -> Optional[VoiceCallState]:
@@ -746,7 +757,10 @@ async def handle_text_in_voice_call(
     if not call_state:
         return False
     
-    # Check if message is in the same channel or guild as the call
+    # Check if message is in the same guild as the call (skip DMs)
+    if not hasattr(message.channel, 'guild') or message.channel.guild is None:
+        return False
+    
     if message.channel.guild != call_state.channel.guild:
         return False
     
