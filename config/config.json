@@ -5,7 +5,7 @@
       "sulfur"
     ],
     "authorised_role": "authorised",
-    "join_role": "",
+    "join_role": "people",
     "embed_color": "#7289DA",
     "system_prompt_file": "config/system_prompt.txt",
     "description": "Big brother is helpful but always watching",
@@ -15,8 +15,8 @@
         "stalkt {user}",
         "beobachtet {user} kritisch",
         "judged {user}'s life choices",
-        "lacht über {user}",
-        "hört {user} beim Weinen zu"
+        "lacht \u00fcber {user}",
+        "h\u00f6rt {user} beim Weinen zu"
       ],
       "fallback_activity": "euch beim AFK sein zu"
     },
@@ -82,7 +82,7 @@
       "starting_balance": 1000,
       "level_up_bonus_multiplier": 100,
       "currency_name": "Coins",
-      "currency_symbol": "🪙",
+      "currency_symbol": "\ud83e\ude99",
       "daily_reward": 100,
       "message_reward": 5,
       "vc_reward_per_minute": 2,
@@ -104,7 +104,7 @@
           ],
           "basic_color_names": [
             "Rot",
-            "Grün",
+            "Gr\u00fcn",
             "Blau",
             "Gelb",
             "Magenta",
@@ -121,7 +121,7 @@
             "Pink",
             "Gold",
             "Lila",
-            "Türkis",
+            "T\u00fcrkis",
             "Tomate"
           ],
           "legendary_colors": [
@@ -134,9 +134,9 @@
           "legendary_color_names": [
             "Tiefes Pink",
             "Blau-Violett",
-            "Dunkles Türkis",
+            "Dunkles T\u00fcrkis",
             "Orangen-Rot",
-            "Limettengrün"
+            "Limettengr\u00fcn"
           ]
         },
         "features": {
@@ -152,21 +152,30 @@
           "word_games_bundle": {
             "name": "Word Games Bundle",
             "description": "Unlimited Word Find + Unlimited Wordle",
-            "features": ["unlimited_word_find", "unlimited_wordle"],
+            "features": [
+              "unlimited_word_find",
+              "unlimited_wordle"
+            ],
             "price": 800,
             "discount": 200
           },
           "ai_games_bundle": {
             "name": "AI Games Bundle",
             "description": "Detective Game + Trolly Problem",
-            "features": ["detective", "trolly"],
+            "features": [
+              "detective",
+              "trolly"
+            ],
             "price": 1000,
             "discount": 250
           },
           "white_wolf_bundle": {
-            "name": "🐺 White Wolf Bundle",
-            "description": "Amor + Der Weiße - Spezielle Werwolf-Rollen",
-            "features": ["werwolf_role_amor", "werwolf_role_der_weisse"],
+            "name": "\ud83d\udc3a White Wolf Bundle",
+            "description": "Amor + Der Wei\u00dfe - Spezielle Werwolf-Rollen",
+            "features": [
+              "werwolf_role_amor",
+              "werwolf_role_der_weisse"
+            ],
             "price": 3000,
             "discount": 600
           }
@@ -180,8 +189,8 @@
         "werwolf_roles": {
           "seherin": 1500,
           "hexe": 1500,
-          "dönerstopfer": 1200,
-          "jäger": 1200,
+          "d\u00f6nerstopfer": 1200,
+          "j\u00e4ger": 1200,
           "amor": 1800,
           "der_weisse": 1800
         }
@@ -213,7 +222,12 @@
           "min_bet": 10,
           "max_bet": 500,
           "max_floors": 10,
-          "difficulties": [1, 2, 3, 4]
+          "difficulties": [
+            1,
+            2,
+            3,
+            4
+          ]
         }
       },
       "quests": {
@@ -301,18 +315,18 @@
       }
     },
     "voice_manager": {
-      "join_to_create_channel_name": "➕ Join to Create",
-      "dynamic_channel_category_name": "🔊 Voice Channels 🔊",
+      "join_to_create_channel_name": "\u2795 Join to Create",
+      "dynamic_channel_category_name": "\ud83d\udd0a Voice Channels \ud83d\udd0a",
       "creation_move_delay_ms": 250,
       "empty_channel_delete_grace_period_seconds": 5
     },
     "werwolf": {
-      "game_category_name": "🐺 WERWOLF SPIEL 🐺",
+      "game_category_name": "\ud83d\udc3a WERWOLF SPIEL \ud83d\udc3a",
       "min_name_pool_size": 20,
       "day_vote_timeout_seconds": 60,
       "join_phase_duration_seconds": 60,
-      "discussion_channel_name": "🐺 Werwolf-Diskussion",
-      "wolf_thread_name": "🐺 Werwolf-Beratung 🐺",
+      "discussion_channel_name": "\ud83d\udc3a Werwolf-Diskussion",
+      "wolf_thread_name": "\ud83d\udc3a Werwolf-Beratung \ud83d\udc3a",
       "default_target_players": 6,
       "tts": {
         "chars_per_second": 12,
@@ -345,7 +359,11 @@
       "max_bet": 10000,
       "house_edge": 0.05,
       "sync_interval_minutes": 30,
-      "default_leagues": ["bl1", "bl2", "dfb"],
+      "default_leagues": [
+        "bl1",
+        "bl2",
+        "dfb"
+      ],
       "api_providers": {
         "openligadb": {
           "enabled": true,
