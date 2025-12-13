@@ -660,6 +660,119 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     }
 }
 
+function Test-RequiredDependencies {
+    Write-ColorLog 'Checking required Python dependencies...' 'Cyan' '[DEPS] '
+    
+    $pythonExe = 'python'
+    if(Test-Path 'venv\Scripts\python.exe'){
+        $pythonExe = 'venv\Scripts\python.exe'
+    }
+    
+    $pipExe = $pythonExe -replace 'python\.exe$','pip.exe'
+    
+    # Check if requirements.txt exists
+    if(-not (Test-Path 'requirements.txt')){
+        Write-ColorLog 'requirements.txt not found!' 'Red' '[DEPS] '
+        return $false
+    }
+    
+    # Create a marker file to track last requirements install
+    $reqMarker = '.last_requirements_install'
+    $reqHash = (Get-FileHash -Path 'requirements.txt' -Algorithm MD5).Hash
+    $needInstall = $false
+    
+    # Check if requirements changed or marker doesn't exist
+    if(-not (Test-Path $reqMarker)){
+        $needInstall = $true
+    } else {
+        $lastHash = Get-Content $reqMarker -ErrorAction SilentlyContinue
+        if($reqHash -ne $lastHash){
+            Write-ColorLog 'requirements.txt has changed, updating dependencies...' 'Yellow' '[DEPS] '
+            $needInstall = $true
+        }
+    }
+    
+    # Also check if critical dependencies are missing
+    $criticalPackages = @('discord', 'flask', 'flask_socketio', 'mysql.connector')
+    $missingPackages = @()
+    
+    foreach($package in $criticalPackages){
+        $checkCmd = "import $package"
+        $result = & $pythonExe -c $checkCmd 2>$null
+        if($LASTEXITCODE -ne 0){
+            $missingPackages += $package
+            $needInstall = $true
+        }
+    }
+    
+    if($missingPackages.Count -gt 0){
+        Write-ColorLog "Missing critical packages: $($missingPackages -join ', ')" 'Yellow' '[DEPS] '
+    }
+    
+    # Install/update if needed
+    if($needInstall){
+        Write-ColorLog 'Installing/updating Python dependencies from requirements.txt...' 'Cyan' '[DEPS] '
+        
+        # Upgrade pip first
+        & $pythonExe -m pip install --upgrade pip 2>&1 | Out-Null
+        
+        # Try normal install first
+        $installOutput = & $pipExe install -r requirements.txt 2>&1
+        if($LASTEXITCODE -eq 0){
+            Write-ColorLog 'Dependencies installed successfully' 'Green' '[DEPS] '
+            Set-Content -Path $reqMarker -Value $reqHash
+        } else {
+            Write-ColorLog 'First install attempt failed; retrying without cache...' 'Yellow' '[DEPS] '
+            $installOutput = & $pipExe install -r requirements.txt --no-cache-dir 2>&1
+            if($LASTEXITCODE -eq 0){
+                Write-ColorLog 'Dependencies installed successfully (no cache)' 'Green' '[DEPS] '
+                Set-Content -Path $reqMarker -Value $reqHash
+            } else {
+                Write-ColorLog 'Failed to install Python dependencies' 'Red' '[DEPS] '
+                Write-ColorLog 'Last 10 lines of pip output:' 'Yellow' '[DEPS] '
+                $installOutput | Select-Object -Last 10 | ForEach-Object {
+                    Write-ColorLog "  $_" 'White' '[DEPS] '
+                }
+                
+                Write-ColorLog 'Trying to install critical packages individually...' 'Yellow' '[DEPS] '
+                $criticalPkgNames = @('discord.py', 'Flask', 'Flask-SocketIO', 'mysql-connector-python')
+                foreach($pkg in $criticalPkgNames){
+                    Write-ColorLog "Installing $pkg..." 'Cyan' '[DEPS] '
+                    & $pipExe install $pkg 2>&1 | Out-Null
+                    if($LASTEXITCODE -eq 0){
+                        Write-ColorLog "  $pkg installed" 'Green' '[DEPS] '
+                    } else {
+                        Write-ColorLog "  Failed to install $pkg" 'Red' '[DEPS] '
+                    }
+                }
+                return $false
+            }
+        }
+    } else {
+        Write-ColorLog 'Python dependencies are up to date' 'Green' '[DEPS] '
+    }
+    
+    # Final verification - check for all required packages
+    $allPresent = $true
+    foreach($package in $criticalPackages){
+        $checkCmd = "import $package"
+        $result = & $pythonExe -c $checkCmd 2>$null
+        if($LASTEXITCODE -ne 0){
+            Write-ColorLog "Missing required package: $package" 'Red' '[DEPS] '
+            $allPresent = $false
+        }
+    }
+    
+    if(-not $allPresent){
+        Write-ColorLog 'Some required packages are still missing!' 'Red' '[DEPS] '
+        Write-ColorLog 'Please try manually: pip install -r requirements.txt' 'Yellow' '[DEPS] '
+        return $false
+    }
+    
+    Write-ColorLog 'All required dependencies are installed' 'Green' '[DEPS] '
+    return $true
+}
+
 function Install-OptionalDependencies {
     Write-ColorLog 'Checking optional dependencies for advanced features...' 'Cyan' '[DEPS] '
     
@@ -1061,6 +1174,16 @@ if (-not $dbInitSuccess) {
 
 # Run advanced AI database migrations
 Run-DatabaseMigrations
+
+# Check and install required dependencies
+if(-not (Test-RequiredDependencies)){
+    Write-ColorLog '=' * 70 'Red'
+    Write-ColorLog 'WARNING: Some required dependencies are missing!' 'Red' '[DEPS] '
+    Write-ColorLog 'Bot may not start correctly. Please check the errors above.' 'Yellow' '[DEPS] '
+    Write-ColorLog '=' * 70 'Red'
+    Write-ColorLog 'Waiting 10 seconds before continuing...' 'Yellow' '[DEPS] '
+    Start-Sleep -Seconds 10
+}
 
 # Install optional dependencies for voice features
 Install-OptionalDependencies
