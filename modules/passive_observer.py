@@ -24,6 +24,7 @@ from modules.logger_utils import bot_logger as logger
 
 # --- Configuration Constants ---
 OBSERVATION_PROBABILITY = 0.15  # 15% chance to actively think about a random message
+INTERESTING_MESSAGE_MULTIPLIER = 3.0  # Multiply probability for messages with interesting keywords
 THOUGHT_GENERATION_COOLDOWN = 30  # Minimum seconds between generated thoughts
 MIN_MESSAGE_LENGTH = 10  # Minimum message length to consider for observation
 MAX_OBSERVATIONS_PER_CHANNEL = 5  # Max observations to store per channel per hour
@@ -87,7 +88,7 @@ class PassiveObserver:
         
         if has_interesting_keyword:
             # Higher probability for interesting messages
-            return random.random() < OBSERVATION_PROBABILITY * 3
+            return random.random() < OBSERVATION_PROBABILITY * INTERESTING_MESSAGE_MULTIPLIER
         else:
             # Lower probability for regular messages
             return random.random() < OBSERVATION_PROBABILITY
@@ -147,7 +148,7 @@ class PassiveObserver:
         # Get current mood for thought generation
         try:
             current_mood = bot_mind_module.bot_mind.current_mood.value
-        except:
+        except (AttributeError, KeyError):
             current_mood = 'neutral'
         
         # Generate thoughts based on topic and mood

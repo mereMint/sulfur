@@ -303,6 +303,16 @@ except Exception as e:
 last_processed_message_ids = deque(maxlen=500)
 recent_user_message_cache = {}  # (user_id, content) -> timestamp
 
+# --- NEW: Cache passive observer instance ---
+_cached_passive_observer = None
+
+def get_cached_passive_observer():
+    """Get or create cached passive observer instance."""
+    global _cached_passive_observer
+    if _cached_passive_observer is None:
+        _cached_passive_observer = passive_observer.get_passive_observer()
+    return _cached_passive_observer
+
 # --- NEW: Import and initialize DB helpers ---
 from modules.db_helpers import init_db_pool, initialize_database, apply_pending_migrations, get_leaderboard, add_xp, get_player_rank, get_level_leaderboard, save_message_to_history, get_chat_history, get_relationship_summary, update_relationship_summary, save_bulk_history, clear_channel_history, update_user_presence, add_balance, update_spotify_history, get_all_managed_channels, remove_managed_channel, get_managed_channel_config, update_managed_channel_config, log_message_stat, log_vc_minutes, get_wrapped_stats_for_period, get_user_wrapped_stats, log_stat_increment, get_spotify_history, get_player_profile, cleanup_custom_status_entries, log_mention_reply, log_vc_session, get_wrapped_extra_stats, get_xp_for_level, register_for_wrapped, unregister_from_wrapped, is_registered_for_wrapped, get_wrapped_registrations, get_money_leaderboard, get_games_leaderboard
 import modules.db_helpers as db_helpers
@@ -16115,7 +16125,7 @@ async def on_message(message):
         # The bot observes messages even when not mentioned to build context and awareness
         if message.guild and not message.content.startswith('/'):
             try:
-                observer = passive_observer.get_passive_observer()
+                observer = get_cached_passive_observer()
                 thought = await observer.observe_message(message, bot_mind, config)
                 if thought:
                     logger.info(f"[PASSIVE] Bot thought: {thought}")

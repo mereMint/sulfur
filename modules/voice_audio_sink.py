@@ -54,16 +54,28 @@ if DISCORD_SINKS_AVAILABLE:
 else:
     # Dummy base class when discord.sinks is not available
     class AudioSinkBase:
-        """Dummy audio sink base class when discord.sinks is not available."""
+        """
+        Dummy audio sink base class when discord.sinks is not available.
+        
+        This provides a minimal interface for AudioSinkRecorder to function
+        even when voice receiving is not supported by discord.py.
+        """
         def __init__(self):
+            """Initialize empty audio data storage."""
             self.audio_data = {}
             
         def write(self, data, user):
-            """Dummy write method."""
+            """
+            Dummy write method - does nothing when voice receiving unavailable.
+            
+            Args:
+                data: Audio data bytes (ignored)
+                user: Discord user (ignored)
+            """
             pass
             
         def cleanup(self):
-            """Dummy cleanup method."""
+            """Dummy cleanup method - does nothing when voice receiving unavailable."""
             pass
 
 
