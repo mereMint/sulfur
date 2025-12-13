@@ -51,7 +51,54 @@ except ImportError:
 from dotenv import load_dotenv
 load_dotenv()
 
-from discord import app_commands
+# --- NEW: Check for py-cord vs discord.py compatibility ---
+# This bot requires discord.py, not py-cord, because it uses app_commands
+try:
+    from discord import app_commands
+except ImportError as e:
+    # Check if py-cord is installed instead of discord.py
+    try:
+        import discord
+        # If discord is importable but app_commands is not, likely py-cord
+        if hasattr(discord, 'commands') and not hasattr(discord, 'app_commands'):
+            logger.critical("py-cord detected instead of discord.py - app_commands not available")
+            print("\n" + "="*70)
+            print("ERROR: Import Error - Wrong Discord Library Installed")
+            print("="*70)
+            print("")
+            print("This bot requires 'discord.py' but you have 'py-cord' installed.")
+            print("py-cord uses a different API (discord.commands instead of app_commands).")
+            print("")
+            print("To fix this issue:")
+            print("")
+            print("1. Uninstall py-cord:")
+            print("   pip uninstall -y py-cord discord.py")
+            print("")
+            print("2. Reinstall discord.py from requirements.txt:")
+            print("   pip install -r requirements.txt")
+            print("")
+            print("3. Restart the bot")
+            print("")
+            print("See PYCORD_MIGRATION_GUIDE.md for more information.")
+            print("="*70)
+            exit(1)
+        else:
+            # Some other import error
+            raise e
+    except ImportError:
+        # discord module itself is not available
+        logger.critical("discord module not found")
+        print("\n" + "="*70)
+        print("ERROR: Discord Library Not Installed")
+        print("="*70)
+        print("")
+        print("The discord library is not installed.")
+        print("")
+        print("To fix this issue:")
+        print("   pip install -r requirements.txt")
+        print("")
+        print("="*70)
+        exit(1)
 from discord.ext import tasks
 from modules.werwolf import WerwolfGame
 from modules.api_helpers import get_chat_response, get_relationship_summary_from_api, get_wrapped_summary_from_api, get_game_details_from_api
