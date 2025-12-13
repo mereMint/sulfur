@@ -1,5 +1,7 @@
 # 🚀 Quick Start Guide
 
+> **⚠️ IMPORTANT:** This bot requires `discord.py` (NOT `py-cord`). The installation scripts will install the correct version automatically from `requirements.txt`.
+
 Get your Sulfur Discord Bot running in minutes! Choose your platform below.
 
 ---

@@ -1,5 +1,7 @@
 # 📦 Installation Guide - Sulfur Discord Bot
 
+> **⚠️ IMPORTANT:** This bot uses `discord.py`, NOT `py-cord`. If you have `py-cord` installed, you must uninstall it first. See [PYCORD_MIGRATION_GUIDE.md](PYCORD_MIGRATION_GUIDE.md) for details.
+
 Choose your platform and follow the easiest installation method for you!
 
 ---
