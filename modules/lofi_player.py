@@ -120,6 +120,9 @@ async def create_mixed_audio_source(stations: List[dict], volumes: Optional[List
     """
     Create a mixed audio source from multiple stations using FFmpeg filters.
     
+    NOTE: Multi-station mixing is currently experimental and may not work properly
+    with all audio sources. Single station playback is fully supported.
+    
     Args:
         stations: List of station dictionaries with 'url' and 'name'
         volumes: Optional list of volume levels (0.0-1.0) for each station
@@ -141,7 +144,7 @@ async def create_mixed_audio_source(stations: List[dict], volumes: Optional[List
         if len(volumes) < len(stations):
             volumes.extend([1.0 / len(stations)] * (len(stations) - len(volumes)))
         
-        # For single station, no mixing needed
+        # For single station, no mixing needed - fully supported
         if len(stations) == 1:
             with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
                 info = ydl.extract_info(stations[0]['url'], download=False)
@@ -156,40 +159,23 @@ async def create_mixed_audio_source(stations: List[dict], volumes: Optional[List
             return discord.FFmpegPCMAudio(audio_url, **ffmpeg_options)
         
         # For multiple stations, we need to mix them
-        # Extract all audio URLs
-        audio_urls = []
-        for station in stations:
-            with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-                info = ydl.extract_info(station['url'], download=False)
-                audio_urls.append(info['url'])
+        # NOTE: This is experimental and requires proper FFmpeg multi-input support
+        # TODO: Implement proper multi-source mixing with discord.py's FFmpeg support
+        # Current limitation: discord.FFmpegPCMAudio only accepts single URL
+        logger.warning("Multi-station mixing is experimental and may not work properly")
         
-        # Build FFmpeg filter for mixing
-        # We'll use amix filter to mix multiple audio sources
-        input_args = []
-        for i, url in enumerate(audio_urls):
-            input_args.extend(['-reconnect', '1', '-reconnect_streamed', '1', 
-                             '-reconnect_delay_max', '5', '-i', url])
+        # For now, just play the first station with a warning
+        # A proper implementation would require custom FFmpeg piping
+        with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
+            info = ydl.extract_info(stations[0]['url'], download=False)
+            audio_url = info['url']
         
-        # Create volume filters for each input
-        filter_parts = []
-        for i, vol in enumerate(volumes[:len(stations)]):
-            filter_parts.append(f'[{i}:a]volume={vol}[a{i}]')
-        
-        # Mix all processed audio streams
-        mix_inputs = ''.join([f'[a{i}]' for i in range(len(stations))])
-        filter_complex = ';'.join(filter_parts) + f';{mix_inputs}amix=inputs={len(stations)}:duration=longest[aout]'
-        
-        # Create FFmpeg command
-        before_options = ' '.join(input_args)
-        options = f'-filter_complex "{filter_complex}" -map "[aout]" -vn'
-        
+        volume_filter = f'volume={volumes[0]}'
         ffmpeg_options = {
-            'before_options': before_options,
-            'options': options
+            'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+            'options': f'-vn -af "{volume_filter}"'
         }
-        
-        # For mixed audio, we use the first URL as the source but with special options
-        return discord.FFmpegPCMAudio(audio_urls[0], **ffmpeg_options)
+        return discord.FFmpegPCMAudio(audio_url, **ffmpeg_options)
         
     except Exception as e:
         logger.error(f"Error creating mixed audio source: {e}", exc_info=True)

@@ -218,12 +218,20 @@ Then add the category to the command choices in `bot.py`:
 - **Audio Mixing**: Play multiple stations at once with volume control
   - Example: Quiet lofi beats + rain sounds
   - Volume sliders for each source
+  - Note: Framework is in place but requires additional FFmpeg integration work
+  - Current limitation: discord.py's FFmpegPCMAudio only supports single URL source
   
 - **Custom Playlists**: Save your favorite station combinations
 
 - **More Stations**: Additional music genres and ambient sounds
 
 - **Volume Control**: Adjust bot's volume without affecting other audio
+
+## Known Limitations
+
+- **Multi-Station Mixing**: The `create_mixed_audio_source()` and `play_mixed_stations()` functions exist but are currently experimental. Discord.py's FFmpegPCMAudio class is designed for single audio sources. Proper multi-source mixing would require custom FFmpeg piping or alternative approaches.
+
+- **Station URLs**: Some YouTube streams may occasionally be unavailable or change. If a station doesn't work, try a different one.
 
 ## See Also
 
