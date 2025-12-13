@@ -287,11 +287,17 @@ async def initiate_voice_call(user: discord.Member, config: dict, create_temp_ch
                 inline=False
             )
             await user.send(embed=instruction_embed)
-        except:
-            await user.send(
-                "📞 Ich bin im Voice-Call! Schreib mir Nachrichten in einem Text-Channel und "
-                "ich antworte per Sprache."
-            )
+        except (discord.Forbidden, discord.HTTPException) as e:
+            # Fallback to simple message if embed fails or can't send DM
+            logger.debug(f"Could not send embed instruction: {e}")
+            try:
+                await user.send(
+                    "📞 Ich bin im Voice-Call! Schreib mir Nachrichten in einem Text-Channel und "
+                    "ich antworte per Sprache."
+                )
+            except (discord.Forbidden, discord.HTTPException):
+                logger.debug(f"Could not send DM to {user.name} - DMs disabled")
+                pass  # User has DMs disabled
         
         return call_state
         
@@ -757,8 +763,9 @@ async def handle_text_in_voice_call(
         # React to show message was received
         try:
             await message.add_reaction("🎙️")
-        except:
-            pass
+        except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
+            logger.debug(f"Could not add reaction to message: {e}")
+            pass  # Can't add reaction (missing permissions or message deleted)
         
         # Get AI response and speak it
         await handle_voice_conversation(

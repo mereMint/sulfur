@@ -15895,8 +15895,7 @@ async def on_message(message):
     # --- NEW: Handle text messages during active voice calls ---
     if not message.author.bot and message.content:
         try:
-            from modules.voice_conversation import handle_text_in_voice_call
-            handled = await handle_text_in_voice_call(
+            handled = await voice_conversation.handle_text_in_voice_call(
                 message,
                 config,
                 GEMINI_API_KEY,
