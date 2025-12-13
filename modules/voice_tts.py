@@ -33,6 +33,14 @@ except ImportError:
     PYNACL_AVAILABLE = False
     logger.warning("PyNaCl not available. Install with: pip install PyNaCl")
 
+# Check for SpeechRecognition (optional for STT)
+try:
+    import speech_recognition as sr
+    SPEECH_RECOGNITION_AVAILABLE = True
+except ImportError:
+    SPEECH_RECOGNITION_AVAILABLE = False
+    logger.info("SpeechRecognition not available (optional). Install with: pip install SpeechRecognition")
+
 
 # Sulfur's voice configuration
 SULFUR_VOICE = "de-DE-KillianNeural"  # Male German voice with personality
@@ -66,6 +74,7 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
     if not EDGE_TTS_AVAILABLE:
         logger.error("edge-tts is not available - cannot generate TTS audio")
         logger.error("Install edge-tts with: pip install edge-tts")
+        logger.error("For Termux: pip install edge-tts (inside virtual environment)")
         return None
     
     # Validate input text
@@ -110,7 +119,26 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
                     pitch=VOICE_PITCH
                 )
                 
-                await communicate.save(output_file)
+                # Use longer timeout for edge-tts save operation
+                try:
+                    await asyncio.wait_for(communicate.save(output_file), timeout=15.0)
+                except asyncio.TimeoutError:
+                    logger.warning(f"TTS save operation timed out after 15s on attempt {attempt + 1}/{TTS_MAX_RETRIES}")
+                    # Clean up any partial file
+                    if output_file and os.path.exists(output_file):
+                        try:
+                            os.remove(output_file)
+                        except (OSError, FileNotFoundError):
+                            pass
+                    # Try next attempt
+                    if attempt < TTS_MAX_RETRIES - 1:
+                        retry_delay = TTS_RETRY_DELAY * (2 ** attempt)
+                        logger.info(f"Waiting {retry_delay}s before retry...")
+                        await asyncio.sleep(retry_delay)
+                        continue
+                    else:
+                        logger.warning(f"All {TTS_MAX_RETRIES} retries failed with voice {voice} due to timeouts")
+                        break
                 
                 # Verify the file was created and has content
                 if not os.path.exists(output_file):
@@ -137,6 +165,7 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
             except edge_tts.exceptions.NoAudioReceived as e:
                 # Specific handling for NoAudioReceived error
                 logger.warning(f"NoAudioReceived error on attempt {attempt + 1}/{TTS_MAX_RETRIES} with voice {voice}: {e}")
+                logger.warning("This may indicate: 1) Network issues, 2) Edge TTS service unavailable, 3) Invalid voice name")
                 
                 # Clean up any partial file
                 if output_file and os.path.exists(output_file):
@@ -167,6 +196,7 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
                 
                 if is_no_audio:
                     logger.warning(f"NoAudioReceived error on attempt {attempt + 1}/{TTS_MAX_RETRIES} with voice {voice}: {e}")
+                    logger.warning("This may indicate: 1) Network issues, 2) Edge TTS service unavailable, 3) Invalid voice name")
                 else:
                     logger.error(f"Unexpected error generating TTS ({error_type}) on attempt {attempt + 1}: {e}")
                 
@@ -193,6 +223,8 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
     logger.error(f"TTS parameters - Voices tried: {voices_to_try}, Rate: {VOICE_RATE}, Pitch: {VOICE_PITCH}")
     logger.error(f"Text length: {len(text_stripped)} characters")
     logger.error(f"Text preview: {text_stripped[:100]}")
+    logger.error("Possible causes: 1) No internet connection, 2) Edge TTS service down, 3) Firewall blocking access")
+    logger.error("For Termux users: Check network connectivity with 'ping 8.8.8.8' and ensure no VPN/firewall blocking")
     
     return None
 
@@ -542,12 +574,43 @@ def check_voice_dependencies() -> Dict[str, bool]:
         'edge_tts': EDGE_TTS_AVAILABLE,
         'ffmpeg': False,  # Will be checked dynamically
         'pynacl': PYNACL_AVAILABLE,
+        'speech_recognition': SPEECH_RECOGNITION_AVAILABLE,
     }
     
     # Check for ffmpeg
     dependencies['ffmpeg'] = shutil.which('ffmpeg') is not None
     
     return dependencies
+
+
+def log_voice_system_status():
+    """Log the status of all voice system dependencies."""
+    deps = check_voice_dependencies()
+    
+    logger.info("=== Voice System Dependency Check ===")
+    logger.info(f"  edge-tts (TTS):            {'✓ Available' if deps['edge_tts'] else '✗ NOT INSTALLED'}")
+    logger.info(f"  FFmpeg (Audio playback):   {'✓ Available' if deps['ffmpeg'] else '✗ NOT INSTALLED'}")
+    logger.info(f"  PyNaCl (Voice encryption): {'✓ Available' if deps['pynacl'] else '✗ NOT INSTALLED'}")
+    logger.info(f"  SpeechRecognition (STT):   {'✓ Available' if deps['speech_recognition'] else '✗ NOT INSTALLED (optional)'}")
+    
+    if not deps['edge_tts']:
+        logger.warning("TTS will NOT work without edge-tts. Install: pip install edge-tts")
+    
+    if not deps['ffmpeg']:
+        logger.warning("Voice playback will NOT work without FFmpeg.")
+        logger.warning("For Termux: pkg install ffmpeg")
+        logger.warning("For Linux: sudo apt install ffmpeg")
+        logger.warning("For Windows: Download from https://ffmpeg.org/download.html")
+    
+    if not deps['pynacl']:
+        logger.warning("Voice features will NOT work without PyNaCl.")
+        logger.warning("For Termux: pkg install libsodium clang && pip install PyNaCl")
+        logger.warning("For Linux/Windows: pip install PyNaCl")
+    
+    logger.info("=====================================")
+    
+    # Return True if core dependencies are available
+    return deps['edge_tts'] and deps['ffmpeg'] and deps['pynacl']
 
 
 async def test_tts_connectivity() -> bool:

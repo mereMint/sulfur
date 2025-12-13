@@ -267,10 +267,12 @@ REQUIRED_PACKAGES=(
     "curl"
     "libsodium"
     "clang"
+    "ffmpeg"
 )
 
 print_info "Installing required packages: ${REQUIRED_PACKAGES[*]}"
 print_info "Note: libsodium and clang are needed for PyNaCl voice support"
+print_info "Note: ffmpeg is required for Discord voice channel audio playback"
 pkg install -y "${REQUIRED_PACKAGES[@]}"
 
 for package in "${REQUIRED_PACKAGES[@]}"; do
