@@ -57,7 +57,8 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
         Path to the audio file, or None if failed
     """
     if not EDGE_TTS_AVAILABLE:
-        logger.error("edge-tts is not available")
+        logger.error("edge-tts is not available - cannot generate TTS audio")
+        logger.error("Install edge-tts with: pip install edge-tts")
         return None
     
     try:
@@ -73,6 +74,7 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
             temp_file.close()
         
         # Generate TTS
+        logger.debug(f"Generating TTS for text: {text[:50]}...")
         communicate = edge_tts.Communicate(
             text=text,
             voice=SULFUR_VOICE,
@@ -81,10 +83,28 @@ async def text_to_speech(text: str, output_file: Optional[str] = None) -> Option
         )
         
         await communicate.save(output_file)
-        logger.debug(f"Generated TTS audio: {output_file}")
+        
+        # Verify the file was created and has content
+        if not os.path.exists(output_file):
+            logger.error(f"TTS file was not created: {output_file}")
+            return None
+        
+        file_size = os.path.getsize(output_file)
+        if file_size == 0:
+            logger.error(f"TTS file is empty: {output_file}")
+            os.remove(output_file)
+            return None
+        
+        logger.debug(f"Generated TTS audio: {output_file} ({file_size} bytes)")
         return output_file
     except Exception as e:
-        logger.error(f"Error generating TTS: {e}")
+        logger.error(f"Error generating TTS: {e}", exc_info=True)
+        # Clean up partial file if it exists
+        if output_file and os.path.exists(output_file):
+            try:
+                os.remove(output_file)
+            except:
+                pass
         return None
 
 
@@ -156,6 +176,7 @@ async def speak_in_channel(
     Returns:
         True if successful, False otherwise
     """
+    audio_file = None
     try:
         if not voice_client or not voice_client.is_connected():
             logger.error("Voice client not connected")
@@ -168,16 +189,30 @@ async def speak_in_channel(
         # Generate TTS audio
         audio_file = await text_to_speech(text)
         if not audio_file:
+            logger.error("Failed to generate TTS audio file")
             return False
         
         # Play audio with error handling
         try:
-            audio_source = FFmpegPCMAudio(audio_file)
-            voice_client.play(audio_source)
-        except Exception as audio_error:
-            logger.error(f"Error playing audio: {audio_error}")
+            # FFmpeg options for better MP3 support
+            ffmpeg_options = {
+                'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+                'options': '-vn'  # No video
+            }
+            audio_source = FFmpegPCMAudio(audio_file, **ffmpeg_options)
+        except Exception as ffmpeg_error:
+            logger.error(f"Error creating FFmpeg audio source: {ffmpeg_error}", exc_info=True)
             await cleanup_audio_file(audio_file)
             return False
+        
+        # Error callback for playback
+        playback_error = {'error': None}
+        def after_callback(error):
+            if error:
+                playback_error['error'] = error
+                logger.error(f"Playback error: {error}")
+        
+        voice_client.play(audio_source, after=after_callback)
         
         logger.info(f"Speaking in voice channel: {text[:50]}...")
         
@@ -185,6 +220,11 @@ async def speak_in_channel(
         if wait_for_completion:
             while voice_client.is_playing():
                 await asyncio.sleep(0.1)
+            
+            # Check for playback errors
+            if playback_error['error']:
+                logger.error(f"Audio playback failed: {playback_error['error']}")
+                return False
             
             # Cleanup audio file
             await cleanup_audio_file(audio_file)
@@ -194,7 +234,12 @@ async def speak_in_channel(
         
         return True
     except Exception as e:
-        logger.error(f"Error speaking in channel: {e}")
+        logger.error(f"Error speaking in channel: {e}", exc_info=True)
+        if audio_file:
+            try:
+                os.remove(audio_file)
+            except:
+                pass
         return False
 
 

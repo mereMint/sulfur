@@ -407,6 +407,7 @@ async def speak_in_call(call_state: VoiceCallState, text: str):
         logger.warning("Voice client not connected")
         return
         
+    audio_file = None
     try:
         # Generate TTS audio
         audio_file = await text_to_speech(text)
@@ -419,29 +420,51 @@ async def speak_in_call(call_state: VoiceCallState, text: str):
         call_state.add_to_history("Sulfur", text)
         call_state.update_activity()
         
-        # Play audio
-        audio_source = FFmpegPCMAudio(audio_file)
-        
         # Wait if already playing
         while call_state.voice_client.is_playing():
             await asyncio.sleep(0.1)
+        
+        # Create audio source with proper error handling
+        try:
+            # FFmpeg options for better MP3 support and error handling
+            ffmpeg_options = {
+                'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+                'options': '-vn'  # No video
+            }
+            audio_source = FFmpegPCMAudio(audio_file, **ffmpeg_options)
+        except Exception as ffmpeg_error:
+            logger.error(f"Failed to create FFmpeg audio source: {ffmpeg_error}", exc_info=True)
+            return
             
-        call_state.voice_client.play(audio_source)
+        # Error callback for playback issues
+        playback_error = {'error': None}
+        def after_callback(error):
+            if error:
+                playback_error['error'] = error
+                logger.error(f"Playback error in voice call: {error}")
+        
+        # Play audio with error callback
+        call_state.voice_client.play(audio_source, after=after_callback)
         
         # Wait for playback to finish
         while call_state.voice_client.is_playing():
             await asyncio.sleep(0.1)
-            
-        # Clean up temp file
-        try:
-            os.remove(audio_file)
-        except:
-            pass
-            
-        logger.debug(f"Spoke in call: {text[:50]}...")
+        
+        # Check if there was a playback error
+        if playback_error['error']:
+            logger.error(f"Audio playback failed: {playback_error['error']}")
+        else:
+            logger.debug(f"Spoke in call: {text[:50]}...")
         
     except Exception as e:
         logger.error(f"Error speaking in call: {e}", exc_info=True)
+    finally:
+        # Always clean up temp file
+        if audio_file:
+            try:
+                os.remove(audio_file)
+            except Exception as cleanup_error:
+                logger.debug(f"Could not remove temp file {audio_file}: {cleanup_error}")
 
 
 async def transcribe_audio_whisper(audio_file_path: str, openai_key: str) -> Optional[str]:
