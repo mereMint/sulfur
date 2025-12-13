@@ -22,10 +22,14 @@ import discord
 from modules.logger_utils import bot_logger as logger
 
 # Configuration constants
-MIN_AUDIO_SIZE_BYTES = 1000  # Minimum audio size to process (filter out noise)
+MIN_AUDIO_SIZE_BYTES = 1000  # Minimum audio size to process (1KB)
+# Audio chunks smaller than this are likely just background noise,
+# packet loss artifacts, or brief clicking sounds rather than actual speech.
+# This threshold helps reduce unnecessary transcription API calls.
 
-# Installation command for consistency
 PYCORD_INSTALL_CMD = "pip uninstall discord.py && pip install py-cord[voice]"
+# Note: && operator works in Unix shells (bash, zsh) and PowerShell.
+# For Windows Command Prompt, use & instead. Most modern setups support &&.
 
 # Check for speech recognition
 try:
@@ -184,10 +188,10 @@ class VoiceReceiver:
         """
         if not DISCORD_SINKS_AVAILABLE:
             logger.warning("Voice receiving not available - discord.sinks module not found")
-            logger.info(f"Install py-cord for voice receiving: {PYCORD_INSTALL_CMD}")
+            logger.info(f"To enable voice receiving, install py-cord: {PYCORD_INSTALL_CMD}")
+            logger.info("Fallback: Bot will use text message input during voice calls")
             raise RuntimeError(
-                f"Voice receiving requires py-cord. Install with: {PYCORD_INSTALL_CMD}\n"
-                "The bot will use text message input during voice calls as fallback."
+                f"Voice receiving requires py-cord. Install with: {PYCORD_INSTALL_CMD}"
             )
         
         if not voice_client or not voice_client.is_connected():
@@ -262,11 +266,12 @@ class VoiceReceiver:
         except AttributeError as ae:
             logger.error(f"AttributeError starting recording: {ae}")
             logger.error("This usually means py-cord is not installed")
+            logger.info(f"To enable voice receiving, install py-cord: {PYCORD_INSTALL_CMD}")
+            logger.info("Fallback: Bot will use text message input during voice calls")
             if guild_id in self.active_sinks:
                 del self.active_sinks[guild_id]
             raise RuntimeError(
-                f"Voice receiving not supported. Install py-cord: {PYCORD_INSTALL_CMD}\n"
-                "The bot will use text message input during voice calls instead."
+                f"Voice receiving not supported. Install py-cord: {PYCORD_INSTALL_CMD}"
             )
         except RuntimeError:
             # Re-raise RuntimeError for proper handling upstream
