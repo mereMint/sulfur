@@ -535,11 +535,26 @@ async def speak_in_call(call_state: VoiceCallState, text: str):
         
     audio_file = None
     try:
-        # Generate TTS audio
+        # Generate TTS audio (with retry logic built-in)
         audio_file = await text_to_speech(text)
         
         if not audio_file or not os.path.exists(audio_file):
-            logger.error("Failed to generate TTS audio")
+            logger.error("Failed to generate TTS audio after all retries")
+            
+            # Send text fallback to user via DM
+            try:
+                fallback_embed = discord.Embed(
+                    title="🔇 TTS Fehler",
+                    description="Konnte keine Sprachausgabe generieren. Hier ist meine Antwort als Text:",
+                    color=discord.Color.orange()
+                )
+                fallback_embed.add_field(name="Antwort", value=text[:1024], inline=False)
+                fallback_embed.set_footer(text="Der TTS-Service ist möglicherweise vorübergehend nicht verfügbar.")
+                await call_state.user.send(embed=fallback_embed)
+                logger.info(f"Sent text fallback to {call_state.user.display_name}")
+            except (discord.Forbidden, discord.HTTPException) as dm_error:
+                logger.warning(f"Could not send fallback DM: {dm_error}")
+            
             return
             
         # Add to conversation history
