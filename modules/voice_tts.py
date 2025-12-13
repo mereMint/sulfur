@@ -561,13 +561,13 @@ async def test_tts_connectivity() -> bool:
         logger.warning("edge-tts is not installed")
         return False
     
+    # Try to generate a very short test audio
+    test_text = "Test"
+    temp_file = tempfile.NamedTemporaryFile(suffix='.mp3', prefix='tts_test_', delete=False)
+    test_file = temp_file.name
+    temp_file.close()
+    
     try:
-        # Try to generate a very short test audio
-        test_text = "Test"
-        temp_file = tempfile.NamedTemporaryFile(suffix='.mp3', prefix='tts_test_', delete=False)
-        test_file = temp_file.name
-        temp_file.close()
-        
         # Try to communicate with edge-tts service
         communicate = edge_tts.Communicate(
             text=test_text,
@@ -579,19 +579,10 @@ async def test_tts_connectivity() -> bool:
         
         # Check if file was created and has content
         if os.path.exists(test_file) and os.path.getsize(test_file) > 0:
-            # Clean up test file
-            try:
-                os.remove(test_file)
-            except (OSError, FileNotFoundError):
-                pass
             logger.info("TTS connectivity test passed")
             return True
         else:
             logger.warning("TTS connectivity test failed - no audio generated")
-            try:
-                os.remove(test_file)
-            except (OSError, FileNotFoundError):
-                pass
             return False
             
     except asyncio.TimeoutError:
@@ -600,3 +591,10 @@ async def test_tts_connectivity() -> bool:
     except Exception as e:
         logger.warning(f"TTS connectivity test failed: {e}")
         return False
+    finally:
+        # Always clean up test file
+        try:
+            if os.path.exists(test_file):
+                os.remove(test_file)
+        except (OSError, FileNotFoundError):
+            pass
