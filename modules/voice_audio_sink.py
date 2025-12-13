@@ -21,6 +21,16 @@ import discord
 
 from modules.logger_utils import bot_logger as logger
 
+# Configuration constants
+MIN_AUDIO_SIZE_BYTES = 1000  # Minimum audio size to process (1KB)
+# Audio chunks smaller than this are likely just background noise,
+# packet loss artifacts, or brief clicking sounds rather than actual speech.
+# This threshold helps reduce unnecessary transcription API calls.
+
+PYCORD_INSTALL_CMD = "pip uninstall discord.py && pip install py-cord[voice]"
+# Note: && operator works in Unix shells (bash, zsh) and PowerShell.
+# For Windows Command Prompt, use & instead. Most modern setups support &&.
+
 # Check for speech recognition
 try:
     import speech_recognition as sr
@@ -83,19 +93,22 @@ class AudioSinkRecorder(AudioSinkBase):
     """
     Custom audio sink for recording voice channel audio.
     
-    Records audio from all users in the voice channel and provides
-    callbacks for processing transcribed speech.
+    Records audio from all users in the voice channel.
+    The actual transcription callback is handled by VoiceReceiver.start_receiving().
+    
+    Uses py-cord's discord.sinks.WaveSink as base when available.
     """
     
-    def __init__(self, callback: Optional[Callable] = None):
-        """
-        Initialize audio sink.
+    def __init__(self):
+        """Initialize audio sink."""
+        # Only call super().__init__() if py-cord is available
+        # The dummy base class doesn't need initialization
+        if DISCORD_SINKS_AVAILABLE:
+            super().__init__()
+        else:
+            # Initialize dummy base class attributes manually
+            self.audio_data = {}
         
-        Args:
-            callback: Function to call with transcribed text (user_id, text)
-        """
-        super().__init__()
-        self.callback = callback
         self.recordings: Dict[int, io.BytesIO] = {}
         self.last_speech: Dict[int, datetime] = {}
         self.silence_threshold = 1.0  # Seconds of silence before processing
@@ -109,17 +122,25 @@ class AudioSinkRecorder(AudioSinkBase):
             data: Audio data bytes
             user: Discord user who sent the audio
         """
-        super().write(data, user)
+        # Call parent implementation if available (py-cord)
+        if DISCORD_SINKS_AVAILABLE:
+            super().write(data, user)
         
         # Track when user last spoke
         user_id = user.id
         self.last_speech[user_id] = datetime.now()
         
+        logger.debug(f"Received audio chunk from user {user_id}: {len(data)} bytes")
+        
     def cleanup(self):
         """Clean up resources."""
-        super().cleanup()
+        # Call parent cleanup if available (py-cord)
+        if DISCORD_SINKS_AVAILABLE:
+            super().cleanup()
+        
         self.recordings.clear()
         self.last_speech.clear()
+        logger.debug("AudioSinkRecorder cleaned up")
 
 
 class VoiceReceiver:
@@ -155,33 +176,58 @@ class VoiceReceiver:
         """
         Start receiving audio from voice channel.
         
+        Requires py-cord for voice receiving support.
+        Falls back to text-only mode if not available.
+        
         Args:
             voice_client: Active voice client connection
             callback: Function to call with transcribed text (user_id, username, text)
+            
+        Raises:
+            RuntimeError: If voice receiving is not supported
         """
+        if not DISCORD_SINKS_AVAILABLE:
+            logger.warning("Voice receiving not available - discord.sinks module not found")
+            logger.info(f"To enable voice receiving, install py-cord: {PYCORD_INSTALL_CMD}")
+            logger.info("Fallback: Bot will use text message input during voice calls")
+            raise RuntimeError(
+                f"Voice receiving requires py-cord. Install with: {PYCORD_INSTALL_CMD}"
+            )
+        
         if not voice_client or not voice_client.is_connected():
             logger.error("Cannot start receiving - voice client not connected")
-            return
+            raise RuntimeError("Voice client not connected")
         
         guild_id = voice_client.guild.id
+        
+        # Check if already receiving in this guild
+        if guild_id in self.active_sinks:
+            logger.warning(f"Already receiving audio in guild {guild_id}")
+            return
         
         # Create callback wrapper for transcription
         async def transcription_callback(sink, user_id: int, audio_data: bytes):
             """Process audio and transcribe."""
             try:
-                # Find user
+                # Skip bot users
                 user = voice_client.guild.get_member(user_id)
-                if not user:
+                if not user or user.bot:
                     return
                 
                 username = user.display_name
-                logger.debug(f"Processing audio from {username} ({len(audio_data)} bytes)")
+                audio_size = len(audio_data) if audio_data else 0
+                logger.debug(f"Processing audio from {username} ({audio_size} bytes)")
+                
+                # Skip if audio is too small (likely just noise)
+                if audio_size < MIN_AUDIO_SIZE_BYTES:
+                    logger.debug(f"Audio chunk too small from {username} ({audio_size} < {MIN_AUDIO_SIZE_BYTES} bytes), skipping")
+                    return
                 
                 # Transcribe audio
                 text = await self.transcribe_audio(audio_data)
                 
                 if text and text.strip():
-                    logger.info(f"Transcribed from {username}: {text}")
+                    logger.info(f"✓ Transcribed from {username}: {text}")
                     # Call user's callback
                     if callback:
                         await callback(user_id, username, text)
@@ -195,33 +241,48 @@ class VoiceReceiver:
         sink = AudioSinkRecorder()
         self.active_sinks[guild_id] = sink
         
-        # Start receiving (this is a Discord.py 2.x feature)
+        # Start receiving with py-cord
         try:
-            # Note: This requires discord.py to have voice receiving support
-            # In discord.py 2.x, use voice_client.listen() if available
-            logger.info(f"Started receiving audio in guild {guild_id}")
+            logger.info(f"Starting voice recording in guild {guild_id}...")
             
-            # Start listening with sink
-            try:
-                voice_client.start_recording(
-                    sink,
-                    self._create_recording_callback(sink, transcription_callback),
-                    voice_client.guild
-                )
-                logger.info("Voice recording started successfully")
-            except AttributeError:
-                logger.error("start_recording method not found - voice receiving not supported in this discord.py version")
+            # Create the finished callback
+            finished_callback = self._create_recording_callback(sink, transcription_callback)
+            
+            # Start recording using py-cord's start_recording method
+            # This method exists in py-cord but not in standard discord.py
+            if not hasattr(voice_client, 'start_recording'):
+                logger.error("start_recording method not found - py-cord not installed?")
                 raise RuntimeError(
-                    "Voice receiving not supported. "
-                    "The bot will use text message input during voice calls instead."
+                    f"Voice receiving requires py-cord. Install with: {PYCORD_INSTALL_CMD}"
                 )
             
+            voice_client.start_recording(
+                sink,
+                finished_callback,
+                voice_client.guild
+            )
+            logger.info("✓ Voice recording started successfully - bot can now hear users!")
+            
+        except AttributeError as ae:
+            logger.error(f"AttributeError starting recording: {ae}")
+            logger.error("This usually means py-cord is not installed")
+            logger.info(f"To enable voice receiving, install py-cord: {PYCORD_INSTALL_CMD}")
+            logger.info("Fallback: Bot will use text message input during voice calls")
+            if guild_id in self.active_sinks:
+                del self.active_sinks[guild_id]
+            raise RuntimeError(
+                f"Voice receiving not supported. Install py-cord: {PYCORD_INSTALL_CMD}"
+            )
         except RuntimeError:
             # Re-raise RuntimeError for proper handling upstream
+            if guild_id in self.active_sinks:
+                del self.active_sinks[guild_id]
             raise
         except Exception as e:
             logger.error(f"Error starting audio receiver: {e}", exc_info=True)
-            raise
+            if guild_id in self.active_sinks:
+                del self.active_sinks[guild_id]
+            raise RuntimeError(f"Failed to start voice receiving: {e}")
     
     def _create_recording_callback(self, sink, transcription_callback):
         """Create callback for when recording is complete."""
@@ -250,16 +311,19 @@ class VoiceReceiver:
         guild_id = voice_client.guild.id
         
         try:
-            # Stop recording
+            # Stop recording using py-cord's method
             if hasattr(voice_client, 'stop_recording'):
                 voice_client.stop_recording()
-                logger.info(f"Stopped receiving audio in guild {guild_id}")
+                logger.info(f"✓ Stopped receiving audio in guild {guild_id}")
+            else:
+                logger.debug("stop_recording method not available")
             
             # Clean up sink
             if guild_id in self.active_sinks:
                 sink = self.active_sinks[guild_id]
                 sink.cleanup()
                 del self.active_sinks[guild_id]
+                logger.debug(f"Cleaned up audio sink for guild {guild_id}")
                 
         except Exception as e:
             logger.error(f"Error stopping audio receiver: {e}", exc_info=True)
