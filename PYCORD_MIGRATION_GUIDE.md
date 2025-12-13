@@ -1,8 +1,53 @@
-# Py-Cord Migration Guide for Voice Receiving
+# Discord Library Guide
 
-## What Changed?
+## ⚠️ IMPORTANT UPDATE (December 2025)
 
-To enable **voice receiving** (so the bot can hear you in voice calls), we've switched from `discord.py` to `py-cord`, which is a feature-rich fork that includes built-in voice receiving support.
+**We have reverted back to `discord.py` from `py-cord` due to compatibility issues.**
+
+The bot now uses **discord.py 2.4.0+** which has better stability and active maintenance. Voice receiving features (discord.sinks) are not available in discord.py, but all other bot features work correctly including:
+- ✅ Voice channel joining and TTS output
+- ✅ Slash commands via `app_commands`
+- ✅ All games, economy, and AI features
+- ❌ Voice input/speech recognition (requires py-cord, causes import errors)
+
+### Fix Import Errors (ImportError: cannot import name 'AppCommandOptionType')
+
+If you're getting this error, you have a corrupted or mixed discord library installation. Fix it with:
+
+**On Termux/Android:**
+```bash
+cd ~/sulfur
+source venv/bin/activate
+pip uninstall -y py-cord discord.py
+pip install -r requirements.txt
+```
+
+**On Linux/WSL:**
+```bash
+cd ~/sulfur
+source venv/bin/activate
+pip uninstall -y py-cord discord.py
+pip install -r requirements.txt
+```
+
+**On Windows:**
+```powershell
+cd sulfur
+.\venv\Scripts\Activate.ps1
+pip uninstall -y py-cord discord.py
+pip install -r requirements.txt
+```
+
+After reinstalling, restart the bot with `touch restart.flag` or restart the maintenance script.
+
+---
+
+## Historical Context: Why Py-Cord Was Attempted
+
+Previously, we attempted to use **py-cord** (a discord.py fork) for voice receiving features, but this caused compatibility issues:
+- py-cord uses `discord.commands` instead of `discord.app_commands`
+- Import errors when mixing py-cord and discord.py APIs
+- Stability issues on Termux/Android platforms
 
 ## Why Py-Cord?
 
