@@ -297,8 +297,8 @@ async def initiate_voice_call(user: discord.Member, config: dict, create_temp_ch
                     "ich antworte per Sprache."
                 )
             except (discord.Forbidden, discord.HTTPException):
-                logger.debug(f"Could not send DM to {user.name} - DMs disabled")
-                pass  # User has DMs disabled
+                # User has DMs disabled - already logged above
+                logger.debug(f"Could not send fallback DM to {user.name}")
         
         return call_state
         
@@ -758,8 +758,8 @@ async def handle_text_in_voice_call(
     if not call_state:
         return False
     
-    # Check if message is in the same guild as the call (skip DMs)
-    if not hasattr(message.channel, 'guild') or message.channel.guild is None:
+    # Check if message is in the same guild as the call (skip DM channels)
+    if isinstance(message.channel, discord.DMChannel):
         return False
     
     if message.channel.guild != call_state.channel.guild:
@@ -777,8 +777,9 @@ async def handle_text_in_voice_call(
         # React to show message was received
         try:
             await message.add_reaction("🎙️")
-        except (discord.Forbidden, discord.HTTPException, discord.NotFound) as e:
-            # Can't add reaction (missing permissions or message deleted)
+        except discord.NotFound:
+            logger.debug(f"Message {message.id} was deleted before reaction could be added")
+        except (discord.Forbidden, discord.HTTPException) as e:
             logger.debug(f"Could not add reaction to message: {e}")
         
         # Get AI response and speak it
