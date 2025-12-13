@@ -264,6 +264,9 @@ async def initiate_voice_call(user: discord.Member, config: dict, create_temp_ch
         
         logger.info(f"Initiated voice call with {user.name} in channel {voice_channel.name}")
         
+        # Wait a moment for the connection to stabilize
+        await asyncio.sleep(1)
+        
         # Play greeting
         greeting_text = "Hey! Ich bin jetzt im Call. Schreib mir eine Nachricht und ich antworte per Sprache!"
         await speak_in_call(call_state, greeting_text)

@@ -1100,6 +1100,10 @@ async def on_ready():
     if not sport_betting_sync_and_settle_task.is_running():
         sport_betting_sync_and_settle_task.start()
         print("  -> Sport betting sync and settle task started")
+    
+    # --- NEW: Start voice call monitoring task ---
+    asyncio.create_task(voice_conversation.monitor_voice_calls())
+    print("  -> Voice call monitoring task started")
 
 @tasks.loop(minutes=15)
 async def update_presence_task():
@@ -4826,19 +4830,17 @@ class AdminAIGroup(app_commands.Group):
 
     @app_commands.command(name="force_voice_call", description="[Admin] Zwingt den Bot, einem Voice-Call beizutreten.")
     @app_commands.describe(
-        user="Der Benutzer, dessen Voice-Channel der Bot beitreten soll"
+        user="Der Benutzer, dessen Voice-Channel der Bot beitreten soll (optional - erstellt neuen Channel wenn nicht angegeben)",
+        create_channel="Ob ein neuer temporärer Channel erstellt werden soll (Standard: ja, wenn User nicht in VC)"
     )
-    async def force_voice_call(self, interaction: discord.Interaction, user: discord.Member):
+    async def force_voice_call(self, interaction: discord.Interaction, user: discord.Member, create_channel: bool = None):
         """Forces the bot to join a user's voice channel."""
         await interaction.response.defer(ephemeral=True)
         
         try:
-            # Check if user is in a voice channel
-            if not user.voice or not user.voice.channel:
-                await interaction.followup.send(f"❌ {user.display_name} ist aktuell in keinem Voice-Channel!")
-                return
-            
-            voice_channel = user.voice.channel
+            # Auto-determine create_channel based on user's voice state if not specified
+            if create_channel is None:
+                create_channel = not (user.voice and user.voice.channel)
             
             # Check if bot is already in a call
             from modules.voice_conversation import get_all_active_calls, initiate_voice_call
@@ -4848,26 +4850,33 @@ class AdminAIGroup(app_commands.Group):
                 await interaction.followup.send(f"❌ Bot ist bereits in einem Call mit {user.display_name}!")
                 return
             
-            # Check bot permissions
-            permissions = voice_channel.permissions_for(interaction.guild.me)
-            if not permissions.connect or not permissions.speak:
-                await interaction.followup.send(f"❌ Bot hat keine Berechtigung, dem Channel **{voice_channel.name}** beizutreten!")
-                return
+            # If not creating a channel, check if user is in one
+            if not create_channel:
+                if not user.voice or not user.voice.channel:
+                    await interaction.followup.send(
+                        f"❌ {user.display_name} ist aktuell in keinem Voice-Channel!\n"
+                        f"💡 Tipp: Lass `create_channel` auf `True` um einen neuen Channel zu erstellen."
+                    )
+                    return
+                
+                voice_channel = user.voice.channel
+                
+                # Check bot permissions
+                permissions = voice_channel.permissions_for(interaction.guild.me)
+                if not permissions.connect or not permissions.speak:
+                    await interaction.followup.send(f"❌ Bot hat keine Berechtigung, dem Channel **{voice_channel.name}** beizutreten!")
+                    return
             
             # Initiate the voice call
-            call_state = await initiate_voice_call(user, config)
+            call_state = await initiate_voice_call(user, config, create_temp_channel=create_channel)
             
             if call_state:
+                channel_info = f"**{call_state.channel.name}**" if call_state.channel else "einem Voice-Channel"
                 await interaction.followup.send(
-                    f"✅ Bot ist dem Voice-Channel **{voice_channel.name}** beigetreten!\n"
+                    f"✅ Bot ist dem Voice-Channel {channel_info} beigetreten!\n"
                     f"📞 Call mit {user.display_name} gestartet."
                 )
                 logger.info(f"Admin {interaction.user.name} forced voice call with {user.display_name}")
-                
-                # Send a greeting message in the call
-                from modules.voice_conversation import speak_in_call
-                greeting = f"Hallo {user.display_name}, ich wurde hierher gerufen. Wie kann ich dir helfen?"
-                await speak_in_call(call_state, greeting)
             else:
                 await interaction.followup.send(f"❌ Fehler beim Starten des Voice-Calls!")
                 
