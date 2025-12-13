@@ -796,7 +796,7 @@ apply_updates() {
             else
                 log_error "Failed to update dependencies"
                 log_warning "Bot may experience import errors"
-                log_info "If PyNaCl fails on Termux, install: pkg install libsodium clang"
+                log_info "If PyNaCl fails on Termux, install: pkg install ${TERMUX_SYSTEM_DEPS[*]}"
             fi
         fi
     else

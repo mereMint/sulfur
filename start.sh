@@ -96,14 +96,17 @@ elif [ ! -d "venv" ]; then
     # Check for system dependencies on Termux before creating venv
     if [ "$IS_TERMUX" = true ]; then
         echo -e "${YELLOW}Checking system dependencies...${NC}"
+        
+        # System packages needed for PyNaCl (voice support)
+        SYSTEM_DEPS=("libsodium" "clang")
         MISSING_PKGS=()
         
-        if ! pkg list-installed 2>/dev/null | grep -q "^libsodium"; then
-            MISSING_PKGS+=("libsodium")
-        fi
-        if ! pkg list-installed 2>/dev/null | grep -q "^clang"; then
-            MISSING_PKGS+=("clang")
-        fi
+        # Check each required package
+        for pkg in "${SYSTEM_DEPS[@]}"; do
+            if ! pkg list-installed 2>/dev/null | grep -q "^${pkg}"; then
+                MISSING_PKGS+=("$pkg")
+            fi
+        done
         
         if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
             echo -e "${YELLOW}Installing required system packages: ${MISSING_PKGS[*]}${NC}"

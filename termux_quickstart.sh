@@ -269,8 +269,8 @@ REQUIRED_PACKAGES=(
     "clang"
 )
 
-print_info "Installing all required packages (this may take a few minutes)..."
-print_info "Installing libsodium and clang for PyNaCl voice support..."
+print_info "Installing required packages: ${REQUIRED_PACKAGES[*]}"
+print_info "Note: libsodium and clang are needed for PyNaCl voice support"
 pkg install -y "${REQUIRED_PACKAGES[@]}"
 
 for package in "${REQUIRED_PACKAGES[@]}"; do
