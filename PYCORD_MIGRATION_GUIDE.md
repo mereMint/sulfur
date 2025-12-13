@@ -1,14 +1,32 @@
 # Discord Library Guide
 
-## ⚠️ IMPORTANT UPDATE (December 2025)
+## ⚠️ IMPORTANT: This Bot Uses `discord.py`, NOT `py-cord`
 
-**We have reverted back to `discord.py` from `py-cord` due to compatibility issues.**
+**DO NOT install `py-cord` - it will break the bot!**
 
-The bot now uses **discord.py 2.4.0+** which has better stability and active maintenance. Voice receiving features (discord.sinks) are not available in discord.py, but all other bot features work correctly including:
+This bot requires **discord.py 2.4.0+** (specified in `requirements.txt`). The bot uses `discord.app_commands` for slash commands, which is NOT available in py-cord.
+
+### Quick Fix If You Have py-cord Installed
+
+If you see an error like `ImportError: cannot import name 'app_commands' from 'discord'`, you have py-cord installed instead of discord.py. Fix it with:
+
+```bash
+# Uninstall py-cord
+pip uninstall -y py-cord discord.py
+
+# Reinstall from requirements.txt
+pip install -r requirements.txt
+
+# Restart the bot
+```
+
+### What Works with discord.py
+
 - ✅ Voice channel joining and TTS output
 - ✅ Slash commands via `app_commands`
 - ✅ All games, economy, and AI features
-- ❌ Voice input/speech recognition (requires py-cord, causes import errors)
+- ✅ Full bot functionality
+- ❌ Voice input/speech recognition (would require py-cord, but causes compatibility issues)
 
 ### Fix Import Errors (ImportError: cannot import name 'AppCommandOptionType')
 
