@@ -28,8 +28,8 @@ from discord import FFmpegPCMAudio
 from modules.logger_utils import bot_logger as logger
 from modules.db_helpers import get_db_connection
 from modules.voice_tts import text_to_speech, EDGE_TTS_AVAILABLE
-from modules.advanced_ai import get_advanced_ai_response
 
+# Note: advanced_ai import moved to function to avoid circular dependency
 # Try to import speech recognition libraries
 try:
     import speech_recognition as sr
@@ -594,6 +594,9 @@ async def handle_voice_conversation(
         openai_key: OpenAI API key
         system_prompt: System prompt for AI
     """
+    # Import here to avoid circular dependency
+    from modules.advanced_ai import get_advanced_ai_response
+    
     try:
         # Get AI response
         response, error, metadata = await get_advanced_ai_response(
