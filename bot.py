@@ -1116,7 +1116,6 @@ async def on_ready():
     # First check voice system dependencies
     print("Checking voice system dependencies...")
     try:
-        from modules import voice_tts
         from modules import voice_audio_sink
         
         voice_system_ready = voice_tts.log_voice_system_status()
@@ -15771,8 +15770,6 @@ async def focus_timer_completion_handler(user: discord.User, session_id: int, du
                 for guild in client.guilds:
                     member = guild.get_member(user.id)
                     if member and member.voice and member.voice.channel:
-                        from modules import voice_tts
-                        
                         try:
                             voice_client = await voice_tts.join_voice_channel(member.voice.channel)
                             if voice_client:
