@@ -102,6 +102,8 @@ class BotMind:
         self.interests = []
         self.recent_observations = []
         self.server_activity = {}  # NEW: Track per-server activity {guild_id: {'last_message': datetime, 'message_count': int}}
+        self.user_activities = {}  # NEW: Track per-user activities {user_id: {'spotify': {...}, 'game': {...}, 'voice': {...}, 'status': str}}
+        self.activity_thoughts = []  # NEW: Store thoughts about user activities
         # Personality traits now loaded from database (see load_personality)
         self.personality_traits = {
             'sarcasm': 0.7,
@@ -206,6 +208,178 @@ class BotMind:
             obs for obs in self.recent_observations
             if (now - datetime.fromisoformat(obs['time'])).total_seconds() < MAX_OBSERVATION_AGE_HOURS * 3600
         ]
+        
+        # Clean old activity thoughts (keep last 20)
+        if len(self.activity_thoughts) > 20:
+            self.activity_thoughts = self.activity_thoughts[-20:]
+    
+    def observe_user_activity(self, user_id: int, user_name: str, activity_type: str, activity_data: dict):
+        """
+        Observe and track user activities (Spotify, games, voice calls, status).
+        This allows the bot to form opinions and thoughts about what users are doing.
+        """
+        if user_id not in self.user_activities:
+            self.user_activities[user_id] = {
+                'name': user_name,
+                'spotify': None,
+                'game': None,
+                'voice': None,
+                'status': None,
+                'last_seen': datetime.now()
+            }
+        
+        self.user_activities[user_id]['last_seen'] = datetime.now()
+        
+        # Update specific activity
+        if activity_type == 'spotify':
+            old_song = self.user_activities[user_id]['spotify']
+            self.user_activities[user_id]['spotify'] = activity_data
+            
+            # Generate thought about new song
+            if old_song != activity_data:
+                song = activity_data.get('song')
+                artist = activity_data.get('artist')
+                self.activity_thoughts.append({
+                    'type': 'spotify',
+                    'user': user_name,
+                    'detail': f"{user_name} is listening to '{song}' by {artist}",
+                    'time': datetime.now(),
+                    'data': activity_data
+                })
+                logger.debug(f"[MIND] Noticed {user_name} listening to {song}")
+                
+        elif activity_type == 'game':
+            old_game = self.user_activities[user_id]['game']
+            self.user_activities[user_id]['game'] = activity_data
+            
+            # Generate thought about game change
+            if old_game != activity_data:
+                game_name = activity_data.get('name')
+                duration = activity_data.get('duration', 0)
+                self.activity_thoughts.append({
+                    'type': 'game',
+                    'user': user_name,
+                    'detail': f"{user_name} {'started' if duration < 60 else 'has been'} playing {game_name}",
+                    'time': datetime.now(),
+                    'data': activity_data
+                })
+                logger.debug(f"[MIND] Noticed {user_name} playing {game_name}")
+                
+        elif activity_type == 'voice':
+            old_voice = self.user_activities[user_id]['voice']
+            self.user_activities[user_id]['voice'] = activity_data
+            
+            # Generate thought about voice activity
+            if old_voice != activity_data:
+                if activity_data.get('in_call'):
+                    duration = activity_data.get('duration', 0)
+                    alone = activity_data.get('alone', False)
+                    self.activity_thoughts.append({
+                        'type': 'voice',
+                        'user': user_name,
+                        'detail': f"{user_name} {'is alone' if alone else 'is'} in a voice call ({duration} min)",
+                        'time': datetime.now(),
+                        'data': activity_data
+                    })
+                    logger.debug(f"[MIND] Noticed {user_name} in voice call")
+                    
+        elif activity_type == 'status':
+            old_status = self.user_activities[user_id]['status']
+            self.user_activities[user_id]['status'] = activity_data.get('status')
+            
+            # Notice significant status changes
+            if old_status != activity_data.get('status'):
+                status = activity_data.get('status')
+                self.activity_thoughts.append({
+                    'type': 'status',
+                    'user': user_name,
+                    'detail': f"{user_name} is now {status}",
+                    'time': datetime.now(),
+                    'data': activity_data
+                })
+    
+    def get_interesting_activities(self) -> List[Dict]:
+        """
+        Get activities that might be interesting to comment on or react to.
+        Returns list of activities sorted by how interesting they are.
+        """
+        interesting = []
+        now = datetime.now()
+        
+        for user_id, data in self.user_activities.items():
+            user_name = data['name']
+            
+            # Check Spotify - especially if listening for a while
+            if data['spotify']:
+                song = data['spotify'].get('song')
+                artist = data['spotify'].get('artist')
+                duration = data['spotify'].get('duration', 0)
+                
+                # Interesting if listening for >30 min or if it's a genre we like
+                if duration > 1800:  # 30 minutes
+                    interesting.append({
+                        'type': 'spotify_long',
+                        'user': user_name,
+                        'user_id': user_id,
+                        'interest_level': 0.7,
+                        'detail': f"{user_name} has been listening to {song} by {artist} for {duration//60} minutes",
+                        'suggestion': 'ask_about_song'
+                    })
+            
+            # Check games - especially if playing for a long time
+            if data['game']:
+                game = data['game'].get('name')
+                duration = data['game'].get('duration', 0)
+                
+                # Interesting if playing for >2 hours
+                if duration > 7200:  # 2 hours
+                    interesting.append({
+                        'type': 'game_marathon',
+                        'user': user_name,
+                        'user_id': user_id,
+                        'interest_level': 0.8,
+                        'detail': f"{user_name} has been playing {game} for {duration//3600} hours",
+                        'suggestion': 'comment_on_dedication'
+                    })
+                elif duration > 3600:  # 1 hour
+                    interesting.append({
+                        'type': 'game_session',
+                        'user': user_name,
+                        'user_id': user_id,
+                        'interest_level': 0.5,
+                        'detail': f"{user_name} is gaming: {game}",
+                        'suggestion': 'ask_how_its_going'
+                    })
+            
+            # Check voice calls - especially if alone for a long time
+            if data['voice']:
+                if data['voice'].get('in_call'):
+                    duration = data['voice'].get('duration', 0)
+                    alone = data['voice'].get('alone', False)
+                    
+                    # Very interesting if alone for >1 hour
+                    if alone and duration > 60:
+                        interesting.append({
+                            'type': 'voice_alone',
+                            'user': user_name,
+                            'user_id': user_id,
+                            'interest_level': 0.9,
+                            'detail': f"{user_name} has been alone in voice for {duration} minutes",
+                            'suggestion': 'offer_company_or_sympathy'
+                        })
+                    elif duration > 120:  # 2 hours in call
+                        interesting.append({
+                            'type': 'voice_long',
+                            'user': user_name,
+                            'user_id': user_id,
+                            'interest_level': 0.6,
+                            'detail': f"{user_name} has been in voice for {duration} minutes",
+                            'suggestion': 'acknowledge_social_activity'
+                        })
+        
+        # Sort by interest level (highest first)
+        interesting.sort(key=lambda x: x['interest_level'], reverse=True)
+        return interesting
     
     def add_interest(self, interest: str):
         """Add a new interest"""
@@ -621,11 +795,29 @@ async def autonomous_thought_cycle(client, get_chat_response_func, config: dict,
             if random.random() < 0.3:
                 bot_mind.update_mood(Mood.EXCITED, "Lots of people online")
         
+        # === OBSERVE INTERESTING USER ACTIVITIES ===
+        # Check what users are doing and form opinions
+        interesting_activities = bot_mind.get_interesting_activities()
+        
+        if interesting_activities and bot_mind.boredom_level > 0.4:
+            # Bot is bored enough to potentially reach out
+            most_interesting = interesting_activities[0]
+            
+            # Form a thought about the activity
+            activity_thought = f"I notice {most_interesting['detail']}. {most_interesting.get('suggestion', 'Interesting...')}"
+            bot_mind.think(activity_thought)
+            logger.info(f"[MIND] Interesting activity: {activity_thought}")
+            
+            # Maybe reach out if really bored and energy is high enough
+            if bot_mind.boredom_level > 0.7 and bot_mind.energy_level > 0.5:
+                # Could trigger autonomous message here
+                logger.info(f"[MIND] Considering reaching out about: {most_interesting['type']}")
+        
         # Save state periodically
         if random.random() < 0.1:  # 10% chance
             await save_mind_state()
             
-        logger.debug(f"Mind state - Energy: {bot_mind.energy_level:.2f}, Boredom: {bot_mind.boredom_level:.2f}, Active servers: {len(active_servers)}/{len(client.guilds)}")
+        logger.debug(f"Mind state - Energy: {bot_mind.energy_level:.2f}, Boredom: {bot_mind.boredom_level:.2f}, Active servers: {len(active_servers)}/{len(client.guilds)}, Interesting activities: {len(interesting_activities)}")
             
     except Exception as e:
         logger.error(f"Error in thought cycle: {e}", exc_info=True)

@@ -1585,6 +1585,22 @@ async def on_presence_update(before, after):
             elif user_id not in spotify_start_times:
                  print(f"  -> [Spotify] New song session started for {after.display_name} (ID: {user_id}): '{after_spotify.title}'. Starting timer.")
                  spotify_start_times[user_id] = (resumed_song, now)
+                 
+            # --- NEW: Track Spotify activity for bot mind ---
+            try:
+                duration = (now - spotify_start_times.get(user_id, (None, now))[1]).total_seconds()
+                bot_mind.bot_mind.observe_user_activity(
+                    user_id,
+                    after.display_name,
+                    'spotify',
+                    {
+                        'song': after_spotify.title,
+                        'artist': after_spotify.artist,
+                        'duration': duration
+                    }
+                )
+            except (AttributeError, Exception) as e:
+                logger.debug(f"Could not track Spotify for bot mind: {e}")
 
         # --- NEW: Game Session Tracking ---
         before_game = next((act for act in before.activities if isinstance(act, discord.Game)), None)
@@ -1621,6 +1637,20 @@ async def on_presence_update(before, after):
                 game_start_times[user_id] = (after_game.name, now)
                 print(f"  -> [Game] Session started for {after.display_name}: '{after_game.name}'.")
                 
+                # --- NEW: Track game activity for bot mind ---
+                try:
+                    bot_mind.bot_mind.observe_user_activity(
+                        user_id,
+                        after.display_name,
+                        'game',
+                        {
+                            'name': after_game.name,
+                            'duration': 0  # Just started
+                        }
+                    )
+                except (AttributeError, Exception) as e:
+                    logger.debug(f"Could not track game for bot mind: {e}")
+                
                 # --- NEW: Focus timer distraction detection for games ---
                 try:
                     is_distraction = await focus_timer.detect_game_activity(user_id, after_game.name)
@@ -1635,6 +1665,22 @@ async def on_presence_update(before, after):
                             pass  # Can't send DM
                 except Exception as e:
                     logger.error(f"Error in focus timer game detection: {e}")
+        
+        # Update game duration tracking for bot mind
+        if after_game and user_id in game_start_times:
+            try:
+                duration = (now - game_start_times[user_id][1]).total_seconds()
+                bot_mind.bot_mind.observe_user_activity(
+                    user_id,
+                    after.display_name,
+                    'game',
+                    {
+                        'name': after_game.name,
+                        'duration': duration
+                    }
+                )
+            except (AttributeError, Exception) as e:
+                logger.debug(f"Could not update game duration for bot mind: {e}")
 
         # We only care about changes in status or activity
         if before.status == after.status and before.activity == after.activity:
@@ -3355,8 +3401,49 @@ async def on_voice_state_update(member, before, after):
         elif (not after.channel or after.deaf) and member.id in active_vc_users:
             del active_vc_users[member.id]
         
-        # --- NEW: Track longest voice session ---
+        # --- NEW: Track voice activity for bot mind ---
         now = discord.utils.utcnow()
+        
+        # Track voice call sessions
+        if after.channel:
+            # User is in voice
+            duration = 0
+            if member.id in vc_session_starts:
+                duration = (now - vc_session_starts[member.id]).total_seconds() / 60  # minutes
+            
+            # Check if user is alone
+            alone = len([m for m in after.channel.members if not m.bot]) == 1
+            
+            try:
+                bot_mind.bot_mind.observe_user_activity(
+                    member.id,
+                    member.display_name,
+                    'voice',
+                    {
+                        'in_call': True,
+                        'channel_name': after.channel.name,
+                        'alone': alone,
+                        'duration': duration,
+                        'members': len(after.channel.members) - 1  # Exclude bot if present
+                    }
+                )
+            except (AttributeError, Exception) as e:
+                logger.debug(f"Could not track voice for bot mind: {e}")
+        elif before.channel:
+            # User left voice
+            try:
+                bot_mind.bot_mind.observe_user_activity(
+                    member.id,
+                    member.display_name,
+                    'voice',
+                    {
+                        'in_call': False
+                    }
+                )
+            except (AttributeError, Exception) as e:
+                logger.debug(f"Could not track voice leave for bot mind: {e}")
+        
+        # --- NEW: Track longest voice session ---
         # User joins a VC
         if not before.channel and after.channel:
             vc_session_starts[member.id] = now
@@ -15784,8 +15871,8 @@ async def on_message(message):
             try:
                 bot_mind.bot_mind.update_server_activity(message.guild.id)
                 logger.debug(f"[MIND] Tracked activity in server {message.guild.name}")
-            except (AttributeError, Exception) as e:
-                logger.debug(f"[MIND] Could not track server activity: {e}")
+            except AttributeError as ae:
+                logger.debug(f"[MIND] Bot mind module not available: {ae}")
         
         # --- NEW: Focus timer activity detection ---
         try:
