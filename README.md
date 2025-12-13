@@ -4,9 +4,6 @@ A feature-rich Discord bot with AI capabilities, economy system, mini-games, and
 
 [![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![discord.py](https://img.shields.io/badge/discord.py-2.4+-blue.svg)](https://github.com/Rapptz/discord.py)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-
-**[Installation Guide](INSTALL.md)** • **[Quick Start](QUICKSTART.md)** • **[Commands](#-commands)** • **[Features](#-features)**
 
 ---
 
@@ -15,6 +12,7 @@ A feature-rich Discord bot with AI capabilities, economy system, mini-games, and
 - 🎮 **Complete Game Suite** - Werwolf, Blackjack, Roulette, Mines, Tower, Russian Roulette, Detective
 - 💰 **Full Economy System** - Virtual currency, shop, daily rewards, quests, stock market
 - 🤖 **Advanced AI** - Multi-model support (Gemini, OpenAI), vision capabilities
+- 🎵 **Lofi Music Player** - Stream relaxing lofi music for focus sessions
 - 📊 **Web Dashboard** - Real-time monitoring, AI usage tracking, database management
 - 🔧 **Zero Maintenance** - Auto-updates, auto-backups, self-healing scripts
 - 📱 **Cross-Platform** - Windows, Linux, Android/Termux support
@@ -29,15 +27,15 @@ Use `/help` in Discord to see all available commands organized by category:
 - 📊 **Profile & Stats** - Profile, Leaderboards (Level, Money, Werwolf, Games), Summary, Spotify stats
 - 🎭 **Werwolf** - Multiplayer werewolf game with voice channels
 - 🎤 **Voice** - Join-to-create voice channels with custom settings
+- 🎵 **Lofi Music** - Stream relaxing lofi beats while you work or chill
+- ⏱️ **Focus Timer** - Pomodoro and custom timers with activity monitoring
 - ⚙️ **Other** - News, Privacy, Wrapped statistics
 
 ---
 
 ## 📋 Quick Start
 
-> 🚀 **New to the bot?** Check out our [Installation Guide](INSTALL.md) or [Quick Start Guide](QUICKSTART.md)!
-
-### 🪟 Windows - One-Click Installation
+### 🪟 Windows
 
 1. Clone the repository:
    ```powershell
@@ -45,26 +43,45 @@ Use `/help` in Discord to see all available commands organized by category:
    cd sulfur
    ```
 
-2. Run the wizard:
-   - Double-click `INSTALL.bat` or run `.\install_wizard.ps1`
+2. Install Python 3.8+ and MySQL
 
-3. Follow the prompts - The wizard handles everything automatically!
+3. Install dependencies:
+   ```powershell
+   python -m venv venv
+   .\venv\Scripts\Activate.ps1
+   pip install -r requirements.txt
+   ```
 
-### 🐧 Linux - Automated Setup
+4. Create `.env` file (see Configuration below)
+
+5. Run the bot:
+   ```powershell
+   python bot.py
+   ```
+
+### 🐧 Linux
 
 ```bash
 git clone https://github.com/mereMint/sulfur.git
 cd sulfur
-chmod +x quick_setup.sh
-./quick_setup.sh
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+# Create .env file
+python bot.py
 ```
 
-### 📱 Termux/Android - One-Command Setup
+### 📱 Termux/Android
 
 ```bash
-pkg update && pkg install -y git && \
-git clone https://github.com/mereMint/sulfur.git sulfur && \
-cd sulfur && bash termux_quickstart.sh
+pkg update && pkg install -y git python mysql
+git clone https://github.com/mereMint/sulfur.git
+cd sulfur
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+# Create .env file and start MySQL
+python bot.py
 ```
 
 ---
@@ -91,6 +108,18 @@ cd sulfur && bash termux_quickstart.sh
 - **Conversation Context** - Natural follow-up conversations
 - **Smart Emoji Analysis** - AI-powered custom emoji descriptions
 
+### 🎵 Lofi Music Player
+- **Streaming** - Play unlimited lofi music in voice channels
+- **Multiple Streams** - Choose between study/relax or sleep/chill beats
+- **Focus Integration** - Perfect companion for focus timer sessions
+- **Simple Commands** - Easy start/stop controls
+
+### ⏱️ Focus Timer
+- **Pomodoro Presets** - Short, Long, Ultra, and Sprint sessions
+- **Custom Duration** - Set your own focus time
+- **Activity Monitoring** - Track distractions during focus sessions
+- **Statistics** - View your focus history and success rate
+
 ### 📊 Management & Analytics
 - **Web Dashboard** - Real-time bot monitoring at http://localhost:5000
 - **AI Usage Tracking** - Monitor token usage and costs
@@ -106,6 +135,7 @@ cd sulfur && bash termux_quickstart.sh
 - **MySQL/MariaDB** - Latest stable version
 - **Discord Bot Token** - From [Discord Developer Portal](https://discord.com/developers/applications)
 - **API Keys** - Google Gemini API key (OpenAI optional)
+- **FFmpeg** - For voice/music features (optional)
 
 ---
 
@@ -217,33 +247,19 @@ Features:
 pip install -r requirements.txt
 ```
 
-### Termux Specific
+### Lofi Music Not Working
 
-**MariaDB won't start:**
+**FFmpeg not found:**
 ```bash
-mariadbd-safe --datadir=$PREFIX/var/lib/mysql &
-sleep 15  # Wait for startup
-mariadb -u root  # Test connection
+# Windows: Download from https://ffmpeg.org/download.html
+# Linux: sudo apt-get install ffmpeg
+# macOS: brew install ffmpeg
+# Termux: pkg install ffmpeg
 ```
 
-For more troubleshooting, see [INSTALL.md](INSTALL.md) and [TERMUX_GUIDE.md](TERMUX_GUIDE.md).
-
----
-
-## 📁 Project Structure
-
-```
-sulfur/
-├── bot.py                     # Main bot file
-├── web_dashboard.py           # Web dashboard server
-├── requirements.txt           # Python dependencies
-├── .env                       # Environment variables (create this)
-├── config/                    # Configuration files
-├── modules/                   # Bot modules (economy, games, AI, etc.)
-├── web/                       # Dashboard HTML templates
-├── scripts/                   # Utility scripts and migrations
-├── logs/                      # Application logs (auto-generated)
-└── backups/                   # Database backups (auto-generated)
+**yt-dlp not installed:**
+```bash
+pip install yt-dlp
 ```
 
 ---

@@ -1,340 +1,195 @@
-# Sulfur Bot Enhancements - Implementation Summary
+# Voice Call Removal and Lofi Music Implementation - Summary
 
 ## Overview
 
-This PR implements major enhancements to the Sulfur Discord bot, focusing on shop features, access control, new games, and social engagement features.
+This PR removes all voice call and autonomous behavior features from the Sulfur Discord bot and replaces them with a simpler lofi music player. The changes were necessary because:
 
-## 🎯 Completed Features
+1. **Discord.py Limitation**: discord.py 2.x cannot receive audio data from voice channels, making two-way voice communication impossible
+2. **py-cord Incompatibility**: Migrating to py-cord would break all existing slash commands using `app_commands`
+3. **Complexity Reduction**: Autonomous behavior and voice call features added significant complexity with limited functionality
 
-### 1. Shop System Overhaul
+## Changes Made
 
-#### Feature Renaming
-- ✅ **"games_access" → "casino"** (500 coins)
-  - More descriptive name for gambling features
-  - Updated all references in shop UI and profile display
+### 1. Deleted Modules (6 files, ~4,400 lines)
+- `modules/voice_conversation.py` - Voice call management and monitoring
+- `modules/voice_tts.py` - Text-to-speech functionality
+- `modules/voice_audio_sink.py` - Audio receiving (non-functional with discord.py)
+- `modules/autonomous_behavior.py` - Autonomous user messaging and calling
+- `modules/bot_mind.py` - AI decision-making for autonomous actions
+- `modules/passive_observer.py` - User activity observation
 
-#### New Purchasable Features
-- ✅ **Detective Game** (1000 coins) - Unlock AI-generated murder mystery cases
-- ✅ **Trolly Problem** (250 coins) - Access moral dilemma challenges  
-- ✅ **Unlimited Word Find** (500 coins) - Remove 20-attempt daily limit
+### 2. Deleted Web Dashboard Files (2 files)
+- `web/voice_calls.html` - Voice call monitoring dashboard
+- `web/ai_reasoning.html` - AI reasoning visualization
 
-#### Color Role Improvements
-- ✅ **Enhanced Hierarchy Positioning**
-  - Color roles now placed just below bot's highest role
-  - Ensures color is actually visible on member list
-  - Fallback logic if bot role positioning fails
+### 3. Deleted Documentation (100+ files)
+- All root-level .md files except README.md (69 files)
+- Entire `docs/` directory (24 files)
+- All migration README files (7 files)
 
-### 2. Access Control System
+### 4. Bot.py Modifications
+**Removed:**
+- Voice and autonomous module imports
+- Voice system initialization and checks
+- Admin commands: `force_voice_call`, `debug_voice`, `voice_transcript`
+- Background tasks: `autonomous_messaging_task`, `bot_mind_state_task`, `cleanup_passive_observer`, `cleanup_temp_dm_access`
+- Voice call handling in on_message
+- Bot mind processing in chatbot
+- Voice notification in focus timer completion
 
-Added feature checks to all premium features to prevent unauthorized access:
+**Added:**
+- Import for new `lofi_player` module
+- New `/lofi` command for music streaming
 
-- ✅ **Casino Games** (require "casino" feature)
-  - `/blackjack` - Card game
-  - `/roulette` - Wheel betting game
-  - `/mines` - Minesweeper-style game
-  - `/rr` - Russian roulette
-  - `/tower` - Tower of Treasure climbing game
+### 5. New Lofi Music Player
 
-- ✅ **Special Games** (require individual features)
-  - `/detective` - Requires "detective" feature
-  - `/trolly` - Requires "trolly" feature
-  - `/wordfind` - Free daily, "unlimited_word_find" for unlimited
+**Module**: `modules/lofi_player.py` (200 lines)
 
-Each command shows a helpful purchase prompt if user lacks the required feature.
+**Features:**
+- Stream unlimited lofi music from YouTube
+- Two stream options: Study/Relax and Sleep/Chill
+- Simple start/stop commands
+- Integration suggestion in focus timer
+- Uses yt-dlp for reliable streaming
 
-### 3. Word Find Daily Game
-
-Completely new game system with sophisticated proximity-based word guessing:
-
-#### Core Features
-- **Daily Word System**: New word each day, difficulty scales with weekday
-- **Proximity Scoring**: Uses multiple algorithms to calculate word similarity:
-  - Levenshtein distance for edit similarity
-  - Character overlap analysis
-  - Common prefix/suffix detection
-  - Length similarity
-- **Visual Feedback**: Temperature indicators (🔥 hot, ❄️ cold) and progress bars
-- **Statistics Tracking**: Total games, wins, streaks, average attempts
-
-#### Implementation Details
-- **Module**: `modules/word_find.py`
-- **Command**: `/wordfind`
-- **Database Tables**: 
-  - `word_find_daily` - Stores daily words
-  - `word_find_attempts` - Tracks user guesses
-  - `word_find_stats` - User statistics
-- **Difficulty Levels**: Easy (Mon-Wed), Medium (Thu-Fri), Hard (Sat-Sun)
-- **Word Lists**: 40+ words across 3 difficulty tiers
-
-#### User Experience
+**Commands:**
 ```
-🔍 Word Find - Tägliches Wortratespiel
-Errate das heutige Wort! Du hast 20 Versuche.
-
-📝 Deine Versuche (3/20)
-#01 computer - 65.3% 🌡️ Heiß!
-🟩🟩🟩🟩🟩🟩⬜⬜⬜⬜
-
-#02 internet - 48.7% 🌤️ Warm  
-🟩🟩🟩🟩⬜⬜⬜⬜⬜⬜
-
-#03 tastatur - 72.1% 🔥 Sehr heiß!
-🟩🟩🟩🟩🟩🟩🟩⬜⬜⬜
+/lofi action:Start stream:"Beats to Relax/Study"
+/lofi action:Stop
 ```
 
-### 4. Gambling Results Sharing
+### 6. Updated Dependencies
 
-Added social sharing features to casino games:
+**requirements.txt changes:**
+- ❌ Removed: `edge-tts`, `PyNaCl`, `SpeechRecognition`
+- ✅ Added: `yt-dlp`
 
-#### Features
-- **Share Button**: Appears after roulette and blackjack games
-- **Public Embeds**: Rich embed posted to channel with results
-- **Smart Formatting**: Different colors/titles for wins/losses
-- **One-Time Use**: Button disables after sharing to prevent spam
+### 7. README.md Rewrite
 
-#### Implementation
-- **Class**: `GamblingShareView` in `bot.py`
-- **Supported Games**: Roulette, Blackjack (extensible to others)
-- **Data Shared**: Result, winnings/losses, player mention
+Complete rewrite focusing on:
+- Core features (games, economy, AI)
+- New lofi music player
+- Simplified setup instructions
+- Removed all references to deleted features and docs
 
-#### Example Output
-```
-🎉 Roulette Gewinn!
-@User hat +150 🪙 gewonnen!
+### 8. Database Cleanup
 
-🎯 Gewinnende Zahl: 🔴 23
-💰 Nettoergebnis: +150 🪙
+**SQL Script**: `scripts/cleanup_autonomous_voice_tables.sql`
 
-Gespielt von User
-```
+**Tables to be dropped:**
+- `voice_sessions` - Voice call session tracking
+- `voice_conversations` - Voice conversation logs
+- `voice_messages` - Voice message transcripts
+- `user_autonomous_settings` - User autonomous preferences
+- `bot_autonomous_actions` - Autonomous action logs
+- `temp_dm_access` - Temporary DM access grants
+- `bot_mind_state` - Bot consciousness state
 
-### 5. Transaction System Enhancements
+**Preserved:**
+- `managed_voice_channels` - Used for Werwolf and join-to-create channels
 
-- ✅ **Added shop_purchase emoji** (🛒) to transaction display
-- ✅ **Verified existing logging** works for:
-  - Color role purchases
-  - Feature unlocks
-  - Werwolf role purchases
-  - Stock trading
+## Impact Analysis
 
-### 6. News System
+### What Still Works ✅
+- All games (Werwolf, Blackjack, Roulette, etc.)
+- Economy system
+- AI chatbot with vision
+- Focus timer
+- Web dashboard (minus voice/reasoning pages)
+- Join-to-create voice channels
+- Level system
+- All user-facing commands
 
-- ✅ **Confirmed AI headlines** - Existing system already uses AI for contextual headlines
-- ✅ **No changes needed** - System working as intended
+### What Was Removed ❌
+- Voice call initiation by bot
+- Text-to-speech in voice channels
+- Speech-to-text transcription
+- Autonomous DM messaging
+- Bot "mind" and personality state
+- Passive user observation
+- Voice call monitoring dashboard
+- 100+ documentation files
 
-## 📁 Files Modified
+### New Features ✨
+- Lofi music streaming
+- Simplified voice interaction model
+- Cleaner codebase
 
-### Modified Files
-1. **bot.py** (~600 lines changed)
-   - Added word find command and views
-   - Added gambling share functionality
-   - Added feature access checks to 6+ commands
-   - Updated help text
-   - Updated profile display
+## Testing Recommendations
 
-2. **config/config.json** 
-   - Updated shop features section
-   - Renamed games_access to casino
-   - Added new features with pricing
+1. **Basic Functionality:**
+   - Start bot and verify it loads without errors
+   - Test `/lofi` command in a voice channel
+   - Verify focus timer works and shows lofi suggestion
 
-3. **modules/shop.py**
-   - Updated feature name mappings
-   - Enhanced color role creation logic
-   - Better error handling
+2. **Verify Removals:**
+   - Confirm no voice call commands exist
+   - Check that autonomous messaging is disabled
+   - Verify web dashboard doesn't have voice/reasoning pages
 
-### Created Files
-1. **modules/word_find.py** (~450 lines)
-   - Complete word find game implementation
-   - Database helpers
-   - Similarity algorithms
-   - Statistics tracking
+3. **Database:**
+   - Run the cleanup SQL script on a test database
+   - Verify app works after table removal
 
-2. **WERWOLF_REWORK_PLAN.md**
-   - Detailed implementation plan for deferred Werwolf features
-   - Architecture documentation
-   - Testing checklist
+4. **Dependencies:**
+   - Install new requirements: `pip install -r requirements.txt`
+   - Verify yt-dlp works: `python -c "import yt_dlp"`
+   - Check FFmpeg is available for voice features
 
-## 🔧 Technical Details
+## Migration Guide for Users
 
-### Database Changes
+### Before Running Updated Bot:
 
-New tables created automatically on startup:
+1. **Update Dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-```sql
--- Word Find System
-CREATE TABLE word_find_daily (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    word VARCHAR(100) NOT NULL,
-    difficulty VARCHAR(20) NOT NULL,
-    date DATE NOT NULL UNIQUE
-);
+2. **Install FFmpeg** (for lofi music):
+   - Windows: Download from https://ffmpeg.org/download.html
+   - Linux: `sudo apt-get install ffmpeg`
+   - macOS: `brew install ffmpeg`
+   - Termux: `pkg install ffmpeg`
 
-CREATE TABLE word_find_attempts (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id BIGINT NOT NULL,
-    word_id INT NOT NULL,
-    guess VARCHAR(100) NOT NULL,
-    similarity_score FLOAT NOT NULL,
-    attempt_number INT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+3. **Clean Up Database** (optional):
+   ```bash
+   mysql -u sulfur_bot_user -p sulfur_bot < scripts/cleanup_autonomous_voice_tables.sql
+   ```
 
-CREATE TABLE word_find_stats (
-    user_id BIGINT PRIMARY KEY,
-    total_games INT DEFAULT 0,
-    total_wins INT DEFAULT 0,
-    current_streak INT DEFAULT 0,
-    best_streak INT DEFAULT 0,
-    total_attempts INT DEFAULT 0,
-    last_played DATE
-);
-```
+4. **Update Configuration:**
+   - No config changes required
+   - Old autonomous/voice settings in config.json are simply ignored
 
-### Configuration Changes
+### Breaking Changes:
 
-**Before:**
-```json
-"features": {
-  "dm_access": 2000,
-  "games_access": 1500
-}
-```
+1. **Commands Removed:**
+   - `/admin force_voice_call`
+   - `/admin debug_voice`
+   - `/admin voice_transcript`
 
-**After:**
-```json
-"features": {
-  "dm_access": 2000,
-  "casino": 500,
-  "detective": 1000,
-  "trolly": 250,
-  "unlimited_word_find": 500
-}
-```
+2. **Features Removed:**
+   - Bot will no longer autonomously message users
+   - Bot cannot join voice calls and speak to users
+   - Voice call monitoring in web dashboard
 
-## 🧪 Testing Status
+3. **New Command:**
+   - `/lofi` - Play lofi music (replaces voice call features)
 
-### Automated Checks
-- ✅ **Code Review**: Passed (4 minor nitpicks noted)
-- ✅ **CodeQL Security Scan**: 0 vulnerabilities found
-- ✅ **Syntax Check**: All Python files valid
+## Code Quality
 
-### Manual Testing Needed
-- [ ] Shop purchases (all new features)
-- [ ] Feature unlock checks (casino, detective, trolly)
-- [ ] Word Find game (daily word, attempts, stats)
-- [ ] Share buttons (roulette, blackjack)
-- [ ] Color role hierarchy (visual confirmation)
-- [ ] Transaction logging (verify all types appear)
+- ✅ No code review issues found
+- ✅ No security vulnerabilities detected (CodeQL scan)
+- ✅ All imports properly updated
+- ✅ No broken references to deleted modules
 
-## ⚠️ Breaking Changes
+## Statistics
 
-### Minimal Breaking Changes
-- **games_access → casino**: Users who purchased "games_access" will need to purchase "casino" separately
-  - **Mitigation**: Run migration script to grant "casino" to users with "games_access"
-  - **Migration SQL**:
-    ```sql
-    INSERT INTO feature_unlocks (user_id, feature_name)
-    SELECT user_id, 'casino' 
-    FROM feature_unlocks 
-    WHERE feature_name = 'games_access'
-    ON DUPLICATE KEY UPDATE feature_name=feature_name;
-    ```
+- **Files Changed:** 109 files
+- **Lines Deleted:** ~31,000 lines (modules + documentation)
+- **Lines Added:** ~400 lines (lofi player)
+- **Net Reduction:** ~30,600 lines
+- **Code Complexity:** Significantly reduced
 
-### No Breaking Changes
-- All existing commands work as before
-- Database schema is additive (no destructive changes)
-- Existing game logic unchanged
-- Transaction logging backward compatible
+## Conclusion
 
-## 📋 Deployment Checklist
-
-### Pre-Deployment
-- [ ] Review all code changes
-- [ ] Run migration script for games_access → casino
-- [ ] Backup database
-- [ ] Update .env if needed
-
-### Deployment Steps
-1. [ ] Pull latest changes
-2. [ ] Install any new dependencies (none needed)
-3. [ ] Run database migrations (automatic on startup)
-4. [ ] Restart bot
-5. [ ] Monitor logs for errors
-
-### Post-Deployment
-- [ ] Test shop purchases
-- [ ] Test word find game
-- [ ] Test share buttons
-- [ ] Verify transactions appear
-- [ ] Monitor user feedback
-
-## 🔮 Future Enhancements
-
-### Deferred to Future PR
-1. **Werwolf Game Rework** - See `WERWOLF_REWORK_PLAN.md`
-   - Role ownership system
-   - Role selection UI
-   - Visual improvements
-   - Timeline optimization
-
-2. **Stock Market UI**
-   - Pagination (2 stocks per side)
-   - Stock graphics/charts
-   - Enhanced visualizations
-
-### Potential Additions
-- More word lists for word find
-- Additional gambling games with share buttons
-- Achievement system integration
-- Leaderboards for word find streaks
-
-## 📊 Metrics to Track
-
-Post-deployment, monitor these metrics:
-
-1. **Shop Revenue**
-   - Casino purchases
-   - Detective purchases
-   - Trolly purchases
-   - Unlimited word find purchases
-
-2. **Feature Usage**
-   - Daily active word find players
-   - Casino game play frequency
-   - Share button click rate
-   - Feature unlock rate vs purchase attempts
-
-3. **Economy Balance**
-   - Average user balance changes
-   - Currency inflation/deflation
-   - Feature pricing effectiveness
-
-## 🤝 Contributing
-
-For the Werwolf rework or other enhancements:
-
-1. Review `WERWOLF_REWORK_PLAN.md`
-2. Create feature branch
-3. Implement changes
-4. Add tests
-5. Submit PR
-
-## 📞 Support
-
-If issues arise:
-1. Check logs in `logs/` directory
-2. Verify database connectivity
-3. Confirm feature unlocks are granted correctly
-4. Test in development server first
-
-## ✅ Conclusion
-
-This PR successfully implements:
-- ✅ 5 new purchasable features
-- ✅ Complete word find game system
-- ✅ Gambling results sharing
-- ✅ Enhanced access control
-- ✅ Improved color role hierarchy
-- ✅ Transaction system refinements
-
-All features are production-ready with zero security vulnerabilities. The Werwolf rework is documented for future implementation.
+This PR successfully removes non-functional voice call features and replaces them with a working lofi music player. The codebase is now cleaner, more maintainable, and focuses on features that actually work with discord.py. All core functionality remains intact, and the new lofi music player provides a better user experience for focus sessions and relaxation.

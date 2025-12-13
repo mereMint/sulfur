@@ -119,14 +119,10 @@ from modules import horse_racing  # NEW: Horse racing game
 from modules import rpg_system  # NEW: RPG system
 from modules import sport_betting  # NEW: Sport betting system
 from modules import sport_betting_ui_v2 as sport_betting_ui  # NEW: Sport betting UI components (v2)
-from modules import autonomous_behavior  # NEW: Autonomous bot behavior
 from modules import focus_timer  # NEW: Focus timer with activity monitoring
-from modules import voice_tts  # NEW: Voice TTS and conversation
-from modules import bot_mind  # NEW: Bot mind state and consciousness
+from modules import lofi_player  # NEW: Lofi music player
 from modules import personality_evolution  # NEW: Personality evolution and learning system
 from modules import advanced_ai  # NEW: Advanced AI reasoning and intelligence
-from modules import voice_conversation  # NEW: Voice call capabilities
-from modules import passive_observer  # NEW: Passive message observation and thinking
 from modules.bot_enhancements import (
     handle_image_attachment,
     handle_unknown_emojis_in_message,
@@ -1011,43 +1007,7 @@ async def on_ready():
     except Exception as e:
         print(f"Bulk guild sync failed: {e}")
     
-    # --- NEW: Check voice dependencies ---
-    print("Checking voice dependencies...")
-    voice_deps = voice_tts.check_voice_dependencies()
-    if not VOICE_SUPPORTED:
-        print("  ❌ PyNaCl: Not installed - voice features disabled")
-        print("     Install with: pip install PyNaCl")
-    else:
-        print("  ✅ PyNaCl: Installed")
-    
-    if voice_deps.get('edge_tts'):
-        print("  ✅ edge-tts: Available")
-        # Test TTS connectivity
-        print("  ⏳ Testing edge-tts connectivity...")
-        try:
-            tts_working = await voice_tts.test_tts_connectivity()
-            if tts_working:
-                print("  ✅ edge-tts service: Online and working")
-            else:
-                print("  ⚠️  edge-tts service: Connectivity issues detected")
-                print("     Voice calls may not work properly until edge-tts service is accessible")
-        except Exception as e:
-            print(f"  ⚠️  Could not test edge-tts connectivity: {e}")
-    else:
-        print("  ❌ edge-tts: Not installed - TTS features disabled")
-        print("     Install with: pip install edge-tts")
-    
-    if voice_deps.get('ffmpeg'):
-        print("  ✅ ffmpeg: Available")
-    else:
-        print("  ⚠️  ffmpeg: Not found in PATH")
-        print("     Voice playback will not work without ffmpeg")
-        print("     Install ffmpeg:")
-        print("       - Windows: Download from https://ffmpeg.org/download.html")
-        print("       - Linux: sudo apt-get install ffmpeg")
-        print("       - macOS: brew install ffmpeg")
-    
-    if VOICE_SUPPORTED and voice_deps.get('edge_tts') and voice_deps.get('ffmpeg'):
+    if VOICE_SUPPORTED:
         print("  🎙️  All voice features are ready!")
     else:
         print("  ⚠️  Some voice features may not work correctly")
@@ -1058,18 +1018,6 @@ async def on_ready():
     # --- NEW: Start the background task for presence updates ---
     if not update_presence_task.is_running():
         update_presence_task.start()
-    
-    # --- NEW: Start autonomous messaging task ---
-    if not autonomous_messaging_task.is_running():
-        autonomous_messaging_task.start()
-    
-    # --- NEW: Start temp DM access cleanup task ---
-    if not cleanup_temp_dm_access.is_running():
-        cleanup_temp_dm_access.start()
-    
-    # --- NEW: Start bot mind state task ---
-    if not bot_mind_state_task.is_running():
-        bot_mind_state_task.start()
     
     # --- NEW: Start personality evolution tasks ---
     if not personality_maintenance_task.is_running():
@@ -1166,56 +1114,6 @@ async def on_ready():
         sport_betting_sync_and_settle_task.start()
         print("  -> Sport betting sync and settle task started")
     
-    # --- NEW: Start passive observer cleanup task ---
-    if not cleanup_passive_observer.is_running():
-        cleanup_passive_observer.start()
-        print("  -> Passive observer cleanup task started")
-    
-    # --- NEW: Start voice call monitoring task ---
-    # First check voice system dependencies
-    print("Checking voice system dependencies...")
-    try:
-        from modules import voice_audio_sink
-        
-        voice_system_ready = voice_tts.log_voice_system_status()
-        
-        # Also check voice receiving capabilities
-        print("Checking voice receiving capabilities...")
-        voice_receiving_ready = voice_audio_sink.log_voice_receiving_status()
-        
-        if voice_system_ready:
-            print("  ✓ Voice system is ready!")
-            # Test TTS connectivity
-            print("  -> Testing TTS connectivity...")
-            tts_working = await voice_tts.test_tts_connectivity()
-            if tts_working:
-                print("  ✓ TTS connectivity test passed!")
-            else:
-                print("  ⚠️  TTS connectivity test failed - voice features may not work properly")
-                print("  -> Check your internet connection and ensure edge-tts service is accessible")
-        else:
-            print("  ⚠️  Voice system has missing dependencies - voice features will be limited")
-            print("  -> See logs above for installation instructions")
-        
-        if voice_receiving_ready:
-            print("  ✓ Voice receiving (STT) is supported!")
-            print("  -> Bot can hear and transcribe German speech in voice channels")
-        else:
-            print("  ⚠️  Voice receiving not fully supported - using text fallback")
-            print("  -> Bot will use text messages during voice calls")
-            
-    except Exception as e:
-        logger.error(f"Error checking voice system: {e}")
-        print(f"  ⚠️  Error checking voice system: {e}")
-    
-    # The monitor_voice_calls function has its own error handling and infinite loop
-    # It will continue running even if individual calls encounter errors
-    try:
-        asyncio.create_task(voice_conversation.monitor_voice_calls())
-        print("  -> Voice call monitoring task started")
-    except Exception as e:
-        logger.error(f"Failed to start voice call monitoring task: {e}")
-        print(f"  ⚠️  Failed to start voice call monitoring: {e}")
 
 @tasks.loop(minutes=15)
 async def update_presence_task():
@@ -1305,203 +1203,6 @@ async def before_update_presence_task():
 # NOTE: Using module-level variable for simplicity. This state is intentionally NOT persisted
 # across bot restarts - it's acceptable to potentially DM the same user after a restart.
 last_autonomous_dm_user_id = None
-
-# Get messaging interval from config (default 1 hour, was 30 minutes before)
-_autonomous_messaging_interval_hours = config.get('modules', {}).get('autonomous_behavior', {}).get('messaging_interval_hours', 1)
-
-@_tasks.loop(minutes=_autonomous_messaging_interval_hours * 60)
-async def autonomous_messaging_task():
-    """Periodically consider autonomously messaging users."""
-    global last_autonomous_dm_user_id
-    
-    try:
-        if not client.guilds:
-            return
-        
-        logger.info("Running autonomous messaging check...")
-        
-        # Add random chance to make DMs even rarer (configurable, default 50%)
-        # Higher dm_random_chance = more likely to proceed (0.0=never, 1.0=always when bored)
-        dm_random_chance = config.get('modules', {}).get('autonomous_behavior', {}).get('dm_random_chance', 0.5)
-        if random.random() >= dm_random_chance:
-            logger.debug(f"Skipping autonomous messaging - random chance check failed (chance: {dm_random_chance:.0%})")
-            return
-        
-        # Check boredom level - only proceed if bot is sufficiently bored
-        # This ensures autonomous actions are more likely when the bot is idle
-        boredom_threshold = config.get('modules', {}).get('autonomous_behavior', {}).get('boredom_threshold', 0.3)
-        current_boredom = bot_mind.bot_mind.boredom_level if hasattr(bot_mind, 'bot_mind') else 0.0
-        
-        if current_boredom < boredom_threshold:
-            logger.debug(f"Skipping autonomous messaging - boredom level {current_boredom:.2f} below threshold {boredom_threshold:.2f}")
-            return
-        
-        logger.info(f"Bot boredom level {current_boredom:.2f} above threshold {boredom_threshold:.2f}, checking for users to message")
-        
-        # Get all online members
-        all_online_members = []
-        for guild in client.guilds:
-            all_online_members.extend([
-                m for m in guild.members 
-                if not m.bot and m.status != discord.Status.offline
-            ])
-        
-        if not all_online_members:
-            return
-        
-        # Filter out the last DMed user to avoid DMing the same person twice in a row
-        if last_autonomous_dm_user_id:
-            all_online_members = [m for m in all_online_members if m.id != last_autonomous_dm_user_id]
-            logger.debug(f"Filtered out last DMed user (ID: {last_autonomous_dm_user_id}) from candidates")
-        
-        if not all_online_members:
-            logger.debug("No eligible users after filtering last DMed user")
-            return
-        
-        # Check a few random users
-        candidates = random.sample(all_online_members, min(5, len(all_online_members)))
-        
-        for member in candidates:
-            try:
-                # Check if we should contact this user
-                # Use 1 hour minimum cooldown to prevent spam
-                min_cooldown = config.get('modules', {}).get('autonomous_behavior', {}).get('min_dm_cooldown_hours', 1)
-                should_contact = await autonomous_behavior.should_contact_user(
-                    member.id, 
-                    member,
-                    min_cooldown_hours=min_cooldown
-                )
-                
-                if not should_contact:
-                    continue
-                
-                # Only contact 1 user per run to avoid spam
-                logger.info(f"Autonomously messaging user: {member.display_name}")
-                
-                # Get conversation context
-                context = await autonomous_behavior.get_conversation_context(member.id, limit=5)
-                
-                # Generate conversation starter
-                message = await autonomous_behavior.generate_conversation_starter(
-                    member, context, get_chat_response,
-                    system_prompt=config['bot']['system_prompt'],
-                    config=config,
-                    gemini_key=GEMINI_API_KEY,
-                    openai_key=OPENAI_API_KEY
-                )
-                
-                if message:
-                    # Send DM
-                    try:
-                        await member.send(message)
-                        
-                        # Grant temporary DM access so user can reply
-                        temp_access_duration = config.get('modules', {}).get('autonomous_behavior', {}).get('temp_dm_access_hours', 1)
-                        await autonomous_behavior.grant_temp_dm_access(member.id, duration_hours=temp_access_duration)
-                        
-                        # Log the action
-                        await autonomous_behavior.log_autonomous_action(
-                            action_type='dm_message',
-                            target_user_id=member.id,
-                            guild_id=member.guild.id if member.guild else None,
-                            action_reason='periodic_check',
-                            success=True
-                        )
-                        
-                        # Record contact
-                        await autonomous_behavior.record_autonomous_contact(member.id)
-                        
-                        # Reduce boredom after successful autonomous action
-                        if hasattr(bot_mind, 'bot_mind'):
-                            bot_mind.bot_mind.adjust_boredom(-0.2)
-                            logger.debug(f"Reduced boredom by 0.2 after autonomous message (new level: {bot_mind.bot_mind.boredom_level:.2f})")
-                        
-                        # Record this user as the last DMed user to prevent DMing them again next time
-                        last_autonomous_dm_user_id = member.id
-                        logger.debug(f"Recorded {member.display_name} (ID: {member.id}) as last DMed user")
-                        
-                        logger.info(f"Successfully sent autonomous message to {member.display_name}")
-                        
-                        # Only message one user per run
-                        break
-                    except discord.Forbidden:
-                        logger.warning(f"Cannot DM user {member.display_name}")
-                        await autonomous_behavior.log_autonomous_action(
-                            action_type='dm_message',
-                            target_user_id=member.id,
-                            guild_id=member.guild.id if member.guild else None,
-                            action_reason='periodic_check',
-                            success=False
-                        )
-                        
-            except Exception as e:
-                logger.error(f"Error in autonomous messaging for {member.display_name}: {e}")
-                
-    except Exception as e:
-        logger.error(f"Error in autonomous messaging task: {e}", exc_info=True)
-
-@autonomous_messaging_task.before_loop
-async def before_autonomous_messaging_task():
-    await client.wait_until_ready()
-    # Wait additional time after startup before first autonomous check
-    # This prevents messaging users immediately on bot restart
-    startup_delay_minutes = config.get('modules', {}).get('autonomous_behavior', {}).get('startup_delay_minutes', 10)
-    logger.info(f"Autonomous messaging task will start after {startup_delay_minutes} minute startup delay")
-    await asyncio.sleep(startup_delay_minutes * 60)
-
-# --- NEW: Cleanup expired temporary DM access ---
-@_tasks.loop(hours=1)
-async def cleanup_temp_dm_access():
-    """Clean up expired temporary DM access entries."""
-    try:
-        deleted = await autonomous_behavior.cleanup_expired_temp_dm_access()
-        if deleted > 0:
-            logger.info(f"Cleaned up {deleted} expired temp DM access entries")
-    except Exception as e:
-        logger.error(f"Error in temp DM access cleanup: {e}", exc_info=True)
-
-@cleanup_temp_dm_access.before_loop
-async def before_cleanup_temp_dm_access():
-    await client.wait_until_ready()
-
-# --- NEW: Bot Mind State Management Task ---
-@_tasks.loop(minutes=30)
-async def bot_mind_state_task():
-    """Periodically update bot mind state, generate thoughts, and save state."""
-    try:
-        # Generate autonomous thought with correct parameters
-        await bot_mind.autonomous_thought_cycle(client, get_chat_response, config, GEMINI_API_KEY, OPENAI_API_KEY)
-        
-        # Periodically save mind state to database
-        if random.random() < 0.3:  # 30% chance each cycle
-            await bot_mind.save_mind_state()
-            logger.info("Bot mind state saved to database")
-        
-        # Observe server activity
-        for guild in client.guilds:
-            online_count = sum(1 for m in guild.members if not m.bot and m.status != discord.Status.offline)
-            if online_count > 10:
-                await bot_mind.observe_server_activity(guild, "high_activity", f"{online_count} users online in {guild.name}")
-                
-    except Exception as e:
-        logger.error(f"Error in bot mind state task: {e}", exc_info=True)
-
-@bot_mind_state_task.before_loop
-async def before_bot_mind_state_task():
-    await client.wait_until_ready()
-    # Load last mind state on startup
-    try:
-        loaded = await bot_mind.load_last_mind_state()
-        if loaded:
-            logger.info("Loaded previous bot mind state from database")
-        else:
-            logger.info("No previous mind state found, starting fresh")
-        
-        # Load evolved personality from database
-        await bot_mind.bot_mind.load_personality_from_db()
-        logger.info("Loaded evolved personality traits")
-    except Exception as e:
-        logger.error(f"Error loading mind state on startup: {e}")
 
 # --- NEW: Personality Evolution Maintenance Task ---
 @_tasks.loop(hours=6)
@@ -2611,23 +2312,6 @@ async def sport_betting_sync_and_settle_task():
 
 @sport_betting_sync_and_settle_task.before_loop
 async def before_sport_betting_sync_and_settle():
-    await client.wait_until_ready()
-
-
-# --- NEW: Passive observer cleanup task ---
-@tasks.loop(hours=1)
-async def cleanup_passive_observer():
-    """Periodically clean up old passive observer data."""
-    try:
-        observer = passive_observer.get_passive_observer()
-        observer.cleanup_old_data()
-        logger.debug("[PASSIVE] Cleaned up old observer data")
-    except Exception as e:
-        logger.error(f"[PASSIVE] Error in cleanup_passive_observer: {e}", exc_info=True)
-
-@cleanup_passive_observer.before_loop
-async def before_cleanup_passive_observer():
-    """Wait for bot to be ready before starting cleanup loop."""
     await client.wait_until_ready()
 
 
@@ -4931,271 +4615,6 @@ class AdminAIGroup(app_commands.Group):
             logger.error(f"Error in debug_tokens command: {e}", exc_info=True)
             await interaction.followup.send(f"❌ Error: {e}")
 
-    @app_commands.command(name="debug_voice", description="[Debug] Zeigt aktive Voice-Call-Informationen an.")
-    async def debug_voice(self, interaction: discord.Interaction):
-        """Shows active voice call information."""
-        await interaction.response.defer(ephemeral=True)
-        
-        try:
-            from modules.voice_conversation import get_all_active_calls, get_voice_call_stats
-            
-            active_calls = get_all_active_calls()
-            
-            embed = discord.Embed(
-                title="🎙️ Voice Call Debug Info",
-                description=f"Active Calls: **{len(active_calls)}**",
-                color=get_embed_color(config)
-            )
-            
-            # Show active calls
-            if active_calls:
-                for call_state in active_calls[:5]:  # Show max 5
-                    duration = call_state.get_duration()
-                    minutes = duration // 60
-                    seconds = duration % 60
-                    
-                    embed.add_field(
-                        name=f"📞 {call_state.user.display_name}",
-                        value=f"**Channel**: {call_state.channel.name}\n"
-                              f"**Duration**: {minutes}m {seconds}s\n"
-                              f"**Messages**: {len(call_state.conversation_history)}",
-                        inline=True
-                    )
-            else:
-                embed.add_field(
-                    name="No Active Calls",
-                    value="No voice calls currently active",
-                    inline=False
-                )
-            
-            # Get statistics
-            stats = await get_voice_call_stats()
-            
-            if stats['total_calls'] > 0:
-                avg_duration_min = stats['avg_duration'] // 60
-                avg_duration_sec = stats['avg_duration'] % 60
-                max_duration_min = stats['max_duration'] // 60
-                
-                embed.add_field(
-                    name="📊 All-Time Statistics",
-                    value=f"**Total Calls**: {stats['total_calls']}\n"
-                          f"**Total Duration**: {stats['total_duration'] // 60}m\n"
-                          f"**Avg Duration**: {avg_duration_min}m {avg_duration_sec}s\n"
-                          f"**Longest Call**: {max_duration_min}m",
-                    inline=False
-                )
-            
-            await interaction.followup.send(embed=embed)
-            logger.info(f"Admin {interaction.user.name} viewed voice debug info")
-            
-        except Exception as e:
-            logger.error(f"Error in debug_voice command: {e}", exc_info=True)
-            await interaction.followup.send(f"❌ Error: {e}")
-
-    @app_commands.command(name="force_voice_call", description="[Admin] Zwingt den Bot, einem Voice-Call beizutreten.")
-    @app_commands.describe(
-        user="Der Benutzer, dessen Voice-Channel der Bot beitreten soll (optional - erstellt neuen Channel wenn nicht angegeben)",
-        create_channel="Ob ein neuer temporärer Channel erstellt werden soll (Standard: ja, wenn User nicht in VC)"
-    )
-    async def force_voice_call(self, interaction: discord.Interaction, user: discord.Member, create_channel: bool = None):
-        """Forces the bot to join a user's voice channel."""
-        await interaction.response.defer(ephemeral=True)
-        
-        try:
-            # Auto-determine create_channel based on user's voice state if not specified
-            # If True, creates a new temp channel; if False, joins user's current channel
-            if create_channel is None:
-                create_channel = not (user.voice and user.voice.channel)
-            
-            # Check if bot is already in a call
-            from modules.voice_conversation import get_all_active_calls, initiate_voice_call
-            
-            active_calls = get_all_active_calls()
-            if any(call.user.id == user.id for call in active_calls):
-                await interaction.followup.send(f"❌ Bot ist bereits in einem Call mit {user.display_name}!")
-                return
-            
-            # If not creating a channel, check if user is in one
-            if not create_channel:
-                if not user.voice or not user.voice.channel:
-                    await interaction.followup.send(
-                        f"❌ {user.display_name} ist aktuell in keinem Voice-Channel!\n"
-                        f"💡 Tipp: Lass `create_channel` auf `True` um einen neuen Channel zu erstellen."
-                    )
-                    return
-                
-                voice_channel = user.voice.channel
-                
-                # Check bot permissions
-                permissions = voice_channel.permissions_for(interaction.guild.me)
-                if not permissions.connect or not permissions.speak:
-                    await interaction.followup.send(f"❌ Bot hat keine Berechtigung, dem Channel **{voice_channel.name}** beizutreten!")
-                    return
-            
-            # Initiate the voice call
-            call_state = await initiate_voice_call(user, config, create_temp_channel=create_channel)
-            
-            if call_state:
-                channel_info = f"**{call_state.channel.name}**" if call_state.channel else "einem Voice-Channel"
-                await interaction.followup.send(
-                    f"✅ Bot ist dem Voice-Channel {channel_info} beigetreten!\n"
-                    f"📞 Call mit {user.display_name} gestartet."
-                )
-                logger.info(f"Admin {interaction.user.name} forced voice call with {user.display_name}")
-            else:
-                await interaction.followup.send(f"❌ Fehler beim Starten des Voice-Calls!")
-                
-        except Exception as e:
-            logger.error(f"Error in force_voice_call command: {e}", exc_info=True)
-            await interaction.followup.send(f"❌ Error: {e}")
-
-    @app_commands.command(name="voice_transcript", description="[Debug] Zeigt das Transkript einer aktiven Voice-Conversation an.")
-    @app_commands.describe(user="Der Benutzer, dessen Voice-Call-Transkript du sehen möchtest (optional - zeigt alle wenn nicht angegeben)")
-    async def voice_transcript(self, interaction: discord.Interaction, user: Optional[discord.Member] = None):
-        """Shows the conversation transcript for an active voice call."""
-        await interaction.response.defer(ephemeral=True)
-        
-        try:
-            from modules.voice_conversation import get_all_active_calls, get_active_call
-            
-            if user:
-                # Show transcript for specific user
-                call_state = get_active_call(user.id)
-                
-                if not call_state:
-                    await interaction.followup.send(
-                        f"❌ Kein aktiver Voice-Call mit {user.display_name} gefunden.\n"
-                        f"💡 Benutze `/admin voice_transcript` (ohne User) um alle aktiven Calls zu sehen."
-                    )
-                    return
-                
-                # Create embed with transcript
-                duration = call_state.get_duration()
-                minutes = duration // 60
-                seconds = duration % 60
-                
-                embed = discord.Embed(
-                    title=f"🎙️ Voice Call Transkript: {user.display_name}",
-                    description=f"**Channel**: {call_state.channel.name}\n"
-                                f"**Duration**: {minutes}m {seconds}s\n"
-                                f"**Messages**: {len(call_state.conversation_history)}",
-                    color=get_embed_color(config),
-                    timestamp=call_state.start_time
-                )
-                
-                if call_state.conversation_history:
-                    # Build transcript text
-                    transcript_lines = []
-                    for entry in call_state.conversation_history:
-                        timestamp = entry.get('timestamp', '')
-                        # Parse and format timestamp
-                        try:
-                            from datetime import datetime
-                            dt = datetime.fromisoformat(timestamp)
-                            time_str = dt.strftime('%H:%M:%S')
-                        except Exception:
-                            time_str = 'N/A'
-                        
-                        speaker = entry.get('speaker', 'Unknown')
-                        text = entry.get('text', '')
-                        
-                        # Truncate long messages
-                        if len(text) > 100:
-                            text = text[:97] + "..."
-                        
-                        transcript_lines.append(f"`[{time_str}]` **{speaker}**: {text}")
-                    
-                    # Discord field value limit is 1024 characters
-                    # Split into multiple fields if needed
-                    current_field = []
-                    current_length = 0
-                    field_num = 1
-                    
-                    for line in transcript_lines:
-                        line_length = len(line) + 1  # +1 for newline
-                        
-                        if current_length + line_length > 1024:
-                            # Add current field
-                            embed.add_field(
-                                name=f"📝 Transkript (Teil {field_num})" if field_num > 1 else "📝 Transkript",
-                                value="\n".join(current_field),
-                                inline=False
-                            )
-                            current_field = [line]
-                            current_length = line_length
-                            field_num += 1
-                        else:
-                            current_field.append(line)
-                            current_length += line_length
-                    
-                    # Add remaining lines
-                    if current_field:
-                        embed.add_field(
-                            name=f"📝 Transkript (Teil {field_num})" if field_num > 1 else "📝 Transkript",
-                            value="\n".join(current_field),
-                            inline=False
-                        )
-                else:
-                    embed.add_field(
-                        name="📝 Transkript",
-                        value="*Noch keine Nachrichten in diesem Call*",
-                        inline=False
-                    )
-                
-                embed.set_footer(text=f"Angefordert von {interaction.user.display_name}")
-                await interaction.followup.send(embed=embed)
-                logger.info(f"Admin {interaction.user.name} viewed voice transcript for {user.display_name}")
-                
-            else:
-                # Show summary of all active calls with message counts
-                active_calls = get_all_active_calls()
-                
-                if not active_calls:
-                    await interaction.followup.send(
-                        "❌ Keine aktiven Voice-Calls gefunden.\n"
-                        "💡 Nutze `/admin force_voice_call` um einen Call zu starten."
-                    )
-                    return
-                
-                embed = discord.Embed(
-                    title="🎙️ Voice Call Transkripte - Übersicht",
-                    description=f"Aktive Calls: **{len(active_calls)}**\n"
-                                f"Wähle einen Benutzer mit `/admin voice_transcript user:<name>` für Details.",
-                    color=get_embed_color(config)
-                )
-                
-                for call_state in active_calls[:10]:  # Show max 10
-                    duration = call_state.get_duration()
-                    minutes = duration // 60
-                    seconds = duration % 60
-                    
-                    # Get last 3 messages as preview
-                    preview_lines = []
-                    for entry in list(call_state.conversation_history)[-3:]:
-                        speaker = entry.get('speaker', 'Unknown')
-                        text = entry.get('text', '')
-                        if len(text) > 50:
-                            text = text[:47] + "..."
-                        preview_lines.append(f"**{speaker}**: {text}")
-                    
-                    preview = "\n".join(preview_lines) if preview_lines else "*Keine Nachrichten*"
-                    
-                    embed.add_field(
-                        name=f"📞 {call_state.user.display_name}",
-                        value=f"**Channel**: {call_state.channel.name}\n"
-                              f"**Duration**: {minutes}m {seconds}s\n"
-                              f"**Messages**: {len(call_state.conversation_history)}\n"
-                              f"**Letzte Nachrichten**:\n{preview}",
-                        inline=False
-                    )
-                
-                embed.set_footer(text=f"Angefordert von {interaction.user.display_name}")
-                await interaction.followup.send(embed=embed)
-                logger.info(f"Admin {interaction.user.name} viewed voice transcript overview")
-                
-        except Exception as e:
-            logger.error(f"Error in voice_transcript command: {e}", exc_info=True)
-            await interaction.followup.send(f"❌ Error: {e}")
 
     @app_commands.command(name="debug_memory", description="[Debug] Zeigt den Speicherzustand des Bots an.")
     async def debug_memory(self, interaction: discord.Interaction):
@@ -15800,6 +15219,11 @@ async def focus(
                 value=f"Timer endet um <t:{int((datetime.now() + timedelta(minutes=duration)).timestamp())}:t>",
                 inline=False
             )
+            embed.add_field(
+                name="🎵 Lofi-Musik",
+                value="Tipp: Nutze `/lofi action:Start` für beruhigende Hintergrundmusik!",
+                inline=False
+            )
             embed.set_footer(text="Beende den Timer mit /focus preset:stop")
             
             await interaction.followup.send(embed=embed, ephemeral=True)
@@ -15831,7 +15255,7 @@ async def focus(
 
 async def focus_timer_completion_handler(user: discord.User, session_id: int, duration_minutes: int):
     """Handle focus timer completion notification."""
-    from modules import focus_timer, autonomous_behavior
+    from modules import focus_timer
     
     try:
         # Wait for timer to complete
@@ -15860,42 +15284,12 @@ async def focus_timer_completion_handler(user: discord.User, session_id: int, du
             inline=False
         )
         
-        # Get user's autonomous settings
-        settings = await autonomous_behavior.get_user_autonomous_settings(user.id)
-        
-        # Try to send DM first
+        # Try to send DM
         try:
             await user.send(embed=embed)
             logger.info(f"Sent focus completion DM to user {user.id}")
         except discord.Forbidden:
             logger.warning(f"Cannot send DM to user {user.id}")
-            
-            # If DMs are disabled and user allows calls, try voice notification
-            if settings['allow_calls']:
-                # Check if user is in voice channel
-                for guild in client.guilds:
-                    member = guild.get_member(user.id)
-                    if member and member.voice and member.voice.channel:
-                        try:
-                            voice_client = await voice_tts.join_voice_channel(member.voice.channel)
-                            if voice_client:
-                                message = f"Hey {member.display_name}, dein Focus-Timer ist abgelaufen! Du hast {duration_minutes} Minuten fokussiert gearbeitet."
-                                await voice_tts.speak_in_channel(voice_client, message)
-                                await asyncio.sleep(3)
-                                await voice_tts.leave_voice_channel(voice_client)
-                                logger.info(f"Sent voice notification to user {user.id}")
-                        except RuntimeError as re:
-                            logger.error(f"Voice feature unavailable: {re}")
-                            # Try to send a text message instead
-                            try:
-                                await user.send(
-                                    f"⏱️ **Focus-Timer abgelaufen!**\n\n"
-                                    f"Du hast {duration_minutes} Minuten fokussiert gearbeitet.\n\n"
-                                    f"_Hinweis: Sprachanrufe sind aktuell nicht verfügbar._"
-                                )
-                            except (discord.Forbidden, discord.HTTPException):
-                                pass  # User has DMs blocked or other Discord error
-                        break
         
     except Exception as e:
         logger.error(f"Error in focus timer completion handler: {e}", exc_info=True)
@@ -15982,6 +15376,109 @@ async def focusstats(interaction: discord.Interaction, days: int = 7):
         logger.error(f"Error in focusstats command: {e}", exc_info=True)
         await interaction.followup.send(
             f"❌ Fehler beim Abrufen der Statistiken: {str(e)}",
+            ephemeral=True
+        )
+
+
+@tree.command(name="lofi", description="Spiele beruhigende Lofi-Musik im Voice-Channel")
+@app_commands.describe(
+    action="Start oder Stop",
+    stream="Wähle einen Lofi-Stream (Standard: 1)"
+)
+@app_commands.choices(action=[
+    app_commands.Choice(name="▶️ Start", value="start"),
+    app_commands.Choice(name="⏹️ Stop", value="stop")
+])
+@app_commands.choices(stream=[
+    app_commands.Choice(name="📚 Beats to Relax/Study", value=0),
+    app_commands.Choice(name="🎧 Beats to Sleep/Chill", value=1)
+])
+async def lofi(
+    interaction: discord.Interaction,
+    action: app_commands.Choice[str],
+    stream: app_commands.Choice[int] = None
+):
+    """Play or stop lofi music in voice channel."""
+    await interaction.response.defer()
+    
+    try:
+        # Check if user is in a voice channel
+        if not interaction.user.voice or not interaction.user.voice.channel:
+            await interaction.followup.send(
+                "❌ Du musst in einem Voice-Channel sein, um Lofi-Musik zu hören!",
+                ephemeral=True
+            )
+            return
+        
+        voice_channel = interaction.user.voice.channel
+        
+        if action.value == "start":
+            # Join voice channel
+            voice_client = await lofi_player.join_voice_channel(voice_channel)
+            
+            if not voice_client:
+                await interaction.followup.send(
+                    "❌ Fehler beim Beitreten des Voice-Channels!",
+                    ephemeral=True
+                )
+                return
+            
+            # Play lofi music
+            stream_index = stream.value if stream else 0
+            success = await lofi_player.play_lofi(voice_client, stream_index)
+            
+            if success:
+                stream_names = ["📚 Beats to Relax/Study", "🎧 Beats to Sleep/Chill"]
+                embed = discord.Embed(
+                    title="🎵 Lofi Music Player",
+                    description=f"Jetzt läuft: **{stream_names[stream_index]}**",
+                    color=discord.Color.purple()
+                )
+                embed.add_field(
+                    name="📍 Channel",
+                    value=voice_channel.name,
+                    inline=True
+                )
+                embed.add_field(
+                    name="⏯️ Steuerung",
+                    value="Nutze `/lofi action:Stop` zum Beenden",
+                    inline=True
+                )
+                embed.set_footer(text="Viel Spaß beim Entspannen! 🎧")
+                
+                await interaction.followup.send(embed=embed)
+                logger.info(f"Started lofi music for {interaction.user.name} in {voice_channel.name}")
+            else:
+                await interaction.followup.send(
+                    "❌ Fehler beim Starten der Lofi-Musik!\n"
+                    "💡 Stelle sicher, dass yt-dlp installiert ist: `pip install yt-dlp`",
+                    ephemeral=True
+                )
+                
+        elif action.value == "stop":
+            voice_client = interaction.guild.voice_client
+            
+            if not voice_client or not voice_client.is_connected():
+                await interaction.followup.send(
+                    "❌ Der Bot ist in keinem Voice-Channel!",
+                    ephemeral=True
+                )
+                return
+            
+            # Stop music and leave
+            await lofi_player.stop_lofi(voice_client)
+            await lofi_player.leave_voice_channel(voice_client)
+            
+            await interaction.followup.send(
+                "⏹️ Lofi-Musik gestoppt und Voice-Channel verlassen.",
+                ephemeral=True
+            )
+            logger.info(f"Stopped lofi music for {interaction.user.name}")
+            
+    except Exception as e:
+        logger.error(f"Error in lofi command: {e}", exc_info=True)
+        await interaction.followup.send(
+            f"❌ Fehler: {str(e)}",
             ephemeral=True
         )
 
@@ -16223,48 +15720,12 @@ async def on_message(message):
         except Exception as e:
             logger.error(f"Error in focus timer detection: {e}")
     
-    # --- NEW: Handle text messages during active voice calls ---
-    if not message.author.bot and message.content:
-        try:
-            handled = await voice_conversation.handle_text_in_voice_call(
-                message,
-                config,
-                GEMINI_API_KEY,
-                OPENAI_API_KEY,
-                config['bot']['system_prompt']
-            )
-            if handled:
-                logger.info(f"Message from {message.author.name} handled in voice call context")
-                return  # Message was handled in voice call, don't process as normal chat
-        except Exception as e:
-            logger.error(f"Error handling text in voice call: {e}", exc_info=True)
-    
     async def run_chatbot(message):
         """Handles the core logic of fetching and sending an AI response."""
         channel_name = f"DM with {message.author.name}" if isinstance(message.channel, discord.DMChannel) else f"#{message.channel.name}"
         logger.info(f"[CHATBOT] Triggered by {message.author.name} in {channel_name}")
         print(f"[CHATBOT] === Starting chatbot handler for {message.author.name} in {channel_name} ===")
         print(f"[CHATBOT] Message content: '{message.content}'")
-        
-        # --- NEW: Process interaction with bot mind ---
-        try:
-            bot_mind.bot_mind.process_interaction(message.author.display_name, message.content)
-            
-            # Extract interests from message
-            if len(message.content) > 20:  # Only for substantial messages
-                # Simple keyword extraction for interests
-                keywords = ['game', 'music', 'anime', 'coding', 'art', 'sport', 'movie', 'book']
-                for keyword in keywords:
-                    if keyword.lower() in message.content.lower():
-                        bot_mind.bot_mind.add_interest(keyword.capitalize())
-            
-            # Record observation about the interaction with guild_id
-            guild_id = message.guild.id if message.guild else None
-            observation = f"User {message.author.display_name} sent a message in {channel_name}"
-            bot_mind.bot_mind.observe(observation, guild_id=guild_id)
-            
-        except (AttributeError, ImportError) as e:
-            logger.warning(f"Mind state processing error (module may not be available): {e}")
         
         if not isinstance(message.channel, discord.DMChannel):
             stat_period = datetime.now(timezone.utc).strftime('%Y-%m')
