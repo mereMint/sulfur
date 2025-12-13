@@ -100,7 +100,9 @@ class TTSServiceHealth:
             time_since_failure = (datetime.now() - self.last_failure_time).total_seconds()
             if time_since_failure >= CIRCUIT_BREAKER_TIMEOUT:
                 logger.info(f"TTS circuit breaker timeout expired ({CIRCUIT_BREAKER_TIMEOUT}s), allowing retry attempt")
-                # Reset to half-open state
+                # Reset to half-open state: Allow one retry but keep failure count high
+                # so that another failure will re-open the circuit immediately.
+                # Subtract 1 so we're at threshold - 1, meaning one more failure opens circuit again.
                 self.consecutive_failures = CIRCUIT_BREAKER_THRESHOLD - 1
                 self.circuit_open = False
                 return False
@@ -115,6 +117,16 @@ class TTSServiceHealth:
             'last_failure': self.last_failure_time,
             'last_success': self.last_success_time,
         }
+    
+    def reset(self):
+        """
+        Reset the circuit breaker to initial state.
+        Should only be called by admins when they know the service is back up.
+        """
+        self.consecutive_failures = 0
+        self.last_failure_time = None
+        self.circuit_open = False
+        logger.info("TTS service health reset to initial state")
 
 # Global service health tracker
 _tts_service_health = TTSServiceHealth()
@@ -148,17 +160,24 @@ async def check_network_connectivity() -> Dict[str, Any]:
             return results
         
         # Test TCP connection (port 443 for HTTPS)
+        sock = None
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.settimeout(5)
             sock.connect((results['edge_tts_host'], 443))
-            sock.close()
             results['tcp_connection'] = True
             logger.debug(f"TCP connection successful to {results['edge_tts_host']}:443")
         except (socket.timeout, socket.error, OSError) as conn_error:
             results['error'] = f"TCP connection failed: {conn_error}"
             logger.warning(results['error'])
             return results
+        finally:
+            # Ensure socket is always closed
+            if sock:
+                try:
+                    sock.close()
+                except Exception:
+                    pass
             
     except Exception as e:
         results['error'] = f"Network check failed: {e}"
@@ -879,6 +898,5 @@ def reset_tts_circuit_breaker():
     Manually reset the TTS circuit breaker.
     Should only be called by admins when they know the service is back up.
     """
-    global _tts_service_health
-    _tts_service_health = TTSServiceHealth()
-    logger.info("TTS circuit breaker manually reset")
+    _tts_service_health.reset()
+    logger.info("TTS circuit breaker manually reset by admin")
