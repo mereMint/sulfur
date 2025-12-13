@@ -76,7 +76,7 @@ def get_xp_for_level(level):
     return 5 * (level ** 2) + (50 * level) + 100
 
 
-def init_db_pool(host, user, password, database, max_retries=3, retry_delay=2):
+def init_db_pool(host, user, password, database, max_retries=1, retry_delay=1):
     """
     Initializes the database connection pool with retry logic.
     
@@ -85,8 +85,8 @@ def init_db_pool(host, user, password, database, max_retries=3, retry_delay=2):
         user: Database user
         password: Database password
         database: Database name
-        max_retries: Maximum number of retry attempts (default: 3)
-        retry_delay: Initial delay between retries in seconds (default: 2)
+        max_retries: Maximum number of retry attempts (default: 1 for fast startup)
+        retry_delay: Initial delay between retries in seconds (default: 1)
     
     Returns:
         bool: True if successful, False otherwise
@@ -105,7 +105,7 @@ def init_db_pool(host, user, password, database, max_retries=3, retry_delay=2):
                 'pool_reset_session': True,
                 'get_warnings': True,
                 'raise_on_warnings': False,
-                'connect_timeout': 10  # Add connection timeout
+                'connect_timeout': 5  # Reduced from 10 to 5 for faster failure detection
             }
             db_pool = pooling.MySQLConnectionPool(
                 pool_name="sulfur_pool", 
@@ -133,9 +133,9 @@ def init_db_pool(host, user, password, database, max_retries=3, retry_delay=2):
             
             db_pool = None
             
-            # Retry with exponential backoff
+            # Retry with simple delay (no exponential backoff for faster startup)
             if attempt < max_retries:
-                wait_time = retry_delay * (2 ** (attempt - 1))  # Exponential backoff
+                wait_time = retry_delay
                 logger.info(f"Retrying in {wait_time} seconds...")
                 time.sleep(wait_time)
             else:

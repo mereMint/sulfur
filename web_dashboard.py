@@ -57,8 +57,8 @@ print("[Web Dashboard] Initializing database connection...")
 logger.info("Initializing database connection...")
 
 db_init_success = False
-db_init_max_retries = 3
-db_init_retry_delay = 3
+db_init_max_retries = 1  # Reduced from 3 to 1 for faster startup
+db_init_retry_delay = 1  # Reduced from 3 to 1 second
 
 for attempt in range(1, db_init_max_retries + 1):
     try:
@@ -75,7 +75,7 @@ for attempt in range(1, db_init_max_retries + 1):
             logger.warning(f"Database pool initialization failed (attempt {attempt}/{db_init_max_retries})")
             
             if attempt < db_init_max_retries:
-                wait_time = db_init_retry_delay * attempt
+                wait_time = db_init_retry_delay
                 print(f"[Web Dashboard] Retrying in {wait_time} seconds...")
                 logger.info(f"Retrying in {wait_time} seconds...")
                 time.sleep(wait_time)
@@ -85,7 +85,7 @@ for attempt in range(1, db_init_max_retries + 1):
         logger.error(f"Database pool initialization error (attempt {attempt}/{db_init_max_retries}): {e}")
         
         if attempt < db_init_max_retries:
-            wait_time = db_init_retry_delay * attempt
+            wait_time = db_init_retry_delay
             print(f"[Web Dashboard] Retrying in {wait_time} seconds...")
             logger.info(f"Retrying in {wait_time} seconds...")
             time.sleep(wait_time)
