@@ -780,6 +780,10 @@ apply_updates() {
         # Update pip first
         $python_exe -m pip install --upgrade pip >>"$MAIN_LOG" 2>&1 || true
         
+        # Set SODIUM_INSTALL=system to use system libsodium for PyNaCl
+        # This prevents build failures on Termux where bundled libsodium configure fails
+        export SODIUM_INSTALL=system
+        
         # Install/update requirements
         if $venv_pip install -r requirements.txt >>"$MAIN_LOG" 2>&1; then
             log_success "Dependencies updated successfully"
@@ -1488,6 +1492,9 @@ ensure_python_env() {
     if [ "$need_install" = true ]; then
         log_info "Installing Python dependencies from requirements.txt..."
         
+        # Set SODIUM_INSTALL=system to use system libsodium for PyNaCl
+        export SODIUM_INSTALL=system
+        
         # Try normal install first
         if $venv_pip install -r requirements.txt >>"$MAIN_LOG" 2>&1; then
             log_success "Dependencies installed successfully"
@@ -1538,6 +1545,9 @@ ensure_python_env() {
     if [ -n "$missing_packages" ]; then
         log_error "Missing required packages: $missing_packages"
         log_warning "Attempting to install missing packages..."
+        
+        # Set SODIUM_INSTALL=system to use system libsodium for PyNaCl
+        export SODIUM_INSTALL=system
         
         # Capture pip output for better error visibility
         local pip_output_file="/tmp/sulfur_pip_install_$$.log"

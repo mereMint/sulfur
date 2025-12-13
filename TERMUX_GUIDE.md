@@ -136,10 +136,12 @@ cd sulfur
 python -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
+# Set environment variable to use system libsodium for PyNaCl
+export SODIUM_INSTALL=system
 pip install -r requirements.txt
 ```
 
-**Note**: PyNaCl (voice support) will be compiled using the libsodium library installed earlier. This may take a few minutes but should complete successfully.
+**Note**: PyNaCl (voice support) will use the system-installed libsodium library. The `SODIUM_INSTALL=system` environment variable tells PyNaCl to skip building its bundled libsodium and use the system one instead. This prevents build failures on Termux.
 
 #### 6. Configure Environment
 ```bash
