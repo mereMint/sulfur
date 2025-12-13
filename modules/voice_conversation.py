@@ -51,6 +51,7 @@ SILENCE_TIMEOUT_SECONDS = 10  # Consider speech ended after 10s silence
 MAX_RECORDING_DURATION = 30  # Maximum seconds per recording chunk
 TRANSCRIPTION_CONFIDENCE_THRESHOLD = 0.5  # Minimum confidence for transcription
 EMPTY_CHANNEL_TIMEOUT_SECONDS = 30  # Auto-leave after 30 seconds if no other users
+CONNECTION_STABILIZATION_DELAY = 1.0  # Delay in seconds after connecting before speaking
 
 
 class VoiceCallState:
@@ -264,8 +265,8 @@ async def initiate_voice_call(user: discord.Member, config: dict, create_temp_ch
         
         logger.info(f"Initiated voice call with {user.name} in channel {voice_channel.name}")
         
-        # Wait a moment for the connection to stabilize
-        await asyncio.sleep(1)
+        # Wait a moment for the connection to stabilize before speaking
+        await asyncio.sleep(CONNECTION_STABILIZATION_DELAY)
         
         # Play greeting
         greeting_text = "Hey! Ich bin jetzt im Call. Schreib mir eine Nachricht und ich antworte per Sprache!"

@@ -1102,8 +1102,14 @@ async def on_ready():
         print("  -> Sport betting sync and settle task started")
     
     # --- NEW: Start voice call monitoring task ---
-    asyncio.create_task(voice_conversation.monitor_voice_calls())
-    print("  -> Voice call monitoring task started")
+    # The monitor_voice_calls function has its own error handling and infinite loop
+    # It will continue running even if individual calls encounter errors
+    try:
+        asyncio.create_task(voice_conversation.monitor_voice_calls())
+        print("  -> Voice call monitoring task started")
+    except Exception as e:
+        logger.error(f"Failed to start voice call monitoring task: {e}")
+        print(f"  ⚠️  Failed to start voice call monitoring: {e}")
 
 @tasks.loop(minutes=15)
 async def update_presence_task():
@@ -4839,6 +4845,7 @@ class AdminAIGroup(app_commands.Group):
         
         try:
             # Auto-determine create_channel based on user's voice state if not specified
+            # If True, creates a new temp channel; if False, joins user's current channel
             if create_channel is None:
                 create_channel = not (user.voice and user.voice.channel)
             
