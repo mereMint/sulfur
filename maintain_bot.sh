@@ -84,6 +84,9 @@ fi
 DB_USER="${DB_USER:-sulfur_bot_user}"
 DB_NAME="${DB_NAME:-sulfur_bot}"
 
+# Termux system dependencies for PyNaCl (voice support)
+TERMUX_SYSTEM_DEPS=("libsodium" "clang")
+
 # ==============================================================================
 # Logging Functions
 # ==============================================================================
@@ -1405,12 +1408,11 @@ ensure_system_dependencies() {
     
     log_info "Checking system dependencies for Termux..."
     
-    # List of required system packages
-    local required_packages=("libsodium" "clang")
+    # Use the global constant for required packages
     local missing_packages=()
     
     # Check each package
-    for pkg in "${required_packages[@]}"; do
+    for pkg in "${TERMUX_SYSTEM_DEPS[@]}"; do
         if ! pkg list-installed 2>/dev/null | grep -q "^${pkg}"; then
             missing_packages+=("$pkg")
             log_warning "System package '$pkg' is not installed"

@@ -271,7 +271,7 @@ REQUIRED_PACKAGES=(
 
 print_info "Installing all required packages (this may take a few minutes)..."
 print_info "Installing libsodium and clang for PyNaCl voice support..."
-pkg install -y python git mariadb openssh nano wget curl libsodium clang
+pkg install -y "${REQUIRED_PACKAGES[@]}"
 
 for package in "${REQUIRED_PACKAGES[@]}"; do
     if command -v "$package" &> /dev/null || pkg list-installed 2>/dev/null | grep -q "^${package}"; then
