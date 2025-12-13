@@ -83,21 +83,15 @@ class AudioSinkRecorder(AudioSinkBase):
     """
     Custom audio sink for recording voice channel audio.
     
-    Records audio from all users in the voice channel and provides
-    callbacks for processing transcribed speech.
+    Records audio from all users in the voice channel.
+    The actual transcription callback is handled by VoiceReceiver.start_receiving().
     
     Uses py-cord's discord.sinks.WaveSink as base when available.
     """
     
-    def __init__(self, callback: Optional[Callable] = None):
-        """
-        Initialize audio sink.
-        
-        Args:
-            callback: Function to call with transcribed text (user_id, text)
-        """
+    def __init__(self):
+        """Initialize audio sink."""
         super().__init__()
-        self.callback = callback
         self.recordings: Dict[int, io.BytesIO] = {}
         self.last_speech: Dict[int, datetime] = {}
         self.silence_threshold = 1.0  # Seconds of silence before processing
@@ -123,7 +117,10 @@ class AudioSinkRecorder(AudioSinkBase):
         
     def cleanup(self):
         """Clean up resources."""
-        super().cleanup()
+        # Call parent cleanup if available (py-cord)
+        if DISCORD_SINKS_AVAILABLE:
+            super().cleanup()
+        
         self.recordings.clear()
         self.last_speech.clear()
         logger.debug("AudioSinkRecorder cleaned up")
@@ -224,7 +221,7 @@ class VoiceReceiver:
                 logger.error(f"Error in transcription callback: {e}", exc_info=True)
         
         # Create audio sink
-        sink = AudioSinkRecorder(callback=callback)
+        sink = AudioSinkRecorder()
         self.active_sinks[guild_id] = sink
         
         # Start receiving with py-cord
