@@ -1101,6 +1101,9 @@ def admin_delete_user_data():
         
         try:
             conn = db_helpers.get_db_connection()
+            if not conn:
+                logger.error("Failed to get database connection")
+                return jsonify({'error': 'Failed to get database connection'}), 500
             cursor = conn.cursor()
             
             # List of tables to delete user data from
@@ -1426,6 +1429,9 @@ def rpg_stats():
             return jsonify({'error': 'Database not available'}), 500
         
         conn = db_helpers.get_db_connection()
+        if not conn:
+            logger.error("Failed to get database connection")
+            return jsonify({'error': 'Failed to get database connection'}), 500
         cursor = conn.cursor()
         
         try:
@@ -1529,6 +1535,9 @@ def delete_rpg_item(item_id):
             return jsonify({'error': 'Database not available'}), 500
         
         conn = db_helpers.get_db_connection()
+        if not conn:
+            logger.error("Failed to get database connection")
+            return jsonify({'error': 'Failed to get database connection'}), 500
         cursor = conn.cursor()
         
         cursor.execute("DELETE FROM rpg_items WHERE id = %s", (item_id,))
@@ -1617,6 +1626,9 @@ def delete_rpg_monster(monster_id):
             return jsonify({'error': 'Database not available'}), 500
         
         conn = db_helpers.get_db_connection()
+        if not conn:
+            logger.error("Failed to get database connection")
+            return jsonify({'error': 'Failed to get database connection'}), 500
         cursor = conn.cursor()
         
         cursor.execute("DELETE FROM rpg_monsters WHERE id = %s", (monster_id,))
@@ -1901,6 +1913,9 @@ def reset_rpg_player():
         
         try:
             conn = db_helpers.get_db_connection()
+            if not conn:
+                logger.error("Failed to get database connection")
+                return jsonify({'error': 'Failed to get database connection'}), 500
             cursor = conn.cursor()
             
             # Pre-defined queries for each table to prevent SQL injection
@@ -2186,6 +2201,9 @@ def api_create_stock():
             return jsonify({'error': 'Symbol too long (max 10 characters)'}), 400
         
         conn = db_helpers.get_db_connection()
+        if not conn:
+            logger.error("Failed to get database connection")
+            return jsonify({'error': 'Failed to get database connection'}), 500
         cursor = conn.cursor()
         
         try:
@@ -2219,6 +2237,9 @@ def api_update_stock(symbol):
         data = request.get_json()
         
         conn = db_helpers.get_db_connection()
+        if not conn:
+            logger.error("Failed to get database connection")
+            return jsonify({'error': 'Failed to get database connection'}), 500
         cursor = conn.cursor()
         
         try:
@@ -2284,6 +2305,9 @@ def api_delete_stock(symbol):
             return jsonify({'error': 'Database not available'}), 500
         
         conn = db_helpers.get_db_connection()
+        if not conn:
+            logger.error("Failed to get database connection")
+            return jsonify({'error': 'Failed to get database connection'}), 500
         cursor = conn.cursor()
         
         try:
@@ -2419,6 +2443,9 @@ def verify_all_tables():
             return jsonify({'error': 'Database not available'}), 500
         
         conn = db_helpers.get_db_connection()
+        if not conn:
+            logger.error("Failed to get database connection")
+            return jsonify({'error': 'Failed to get database connection'}), 500
         cursor = conn.cursor()
         
         try:

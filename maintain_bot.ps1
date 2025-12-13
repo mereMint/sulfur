@@ -693,7 +693,7 @@ function Test-RequiredDependencies {
     }
     
     # Also check if critical dependencies are missing
-    $criticalPackages = @('discord', 'flask', 'flask_socketio', 'mysql.connector')
+    $criticalPackages = @('discord', 'flask', 'flask_socketio', 'mysql')
     $missingPackages = @()
     
     foreach($package in $criticalPackages){
