@@ -5035,7 +5035,7 @@ class AdminAIGroup(app_commands.Group):
                 inline=False
             )
             
-            # Send initial status message
+            # Send initial status message (wait=True to get message object for later editing)
             message = await interaction.followup.send(embed=embed, wait=True)
             
             # Run the actual test
