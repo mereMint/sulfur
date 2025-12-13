@@ -14,7 +14,8 @@ OPENAI_API_BASE_URL = "https://api.openai.com/v1/chat/completions"
 async def _call_gemini_api(payload, model_name, api_key, timeout):
     """
     A centralized function to handle all calls to the Gemini API.
-    Returns: (response_text, error, usage_metadata)
+    Returns: (response_text, error, usage_metadata, is_quota_error)
+    where is_quota_error is True for 429 status codes (quota exhausted)
     """
     api_url = f"{GEMINI_API_BASE_URL}/{model_name}:generateContent?key={api_key}"
     
@@ -44,7 +45,7 @@ async def _call_gemini_api(payload, model_name, api_key, timeout):
                         
                         logger.info(f"[Gemini API] Success - got {len(response_text)} chars, tokens: {input_tokens} in / {output_tokens} out")
                         print(f"[Gemini API] Success - received {len(response_text)} character response, tokens: {input_tokens}/{output_tokens}")
-                        return response_text, None, (input_tokens, output_tokens)
+                        return response_text, None, (input_tokens, output_tokens), False
                     else:
                         # This happens if the response was blocked for safety or other reasons.
                         error_reason = data.get('promptFeedback', {}).get('blockReason', 'UNKNOWN')
@@ -54,26 +55,32 @@ async def _call_gemini_api(payload, model_name, api_key, timeout):
                         logger.debug(f"[Gemini API] Full API response: {data}")
                         print(f"[Gemini API] Error: No content in response. Finish Reason: {error_reason}")
                         print(f"[Gemini API] Full API response: {data}")
-                        return None, f"Meine Antwort wurde blockiert (Grund: {error_reason}). Versuchs mal anders zu formulieren.", (0, 0)
+                        return None, f"Meine Antwort wurde blockiert (Grund: {error_reason}). Versuchs mal anders zu formulieren.", (0, 0), False
                 else:
                     # --- NEW: Add specific diagnostic for 404 errors ---
                     if response.status == 404:
                         error_text = await response.text()
                         logger.error(f"[Gemini API] 404 Error: {error_text}")
                         print(f"[Gemini API] Error (Status 404): {error_text}")
-                        return None, f"Modell '{model_name}' nicht gefunden (404). **Überprüfe, ob die 'Generative Language API' in deinem Google Cloud Projekt aktiviert ist und dein API-Schlüssel die Berechtigung dafür hat.**", (0, 0)
+                        return None, f"Modell '{model_name}' nicht gefunden (404). **Überprüfe, ob die 'Generative Language API' in deinem Google Cloud Projekt aktiviert ist und dein API-Schlüssel die Berechtigung dafür hat.**", (0, 0), False
+                    # --- NEW: Detect 429 errors (quota exhausted) for fallback ---
+                    elif response.status == 429:
+                        error_text = await response.text()
+                        logger.error(f"[Gemini API] HTTP 429 (Quota Exhausted): {error_text}")
+                        print(f"[Gemini API] Quota exhausted (Status 429): {error_text}")
+                        return None, f"Gemini API-Quota erschöpft (Status: 429). Versuche es später erneut oder verwende einen anderen Provider.", (0, 0), True
                     error_text = await response.text()
                     logger.error(f"[Gemini API] HTTP {response.status}: {error_text}")
                     print(f"[Gemini API] Error (Status {response.status}): {error_text}")
-                    return None, f"Ich habe einen Fehler vom Server erhalten (Status: {response.status}). Wahrscheinlich ist die API down oder dein Key ist ungültig.", (0, 0)
+                    return None, f"Ich habe einen Fehler vom Server erhalten (Status: {response.status}). Wahrscheinlich ist die API down oder dein Key ist ungültig.", (0, 0), False
     except aiohttp.ClientError as e:
         logger.error(f"[Gemini API] Network error: {e}", exc_info=True)
         print(f"[Gemini API] Network error: {e}")
-        return None, f"Netzwerkfehler beim Erreichen der Gemini API: {str(e)}", (0, 0)
+        return None, f"Netzwerkfehler beim Erreichen der Gemini API: {str(e)}", (0, 0), False
     except Exception as e:
         logger.error(f"[Gemini API] Exception: {e}", exc_info=True)
         print(f"[Gemini API] An exception occurred while calling Gemini API: {e}")
-        return None, "Ich konnte die AI nicht erreichen. Überprüfe die Internetverbindung oder die API-Keys.", (0, 0)
+        return None, "Ich konnte die AI nicht erreichen. Überprüfe die Internetverbindung oder die API-Keys.", (0, 0), False
 
 async def get_chat_response(history, user_prompt, user_display_name, system_prompt, config, gemini_key, openai_key):
     """
@@ -144,7 +151,27 @@ async def get_chat_response(history, user_prompt, user_display_name, system_prom
         
         logger.debug(f"[Chat API] Calling Gemini API with payload size: {len(str(payload))} chars")
         print(f"[Chat API] Sending request to Gemini API...")
-        response_text, error, usage_data = await _call_gemini_api(payload, model, gemini_key, timeout)
+        response_text, error, usage_data, is_quota_error = await _call_gemini_api(payload, model, gemini_key, timeout)
+        
+        # --- NEW: Check for quota error and fallback to OpenAI if available ---
+        if is_quota_error and openai_key:
+            logger.warning(f"[Chat API] Gemini quota exhausted (429), attempting fallback to OpenAI")
+            print(f"[Chat API] Gemini quota exhausted, falling back to OpenAI...")
+            # Recursively call with OpenAI provider
+            temp_config = config.copy()
+            temp_config['api'] = config['api'].copy()
+            temp_config['api']['provider'] = 'openai'
+            response_text, fallback_error, final_history_for_api = await get_chat_response(
+                history, user_prompt, user_display_name, system_prompt, temp_config, gemini_key, openai_key
+            )
+            if response_text:
+                # Add a note that we used fallback
+                logger.info(f"[Chat API] Successfully fell back to OpenAI after Gemini quota exhaustion")
+                print(f"[Chat API] Fallback to OpenAI successful")
+                return response_text, None, final_history_for_api
+            else:
+                logger.error(f"[Chat API] Fallback to OpenAI also failed: {fallback_error}")
+                return None, f"Beide APIs sind nicht verfügbar. Gemini: Quota erschöpft. OpenAI: {fallback_error}", final_history_for_api
         
         # Log API usage to database
         input_tokens, output_tokens = usage_data
@@ -209,6 +236,31 @@ async def get_chat_response(history, user_prompt, user_display_name, system_prom
                         # --- FIX: Return the updated history ---
                         final_history_for_api.append({"role": "model", "parts": [{"text": response_text}]})
                         return response_text, None, final_history_for_api
+                    elif response.status == 429:
+                        # --- NEW: Handle OpenAI quota exhaustion and fallback to Gemini ---
+                        error_text = await response.text()
+                        logger.error(f"[OpenAI API] HTTP 429 (Quota Exhausted): {error_text}")
+                        print(f"[OpenAI API] Quota exhausted (Status 429): {error_text}")
+                        
+                        if gemini_key:
+                            logger.warning(f"[Chat API] OpenAI quota exhausted (429), attempting fallback to Gemini")
+                            print(f"[Chat API] OpenAI quota exhausted, falling back to Gemini...")
+                            # Recursively call with Gemini provider
+                            temp_config = config.copy()
+                            temp_config['api'] = config['api'].copy()
+                            temp_config['api']['provider'] = 'gemini'
+                            response_text, fallback_error, final_history_for_api = await get_chat_response(
+                                history, user_prompt, user_display_name, system_prompt, temp_config, gemini_key, openai_key
+                            )
+                            if response_text:
+                                logger.info(f"[Chat API] Successfully fell back to Gemini after OpenAI quota exhaustion")
+                                print(f"[Chat API] Fallback to Gemini successful")
+                                return response_text, None, final_history_for_api
+                            else:
+                                logger.error(f"[Chat API] Fallback to Gemini also failed: {fallback_error}")
+                                return None, f"Beide APIs sind nicht verfügbar. OpenAI: Quota erschöpft. Gemini: {fallback_error}", final_history_for_api
+                        else:
+                            return None, f"OpenAI API-Quota erschöpft (Status: 429). Versuche es später erneut oder verwende einen anderen Provider.", final_history_for_api
                     else:
                         error_text = await response.text()
                         print(f"OpenAI API Error (Status {response.status}): {error_text}")
@@ -262,7 +314,37 @@ async def get_relationship_summary_from_api(history, user_display_name, old_summ
             "generationConfig": generation_config,
             "safetySettings": safety_settings
         }
-        summary, error, usage_data = await _call_gemini_api(payload, model, gemini_key, timeout)
+        summary, error, usage_data, is_quota_error = await _call_gemini_api(payload, model, gemini_key, timeout)
+        
+        # --- NEW: Handle quota exhaustion with fallback to OpenAI ---
+        if is_quota_error and openai_key:
+            logger.warning(f"[Relationship Summary] Gemini quota exhausted, falling back to OpenAI")
+            fallback_model = config.get('api', {}).get('openai', {}).get('utility_model', 'gpt-4o-mini')
+            fallback_temperature = config.get('api', {}).get('openai', {}).get('utility_temperature', 0.7)
+            fallback_max_tokens = config.get('api', {}).get('openai', {}).get('utility_max_tokens', 150)
+            headers = {"Authorization": f"Bearer {openai_key}"}
+            messages = [{"role": "user", "content": prompt}]
+            payload_openai = {
+                "model": fallback_model, "messages": messages, 
+                "temperature": fallback_temperature, "max_tokens": fallback_max_tokens
+            }
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(OPENAI_API_BASE_URL, json=payload_openai, headers=headers, timeout=timeout) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            summary = data['choices'][0]['message']['content'].strip()
+                            usage_data_fallback = data.get('usage', {})
+                            input_tokens = usage_data_fallback.get('prompt_tokens', 0)
+                            output_tokens = usage_data_fallback.get('completion_tokens', 0)
+                            if input_tokens > 0 or output_tokens > 0:
+                                from modules.db_helpers import log_api_usage
+                                await log_api_usage(fallback_model, input_tokens, output_tokens)
+                            error = None
+                        else:
+                            error = f"Fallback API Error {response.status}"
+            except Exception as e:
+                error = str(e)
         
         # Log API usage
         input_tokens, output_tokens = usage_data
@@ -339,7 +421,31 @@ async def get_werwolf_tts_message(event_text, config, gemini_key, openai_key):
             "generationConfig": generation_config,
             "safetySettings": safety_settings
         }
-        tts_text, _, usage_data = await _call_gemini_api(payload, model, gemini_key, timeout)
+        tts_text, _, usage_data, is_quota_error = await _call_gemini_api(payload, model, gemini_key, timeout)
+        
+        # --- NEW: Handle quota exhaustion with fallback to OpenAI ---
+        if is_quota_error and openai_key:
+            logger.warning(f"[Werwolf TTS] Gemini quota exhausted, falling back to OpenAI")
+            fallback_model = config.get('api', {}).get('openai', {}).get('utility_model', 'gpt-4o-mini')
+            fallback_temperature = config.get('api', {}).get('openai', {}).get('utility_temperature', 0.7)
+            fallback_max_tokens = config.get('api', {}).get('openai', {}).get('utility_max_tokens', 50)
+            headers = {"Authorization": f"Bearer {openai_key}"}
+            messages = [{"role": "user", "content": prompt}]
+            payload_openai = {"model": fallback_model, "messages": messages, "temperature": fallback_temperature, "max_tokens": fallback_max_tokens}
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(OPENAI_API_BASE_URL, json=payload_openai, headers=headers, timeout=timeout) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            tts_text = data['choices'][0]['message']['content'].strip().replace("*", "")
+                            usage_data_fallback = data.get('usage', {})
+                            input_tokens = usage_data_fallback.get('prompt_tokens', 0)
+                            output_tokens = usage_data_fallback.get('completion_tokens', 0)
+                            if input_tokens > 0 or output_tokens > 0:
+                                from modules.db_helpers import log_api_usage
+                                await log_api_usage(fallback_model, input_tokens, output_tokens)
+            except Exception as e:
+                print(f"Fallback to OpenAI failed for TTS: {e}")
         
         # Log API usage
         input_tokens, output_tokens = usage_data
@@ -406,7 +512,31 @@ async def get_random_names(count, db_helpers, config, gemini_key, openai_key):
                 "generationConfig": generation_config,
                 "safetySettings": safety_settings
             }
-            new_names_text, error, usage_data = await _call_gemini_api(payload, model, gemini_key, timeout)
+            new_names_text, error, usage_data, is_quota_error = await _call_gemini_api(payload, model, gemini_key, timeout)
+            
+            # --- NEW: Handle quota exhaustion with fallback to OpenAI ---
+            if is_quota_error and openai_key:
+                logger.warning(f"[Random Names] Gemini quota exhausted, falling back to OpenAI")
+                fallback_model = config.get('api', {}).get('openai', {}).get('utility_model', 'gpt-4o-mini')
+                fallback_temperature = config.get('api', {}).get('openai', {}).get('utility_temperature', 1.0)
+                fallback_max_tokens = config.get('api', {}).get('openai', {}).get('utility_max_tokens', 200)
+                headers = {"Authorization": f"Bearer {openai_key}"}
+                messages = [{"role": "user", "content": prompt}]
+                payload_openai = {"model": fallback_model, "messages": messages, "temperature": fallback_temperature, "max_tokens": fallback_max_tokens}
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(OPENAI_API_BASE_URL, json=payload_openai, headers=headers, timeout=timeout) as response:
+                            if response.status == 200:
+                                data = await response.json()
+                                new_names_text = data['choices'][0]['message']['content']
+                                usage_data_fallback = data.get('usage', {})
+                                input_tokens = usage_data_fallback.get('prompt_tokens', 0)
+                                output_tokens = usage_data_fallback.get('completion_tokens', 0)
+                                if input_tokens > 0 or output_tokens > 0:
+                                    from modules.db_helpers import log_api_usage
+                                    await log_api_usage(fallback_model, input_tokens, output_tokens)
+                except Exception as e:
+                    print(f"  [WW] Fallback to OpenAI failed: {e}")
             
             # Log API usage
             input_tokens, output_tokens = usage_data
@@ -498,7 +628,34 @@ async def get_wrapped_summary_from_api(user_display_name, stats, config, gemini_
             "generationConfig": generation_config,
             "safetySettings": safety_settings
         }
-        summary, error, usage_data = await _call_gemini_api(payload, model, gemini_key, timeout)
+        summary, error, usage_data, is_quota_error = await _call_gemini_api(payload, model, gemini_key, timeout)
+        
+        # --- NEW: Handle quota exhaustion with fallback to OpenAI ---
+        if is_quota_error and openai_key:
+            logger.warning(f"[Wrapped Summary] Gemini quota exhausted, falling back to OpenAI")
+            fallback_model = config.get('api', {}).get('openai', {}).get('utility_model', 'gpt-4o-mini')
+            fallback_temperature = config.get('api', {}).get('openai', {}).get('utility_temperature', 0.8)
+            fallback_max_tokens = config.get('api', {}).get('openai', {}).get('utility_max_tokens', 100)
+            headers = {"Authorization": f"Bearer {openai_key}"}
+            messages = [{"role": "user", "content": prompt}]
+            payload_openai = {"model": fallback_model, "messages": messages, "temperature": fallback_temperature, "max_tokens": fallback_max_tokens}
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(OPENAI_API_BASE_URL, json=payload_openai, headers=headers, timeout=timeout) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            summary = data['choices'][0]['message']['content'].strip()
+                            usage_data_fallback = data.get('usage', {})
+                            input_tokens = usage_data_fallback.get('prompt_tokens', 0)
+                            output_tokens = usage_data_fallback.get('completion_tokens', 0)
+                            if input_tokens > 0 or output_tokens > 0:
+                                from modules.db_helpers import log_api_usage
+                                await log_api_usage(fallback_model, input_tokens, output_tokens)
+                            error = None
+                        else:
+                            error = f"Fallback API Error {response.status}"
+            except Exception as e:
+                error = str(e)
         
         # Log API usage
         input_tokens, output_tokens = usage_data
@@ -573,7 +730,32 @@ async def get_game_details_from_api(game_names: list, config: dict, gemini_key: 
                 "generationConfig": generation_config,
                 "safetySettings": safety_settings
             }
-            response_text, error, usage_data = await _call_gemini_api(payload, model, gemini_key, timeout)
+            response_text, error, usage_data, is_quota_error = await _call_gemini_api(payload, model, gemini_key, timeout)
+            
+            # --- NEW: Handle quota exhaustion with fallback to OpenAI ---
+            if is_quota_error and openai_key:
+                logger.warning(f"[Game Details] Gemini quota exhausted, falling back to OpenAI")
+                fallback_model = config.get('api', {}).get('openai', {}).get('utility_model', 'gpt-4o-mini')
+                headers = {"Authorization": f"Bearer {openai_key}"}
+                messages = [{"role": "system", "content": "You are a helpful assistant that returns JSON."}, {"role": "user", "content": prompt}]
+                payload_openai = {"model": fallback_model, "messages": messages, "response_format": {"type": "json_object"}}
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.post(OPENAI_API_BASE_URL, json=payload_openai, headers=headers, timeout=timeout) as response:
+                            if response.status == 200:
+                                data = await response.json()
+                                response_text = data['choices'][0]['message']['content']
+                                usage_data_fallback = data.get('usage', {})
+                                input_tokens = usage_data_fallback.get('prompt_tokens', 0)
+                                output_tokens = usage_data_fallback.get('completion_tokens', 0)
+                                if input_tokens > 0 or output_tokens > 0:
+                                    from modules.db_helpers import log_api_usage
+                                    await log_api_usage(fallback_model, input_tokens, output_tokens)
+                                error = None
+                            else:
+                                error = f"Fallback API Error {response.status}"
+                except Exception as e:
+                    error = str(e)
             
             # Log API usage
             input_tokens, output_tokens = usage_data
@@ -675,7 +857,46 @@ async def get_vision_analysis(image_url, prompt, config, gemini_key, openai_key)
             }
         }
         
-        response_text, error, usage_data = await _call_gemini_api(payload, vision_model, gemini_key, timeout)
+        response_text, error, usage_data, is_quota_error = await _call_gemini_api(payload, vision_model, gemini_key, timeout)
+        
+        # --- NEW: Handle quota exhaustion with fallback to OpenAI ---
+        if is_quota_error and openai_key:
+            logger.warning(f"[Vision Analysis] Gemini quota exhausted, falling back to OpenAI")
+            fallback_vision_model = config.get('api', {}).get('openai', {}).get('vision_model', 'gpt-4o')
+            payload_openai = {
+                "model": fallback_vision_model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": image_url}
+                            }
+                        ]
+                    }
+                ],
+                "max_tokens": 1024
+            }
+            try:
+                async with aiohttp.ClientSession() as session:
+                    headers = {"Authorization": f"Bearer {openai_key}", "Content-Type": "application/json"}
+                    async with session.post(OPENAI_API_BASE_URL, json=payload_openai, headers=headers, timeout=timeout) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            response_text = data['choices'][0]['message']['content']
+                            usage_data_fallback = data.get('usage', {})
+                            input_tokens = usage_data_fallback.get('prompt_tokens', 0)
+                            output_tokens = usage_data_fallback.get('completion_tokens', 0)
+                            if input_tokens > 0 or output_tokens > 0:
+                                from modules.db_helpers import log_api_usage
+                                await log_api_usage(fallback_vision_model, input_tokens, output_tokens)
+                            error = None
+                        else:
+                            error = f"Fallback Vision API Error: {response.status}"
+            except Exception as e:
+                error = str(e)
         
         # Log API usage
         input_tokens, output_tokens = usage_data
@@ -776,7 +997,41 @@ async def get_ai_response_with_model(prompt, model_name, config, gemini_key, ope
                 "parts": [{"text": system_prompt}]
             }
         
-        response_text, error, usage_data = await _call_gemini_api(payload, model_name, gemini_key, timeout)
+        response_text, error, usage_data, is_quota_error = await _call_gemini_api(payload, model_name, gemini_key, timeout)
+        
+        # --- NEW: Handle quota exhaustion with fallback to OpenAI ---
+        if is_quota_error and openai_key:
+            logger.warning(f"[AI Response] Gemini model {model_name} quota exhausted, falling back to OpenAI gpt-4o-mini")
+            # Fallback to a reasonable OpenAI model
+            fallback_model = 'gpt-4o-mini'
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
+            payload_openai = {
+                "model": fallback_model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": 8192
+            }
+            try:
+                async with aiohttp.ClientSession() as session:
+                    headers = {"Authorization": f"Bearer {openai_key}", "Content-Type": "application/json"}
+                    async with session.post(OPENAI_API_BASE_URL, json=payload_openai, headers=headers, timeout=timeout) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            response_text = data['choices'][0]['message']['content']
+                            usage_data_fallback = data.get('usage', {})
+                            input_tokens = usage_data_fallback.get('prompt_tokens', 0)
+                            output_tokens = usage_data_fallback.get('completion_tokens', 0)
+                            if input_tokens > 0 or output_tokens > 0:
+                                from modules.db_helpers import log_api_usage
+                                await log_api_usage(fallback_model, input_tokens, output_tokens)
+                            error = None
+                        else:
+                            error = f"Fallback API Error: {response.status}"
+            except Exception as e:
+                error = str(e)
         
         # Log API usage
         input_tokens, output_tokens = usage_data
