@@ -15721,6 +15721,239 @@ async def music(interaction: discord.Interaction):
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
+@tree.command(name="musicadd", description="➕ Füge einen Song zur Warteschlange hinzu")
+@app_commands.describe(song_query="Song-Name oder YouTube-URL")
+async def music_add(interaction: discord.Interaction, song_query: str):
+    """Add a custom song to the queue."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        # Check if user is in voice channel
+        if not interaction.user.voice or not interaction.user.voice.channel:
+            embed = discord.Embed(
+                title="❌ Nicht in Voice-Channel",
+                description="Du musst in einem Voice-Channel sein!",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        voice_channel = interaction.user.voice.channel
+        guild_id = interaction.guild.id
+        
+        # Get or create voice client
+        voice_client = interaction.guild.voice_client
+        if not voice_client or not voice_client.is_connected():
+            voice_client = await lofi_player.join_voice_channel(voice_channel)
+            if not voice_client:
+                embed = discord.Embed(
+                    title="❌ Verbindungsfehler",
+                    description="Konnte dem Voice-Channel nicht beitreten!",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+        
+        # Parse song query
+        song = {}
+        if song_query.startswith('http'):
+            # It's a URL
+            song['url'] = song_query
+        else:
+            # It's a search query - try to parse as "artist - title" or just search
+            if ' - ' in song_query:
+                parts = song_query.split(' - ', 1)
+                song['artist'] = parts[0].strip()
+                song['title'] = parts[1].strip()
+            else:
+                # Search YouTube directly
+                song['url'] = f"ytsearch:{song_query}"
+        
+        # If no active queue, start playing this song
+        if guild_id not in lofi_player.active_sessions or not lofi_player.active_sessions[guild_id].get('queue'):
+            success = await lofi_player.play_song_with_queue(
+                voice_client, 
+                song, 
+                guild_id, 
+                volume=1.0,
+                user_id=interaction.user.id
+            )
+            
+            if success:
+                embed = discord.Embed(
+                    title="▶️ Jetzt läuft",
+                    description=f"Song wird abgespielt...",
+                    color=discord.Color.green()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+            else:
+                embed = discord.Embed(
+                    title="❌ Fehler",
+                    description="Song konnte nicht abgespielt werden!",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+        else:
+            # Add to existing queue
+            lofi_player.active_sessions[guild_id]['queue'].append(song)
+            queue_pos = len(lofi_player.active_sessions[guild_id]['queue'])
+            
+            embed = discord.Embed(
+                title="✅ Zur Warteschlange hinzugefügt",
+                description=f"**Position in Queue:** {queue_pos}",
+                color=discord.Color.green()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            
+    except Exception as e:
+        logger.error(f"Error in musicadd command: {e}", exc_info=True)
+        embed = discord.Embed(
+            title="❌ Fehler",
+            description=f"Es ist ein Fehler aufgetreten: {str(e)}",
+            color=discord.Color.red()
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+@tree.command(name="musicskip", description="⏭️ Überspringe den aktuellen Song")
+async def music_skip(interaction: discord.Interaction):
+    """Skip the current song in the queue."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        guild_id = interaction.guild.id
+        voice_client = interaction.guild.voice_client
+        
+        if not voice_client or not voice_client.is_connected():
+            embed = discord.Embed(
+                title="❌ Nicht verbunden",
+                description="Der Bot spielt gerade keine Musik!",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        if not voice_client.is_playing():
+            embed = discord.Embed(
+                title="❌ Keine Wiedergabe",
+                description="Es läuft gerade keine Musik!",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        # Stop current song (this will trigger the after_callback to play next)
+        voice_client.stop()
+        
+        embed = discord.Embed(
+            title="⏭️ Song übersprungen",
+            description="Nächster Song wird geladen...",
+            color=discord.Color.blue()
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error in musicskip command: {e}", exc_info=True)
+        embed = discord.Embed(
+            title="❌ Fehler",
+            description=f"Es ist ein Fehler aufgetreten: {str(e)}",
+            color=discord.Color.red()
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+@tree.command(name="musiccurrent", description="🎵 Zeige den aktuellen Song")
+async def music_current(interaction: discord.Interaction):
+    """Show the currently playing song."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        guild_id = interaction.guild.id
+        voice_client = interaction.guild.voice_client
+        
+        if not voice_client or not voice_client.is_connected():
+            embed = discord.Embed(
+                title="❌ Nicht verbunden",
+                description="Der Bot spielt gerade keine Musik!",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        if not voice_client.is_playing():
+            embed = discord.Embed(
+                title="❌ Keine Wiedergabe",
+                description="Es läuft gerade keine Musik!",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        # Get current song from active sessions
+        if guild_id in lofi_player.active_sessions and 'current_song' in lofi_player.active_sessions[guild_id]:
+            current_song = lofi_player.active_sessions[guild_id]['current_song']
+            queue = lofi_player.active_sessions[guild_id].get('queue', [])
+            
+            # Get user's custom embed color
+            embed_color = await get_user_embed_color(interaction.user.id, config)
+            
+            embed = discord.Embed(
+                title="🎵 Jetzt läuft",
+                color=embed_color
+            )
+            
+            # Add current song info
+            song_title = current_song.get('title', 'Unbekannt')
+            song_artist = current_song.get('artist', 'Unbekannt')
+            song_url = current_song.get('url', '')
+            
+            if song_url:
+                embed.add_field(
+                    name="🎧 Song",
+                    value=f"**{song_title}**\nby {song_artist}\n[Link]({song_url})",
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="🎧 Song",
+                    value=f"**{song_title}**\nby {song_artist}",
+                    inline=False
+                )
+            
+            # Add queue info
+            embed.add_field(
+                name="📋 In der Warteschlange",
+                value=f"**{len(queue)}** Songs",
+                inline=True
+            )
+            
+            # Add voice channel info
+            if voice_client.channel:
+                embed.add_field(
+                    name="📍 Voice Channel",
+                    value=f"**{voice_client.channel.name}**",
+                    inline=True
+                )
+            
+            embed.set_thumbnail(url=interaction.user.display_avatar.url)
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        else:
+            embed = discord.Embed(
+                title="ℹ️ Keine Song-Info",
+                description="Es konnte keine Information über den aktuellen Song gefunden werden.",
+                color=discord.Color.blue()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error in musiccurrent command: {e}", exc_info=True)
+        embed = discord.Embed(
+            title="❌ Fehler",
+            description=f"Es ist ein Fehler aufgetreten: {str(e)}",
+            color=discord.Color.red()
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
 
 @tree.command(name="rr", description="Spiele Russian Roulette!")
 @app_commands.describe(bet="Einsatz (optional, Standard: 100)")
