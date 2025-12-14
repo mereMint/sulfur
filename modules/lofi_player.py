@@ -67,8 +67,11 @@ MUSIC_STATIONS = {
 }
 
 # Active playback sessions per guild
-# Format: {guild_id: {'voice_client': VoiceClient, 'stations': [station_configs], 'auto_disconnect_task': Task}}
+# Format: {guild_id: {'voice_client': VoiceClient, 'stations': [station_configs], 'auto_disconnect_task': Task, 'queue': list, 'failure_count': int}}
 active_sessions: Dict[int, dict] = {}
+
+# Maximum consecutive failures before stopping queue
+MAX_QUEUE_FAILURES = 3
 
 # FFmpeg options for streaming
 FFMPEG_OPTIONS = {
@@ -710,12 +713,16 @@ async def search_youtube_song(song_title: str, artist: str) -> Optional[str]:
     """
     try:
         import yt_dlp
-        import re
+        from urllib.parse import quote
         
-        # Sanitize inputs to prevent injection attacks
-        # Remove special characters that could break yt-dlp search
-        safe_artist = re.sub(r'[^\w\s-]', '', artist)
-        safe_title = re.sub(r'[^\w\s-]', '', song_title)
+        # Use URL encoding instead of regex to preserve more characters
+        # This handles special characters safely while keeping apostrophes, etc.
+        safe_artist = artist.strip()
+        safe_title = song_title.strip()
+        
+        # Limit length to prevent extremely long queries
+        safe_artist = safe_artist[:100]
+        safe_title = safe_title[:100]
         
         search_query = f"{safe_artist} {safe_title}"
         search_url = f"ytsearch1:{search_query}"  # ytsearch1 returns only first result
@@ -854,6 +861,7 @@ async def play_song_with_queue(
         active_sessions[guild_id]['queue'] = related_songs
         active_sessions[guild_id]['current_song'] = song
         active_sessions[guild_id]['volume'] = volume
+        active_sessions[guild_id]['failure_count'] = 0  # Reset failure count on success
         
         # Create audio source with volume control
         volume_filter = f'volume={volume}'
@@ -909,6 +917,12 @@ async def play_next_in_queue(voice_client: discord.VoiceClient, guild_id: int) -
             logger.info("No queue found, stopping playback")
             return False
         
+        # Check failure count to prevent infinite recursion
+        failure_count = active_sessions[guild_id].get('failure_count', 0)
+        if failure_count >= MAX_QUEUE_FAILURES:
+            logger.warning(f"Reached maximum failures ({MAX_QUEUE_FAILURES}), stopping queue")
+            return False
+        
         queue = active_sessions[guild_id]['queue']
         volume = active_sessions[guild_id].get('volume', 1.0)
         
@@ -928,7 +942,13 @@ async def play_next_in_queue(voice_client: discord.VoiceClient, guild_id: int) -
         success = await play_song_with_queue(voice_client, next_song, guild_id, volume)
         
         if not success:
-            logger.warning(f"Failed to play next song, stopping queue")
+            logger.warning(f"Failed to play next song, incrementing failure count")
+            # Increment failure count and try next song
+            active_sessions[guild_id]['failure_count'] = failure_count + 1
+            
+            # If there are more songs in queue, try the next one
+            if queue:
+                return await play_next_in_queue(voice_client, guild_id)
             return False
         
         return True
