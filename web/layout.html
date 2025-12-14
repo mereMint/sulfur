@@ -1008,7 +1008,14 @@
             
             // Remove existing modal if present
             const existingModal = document.getElementById('shortcutsModal');
-            if (existingModal) existingModal.remove();
+            if (existingModal) {
+                // Properly dispose of Bootstrap modal instance before removing
+                const modalInstance = bootstrap.Modal.getInstance(existingModal);
+                if (modalInstance) {
+                    modalInstance.dispose();
+                }
+                existingModal.remove();
+            }
             
             // Add and show new modal
             document.body.insertAdjacentHTML('beforeend', shortcuts);
