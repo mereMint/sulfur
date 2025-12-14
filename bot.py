@@ -15596,6 +15596,10 @@ class MusicStationSelect(discord.ui.Select):
                 )
                 
                 if success:
+                    # Get current song and queue preview
+                    current_song = lofi_player.get_current_song(interaction.guild.id)
+                    queue_preview = lofi_player.get_queue_preview(interaction.guild.id, count=3)
+                    
                     embed = discord.Embed(
                         title="🎧 Spotify Mix gestartet!",
                         description="## Deine personalisierte Playlist\n*Basierend auf deiner Hörhistorie*",
@@ -15616,6 +15620,31 @@ class MusicStationSelect(discord.ui.Select):
                         value=f"**{interaction.user.display_name}**",
                         inline=True
                     )
+                    
+                    # Show currently playing song
+                    if current_song:
+                        current_title = current_song.get('title', 'Unknown')
+                        current_artist = current_song.get('artist', 'Unknown')
+                        embed.add_field(
+                            name="🎵 Spielt gerade",
+                            value=f"**{current_title}**\n*{current_artist}*",
+                            inline=False
+                        )
+                    
+                    # Show next 3 songs in queue
+                    if queue_preview:
+                        queue_text = ""
+                        for i, song in enumerate(queue_preview, 1):
+                            song_title = song.get('title', 'Unknown')
+                            song_artist = song.get('artist', 'Unknown')
+                            queue_text += f"**{i}.** {song_title}\n   *{song_artist}*\n"
+                        
+                        embed.add_field(
+                            name="⏭️ Als Nächstes",
+                            value=queue_text.strip(),
+                            inline=False
+                        )
+                    
                     embed.set_thumbnail(url=interaction.user.display_avatar.url)
                     await interaction.followup.send(embed=embed, ephemeral=True)
                 else:
