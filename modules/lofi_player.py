@@ -1880,13 +1880,14 @@ async def start_spotify_queue(
                 if not is_duplicate(song, seen_songs):
                     history_queue.append(song.copy())
             
-            # If we need more songs, repeat the cycle
-            while len(history_queue) < target_history:
-                for song in history_pool:
-                    if len(history_queue) >= target_history:
-                        break
-                    # Allow duplicates after first pass but space them out
-                    history_queue.append(song.copy())
+            # If we need more songs, repeat the cycle (with safety check)
+            if len(history_pool) > 0:
+                while len(history_queue) < target_history:
+                    for song in history_pool:
+                        if len(history_queue) >= target_history:
+                            break
+                        # Allow duplicates after first pass but space them out
+                        history_queue.append(song.copy())
             
             # Prepare AI queue with duplicate checking
             ai_queue = []
@@ -1964,7 +1965,6 @@ async def track_listening_time(voice_client: discord.VoiceClient, guild_id: int,
         conn = None
         cursor = None
         try:
-            from modules.db_helpers import get_db_connection
             conn = get_db_connection()
             if conn:
                 cursor = conn.cursor()
