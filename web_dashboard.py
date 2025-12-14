@@ -2670,6 +2670,78 @@ def game_leaderboard(game_type):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/games/word_of_day', methods=['GET'])
+def api_word_of_day():
+    """API endpoint to get today's Wordle and Wordfind words."""
+    try:
+        from modules import wordle, word_find
+        from datetime import datetime, timezone
+        
+        result = {
+            'wordle': {
+                'de': None,
+                'en': None
+            },
+            'wordfind': {
+                'de': None,
+                'en': None
+            },
+            'date': datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        }
+        
+        # Get Wordle words of the day
+        async def get_wordle_words():
+            de_word = await wordle.get_or_create_daily_word(db_helpers, 'de')
+            en_word = await wordle.get_or_create_daily_word(db_helpers, 'en')
+            return de_word, en_word
+        
+        async def get_wordfind_words():
+            de_word = await word_find.get_or_create_daily_word(db_helpers, 'de')
+            en_word = await word_find.get_or_create_daily_word(db_helpers, 'en')
+            return de_word, en_word
+        
+        # Run async functions
+        try:
+            wordle_de, wordle_en = run_async(get_wordle_words())
+            if wordle_de:
+                result['wordle']['de'] = {
+                    'word': wordle_de.get('word', '?????'),
+                    'language': 'German'
+                }
+            if wordle_en:
+                result['wordle']['en'] = {
+                    'word': wordle_en.get('word', '?????'),
+                    'language': 'English'
+                }
+        except Exception as e:
+            logger.warning(f"Error getting Wordle words: {e}")
+        
+        try:
+            wordfind_de, wordfind_en = run_async(get_wordfind_words())
+            if wordfind_de:
+                result['wordfind']['de'] = {
+                    'word': wordfind_de.get('word', '???'),
+                    'difficulty': wordfind_de.get('difficulty', 'medium'),
+                    'theme': wordfind_de.get('theme_name', ''),
+                    'language': 'German'
+                }
+            if wordfind_en:
+                result['wordfind']['en'] = {
+                    'word': wordfind_en.get('word', '???'),
+                    'difficulty': wordfind_en.get('difficulty', 'medium'),
+                    'theme': wordfind_en.get('theme_name', ''),
+                    'language': 'English'
+                }
+        except Exception as e:
+            logger.warning(f"Error getting Wordfind words: {e}")
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error getting word of day: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 # ========== System Health APIs ==========
 
 @app.route('/system', methods=['GET'])
@@ -3086,6 +3158,7 @@ def api_music_status():
     """API endpoint for current music playback status."""
     try:
         from modules import lofi_player
+        import time
         
         # Get active sessions from lofi_player
         active_sessions = lofi_player.active_sessions
@@ -3108,15 +3181,39 @@ def api_music_status():
             current_song = lofi_player.get_current_song(guild_id)
             if current_song:
                 voice_client = session.get('voice_client')
+                
+                # Calculate elapsed time since song started
+                elapsed_seconds = 0
+                if 'song_start_time' in session:
+                    try:
+                        event_loop = session.get('event_loop')
+                        if event_loop:
+                            elapsed_seconds = int(event_loop.time() - session['song_start_time'])
+                        else:
+                            # Fallback to wall clock time if we stored it as such
+                            elapsed_seconds = int(time.time() - session['song_start_time'])
+                    except Exception as e:
+                        logger.warning(f"Error calculating elapsed time: {e}")
+                        elapsed_seconds = 0
+                
+                # Get duration from song info or session
+                duration_seconds = current_song.get('duration', 0) or current_song.get('end_time', 0)
+                
+                # Count listeners (exclude bots)
+                listeners = 0
+                if voice_client and voice_client.channel:
+                    listeners = sum(1 for m in voice_client.channel.members if not m.bot)
+                
                 now_playing = {
-                    'guild_id': guild_id,  # Add guild_id
+                    'guild_id': guild_id,
                     'title': current_song.get('title', 'Unknown'),
                     'artist': current_song.get('artist', 'Unknown Artist'),
+                    'album': current_song.get('album', ''),
                     'guild_name': voice_client.guild.name if voice_client and voice_client.guild else 'Unknown',
                     'channel_name': voice_client.channel.name if voice_client and voice_client.channel else 'Unknown',
-                    'listeners': len(voice_client.channel.members) if voice_client and voice_client.channel else 0,
-                    'elapsed_seconds': 0,  # Would need tracking
-                    'duration_seconds': 0  # Would need from video info
+                    'listeners': listeners,
+                    'elapsed_seconds': max(0, elapsed_seconds),
+                    'duration_seconds': duration_seconds
                 }
             
             # Get queue
@@ -3154,7 +3251,7 @@ def api_music_status():
                 if conn:
                     conn.close()
         
-        # Get recent songs
+        # Get recent songs from bot music history
         recent_songs = []
         if db_helpers.db_pool:
             conn = None
@@ -3486,7 +3583,7 @@ def api_users_profiles():
 
 @app.route('/api/users/profile/<int:user_id>', methods=['GET'])
 def api_user_profile(user_id):
-    """API endpoint to get detailed user profile."""
+    """API endpoint to get detailed user profile with game stats, portfolio, and activity history."""
     try:
         if not db_helpers.db_pool:
             return jsonify({'error': 'Database not available'}), 500
@@ -3501,32 +3598,38 @@ def api_user_profile(user_id):
             cursor = conn.cursor(dictionary=True)
             
             # Get user info - use latest/max stats for the user
-            # Note: user_stats uses 'messages_sent' and 'voice_minutes' not 'message_count' and 'minutes_in_vc'
             user_info = safe_db_query(cursor, """
                 SELECT 
                     p.discord_id as user_id,
                     p.display_name,
+                    p.username,
                     0 as is_premium,
                     COALESCE(p.level, 0) as level,
                     COALESCE(p.xp, 0) as xp,
                     COALESCE(p.balance, 0) as coins,
-                    COALESCE(MAX(us.messages_sent), 0) as message_count,
-                    COALESCE(MAX(us.voice_minutes), 0) as vc_minutes
+                    p.last_seen
                 FROM players p
-                LEFT JOIN user_stats us ON p.discord_id = us.user_id
                 WHERE p.discord_id = %s
-                GROUP BY p.discord_id, p.display_name, p.level, p.xp, p.balance
             """, params=(user_id,))
             
             if not user_info:
                 return jsonify({'error': 'User not found'}), 404
             
+            # Get message and voice stats
+            stats_info = safe_db_query(cursor, """
+                SELECT 
+                    COALESCE(SUM(messages_sent), 0) as message_count,
+                    COALESCE(SUM(voice_minutes), 0) as vc_minutes
+                FROM user_stats
+                WHERE user_id = %s
+            """, params=(user_id,))
+            
             # Get favorite songs
             favorite_songs = safe_db_query(cursor, """
-                SELECT title, artist, COUNT(*) as play_count
+                SELECT song_title as title, song_artist as artist, COUNT(*) as play_count
                 FROM music_history
                 WHERE user_id = %s
-                GROUP BY title, artist
+                GROUP BY song_title, song_artist
                 ORDER BY play_count DESC
                 LIMIT 5
             """, params=(user_id,), fetch_all=True)
@@ -3538,17 +3641,138 @@ def api_user_profile(user_id):
                 WHERE user_id = %s
             """, params=(user_id,))
             
+            # Get total songs played
+            songs_played = safe_db_query(cursor, """
+                SELECT COUNT(*) as count
+                FROM music_history
+                WHERE user_id = %s
+            """, params=(user_id,))
+            
+            # Get game statistics
+            game_stats = {}
+            
+            # Detective stats
+            detective_stats = safe_db_query(cursor, """
+                SELECT cases_solved, total_cases_played, last_played_at
+                FROM detective_user_stats
+                WHERE user_id = %s
+            """, params=(user_id,))
+            if detective_stats:
+                game_stats['detective'] = {
+                    'cases_solved': detective_stats.get('cases_solved', 0),
+                    'total_cases': detective_stats.get('total_cases_played', 0),
+                    'last_played': str(detective_stats.get('last_played_at', '')) if detective_stats.get('last_played_at') else None
+                }
+            
+            # Wordle stats
+            wordle_stats = safe_db_query(cursor, """
+                SELECT 
+                    COUNT(*) as games_played,
+                    SUM(CASE WHEN won = TRUE THEN 1 ELSE 0 END) as games_won,
+                    AVG(CASE WHEN won = TRUE THEN attempts ELSE NULL END) as avg_attempts
+                FROM wordle_games
+                WHERE user_id = %s AND completed = TRUE
+            """, params=(user_id,))
+            if wordle_stats and wordle_stats.get('games_played', 0) > 0:
+                game_stats['wordle'] = {
+                    'games_played': int(wordle_stats.get('games_played', 0) or 0),
+                    'games_won': int(wordle_stats.get('games_won', 0) or 0),
+                    'avg_attempts': round(float(wordle_stats.get('avg_attempts', 0) or 0), 1)
+                }
+            
+            # Casino stats (combined)
+            casino_stats = {}
+            
+            blackjack = safe_db_query(cursor, """
+                SELECT 
+                    COUNT(*) as games,
+                    SUM(CASE WHEN result = 'win' THEN 1 ELSE 0 END) as wins,
+                    SUM(CASE WHEN result = 'win' THEN won_amount ELSE 0 END) as total_won
+                FROM blackjack_games
+                WHERE user_id = %s
+            """, params=(user_id,))
+            if blackjack and int(blackjack.get('games', 0) or 0) > 0:
+                casino_stats['blackjack'] = {
+                    'games': int(blackjack.get('games', 0) or 0),
+                    'wins': int(blackjack.get('wins', 0) or 0),
+                    'total_won': int(blackjack.get('total_won', 0) or 0)
+                }
+            
+            roulette = safe_db_query(cursor, """
+                SELECT 
+                    COUNT(*) as games,
+                    SUM(CASE WHEN won = TRUE THEN 1 ELSE 0 END) as wins,
+                    SUM(CASE WHEN won = TRUE THEN payout ELSE 0 END) as total_won
+                FROM roulette_games
+                WHERE user_id = %s
+            """, params=(user_id,))
+            if roulette and int(roulette.get('games', 0) or 0) > 0:
+                casino_stats['roulette'] = {
+                    'games': int(roulette.get('games', 0) or 0),
+                    'wins': int(roulette.get('wins', 0) or 0),
+                    'total_won': int(roulette.get('total_won', 0) or 0)
+                }
+            
+            if casino_stats:
+                game_stats['casino'] = casino_stats
+            
+            # Get portfolio value (if stocks feature is enabled)
+            portfolio_value = 0
+            portfolio_stocks = safe_db_query(cursor, """
+                SELECT 
+                    up.symbol, up.quantity, s.current_price
+                FROM user_portfolios up
+                JOIN stocks s ON up.symbol = s.symbol
+                WHERE up.user_id = %s
+            """, params=(user_id,), fetch_all=True)
+            if portfolio_stocks:
+                portfolio_value = sum(
+                    (stock.get('quantity', 0) or 0) * float(stock.get('current_price', 0) or 0)
+                    for stock in portfolio_stocks
+                )
+            
+            # Get recent activity (last 10 actions)
+            recent_activity = []
+            
+            # Recent transactions
+            transactions = safe_db_query(cursor, """
+                SELECT transaction_type, amount, description, created_at
+                FROM transaction_history
+                WHERE user_id = %s
+                ORDER BY created_at DESC
+                LIMIT 10
+            """, params=(user_id,), fetch_all=True)
+            if transactions:
+                for tx in transactions:
+                    recent_activity.append({
+                        'type': 'transaction',
+                        'details': f"{tx.get('transaction_type', 'Unknown')}: {tx.get('amount', 0)} coins",
+                        'timestamp': str(tx.get('created_at', ''))
+                    })
+            
+            # Get Spotify history (recent songs)
+            spotify_history = safe_db_query(cursor, """
+                SELECT song_title, song_artist, played_at
+                FROM spotify_history
+                WHERE user_id = %s
+                ORDER BY played_at DESC
+                LIMIT 10
+            """, params=(user_id,), fetch_all=True)
+            
             # Format response
             user_profile = {
                 'user_id': user_info.get('user_id'),
                 'display_name': user_info.get('display_name', 'Unknown'),
+                'username': user_info.get('username', ''),
                 'avatar_url': None,
                 'is_premium': bool(user_info.get('is_premium')),
                 'level': int(user_info.get('level', 0) or 0),
                 'xp': int(user_info.get('xp', 0) or 0),
                 'coins': int(user_info.get('coins', 0) or 0),
-                'message_count': int(user_info.get('message_count', 0) or 0),
-                'songs_played': len(favorite_songs) if favorite_songs else 0,
+                'last_seen': str(user_info.get('last_seen', '')) if user_info.get('last_seen') else None,
+                'message_count': int(stats_info.get('message_count', 0) or 0) if stats_info else 0,
+                'vc_minutes': int(stats_info.get('vc_minutes', 0) or 0) if stats_info else 0,
+                'songs_played': int(songs_played.get('count', 0) or 0) if songs_played else 0,
                 'listening_time_minutes': int(listening_time.get('total_minutes', 0) or 0) if listening_time else 0,
                 'favorite_songs': [
                     {
@@ -3557,6 +3781,17 @@ def api_user_profile(user_id):
                         'play_count': int(song.get('play_count', 0) or 0)
                     }
                     for song in (favorite_songs or [])
+                ],
+                'game_stats': game_stats,
+                'portfolio_value': round(portfolio_value, 2),
+                'recent_activity': recent_activity[:10],
+                'spotify_history': [
+                    {
+                        'title': song.get('song_title', 'Unknown'),
+                        'artist': song.get('song_artist', 'Unknown'),
+                        'played_at': str(song.get('played_at', ''))
+                    }
+                    for song in (spotify_history or [])
                 ]
             }
             
@@ -3569,7 +3804,7 @@ def api_user_profile(user_id):
                 conn.close()
         
     except Exception as e:
-        logger.error(f"Error getting user profile: {e}")
+        logger.error(f"Error getting user profile: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 
