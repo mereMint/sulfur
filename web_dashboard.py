@@ -839,22 +839,23 @@ def api_recent_activity():
                 """, params=(limit,), default=[], fetch_all=True)
                 activities.extend(blackjack_activity or [])
             
-            # Get recent user level ups and XP gains from user_stats
+            # Get recent user level ups and XP gains from players table (not user_stats)
             # Note: This query filters by level >= 5 to reduce load on large datasets
             # Consider adding index on (level, updated_at) for better performance
             if activity_type in ['all', 'leveling']:
                 level_activity = safe_db_query(cursor, """
                     SELECT 
                         'level_up' as activity_type,
-                        user_id,
+                        discord_id as user_id,
                         NULL as channel_id,
                         CONCAT('Reached Level ', level, ' with ', xp, ' XP') as preview,
-                        updated_at as activity_time,
+                        last_seen as activity_time,
                         'Leveling' as category
-                    FROM user_stats
+                    FROM players
                     WHERE level >= 5
-                    AND updated_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-                    ORDER BY updated_at DESC
+                    AND last_seen IS NOT NULL
+                    AND last_seen >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                    ORDER BY last_seen DESC
                     LIMIT %s
                 """, params=(limit,), default=[], fetch_all=True)
                 activities.extend(level_activity or [])
@@ -877,18 +878,18 @@ def api_recent_activity():
                 activities.extend(wordle_activity or [])
             
             # Get recent voice channel activity
-            # Note: Consider adding composite index on (minutes_in_vc, updated_at) for performance
+            # Note: Consider adding composite index on (voice_minutes, updated_at) for performance
             if activity_type in ['all', 'voice']:
                 voice_activity = safe_db_query(cursor, """
                     SELECT 
                         'voice' as activity_type,
                         user_id,
                         NULL as channel_id,
-                        CONCAT('Spent ', minutes_in_vc, ' minutes in voice') as preview,
+                        CONCAT('Spent ', voice_minutes, ' minutes in voice') as preview,
                         updated_at as activity_time,
                         'Voice Chat' as category
                     FROM user_stats
-                    WHERE minutes_in_vc > 10
+                    WHERE voice_minutes > 10
                     AND updated_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
                     ORDER BY updated_at DESC
                     LIMIT %s
@@ -2443,8 +2444,16 @@ def games_stats():
         
         try:
             # Helper function to safely query tables with logging
+            # Extracts the first column value from the result, returning default on error
             def safe_query(query, default=0):
-                return safe_db_query(cursor, query, default=default)
+                result = safe_db_query(cursor, query, default=None)
+                if result is None:
+                    return default
+                # Result is a dict, get the first value
+                if isinstance(result, dict):
+                    values = list(result.values())
+                    return int(values[0]) if values and values[0] is not None else default
+                return default
             
             # Werwolf stats - use werwolf_user_stats which tracks game participation
             werwolf_games = safe_query("SELECT COUNT(*) as total_games FROM werwolf_user_stats")
@@ -2808,6 +2817,8 @@ def system_health():
                     response['database']['healthy'] = True
                     cursor = conn.cursor(dictionary=True)
                     cursor.execute("SELECT 1")
+                    # Consume the result to avoid "Unread result found" warning
+                    cursor.fetchone()
                     
                     # Get database size
                     try:
@@ -3418,6 +3429,7 @@ def api_users_profiles():
                 })
             
             # Get user profiles with stats - use latest stats for each user
+            # Note: user_stats uses 'messages_sent' not 'message_count'
             users = safe_db_query(cursor, """
                 SELECT 
                     p.discord_id as user_id,
@@ -3426,7 +3438,7 @@ def api_users_profiles():
                     COALESCE(p.level, 0) as level,
                     COALESCE(p.xp, 0) as xp,
                     COALESCE(p.balance, 0) as coins,
-                    COALESCE(MAX(us.message_count), 0) as message_count,
+                    COALESCE(MAX(us.messages_sent), 0) as message_count,
                     (SELECT COUNT(*) FROM music_history mh WHERE mh.user_id = p.discord_id) as songs_played
                 FROM players p
                 LEFT JOIN user_stats us ON p.discord_id = us.user_id
@@ -3488,6 +3500,7 @@ def api_user_profile(user_id):
             cursor = conn.cursor(dictionary=True)
             
             # Get user info - use latest/max stats for the user
+            # Note: user_stats uses 'messages_sent' and 'voice_minutes' not 'message_count' and 'minutes_in_vc'
             user_info = safe_db_query(cursor, """
                 SELECT 
                     p.discord_id as user_id,
@@ -3496,8 +3509,8 @@ def api_user_profile(user_id):
                     COALESCE(p.level, 0) as level,
                     COALESCE(p.xp, 0) as xp,
                     COALESCE(p.balance, 0) as coins,
-                    COALESCE(MAX(us.message_count), 0) as message_count,
-                    COALESCE(MAX(us.minutes_in_vc), 0) as vc_minutes
+                    COALESCE(MAX(us.messages_sent), 0) as message_count,
+                    COALESCE(MAX(us.voice_minutes), 0) as vc_minutes
                 FROM players p
                 LEFT JOIN user_stats us ON p.discord_id = us.user_id
                 WHERE p.discord_id = %s
