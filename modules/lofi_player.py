@@ -1221,6 +1221,67 @@ async def preload_next_songs(guild_id: int, count: int = 2):
         logger.error(f"Error preloading next songs: {e}")
 
 
+async def preload_all_stations() -> int:
+    """
+    Preload all music stations for faster playback.
+    Should be called at bot startup.
+    
+    Returns:
+        Number of stations successfully preloaded
+    """
+    preloaded = 0
+    logger.info("Starting to preload all music stations...")
+    
+    try:
+        import yt_dlp
+        import time
+        
+        all_stations = get_all_stations()
+        
+        for station in all_stations:
+            try:
+                station_url = station.get('url')
+                if not station_url:
+                    continue
+                
+                # Skip if already cached
+                if station_url in preload_cache:
+                    cached = preload_cache[station_url]
+                    if time.time() - cached.get('timestamp', 0) < PRELOAD_CACHE_TTL:
+                        preloaded += 1
+                        continue
+                
+                # Extract audio URL
+                with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
+                    info = ydl.extract_info(station_url, download=False)
+                    audio_url = extract_audio_url(info)
+                    
+                    if audio_url:
+                        preload_cache[station_url] = {
+                            'audio_url': audio_url,
+                            'title': info.get('title', station.get('name', 'Unknown')),
+                            'artist': info.get('uploader', 'Unknown'),
+                            'duration': info.get('duration', 0),
+                            'timestamp': time.time()
+                        }
+                        preloaded += 1
+                        logger.debug(f"Preloaded station: {station.get('name', station_url)}")
+                
+                # Small delay to not overwhelm YouTube
+                await asyncio.sleep(0.5)
+                
+            except Exception as e:
+                logger.warning(f"Failed to preload station {station.get('name', 'Unknown')}: {e}")
+                continue
+        
+        logger.info(f"Preloaded {preloaded}/{len(all_stations)} music stations")
+        return preloaded
+        
+    except Exception as e:
+        logger.error(f"Error preloading stations: {e}")
+        return preloaded
+
+
 async def get_album_info(album_name: str, artist: str = None) -> Optional[dict]:
     """
     Get album information and track list from YouTube/Music.

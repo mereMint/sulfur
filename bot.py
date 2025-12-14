@@ -1046,6 +1046,9 @@ async def on_ready():
     if not generate_news.is_running():
         generate_news.start()
     
+    # --- NEW: Preload music stations for faster playback ---
+    print("Preloading music stations...")
+    asyncio.create_task(lofi_player.preload_all_stations())
 
     print(f"Synced {len(synced)} global commands.")
 
@@ -15604,6 +15607,7 @@ class MusicStationSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         """Handle station selection."""
         try:
+            # CRITICAL: Defer immediately before any other work to prevent "interaction failed"
             await interaction.response.defer(ephemeral=True)
             
             # Get user's voice channel
@@ -15617,6 +15621,15 @@ class MusicStationSelect(discord.ui.Select):
                 return
             
             voice_channel = interaction.user.voice.channel
+            selection = self.values[0]
+            
+            # Send immediate loading feedback
+            loading_embed = discord.Embed(
+                title="⏳ Verbinde...",
+                description=f"Verbinde zu **{voice_channel.name}** und lade Musik...",
+                color=discord.Color.blue()
+            )
+            loading_msg = await interaction.followup.send(embed=loading_embed, ephemeral=True, wait=True)
             
             # Join voice channel
             voice_client = await lofi_player.join_voice_channel(voice_channel)
@@ -15627,11 +15640,11 @@ class MusicStationSelect(discord.ui.Select):
                     description="Konnte dem Voice-Channel nicht beitreten!",
                     color=discord.Color.red()
                 )
-                await interaction.followup.send(embed=embed, ephemeral=True)
+                try:
+                    await loading_msg.edit(embed=embed)
+                except:
+                    pass
                 return
-            
-            # Parse selection
-            selection = self.values[0]
             
             # Get user's custom embed color
             from modules.themes import get_user_theme, get_theme_color
@@ -15697,7 +15710,10 @@ class MusicStationSelect(discord.ui.Select):
                         )
                     
                     embed.set_thumbnail(url=interaction.user.display_avatar.url)
-                    await interaction.followup.send(embed=embed, ephemeral=True)
+                    try:
+                        await loading_msg.edit(embed=embed)
+                    except:
+                        await interaction.followup.send(embed=embed, ephemeral=True)
                 else:
                     embed = discord.Embed(
                         title="📊 Keine Spotify-History",
@@ -15709,7 +15725,10 @@ class MusicStationSelect(discord.ui.Select):
                         value="Höre Musik auf Spotify mit Discord geöffnet, dann versuche es erneut!",
                         inline=False
                     )
-                    await interaction.followup.send(embed=embed, ephemeral=True)
+                    try:
+                        await loading_msg.edit(embed=embed)
+                    except:
+                        await interaction.followup.send(embed=embed, ephemeral=True)
             else:
                 # Parse station type and index
                 parts = selection.split('_')
@@ -15750,14 +15769,20 @@ class MusicStationSelect(discord.ui.Select):
                                 inline=True
                             )
                             embed.set_thumbnail(url=interaction.user.display_avatar.url)
-                            await interaction.followup.send(embed=embed, ephemeral=True)
+                            try:
+                                await loading_msg.edit(embed=embed)
+                            except:
+                                await interaction.followup.send(embed=embed, ephemeral=True)
                         else:
                             embed = discord.Embed(
                                 title="❌ Playback-Fehler",
                                 description="Die Musik konnte nicht gestartet werden!",
                                 color=discord.Color.red()
                             )
-                            await interaction.followup.send(embed=embed, ephemeral=True)
+                            try:
+                                await loading_msg.edit(embed=embed)
+                            except:
+                                await interaction.followup.send(embed=embed, ephemeral=True)
             
         except Exception as e:
             logger.error(f"Error in station select callback: {e}", exc_info=True)
@@ -15766,7 +15791,10 @@ class MusicStationSelect(discord.ui.Select):
                 description=f"Es ist ein Fehler aufgetreten: {str(e)}",
                 color=discord.Color.red()
             )
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            try:
+                await loading_msg.edit(embed=embed)
+            except:
+                await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 
