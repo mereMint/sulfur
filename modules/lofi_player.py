@@ -1594,50 +1594,104 @@ async def get_album_info(album_name: str, artist: str = None) -> Optional[dict]:
         return None
 
 
-async def add_album_to_queue(guild_id: int, album_name: str, artist: str = None) -> int:
+async def add_album_to_queue(guild_id: int, album_name: str, artist: str = None, start_playback: bool = False, voice_client=None, user_id: int = None) -> tuple:
     """
-    Add all tracks from an album to the queue.
+    Add all tracks from an album to the queue with improved error handling.
+    Can optionally start playback immediately when first track is ready.
     
     Args:
         guild_id: Guild ID
         album_name: Name of the album
         artist: Optional artist name
+        start_playback: If True, start playing the first track immediately
+        voice_client: Voice client for playback (required if start_playback=True)
+        user_id: User ID for playback tracking
     
     Returns:
-        Number of tracks added to queue
+        Tuple of (tracks_added, tracks_failed, first_track_playing)
     """
     try:
+        tracks_added = 0
+        tracks_failed = 0
+        first_track_playing = False
+        
         # Get album info
         album_info = await get_album_info(album_name, artist)
         
         if not album_info or not album_info['tracks']:
             logger.warning(f"No tracks found for album: {album_name}")
-            return 0
+            return (0, 0, False)
         
-        # Add each track to queue
-        added_count = 0
-        for track in album_info['tracks']:
-            # Add track as a song with album metadata
+        tracks = album_info['tracks']
+        total_tracks = len(tracks)
+        
+        logger.info(f"Adding {total_tracks} tracks from album '{album_name}' to queue")
+        
+        # If start_playback is requested, handle first track specially
+        first_track = None
+        if start_playback and voice_client and total_tracks > 0:
+            first_track = tracks[0]
+            tracks = tracks[1:]  # Remaining tracks for queue
+        
+        # Add remaining tracks to queue (don't wait for each one)
+        for track in tracks:
+            try:
+                song = {
+                    'title': track['title'],
+                    'artist': track['artist'],
+                    'album': track.get('album', album_name),
+                    'track_number': track.get('track_number', 0),
+                    'url': track.get('url'),
+                    'start_time': track.get('start_time', 0),
+                    'end_time': track.get('end_time', 0)
+                }
+                
+                # Add to queue with duplicate checking
+                if add_to_queue(guild_id, song, check_duplicates=True) > 0:
+                    tracks_added += 1
+                else:
+                    logger.debug(f"Track skipped (duplicate): {track['title']}")
+            except Exception as e:
+                logger.warning(f"Failed to add track '{track.get('title', 'Unknown')}': {e}")
+                tracks_failed += 1
+        
+        # Start playing the first track if requested
+        if first_track and voice_client:
             song = {
-                'title': track['title'],
-                'artist': track['artist'],
-                'album': track['album'],
-                'track_number': track['track_number'],
-                'url': track['url'],
-                'start_time': track.get('start_time', 0),
-                'end_time': track.get('end_time', 0)
+                'title': first_track['title'],
+                'artist': first_track['artist'],
+                'album': first_track.get('album', album_name),
+                'track_number': first_track.get('track_number', 1),
+                'url': first_track.get('url'),
+                'start_time': first_track.get('start_time', 0),
+                'end_time': first_track.get('end_time', 0)
             }
             
-            # Add to queue with duplicate checking
-            if add_to_queue(guild_id, song, check_duplicates=True) > 0:
-                added_count += 1
+            try:
+                success = await play_song_with_queue(voice_client, song, guild_id, volume=1.0, user_id=user_id)
+                if success:
+                    first_track_playing = True
+                    tracks_added += 1
+                else:
+                    tracks_failed += 1
+            except Exception as e:
+                logger.error(f"Failed to start first track: {e}")
+                tracks_failed += 1
         
-        logger.info(f"Added {added_count} tracks from album '{album_name}' to queue")
-        return added_count
+        # Notify dashboard of queue update
+        notify_dashboard('queue_update', guild_id, {
+            'album': album_name,
+            'tracks_added': tracks_added,
+            'tracks_failed': tracks_failed,
+            'queue_length': get_queue_length(guild_id)
+        })
+        
+        logger.info(f"Album '{album_name}': {tracks_added} tracks added, {tracks_failed} failed")
+        return (tracks_added, tracks_failed, first_track_playing)
         
     except Exception as e:
-        logger.error(f"Error adding album to queue: {e}")
-        return 0
+        logger.error(f"Error adding album to queue: {e}", exc_info=True)
+        return (0, 0, False)
 
 
 async def play_song_with_queue(

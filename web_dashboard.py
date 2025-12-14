@@ -730,13 +730,6 @@ def api_music_state_guild(guild_id):
     except Exception as e:
         logger.error(f"Error getting music state for guild {guild_id}: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
-    """API endpoint to get current configuration."""
-    try:
-        with open('config/config.json', 'r', encoding='utf-8') as f:
-            config = json.load(f)
-        return jsonify({'status': 'success', 'config': config})
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/api/config/model', methods=['POST'])
 def api_change_model():

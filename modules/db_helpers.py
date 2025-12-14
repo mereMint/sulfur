@@ -7,6 +7,7 @@ import logging
 import functools
 import traceback
 import re
+import threading
 
 # Setup logging
 logger = logging.getLogger('Database')
@@ -25,8 +26,10 @@ db_pool = None
 
 # --- Performance: In-memory cache for frequently accessed data ---
 # TTL-based cache to reduce database queries for hot data
+# Thread-safe implementation using a lock
 _cache = {}
 _cache_ttl = {}
+_cache_lock = threading.Lock()
 DEFAULT_CACHE_TTL = 60  # 1 minute default TTL
 BALANCE_CACHE_TTL = 30  # 30 seconds for balance (changes frequently)
 PLAYER_CACHE_TTL = 120  # 2 minutes for player profiles
@@ -34,36 +37,43 @@ STATS_CACHE_TTL = 300  # 5 minutes for statistics
 
 
 def _get_cached(key: str):
-    """Get a value from cache if it exists and is not expired."""
-    if key in _cache and key in _cache_ttl:
-        if time.time() < _cache_ttl[key]:
-            return _cache[key]
-        else:
-            # Expired, remove from cache
-            del _cache[key]
-            del _cache_ttl[key]
-    return None
+    """Get a value from cache if it exists and is not expired. Thread-safe."""
+    with _cache_lock:
+        if key in _cache and key in _cache_ttl:
+            if time.time() < _cache_ttl[key]:
+                return _cache[key]
+            else:
+                # Expired, remove from cache
+                del _cache[key]
+                del _cache_ttl[key]
+        return None
 
 
 def _set_cached(key: str, value, ttl: int = DEFAULT_CACHE_TTL):
-    """Set a value in cache with TTL."""
-    _cache[key] = value
-    _cache_ttl[key] = time.time() + ttl
+    """Set a value in cache with TTL. Thread-safe."""
+    with _cache_lock:
+        _cache[key] = value
+        _cache_ttl[key] = time.time() + ttl
 
 
 def _invalidate_cache(key: str):
-    """Invalidate a specific cache key."""
-    if key in _cache:
-        del _cache[key]
-    if key in _cache_ttl:
-        del _cache_ttl[key]
+    """Invalidate a specific cache key. Thread-safe."""
+    with _cache_lock:
+        if key in _cache:
+            del _cache[key]
+        if key in _cache_ttl:
+            del _cache_ttl[key]
 
 
 def _invalidate_cache_prefix(prefix: str):
-    """Invalidate all cache keys with a given prefix."""
-    keys_to_remove = [k for k in _cache.keys() if k.startswith(prefix)]
-    for key in keys_to_remove:
-        _invalidate_cache(key)
+    """Invalidate all cache keys with a given prefix. Thread-safe."""
+    with _cache_lock:
+        keys_to_remove = [k for k in _cache.keys() if k.startswith(prefix)]
+        for key in keys_to_remove:
+            if key in _cache:
+                del _cache[key]
+            if key in _cache_ttl:
+                del _cache_ttl[key]
 
 def convert_decimals(obj):
     """
