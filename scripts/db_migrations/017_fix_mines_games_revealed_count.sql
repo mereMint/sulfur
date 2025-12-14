@@ -37,15 +37,16 @@ BEGIN
     -- If revealed_count doesn't exist, add it
     IF column_exists = 0 THEN
         ALTER TABLE mines_games ADD COLUMN revealed_count INT NOT NULL DEFAULT 0 AFTER mine_count;
-        
-        -- If tiles_revealed exists, copy data to revealed_count
-        IF tiles_revealed_exists = 1 THEN
-            UPDATE mines_games SET revealed_count = tiles_revealed;
-        END IF;
     END IF;
     
-    -- Drop tiles_revealed if it exists (data was already copied above)
+    -- If tiles_revealed exists, copy data to revealed_count and drop old column
+    -- This handles both cases: new column just added OR column already existed
     IF tiles_revealed_exists = 1 THEN
+        -- Copy data from old column to new column
+        -- Uses COALESCE to handle any potential NULL values gracefully
+        UPDATE mines_games SET revealed_count = COALESCE(tiles_revealed, revealed_count, 0);
+        
+        -- Drop the old column after data is copied
         ALTER TABLE mines_games DROP COLUMN tiles_revealed;
     END IF;
 END$$
