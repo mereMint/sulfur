@@ -2567,37 +2567,142 @@ def system_dashboard():
 
 @app.route('/api/system/health', methods=['GET'])
 def system_health():
-    """Get system health metrics."""
+    """Get system health metrics with Termux compatibility."""
     try:
-        import psutil
         import os
         
-        # Get current process
-        process = psutil.Process(os.getpid())
+        # Try to import psutil, but provide fallbacks if not available
+        try:
+            import psutil
+            psutil_available = True
+        except ImportError:
+            psutil_available = False
+            logger.warning("psutil not available - using fallback methods")
         
-        # Memory usage
-        memory_info = process.memory_info()
-        memory_mb = memory_info.rss / 1024 / 1024
+        # Initialize response with defaults
+        response = {
+            'process': {
+                'memory_mb': 0,
+                'cpu_percent': 0,
+                'uptime_seconds': 0
+            },
+            'system': {
+                'memory_percent': 0,
+                'memory_used_gb': 0,
+                'memory_total_gb': 0,
+                'cpu_percent': 0,
+                'disk_percent': 0,
+                'disk_used_gb': 0,
+                'disk_total_gb': 0
+            },
+            'database': {
+                'healthy': False,
+                'pool_size': 0,
+                'size_mb': 0
+            },
+            'logs': {
+                'error_count': 0,
+                'warning_count': 0
+            },
+            'bot_status': 'Unknown',
+            'platform': platform.system()
+        }
         
-        # CPU usage
-        cpu_percent = process.cpu_percent(interval=0.1)
-        
-        # System-wide stats
-        system_memory = psutil.virtual_memory()
-        system_cpu = psutil.cpu_percent(interval=0.1)
-        
-        # Disk usage
-        disk = psutil.disk_usage('/')
+        # Get process metrics if psutil is available
+        if psutil_available:
+            try:
+                process = psutil.Process(os.getpid())
+                
+                # Memory usage
+                try:
+                    memory_info = process.memory_info()
+                    response['process']['memory_mb'] = round(memory_info.rss / 1024 / 1024, 2)
+                except Exception as e:
+                    logger.warning(f"Could not get process memory: {e}")
+                
+                # CPU usage
+                try:
+                    cpu_percent = process.cpu_percent(interval=0.1)
+                    response['process']['cpu_percent'] = round(cpu_percent, 2)
+                except Exception as e:
+                    logger.warning(f"Could not get process CPU: {e}")
+                
+                # System-wide memory stats
+                try:
+                    system_memory = psutil.virtual_memory()
+                    response['system']['memory_percent'] = round(system_memory.percent, 2)
+                    response['system']['memory_used_gb'] = round(system_memory.used / 1024 / 1024 / 1024, 2)
+                    response['system']['memory_total_gb'] = round(system_memory.total / 1024 / 1024 / 1024, 2)
+                except Exception as e:
+                    logger.warning(f"Could not get system memory: {e}")
+                
+                # System-wide CPU stats
+                try:
+                    system_cpu = psutil.cpu_percent(interval=0.1)
+                    response['system']['cpu_percent'] = round(system_cpu, 2)
+                except Exception as e:
+                    logger.warning(f"Could not get system CPU: {e}")
+                
+                # Disk usage
+                try:
+                    disk = psutil.disk_usage('/')
+                    response['system']['disk_percent'] = round(disk.percent, 2)
+                    response['system']['disk_used_gb'] = round(disk.used / 1024 / 1024 / 1024, 2)
+                    response['system']['disk_total_gb'] = round(disk.total / 1024 / 1024 / 1024, 2)
+                except Exception as e:
+                    logger.warning(f"Could not get disk usage: {e}")
+            except Exception as e:
+                logger.warning(f"Error getting psutil metrics: {e}")
+        else:
+            # Fallback: Try to get basic info from /proc (Linux/Termux)
+            try:
+                # Get memory info from /proc/meminfo
+                if os.path.exists('/proc/meminfo'):
+                    with open('/proc/meminfo', 'r') as f:
+                        meminfo = f.read()
+                        for line in meminfo.split('\n'):
+                            if line.startswith('MemTotal:'):
+                                total_kb = int(line.split()[1])
+                                response['system']['memory_total_gb'] = round(total_kb / 1024 / 1024, 2)
+                            elif line.startswith('MemAvailable:'):
+                                available_kb = int(line.split()[1])
+                                total = response['system']['memory_total_gb'] * 1024 * 1024  # Convert back to KB
+                                if total > 0:
+                                    used_kb = total - available_kb
+                                    response['system']['memory_used_gb'] = round(used_kb / 1024 / 1024, 2)
+                                    response['system']['memory_percent'] = round((used_kb / total) * 100, 2)
+            except Exception as e:
+                logger.warning(f"Fallback memory reading failed: {e}")
+            
+            try:
+                # Get disk info using df command (works on Termux)
+                import subprocess
+                result = subprocess.run(['df', '-h', '/'], capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    lines = result.stdout.strip().split('\n')
+                    if len(lines) > 1:
+                        parts = lines[1].split()
+                        if len(parts) >= 5:
+                            # Parse size (e.g., "20G" -> 20)
+                            try:
+                                total_str = parts[1].rstrip('GMK')
+                                used_str = parts[2].rstrip('GMK')
+                                percent_str = parts[4].rstrip('%')
+                                
+                                response['system']['disk_total_gb'] = float(total_str) if 'G' in parts[1] else float(total_str) / 1024
+                                response['system']['disk_used_gb'] = float(used_str) if 'G' in parts[2] else float(used_str) / 1024
+                                response['system']['disk_percent'] = float(percent_str)
+                            except Exception as e:
+                                logger.warning(f"Could not parse df output: {e}")
+            except Exception as e:
+                logger.warning(f"Fallback disk reading failed: {e}")
         
         # Database health and size
-        db_healthy = False
-        db_pool_size = 0
-        db_size_mb = 0
         if db_helpers.db_pool:
             try:
                 conn = db_helpers.get_db_connection()
                 if conn:
-                    db_healthy = True
+                    response['database']['healthy'] = True
                     cursor = conn.cursor(dictionary=True)
                     cursor.execute("SELECT 1")
                     
@@ -2611,19 +2716,17 @@ def system_health():
                         """)
                         result = cursor.fetchone()
                         if result and result.get('size_mb'):
-                            db_size_mb = float(result['size_mb'])
+                            response['database']['size_mb'] = float(result['size_mb'])
                     except Exception as e:
                         logger.warning(f"Could not get database size: {e}")
                     
                     cursor.close()
                     conn.close()
-                    db_pool_size = db_helpers.db_pool.pool_size if hasattr(db_helpers.db_pool, 'pool_size') else 5
+                    response['database']['pool_size'] = db_helpers.db_pool.pool_size if hasattr(db_helpers.db_pool, 'pool_size') else 5
             except Exception as e:
                 logger.warning(f"Database health check failed: {e}")
         
         # Check for errors in recent logs
-        error_count = 0
-        warning_count = 0
         latest_log = get_latest_log_file()
         if latest_log and os.path.exists(latest_log):
             try:
@@ -2633,62 +2736,43 @@ def system_health():
                     for line in recent_lines:
                         line_lower = line.lower()
                         if 'error' in line_lower and not 'no error' in line_lower:
-                            error_count += 1
+                            response['logs']['error_count'] += 1
                         elif 'warning' in line_lower:
-                            warning_count += 1
+                            response['logs']['warning_count'] += 1
             except Exception as e:
                 logger.error(f"Error reading log file: {e}")
         
         # Bot uptime (from status file)
-        uptime_seconds = 0
-        bot_status = 'Unknown'
         try:
             if os.path.exists('config/bot_status.json'):
                 with open('config/bot_status.json', 'r', encoding='utf-8-sig') as f:
                     status_data = json.load(f)
-                    bot_status = status_data.get('status', 'Unknown')
+                    response['bot_status'] = status_data.get('status', 'Unknown')
                     if 'timestamp' in status_data:
                         from datetime import datetime
-                        status_time = datetime.fromisoformat(status_data['timestamp'].replace('Z', '+00:00'))
-                        now = datetime.now(status_time.tzinfo)
-                        uptime_seconds = (now - status_time).total_seconds()
+                        try:
+                            status_time = datetime.fromisoformat(status_data['timestamp'].replace('Z', '+00:00'))
+                            now = datetime.now(status_time.tzinfo) if status_time.tzinfo else datetime.now()
+                            response['process']['uptime_seconds'] = int((now - status_time).total_seconds())
+                        except Exception as e:
+                            logger.warning(f"Could not calculate uptime: {e}")
         except Exception as e:
             logger.warning(f"Error reading bot status: {e}")
         
-        return jsonify({
-            'process': {
-                'memory_mb': round(memory_mb, 2),
-                'cpu_percent': round(cpu_percent, 2),
-                'uptime_seconds': uptime_seconds
-            },
-            'system': {
-                'memory_percent': system_memory.percent,
-                'memory_used_gb': round(system_memory.used / 1024 / 1024 / 1024, 2),
-                'memory_total_gb': round(system_memory.total / 1024 / 1024 / 1024, 2),
-                'cpu_percent': round(system_cpu, 2),
-                'disk_percent': disk.percent,
-                'disk_used_gb': round(disk.used / 1024 / 1024 / 1024, 2),
-                'disk_total_gb': round(disk.total / 1024 / 1024 / 1024, 2)
-            },
-            'database': {
-                'healthy': db_healthy,
-                'pool_size': db_pool_size,
-                'size_mb': db_size_mb
-            },
-            'logs': {
-                'error_count': error_count,
-                'warning_count': warning_count
-            },
-            'bot_status': bot_status
-        })
-    except ImportError:
-        return jsonify({
-            'error': 'psutil not installed',
-            'message': 'Install psutil for system metrics: pip install psutil'
-        }), 500
+        return jsonify(response)
+        
     except Exception as e:
-        logger.error(f"Error getting system health: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Error getting system health: {e}", exc_info=True)
+        return jsonify({
+            'error': str(e),
+            'message': 'System health check failed',
+            'platform': platform.system(),
+            'process': {'memory_mb': 0, 'cpu_percent': 0, 'uptime_seconds': 0},
+            'system': {'memory_percent': 0, 'memory_used_gb': 0, 'memory_total_gb': 0, 'cpu_percent': 0, 'disk_percent': 0, 'disk_used_gb': 0, 'disk_total_gb': 0},
+            'database': {'healthy': False, 'pool_size': 0, 'size_mb': 0},
+            'logs': {'error_count': 0, 'warning_count': 0},
+            'bot_status': 'Error'
+        }), 200  # Return 200 even on error so frontend can display partial data
 
 
 @app.route('/api/system/api_quotas', methods=['GET'])
