@@ -1,6 +1,7 @@
 import asyncio
 import json
 import discord
+from discord.errors import NotFound
 import random
 import os
 import subprocess
@@ -3605,7 +3606,11 @@ class AdminGroup(app_commands.Group):
     @app_commands.command(name="view_wrapped", description="Zeigt eine Vorschau des 'Wrapped' für einen Benutzer an.")
     @app_commands.describe(user="Der Benutzer, dessen Wrapped du ansehen möchtest.")
     async def view_wrapped(self, interaction: discord.Interaction, user: discord.Member):
-        await interaction.response.defer(ephemeral=True)
+        try:
+            await interaction.response.defer(ephemeral=True)
+        except NotFound:
+            logger.warning("Refresh interaction expired before defer", exc_info=False)
+            return
         
         try:
             # --- FIX: Generate the preview for the PREVIOUS month, just like the real event ---
@@ -16042,7 +16047,10 @@ class MusicControlView(discord.ui.View):
         )
         embed.set_footer(text="Auto-disconnect nach 2 Min. wenn alleine")
         
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        try:
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        except NotFound:
+            logger.warning("Browse interaction expired before response", exc_info=False)
     
     @discord.ui.button(label="Now Playing", style=discord.ButtonStyle.secondary, emoji="🎵")
     async def now_playing_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -16511,7 +16519,11 @@ async def music(interaction: discord.Interaction):
             icon_url=interaction.user.display_avatar.url
         )
         
-        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        try:
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        except NotFound:
+            logger.warning("Music interaction expired before response", exc_info=False)
+            return
         
     except Exception as e:
         logger.error(f"Error in music command: {e}", exc_info=True)
@@ -16520,7 +16532,13 @@ async def music(interaction: discord.Interaction):
             description=f"Es ist ein Fehler aufgetreten: {str(e)}",
             color=discord.Color.red()
         )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(embed=embed, ephemeral=True)
+            else:
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+        except NotFound:
+            logger.warning("Music error response skipped because interaction expired", exc_info=False)
 
 
 @tree.command(name="musicadd", description="➕ Füge einen Song zur Warteschlange hinzu")

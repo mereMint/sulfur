@@ -257,7 +257,7 @@ async def create_mixed_audio_source(stations: List[dict], volumes: Optional[List
         # For single station, no mixing needed - fully supported
         if len(stations) == 1:
             with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-                info = ydl.extract_info(stations[0]['url'], download=False)
+                info = await asyncio.to_thread(ydl.extract_info, stations[0]['url'], download=False)
                 audio_url = extract_audio_url(info)
             
             if not audio_url:
@@ -281,7 +281,7 @@ async def create_mixed_audio_source(stations: List[dict], volumes: Optional[List
         # For now, just play the first station with a warning
         # A proper implementation would require custom FFmpeg piping
         with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-            info = ydl.extract_info(stations[0]['url'], download=False)
+            info = await asyncio.to_thread(ydl.extract_info, stations[0]['url'], download=False)
             audio_url = extract_audio_url(info)
         
         if not audio_url:
@@ -364,7 +364,7 @@ async def check_station_availability(station: dict) -> bool:
         ydl_options = {**YDL_OPTIONS, 'skip_download': True, 'quiet': True}
         
         with yt_dlp.YoutubeDL(ydl_options) as ydl:
-            info = ydl.extract_info(station['url'], download=False)
+            info = await asyncio.to_thread(ydl.extract_info, station['url'], download=False)
             audio_url = extract_audio_url(info)
             
             if audio_url:
@@ -446,7 +446,7 @@ async def play_station(voice_client: discord.VoiceClient, station: dict, volume:
         # Extract audio URL using yt-dlp
         logger.info(f"Extracting stream URL: {working_station['url']}")
         with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-            info = ydl.extract_info(working_station['url'], download=False)
+            info = await asyncio.to_thread(ydl.extract_info, working_station['url'], download=False)
             audio_url = extract_audio_url(info)
         
         if not audio_url:
@@ -1029,7 +1029,7 @@ async def search_youtube_song(song_title: str, artist: str, filter_shorts: bool 
         search_url = f"ytsearch5:{search_query}"  # Get top 5 results to filter
         
         with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-            info = ydl.extract_info(search_url, download=False)
+            info = await asyncio.to_thread(ydl.extract_info, search_url, download=False)
             
             # Extract URL from search result
             if info and 'entries' in info and info['entries']:
@@ -1100,7 +1100,7 @@ async def get_related_songs(video_url: str, count: int = 5) -> List[dict]:
         ydl_options = {**YDL_OPTIONS, 'extract_flat': True}
         
         with yt_dlp.YoutubeDL(ydl_options) as ydl:
-            info = ydl.extract_info(video_url, download=False)
+            info = await asyncio.to_thread(ydl.extract_info, video_url, download=False)
             
             related_songs = []
             
@@ -1119,7 +1119,7 @@ async def get_related_songs(video_url: str, count: int = 5) -> List[dict]:
                     search_query = f"{title} {uploader} similar"
                     search_url = f"ytsearch{count}:{search_query}"
                     
-                    search_info = ydl.extract_info(search_url, download=False)
+                    search_info = await asyncio.to_thread(ydl.extract_info, search_url, download=False)
                     
                     if search_info and 'entries' in search_info:
                         for entry in search_info['entries'][:count]:
@@ -1171,7 +1171,7 @@ async def preload_song(song: dict) -> bool:
         
         # Extract audio URL
         with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-            info = ydl.extract_info(song_url, download=False)
+            info = await asyncio.to_thread(ydl.extract_info, song_url, download=False)
             audio_url = extract_audio_url(info)
             
             if not audio_url:
@@ -1259,7 +1259,7 @@ async def preload_all_stations() -> int:
                 
                 # Extract audio URL
                 with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-                    info = ydl.extract_info(station_url, download=False)
+                    info = await asyncio.to_thread(ydl.extract_info, station_url, download=False)
                     audio_url = extract_audio_url(info)
                     
                     if audio_url:
@@ -1320,7 +1320,7 @@ async def get_album_info(album_name: str, artist: str = None) -> Optional[dict]:
         ydl_options = {**YDL_OPTIONS, 'extract_flat': False}
         
         with yt_dlp.YoutubeDL(ydl_options) as ydl:
-            info = ydl.extract_info(search_url, download=False)
+            info = await asyncio.to_thread(ydl.extract_info, search_url, download=False)
             
             if info and 'entries' in info and info['entries']:
                 album_video = info['entries'][0]
@@ -1366,7 +1366,7 @@ async def get_album_info(album_name: str, artist: str = None) -> Optional[dict]:
             
             with yt_dlp.YoutubeDL(ydl_options_flat) as ydl:
                 search_url = f"ytsearch15:{search_queries[0]}"
-                info = ydl.extract_info(search_url, download=False)
+                info = await asyncio.to_thread(ydl.extract_info, search_url, download=False)
                 
                 if info and 'entries' in info and info['entries']:
                     seen_titles = set()
@@ -1425,7 +1425,7 @@ async def get_album_info(album_name: str, artist: str = None) -> Optional[dict]:
         if not tracks and album_url:
             logger.warning(f"No individual tracks found, using single video for album: {album_name}")
             with yt_dlp.YoutubeDL(ydl_options) as ydl:
-                info = ydl.extract_info(search_url, download=False)
+                info = await asyncio.to_thread(ydl.extract_info, search_url, download=False)
                 if info and 'entries' in info and info['entries']:
                     album_video = info['entries'][0]
                     tracks.append({
@@ -1572,7 +1572,7 @@ async def play_song_with_queue(
         if not audio_url:
             logger.info(f"Extracting audio URL for: {song.get('title', song_url)}")
             with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-                info = ydl.extract_info(song_url, download=False)
+                info = await asyncio.to_thread(ydl.extract_info, song_url, download=False)
                 audio_url = extract_audio_url(info)
             
             # Extract song info if not provided
@@ -2533,6 +2533,3 @@ async def update_persistent_now_playing(guild_id: int, channel, bot_user):
     except Exception as e:
         logger.error(f"Error updating persistent now playing: {e}", exc_info=True)
         return None
-
-
-
