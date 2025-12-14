@@ -159,6 +159,13 @@ active_sessions: Dict[int, dict] = {}
 # Format: {guild_id: {'task': Task, 'end_time': float, 'duration_minutes': int}}
 sleep_timers: Dict[int, dict] = {}
 
+# Stop locks to prevent auto-rejoin after explicit stop
+# Format: {guild_id: {'locked_at': float, 'locked_by': int}}
+stop_locks: Dict[int, dict] = {}
+
+# Stop lock timeout in seconds (5 minutes)
+STOP_LOCK_TIMEOUT = 300
+
 # Preloaded song cache for faster playback
 # Format: {song_url: {'audio_url': str, 'title': str, 'artist': str, 'duration': int, 'timestamp': float}}
 preload_cache: Dict[str, dict] = {}
@@ -175,20 +182,117 @@ HISTORY_REPEAT_COUNT = 8  # For history-only mode
 TOP_SONGS_POOL_SIZE = 5  # Number of top songs to randomly select from for first song
 MIN_REPEAT_SPACING = 10  # Minimum songs between playing same song again
 
+# Dashboard update callback - set by web_dashboard for real-time updates
+_dashboard_update_callback = None
+
+
+def set_dashboard_callback(callback):
+    """
+    Set a callback function to be called when music state changes.
+    Used by web_dashboard for real-time SocketIO updates.
+    
+    Args:
+        callback: Async function that takes (event_type, guild_id, data)
+    """
+    global _dashboard_update_callback
+    _dashboard_update_callback = callback
+    logger.info("Dashboard update callback registered")
+
+
+def notify_dashboard(event_type: str, guild_id: int, data: dict = None):
+    """
+    Notify the dashboard of a music state change.
+    
+    Args:
+        event_type: 'track_start', 'track_end', 'queue_update', 'stop', 'pause', 'resume'
+        guild_id: Guild ID
+        data: Optional additional data
+    """
+    if _dashboard_update_callback:
+        try:
+            import asyncio
+            # Try to schedule callback asynchronously if an event loop is running
+            try:
+                loop = asyncio.get_running_loop()
+                asyncio.run_coroutine_threadsafe(
+                    _dashboard_update_callback(event_type, guild_id, data or {}),
+                    loop
+                )
+            except RuntimeError:
+                # No running loop - just log and skip (non-critical feature)
+                logger.debug(f"Cannot notify dashboard (no event loop): {event_type}")
+        except Exception as e:
+            logger.debug(f"Dashboard callback error (non-critical): {e}")
+
 # Album search constants
 MAX_INDIVIDUAL_SONG_DURATION = 1800  # 30 minutes - songs longer than this are likely full albums
 SKIP_KEYWORDS = ['compilation', 'reaction', 'cover', 'tutorial', 'review', 
                  'karaoke', 'instrumental', 'remix', 'mashup', 'live at']
 
-# FFmpeg options for streaming
+
+def set_stop_lock(guild_id: int, user_id: int = None):
+    """
+    Set a stop lock for a guild to prevent auto-rejoin.
+    Called when user explicitly stops playback.
+    
+    Args:
+        guild_id: Guild ID to lock
+        user_id: Optional user ID who initiated the stop
+    """
+    import time
+    stop_locks[guild_id] = {
+        'locked_at': time.time(),
+        'locked_by': user_id
+    }
+    logger.info(f"Stop lock set for guild {guild_id} by user {user_id}")
+
+
+def clear_stop_lock(guild_id: int):
+    """
+    Clear the stop lock for a guild.
+    Called when user explicitly starts new playback.
+    
+    Args:
+        guild_id: Guild ID to unlock
+    """
+    if guild_id in stop_locks:
+        del stop_locks[guild_id]
+        logger.info(f"Stop lock cleared for guild {guild_id}")
+
+
+def is_stop_locked(guild_id: int) -> bool:
+    """
+    Check if a guild has an active stop lock.
+    Locks expire after STOP_LOCK_TIMEOUT seconds.
+    
+    Args:
+        guild_id: Guild ID to check
+    
+    Returns:
+        True if locked, False otherwise
+    """
+    import time
+    if guild_id not in stop_locks:
+        return False
+    
+    lock_info = stop_locks[guild_id]
+    # Check if lock has expired
+    if time.time() - lock_info['locked_at'] > STOP_LOCK_TIMEOUT:
+        del stop_locks[guild_id]
+        logger.info(f"Stop lock expired for guild {guild_id}")
+        return False
+    
+    return True
+
+# FFmpeg options for streaming with better reconnection handling
 FFMPEG_OPTIONS = {
-    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
-    'options': '-vn'
+    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -reconnect_on_network_error 1',
+    'options': '-vn -bufsize 512k'
 }
 
-# yt-dlp options
+# yt-dlp options with improved resilience for network issues
 YDL_OPTIONS = {
-    'format': 'bestaudio/best',
+    'format': 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best',  # Prefer m4a/webm for better quality
     'extractaudio': True,
     'audioformat': 'mp3',
     'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
@@ -201,6 +305,15 @@ YDL_OPTIONS = {
     'no_warnings': True,
     'default_search': 'auto',
     'source_address': '0.0.0.0',
+    # Resilience options
+    'retries': 3,  # Retry failed downloads
+    'fragment_retries': 3,  # Retry failed fragments
+    'socket_timeout': 30,  # Socket timeout in seconds
+    'http_headers': {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    },
+    # Skip unavailable/processing videos gracefully
+    'skip_unavailable_fragments': True,
 }
 
 
@@ -540,12 +653,13 @@ async def play_lofi(voice_client: discord.VoiceClient, stream_index: int = 0) ->
     return await play_station(voice_client, station)
 
 
-async def stop_lofi(voice_client: discord.VoiceClient) -> bool:
+async def stop_lofi(voice_client: discord.VoiceClient, user_id: int = None) -> bool:
     """
-    Stop lofi music playback.
+    Stop lofi music playback and set stop lock to prevent auto-rejoin.
     
     Args:
         voice_client: Connected Discord voice client
+        user_id: Optional user ID who initiated the stop (for stop lock tracking)
     
     Returns:
         True if stopped successfully, False otherwise
@@ -554,9 +668,25 @@ async def stop_lofi(voice_client: discord.VoiceClient) -> bool:
         if not voice_client or not voice_client.is_connected():
             return False
         
+        guild_id = voice_client.guild.id if voice_client.guild else None
+        
+        # Set stop lock to prevent auto-rejoin
+        if guild_id:
+            set_stop_lock(guild_id, user_id)
+            # Also clear the queue to prevent auto-resume
+            clear_queue(guild_id)
+            # Notify dashboard of stop
+            notify_dashboard('stop', guild_id, {'stopped_by': user_id})
+        
         if voice_client.is_playing():
             voice_client.stop()
-            logger.info("Stopped music playback")
+            logger.info(f"Stopped music playback for guild {guild_id}")
+            return True
+        
+        # Also stop if paused
+        if voice_client.is_paused():
+            voice_client.stop()
+            logger.info(f"Stopped paused playback for guild {guild_id}")
             return True
         
         return False
@@ -755,13 +885,18 @@ async def leave_voice_channel(voice_client: discord.VoiceClient) -> bool:
 async def on_voice_state_update_handler(voice_client: discord.VoiceClient, guild_id: int):
     """
     Handler to be called when voice state updates occur.
-    Manages auto-disconnect logic.
+    Manages auto-disconnect logic. Respects stop_lock to prevent auto-rejoin.
     
     Args:
         voice_client: Voice client that may need checking
         guild_id: Guild ID
     """
     if not voice_client or not voice_client.is_connected():
+        return
+    
+    # Don't auto-manage if stop lock is active (user explicitly stopped)
+    if is_stop_locked(guild_id):
+        logger.debug(f"Stop lock active for guild {guild_id}, skipping voice state management")
         return
     
     # Check if alone
@@ -1459,50 +1594,104 @@ async def get_album_info(album_name: str, artist: str = None) -> Optional[dict]:
         return None
 
 
-async def add_album_to_queue(guild_id: int, album_name: str, artist: str = None) -> int:
+async def add_album_to_queue(guild_id: int, album_name: str, artist: str = None, start_playback: bool = False, voice_client=None, user_id: int = None) -> tuple:
     """
-    Add all tracks from an album to the queue.
+    Add all tracks from an album to the queue with improved error handling.
+    Can optionally start playback immediately when first track is ready.
     
     Args:
         guild_id: Guild ID
         album_name: Name of the album
         artist: Optional artist name
+        start_playback: If True, start playing the first track immediately
+        voice_client: Voice client for playback (required if start_playback=True)
+        user_id: User ID for playback tracking
     
     Returns:
-        Number of tracks added to queue
+        Tuple of (tracks_added, tracks_failed, first_track_playing)
     """
     try:
+        tracks_added = 0
+        tracks_failed = 0
+        first_track_playing = False
+        
         # Get album info
         album_info = await get_album_info(album_name, artist)
         
         if not album_info or not album_info['tracks']:
             logger.warning(f"No tracks found for album: {album_name}")
-            return 0
+            return (0, 0, False)
         
-        # Add each track to queue
-        added_count = 0
-        for track in album_info['tracks']:
-            # Add track as a song with album metadata
+        tracks = album_info['tracks']
+        total_tracks = len(tracks)
+        
+        logger.info(f"Adding {total_tracks} tracks from album '{album_name}' to queue")
+        
+        # If start_playback is requested, handle first track specially
+        first_track = None
+        if start_playback and voice_client and total_tracks > 0:
+            first_track = tracks[0]
+            tracks = tracks[1:]  # Remaining tracks for queue
+        
+        # Add remaining tracks to queue (don't wait for each one)
+        for track in tracks:
+            try:
+                song = {
+                    'title': track['title'],
+                    'artist': track['artist'],
+                    'album': track.get('album', album_name),
+                    'track_number': track.get('track_number', 0),
+                    'url': track.get('url'),
+                    'start_time': track.get('start_time', 0),
+                    'end_time': track.get('end_time', 0)
+                }
+                
+                # Add to queue with duplicate checking
+                if add_to_queue(guild_id, song, check_duplicates=True) > 0:
+                    tracks_added += 1
+                else:
+                    logger.debug(f"Track skipped (duplicate): {track['title']}")
+            except Exception as e:
+                logger.warning(f"Failed to add track '{track.get('title', 'Unknown')}': {e}")
+                tracks_failed += 1
+        
+        # Start playing the first track if requested
+        if first_track and voice_client:
             song = {
-                'title': track['title'],
-                'artist': track['artist'],
-                'album': track['album'],
-                'track_number': track['track_number'],
-                'url': track['url'],
-                'start_time': track.get('start_time', 0),
-                'end_time': track.get('end_time', 0)
+                'title': first_track['title'],
+                'artist': first_track['artist'],
+                'album': first_track.get('album', album_name),
+                'track_number': first_track.get('track_number', 1),
+                'url': first_track.get('url'),
+                'start_time': first_track.get('start_time', 0),
+                'end_time': first_track.get('end_time', 0)
             }
             
-            # Add to queue with duplicate checking
-            if add_to_queue(guild_id, song, check_duplicates=True) > 0:
-                added_count += 1
+            try:
+                success = await play_song_with_queue(voice_client, song, guild_id, volume=1.0, user_id=user_id)
+                if success:
+                    first_track_playing = True
+                    tracks_added += 1
+                else:
+                    tracks_failed += 1
+            except Exception as e:
+                logger.error(f"Failed to start first track: {e}")
+                tracks_failed += 1
         
-        logger.info(f"Added {added_count} tracks from album '{album_name}' to queue")
-        return added_count
+        # Notify dashboard of queue update
+        notify_dashboard('queue_update', guild_id, {
+            'album': album_name,
+            'tracks_added': tracks_added,
+            'tracks_failed': tracks_failed,
+            'queue_length': get_queue_length(guild_id)
+        })
+        
+        logger.info(f"Album '{album_name}': {tracks_added} tracks added, {tracks_failed} failed")
+        return (tracks_added, tracks_failed, first_track_playing)
         
     except Exception as e:
-        logger.error(f"Error adding album to queue: {e}")
-        return 0
+        logger.error(f"Error adding album to queue: {e}", exc_info=True)
+        return (0, 0, False)
 
 
 async def play_song_with_queue(
@@ -1515,6 +1704,7 @@ async def play_song_with_queue(
     """
     Play a song and set up queue to play next song when finished.
     Tracks song playback in music history.
+    Clears stop_lock since user is explicitly starting playback.
     
     Args:
         voice_client: Connected Discord voice client
@@ -1529,6 +1719,9 @@ async def play_song_with_queue(
     try:
         import yt_dlp
         import time
+        
+        # Clear stop lock since user is explicitly starting playback
+        clear_stop_lock(guild_id)
         
         if not voice_client or not voice_client.is_connected():
             logger.error("Voice client not connected")
@@ -1694,6 +1887,9 @@ async def play_song_with_queue(
                                     loop
                                 )
                     
+                    # Notify dashboard of track end
+                    notify_dashboard('track_end', guild_id, {'song': current_song} if current_song else {})
+                    
                     # Play next song
                     asyncio.run_coroutine_threadsafe(
                         play_next_in_queue(voice_client, guild_id),
@@ -1709,6 +1905,17 @@ async def play_song_with_queue(
         
         # Start preloading next songs in queue (async, don't wait)
         asyncio.create_task(preload_next_songs(guild_id, count=2))
+        
+        # Notify dashboard of track start
+        notify_dashboard('track_start', guild_id, {
+            'song': {
+                'title': song.get('title', 'Unknown'),
+                'artist': song.get('artist', 'Unknown'),
+                'url': song.get('url'),
+                'source': song.get('source', 'bot')
+            },
+            'queue_length': len(active_sessions.get(guild_id, {}).get('queue', []))
+        })
         
         logger.info(f"Started playback: {song.get('title', 'Unknown')} by {song.get('artist', 'Unknown')}")
         return True
@@ -1999,6 +2206,7 @@ async def start_spotify_queue(
     """
     Start playing from user's Spotify recently played with automatic queue.
     Now enhanced with AI curation - plays mostly from history with AI-curated songs mixed in.
+    Clears stop_lock since user is explicitly starting playback.
     
     Strategy:
     - 70-80% songs from user's actual listening history
@@ -2016,6 +2224,9 @@ async def start_spotify_queue(
         True if started successfully, False otherwise
     """
     try:
+        # Clear stop lock since user is explicitly starting playback
+        clear_stop_lock(guild_id)
+        
         # Get user's listening history
         recent_songs = await get_spotify_recently_played(user_id)
         
