@@ -1684,6 +1684,31 @@ def add_to_queue(guild_id: int, song: dict, check_duplicates: bool = True) -> in
         return 0
 
 
+def clear_queue(guild_id: int) -> int:
+    """
+    Clear all songs from the queue.
+    
+    Args:
+        guild_id: Guild ID
+    
+    Returns:
+        Number of songs that were in the queue before clearing
+    """
+    try:
+        if guild_id not in active_sessions or 'queue' not in active_sessions[guild_id]:
+            return 0
+        
+        queue_length = len(active_sessions[guild_id]['queue'])
+        active_sessions[guild_id]['queue'] = []
+        
+        logger.info(f"Cleared queue for guild {guild_id}: {queue_length} songs removed")
+        return queue_length
+        
+    except Exception as e:
+        logger.error(f"Error clearing queue: {e}", exc_info=True)
+        return 0
+
+
 def sanitize_song_title(title: str) -> str:
     """
     Sanitize song title by removing common YouTube artifacts.

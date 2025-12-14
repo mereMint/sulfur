@@ -16242,6 +16242,51 @@ class MusicControlView(discord.ui.View):
             )
         
         await interaction.followup.send(embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="Clear Queue", style=discord.ButtonStyle.danger, emoji="🗑️")
+    async def clear_queue_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Clear all songs from the queue."""
+        await interaction.response.defer(ephemeral=True)
+        
+        guild_id = interaction.guild.id
+        
+        # Check if there's an active session
+        if guild_id not in lofi_player.active_sessions:
+            embed = discord.Embed(
+                title="📋 Warteschlange",
+                description="Keine aktive Musik-Session!",
+                color=discord.Color.orange()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        # Get queue length before clearing
+        queue_length = lofi_player.get_queue_length(guild_id)
+        
+        if queue_length == 0:
+            embed = discord.Embed(
+                title="📋 Queue ist leer",
+                description="Es gibt keine Songs in der Warteschlange!",
+                color=discord.Color.orange()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        # Clear the queue
+        cleared_count = lofi_player.clear_queue(guild_id)
+        
+        embed = discord.Embed(
+            title="🗑️ Queue geleert",
+            description=f"**{cleared_count} Songs** wurden aus der Warteschlange entfernt.",
+            color=discord.Color.green()
+        )
+        embed.add_field(
+            name="ℹ️ Hinweis",
+            value="Der aktuell laufende Song wird weiter abgespielt.\nNach dem aktuellen Song stoppt die Musik.",
+            inline=False
+        )
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 class PlaybackControlView(discord.ui.View):
@@ -16281,6 +16326,16 @@ class PlaybackControlView(discord.ui.View):
         )
         refresh_button.callback = self.refresh_callback
         self.add_item(refresh_button)
+        
+        # Add clear queue button
+        clear_button = discord.ui.Button(
+            label="Clear Queue",
+            style=discord.ButtonStyle.danger,
+            emoji="🗑️",
+            custom_id="clear_btn"
+        )
+        clear_button.callback = self.clear_callback
+        self.add_item(clear_button)
     
     async def skip_callback(self, interaction: discord.Interaction):
         """Skip the current song."""
@@ -16400,6 +16455,50 @@ class PlaybackControlView(discord.ui.View):
                 color=discord.Color.blue()
             )
             await interaction.followup.send(embed=embed, ephemeral=True)
+    
+    async def clear_callback(self, interaction: discord.Interaction):
+        """Clear the music queue."""
+        await interaction.response.defer(ephemeral=True)
+        
+        guild_id = interaction.guild.id
+        
+        # Check if there's an active session
+        if guild_id not in lofi_player.active_sessions:
+            embed = discord.Embed(
+                title="📋 Queue",
+                description="Keine aktive Musik-Session!",
+                color=discord.Color.orange()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        # Get queue length before clearing
+        queue_length = lofi_player.get_queue_length(guild_id)
+        
+        if queue_length == 0:
+            embed = discord.Embed(
+                title="📋 Queue ist leer",
+                description="Es gibt keine Songs in der Warteschlange!",
+                color=discord.Color.orange()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        # Clear the queue
+        cleared_count = lofi_player.clear_queue(guild_id)
+        
+        embed = discord.Embed(
+            title="🗑️ Queue geleert",
+            description=f"**{cleared_count} Songs** wurden entfernt.",
+            color=discord.Color.green()
+        )
+        embed.add_field(
+            name="ℹ️ Info",
+            value="Der aktuell laufende Song wird weiter abgespielt.",
+            inline=False
+        )
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 class MusicStationView(discord.ui.View):
