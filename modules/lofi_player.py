@@ -917,7 +917,7 @@ Return ONLY a JSON array with this exact format (no other text, no markdown):
   ...
 ]
 
-Double-check that titles and artist names are spelled correctly for YouTube search accuracy.
+Double-check that titles and artist names are spelled correctly for YouTube search accuracy."""
         
         # Get AI recommendations
         # Load config to pass to API
