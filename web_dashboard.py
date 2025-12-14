@@ -382,7 +382,11 @@ def api_empty_tables():
         
         for table in all_tables:
             try:
-                # Get row count
+                # Get row count - use backticks to safely quote table names
+                # Table names are from SHOW TABLES so they're safe, but we validate anyway
+                if not table.replace('_', '').isalnum():
+                    logger.warning(f"Skipping table with invalid characters: {table}")
+                    continue
                 cursor.execute(f"SELECT COUNT(*) as count FROM `{table}`")
                 count = cursor.fetchone()['count']
                 
@@ -836,6 +840,8 @@ def api_recent_activity():
                 activities.extend(blackjack_activity or [])
             
             # Get recent user level ups and XP gains from user_stats
+            # Note: This query filters by level >= 5 to reduce load on large datasets
+            # Consider adding index on (level, updated_at) for better performance
             if activity_type in ['all', 'leveling']:
                 level_activity = safe_db_query(cursor, """
                     SELECT 
@@ -846,7 +852,7 @@ def api_recent_activity():
                         updated_at as activity_time,
                         'Leveling' as category
                     FROM user_stats
-                    WHERE level >= 1
+                    WHERE level >= 5
                     AND updated_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
                     ORDER BY updated_at DESC
                     LIMIT %s
@@ -871,6 +877,7 @@ def api_recent_activity():
                 activities.extend(wordle_activity or [])
             
             # Get recent voice channel activity
+            # Note: Consider adding composite index on (minutes_in_vc, updated_at) for performance
             if activity_type in ['all', 'voice']:
                 voice_activity = safe_db_query(cursor, """
                     SELECT 
@@ -881,7 +888,7 @@ def api_recent_activity():
                         updated_at as activity_time,
                         'Voice Chat' as category
                     FROM user_stats
-                    WHERE minutes_in_vc > 0
+                    WHERE minutes_in_vc > 10
                     AND updated_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
                     ORDER BY updated_at DESC
                     LIMIT %s
@@ -1380,7 +1387,7 @@ def api_log_content(filename):
     try:
         # Validate filename to prevent directory traversal attacks
         # Allow alphanumeric, underscore, hyphen, and dot characters with .log extension
-        if not re.match(r'^[a-zA-Z0-9_\-\.]+\.log$', filename):
+        if not re.match(r'^[a-zA-Z0-9_.\-]+\.log$', filename):
             return jsonify({'status': 'error', 'message': 'Invalid filename'}), 400
         
         file_path = os.path.join(LOG_DIR, filename)
