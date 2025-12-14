@@ -357,6 +357,64 @@ def database_viewer():
                          current_page=page,
                          per_page=per_page)
 
+
+@app.route('/api/database/empty_tables', methods=['GET'])
+def api_empty_tables():
+    """API endpoint to identify empty or rarely-used tables."""
+    if not db_helpers.db_pool:
+        return jsonify({'error': 'Database not available', 'empty_tables': []}), 500
+    
+    conn = None
+    cursor = None
+    try:
+        conn = db_helpers.get_db_connection()
+        if not conn:
+            return jsonify({'error': 'Failed to get database connection', 'empty_tables': []}), 500
+        
+        cursor = conn.cursor(dictionary=True)
+        
+        # Get all tables
+        cursor.execute("SHOW TABLES")
+        all_tables = [list(row.values())[0] for row in cursor.fetchall()]
+        
+        empty_tables = []
+        low_usage_tables = []
+        
+        for table in all_tables:
+            try:
+                # Get row count - use backticks to safely quote table names
+                # Table names are from SHOW TABLES so they're safe, but we validate anyway
+                if not table.replace('_', '').isalnum():
+                    logger.warning(f"Skipping table with invalid characters: {table}")
+                    continue
+                cursor.execute(f"SELECT COUNT(*) as count FROM `{table}`")
+                count = cursor.fetchone()['count']
+                
+                if count == 0:
+                    empty_tables.append({'table': table, 'rows': 0})
+                elif count < 10:
+                    low_usage_tables.append({'table': table, 'rows': count})
+            except Exception as e:
+                logger.warning(f"Could not check table {table}: {e}")
+                continue
+        
+        return jsonify({
+            'status': 'success',
+            'empty_tables': empty_tables,
+            'low_usage_tables': low_usage_tables,
+            'total_tables': len(all_tables),
+            'empty_count': len(empty_tables),
+            'low_usage_count': len(low_usage_tables)
+        })
+    except Exception as e:
+        logger.error(f"Error checking empty tables: {e}")
+        return jsonify({'error': str(e), 'empty_tables': []}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
 @app.route('/ai_usage', methods=['GET'])
 def ai_usage_viewer():
     """Renders the AI usage page."""
@@ -781,23 +839,61 @@ def api_recent_activity():
                 """, params=(limit,), default=[], fetch_all=True)
                 activities.extend(blackjack_activity or [])
             
-            # Get recent user level ups from user_stats
+            # Get recent user level ups and XP gains from user_stats
+            # Note: This query filters by level >= 5 to reduce load on large datasets
+            # Consider adding index on (level, updated_at) for better performance
             if activity_type in ['all', 'leveling']:
                 level_activity = safe_db_query(cursor, """
                     SELECT 
                         'level_up' as activity_type,
                         user_id,
                         NULL as channel_id,
-                        CONCAT('Level ', level, ' (', xp, ' XP)') as preview,
+                        CONCAT('Reached Level ', level, ' with ', xp, ' XP') as preview,
                         updated_at as activity_time,
                         'Leveling' as category
                     FROM user_stats
-                    WHERE stat_period = DATE_FORMAT(NOW(), '%Y-%m')
-                    AND level > 1
+                    WHERE level >= 5
+                    AND updated_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
                     ORDER BY updated_at DESC
                     LIMIT %s
                 """, params=(limit,), default=[], fetch_all=True)
                 activities.extend(level_activity or [])
+            
+            # Get recent Wordle games
+            if activity_type in ['all', 'games']:
+                wordle_activity = safe_db_query(cursor, """
+                    SELECT 
+                        'game_wordle' as activity_type,
+                        user_id,
+                        NULL as channel_id,
+                        CONCAT('Wordle - ', IF(won, 'Won', 'Lost'), ' in ', attempts, ' attempts') as preview,
+                        completed_at as activity_time,
+                        'Wordle' as category
+                    FROM wordle_games
+                    WHERE completed = TRUE AND completed_at IS NOT NULL
+                    ORDER BY completed_at DESC
+                    LIMIT %s
+                """, params=(limit,), default=[], fetch_all=True)
+                activities.extend(wordle_activity or [])
+            
+            # Get recent voice channel activity
+            # Note: Consider adding composite index on (minutes_in_vc, updated_at) for performance
+            if activity_type in ['all', 'voice']:
+                voice_activity = safe_db_query(cursor, """
+                    SELECT 
+                        'voice' as activity_type,
+                        user_id,
+                        NULL as channel_id,
+                        CONCAT('Spent ', minutes_in_vc, ' minutes in voice') as preview,
+                        updated_at as activity_time,
+                        'Voice Chat' as category
+                    FROM user_stats
+                    WHERE minutes_in_vc > 10
+                    AND updated_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+                    ORDER BY updated_at DESC
+                    LIMIT %s
+                """, params=(limit,), default=[], fetch_all=True)
+                activities.extend(voice_activity or [])
             
             # Get user display names
             user_ids = list(set([a.get('user_id') for a in activities if a.get('user_id')]))
@@ -1290,8 +1386,8 @@ def api_log_content(filename):
     """API endpoint to get the content of a specific log file."""
     try:
         # Validate filename to prevent directory traversal attacks
-        # Only allow alphanumeric, underscore, and .log extension (no hyphens)
-        if not re.match(r'^[a-zA-Z0-9_]+\.log$', filename):
+        # Allow alphanumeric, underscore, hyphen, and dot characters with .log extension
+        if not re.match(r'^[a-zA-Z0-9_.\-]+\.log$', filename):
             return jsonify({'status': 'error', 'message': 'Invalid filename'}), 400
         
         file_path = os.path.join(LOG_DIR, filename)
@@ -2365,8 +2461,8 @@ def games_stats():
                 'total_players': werwolf_players
             }
             
-            # Detective stats - use detective_user_progress for games count
-            detective_games = safe_query("SELECT COUNT(*) as total_games FROM detective_user_progress")
+            # Detective stats - use detective_user_progress for completed cases count
+            detective_games = safe_query("SELECT COUNT(*) as total_games FROM detective_user_progress WHERE completed = TRUE")
             detective_players = safe_query("SELECT COUNT(DISTINCT user_id) as total_players FROM detective_user_stats")
             
             stats['detective'] = {
@@ -2374,9 +2470,9 @@ def games_stats():
                 'total_players': detective_players
             }
             
-            # Wordle stats - use wordle_stats table which tracks all games
-            wordle_games = safe_query("SELECT COALESCE(SUM(total_games), 0) as total_games FROM wordle_stats")
-            wordle_players = safe_query("SELECT COUNT(*) as total_players FROM wordle_stats WHERE total_games > 0")
+            # Wordle stats - use wordle_games table which tracks individual games
+            wordle_games = safe_query("SELECT COUNT(*) as total_games FROM wordle_games WHERE completed = TRUE")
+            wordle_players = safe_query("SELECT COUNT(DISTINCT user_id) as total_players FROM wordle_games WHERE completed = TRUE")
             
             stats['wordle'] = {
                 'total_games': wordle_games,
@@ -3313,23 +3409,23 @@ def api_users_profiles():
             
             cursor = conn.cursor(dictionary=True)
             
-            # Get user profiles with stats
+            # Get user profiles with stats - use latest stats for each user
             users = safe_db_query(cursor, """
                 SELECT 
                     p.discord_id as user_id,
                     p.display_name,
                     p.premium_user as is_premium,
-                    COALESCE(us.level, 0) as level,
-                    COALESCE(us.xp, 0) as xp,
-                    COALESCE(us.coins, 0) as coins,
-                    COALESCE(us.message_count, 0) as message_count,
+                    COALESCE(MAX(us.level), 0) as level,
+                    COALESCE(MAX(us.xp), 0) as xp,
+                    COALESCE(MAX(us.coins), 0) as coins,
+                    COALESCE(MAX(us.message_count), 0) as message_count,
                     (SELECT COUNT(*) FROM music_history mh WHERE mh.user_id = p.discord_id) as songs_played
                 FROM players p
-                LEFT JOIN user_stats us ON p.discord_id = us.user_id 
-                    AND us.stat_period = DATE_FORMAT(NOW(), '%Y-%m')
+                LEFT JOIN user_stats us ON p.discord_id = us.user_id
+                GROUP BY p.discord_id, p.display_name, p.premium_user
                 ORDER BY 
-                    COALESCE(us.level, 0) DESC, 
-                    COALESCE(us.xp, 0) DESC,
+                    level DESC, 
+                    xp DESC,
                     p.display_name ASC
                 LIMIT 500
             """, fetch_all=True, default=[])
@@ -3381,21 +3477,21 @@ def api_user_profile(user_id):
             
             cursor = conn.cursor(dictionary=True)
             
-            # Get user info
+            # Get user info - use latest/max stats for the user
             user_info = safe_db_query(cursor, """
                 SELECT 
                     p.discord_id as user_id,
                     p.display_name,
                     p.premium_user as is_premium,
-                    COALESCE(us.level, 0) as level,
-                    COALESCE(us.xp, 0) as xp,
-                    COALESCE(us.coins, 0) as coins,
-                    COALESCE(us.message_count, 0) as message_count,
-                    COALESCE(us.minutes_in_vc, 0) as vc_minutes
+                    COALESCE(MAX(us.level), 0) as level,
+                    COALESCE(MAX(us.xp), 0) as xp,
+                    COALESCE(MAX(us.coins), 0) as coins,
+                    COALESCE(MAX(us.message_count), 0) as message_count,
+                    COALESCE(MAX(us.minutes_in_vc), 0) as vc_minutes
                 FROM players p
-                LEFT JOIN user_stats us ON p.discord_id = us.user_id 
-                    AND us.stat_period = DATE_FORMAT(NOW(), '%Y-%m')
+                LEFT JOIN user_stats us ON p.discord_id = us.user_id
                 WHERE p.discord_id = %s
+                GROUP BY p.discord_id, p.display_name, p.premium_user
             """, params=(user_id,))
             
             if not user_info:
