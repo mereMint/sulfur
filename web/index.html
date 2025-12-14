@@ -17,7 +17,7 @@
                     <h6 class="text-muted mb-1">STATUS</h6>
                     <div class="stat-value" id="quick-status" style="font-size: 1.5rem;">INIT</div>
                 </div>
-                <i class="bi bi-circle-fill" id="status-indicator" style="font-size: 2rem; color: var(--matrix-green);"></i>
+                <i class="bi bi-circle-fill" id="status-indicator" style="font-size: 2rem; color: var(--lofi-green);"></i>
             </div>
         </div>
     </div>
@@ -29,7 +29,7 @@
                     <div class="stat-value" id="quick-ai-calls" style="font-size: 1.5rem;">0</div>
                     <small class="text-muted" id="quick-ai-tokens" style="font-size: 0.7rem;">0 tokens</small>
                 </div>
-                <i class="bi bi-cpu" style="font-size: 2rem; color: var(--matrix-cyan);"></i>
+                <i class="bi bi-cpu" style="font-size: 2rem; color: var(--lofi-teal);"></i>
             </div>
         </div>
     </div>
@@ -544,7 +544,7 @@
 
                     if (status.toLowerCase() === 'running') {
                         badgeClass = 'bg-success';
-                        indicatorColor = 'var(--matrix-green)';
+                        indicatorColor = 'var(--lofi-green)';
                     } else if (status.toLowerCase() === 'stopped' || status.toLowerCase() === 'shutdown') {
                         badgeClass = 'bg-danger';
                         indicatorColor = 'var(--danger)';

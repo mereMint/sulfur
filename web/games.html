@@ -5,17 +5,18 @@
 {% block extra_styles %}
 <style>
     .game-card {
-        background: linear-gradient(135deg, rgba(83, 52, 131, 0.3) 0%, rgba(233, 69, 96, 0.3) 100%);
+        background: linear-gradient(135deg, rgba(157, 132, 183, 0.2) 0%, rgba(244, 166, 215, 0.2) 100%);
         border: 2px solid var(--border-color);
-        border-radius: 12px;
+        border-radius: 16px;
         padding: 1.5rem;
-        transition: all 0.3s ease;
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         text-align: center;
     }
     
     .game-card:hover {
-        border-color: var(--accent-primary);
-        transform: scale(1.02);
+        border-color: var(--lofi-purple);
+        transform: translateY(-6px);
+        box-shadow: 0 12px 40px rgba(157, 132, 183, 0.3);
     }
     
     .game-icon {
@@ -24,9 +25,12 @@
     }
     
     .game-stat {
-        font-size: 1.5rem;
+        font-size: 1.8rem;
         font-weight: bold;
-        color: var(--accent-primary);
+        background: linear-gradient(135deg, var(--lofi-purple), var(--lofi-pink));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
     }
 </style>
 {% endblock %}

@@ -4,45 +4,46 @@
 {% block extra_styles %}
 <style>
     .music-card {
-        background: linear-gradient(135deg, rgba(147, 51, 234, 0.2) 0%, rgba(236, 72, 153, 0.2) 100%);
+        background: linear-gradient(135deg, rgba(157, 132, 183, 0.2) 0%, rgba(244, 166, 215, 0.2) 100%);
         border: 2px solid var(--border-color);
-        border-radius: 12px;
+        border-radius: 16px;
         padding: 1.5rem;
-        transition: all 0.3s ease;
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     }
     
     .music-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 0 20px rgba(147, 51, 234, 0.3);
+        transform: translateY(-4px);
+        box-shadow: 0 12px 40px rgba(157, 132, 183, 0.3);
+        border-color: var(--lofi-purple);
     }
     
     .now-playing {
-        border-color: var(--matrix-green);
+        border-color: var(--lofi-green);
         animation: pulse-border 2s ease-in-out infinite;
     }
     
     @keyframes pulse-border {
         0%, 100% {
-            box-shadow: 0 0 10px rgba(0, 255, 65, 0.3);
+            box-shadow: 0 8px 32px rgba(184, 212, 168, 0.3);
         }
         50% {
-            box-shadow: 0 0 25px rgba(0, 255, 65, 0.6);
+            box-shadow: 0 12px 48px rgba(184, 212, 168, 0.5);
         }
     }
     
     .queue-item {
-        background: rgba(13, 17, 23, 0.7);
-        border-left: 3px solid var(--matrix-cyan);
+        background: rgba(26, 26, 46, 0.7);
+        border-left: 3px solid var(--lofi-teal);
         padding: 0.75rem;
         margin-bottom: 0.5rem;
-        border-radius: 4px;
-        transition: all 0.2s ease;
+        border-radius: 8px;
+        transition: all 0.3s ease;
     }
     
     .queue-item:hover {
-        background: rgba(13, 17, 23, 0.9);
-        border-left-color: var(--matrix-green);
-        transform: translateX(5px);
+        background: rgba(26, 26, 46, 0.9);
+        border-left-color: var(--lofi-pink);
+        transform: translateX(8px);
     }
     
     .progress-ring {
@@ -74,7 +75,7 @@
                 <div class="col-md-3 text-center">
                     <div class="position-relative">
                         <img src="" id="album-art" class="img-fluid rounded" style="max-width: 150px; display: none;" alt="Album Art">
-                        <i class="bi bi-disc" id="default-icon" style="font-size: 6rem; color: var(--matrix-green);"></i>
+                        <i class="bi bi-disc" id="default-icon" style="font-size: 6rem; color: var(--lofi-green);"></i>
                     </div>
                 </div>
                 <div class="col-md-7">
@@ -101,8 +102,8 @@
                 </div>
                 <div class="col-md-2 text-center">
                     <div class="mb-3">
-                        <i class="bi bi-people-fill" style="font-size: 2rem; color: var(--matrix-cyan);"></i>
-                        <h4 id="listener-count" style="color: var(--matrix-cyan);">0</h4>
+                        <i class="bi bi-people-fill" style="font-size: 2rem; color: var(--lofi-teal);"></i>
+                        <h4 id="listener-count" style="color: var(--lofi-teal);">0</h4>
                         <small class="text-muted">Listeners</small>
                     </div>
                 </div>
@@ -129,6 +130,72 @@
                 <div class="d-flex justify-content-between">
                     <span>Active Sessions</span>
                     <strong id="active-sessions">0</strong>
+                </div>
+            </div>
+            
+            <!-- Sleep Timer Section -->
+            <hr>
+            <h6 class="mb-3"><i class="bi bi-alarm"></i> Sleep Timer</h6>
+            <div class="mb-2">
+                <div class="input-group input-group-sm">
+                    <input type="number" class="form-control" id="sleep-timer-minutes" 
+                           placeholder="Minutes" min="1" max="480" value="30">
+                    <button class="btn btn-primary" onclick="setSleepTimer()">
+                        <i class="bi bi-alarm-fill"></i> Set
+                    </button>
+                </div>
+            </div>
+            <div id="sleep-timer-status" class="text-muted small" style="display: none;">
+                Timer: <span id="sleep-timer-remaining">-</span>
+                <button class="btn btn-sm btn-link text-danger p-0 ms-2" onclick="cancelSleepTimer()">Cancel</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Album Search Section -->
+<div class="row mb-4 fade-in">
+    <div class="col-12">
+        <div class="card p-4">
+            <h5 class="mb-3"><i class="bi bi-disc"></i> Album Search & Queue</h5>
+            <p class="text-muted small mb-3">Search for an album to see its tracklist and add it to the queue</p>
+            <div class="row">
+                <div class="col-md-5 mb-3">
+                    <input type="text" class="form-control" id="album-name" placeholder="Album Name" required>
+                </div>
+                <div class="col-md-4 mb-3">
+                    <input type="text" class="form-control" id="album-artist" placeholder="Artist (optional)">
+                </div>
+                <div class="col-md-3 mb-3">
+                    <button class="btn btn-primary w-100" onclick="searchAlbum()">
+                        <i class="bi bi-search"></i> Search Album
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Album Results -->
+            <div id="album-results" style="display: none;">
+                <hr>
+                <div class="row">
+                    <div class="col-md-3 text-center">
+                        <img id="album-thumbnail" src="" class="img-fluid rounded mb-2" alt="Album Art" style="max-width: 200px;">
+                    </div>
+                    <div class="col-md-9">
+                        <h5 id="album-title">-</h5>
+                        <p class="text-muted"><i class="bi bi-person"></i> <span id="album-artist-display">-</span></p>
+                        <p class="text-muted"><i class="bi bi-music-note-list"></i> <span id="album-track-count">0</span> tracks</p>
+                        <button class="btn btn-success" onclick="addAlbumToQueue()">
+                            <i class="bi bi-plus-circle"></i> Add All Tracks to Queue
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Tracklist -->
+                <div class="mt-3">
+                    <h6>Tracklist:</h6>
+                    <div id="album-tracklist" style="max-height: 300px; overflow-y: auto;">
+                        <!-- Tracks will be loaded here -->
+                    </div>
                 </div>
             </div>
         </div>
@@ -206,6 +273,7 @@
             
             // Update now playing
             if (data.now_playing && data.now_playing.title) {
+                currentGuildId = data.now_playing.guild_id; // Store guild_id
                 document.getElementById('current-song-title').textContent = data.now_playing.title;
                 document.getElementById('current-song-artist').textContent = data.now_playing.artist || 'Unknown Artist';
                 document.getElementById('current-guild').textContent = `Guild: ${data.now_playing.guild_name || 'Unknown'}`;
@@ -386,5 +454,189 @@
     
     // Load top music on page load
     setTimeout(loadTopMusic, 1000);
+    
+    // ===== Sleep Timer Functions =====
+    let currentGuildId = null; // Will be set from now playing data
+    
+    async function setSleepTimer() {
+        const minutes = parseInt(document.getElementById('sleep-timer-minutes').value);
+        
+        if (!minutes || minutes < 1 || minutes > 480) {
+            alert('Please enter a valid number of minutes (1-480)');
+            return;
+        }
+        
+        if (!currentGuildId) {
+            alert('No active music session detected. Please start playing music first.');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/music/sleep_timer', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    guild_id: currentGuildId,
+                    minutes: minutes
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                document.getElementById('sleep-timer-status').style.display = 'block';
+                updateSleepTimerDisplay(minutes);
+                alert(`Sleep timer set for ${minutes} minutes`);
+            } else {
+                alert(`Error: ${data.error || 'Failed to set sleep timer'}`);
+            }
+        } catch (error) {
+            console.error('Error setting sleep timer:', error);
+            alert('Error setting sleep timer');
+        }
+    }
+    
+    async function cancelSleepTimer() {
+        if (!currentGuildId) {
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/music/sleep_timer/cancel', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({guild_id: currentGuildId})
+            });
+            
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                document.getElementById('sleep-timer-status').style.display = 'none';
+                alert('Sleep timer cancelled');
+            }
+        } catch (error) {
+            console.error('Error cancelling sleep timer:', error);
+        }
+    }
+    
+    function updateSleepTimerDisplay(minutes) {
+        const remainingText = minutes >= 60 
+            ? `${Math.floor(minutes/60)}h ${minutes%60}m remaining`
+            : `${minutes}m remaining`;
+        document.getElementById('sleep-timer-remaining').textContent = remainingText;
+    }
+    
+    // ===== Album Search Functions =====
+    let currentAlbumInfo = null;
+    
+    async function searchAlbum() {
+        const albumName = document.getElementById('album-name').value.trim();
+        const artist = document.getElementById('album-artist').value.trim();
+        
+        if (!albumName) {
+            alert('Please enter an album name');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/music/album/search', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    album_name: albumName,
+                    artist: artist || null
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.status === 'success' && data.album) {
+                currentAlbumInfo = data.album;
+                displayAlbumResults(data.album);
+            } else {
+                alert(`Album not found: ${data.error || 'Unknown error'}`);
+            }
+        } catch (error) {
+            console.error('Error searching album:', error);
+            alert('Error searching for album');
+        }
+    }
+    
+    function displayAlbumResults(album) {
+        document.getElementById('album-results').style.display = 'block';
+        
+        // Set album info
+        document.getElementById('album-title').textContent = album.album_name || 'Unknown Album';
+        document.getElementById('album-artist-display').textContent = album.artist || 'Unknown Artist';
+        document.getElementById('album-track-count').textContent = album.total_tracks || 0;
+        
+        // Set thumbnail if available
+        const thumbnail = document.getElementById('album-thumbnail');
+        if (album.thumbnail) {
+            thumbnail.src = album.thumbnail;
+            thumbnail.style.display = 'block';
+        } else {
+            thumbnail.style.display = 'none';
+        }
+        
+        // Display tracklist
+        const tracklistDiv = document.getElementById('album-tracklist');
+        let html = '<div class="list-group">';
+        
+        album.tracks.forEach((track, index) => {
+            html += `
+                <div class="list-group-item bg-transparent border-secondary">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <span class="badge bg-primary me-2">${track.track_number}</span>
+                            <strong>${track.title}</strong>
+                            <br>
+                            <small class="text-muted ms-4">${track.artist}</small>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        
+        html += '</div>';
+        tracklistDiv.innerHTML = html;
+    }
+    
+    async function addAlbumToQueue() {
+        if (!currentAlbumInfo) {
+            alert('Please search for an album first');
+            return;
+        }
+        
+        if (!currentGuildId) {
+            alert('No active music session detected. Please start playing music first.');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/music/album/queue', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    guild_id: currentGuildId,
+                    album_name: currentAlbumInfo.album_name,
+                    artist: currentAlbumInfo.artist
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                alert(`✅ ${data.message}`);
+                // Refresh dashboard to show updated queue
+                loadMusicDashboard();
+            } else {
+                alert(`Error: ${data.error || 'Failed to add album to queue'}`);
+            }
+        } catch (error) {
+            console.error('Error adding album to queue:', error);
+            alert('Error adding album to queue');
+        }
+    }
 </script>
 {% endblock %}
