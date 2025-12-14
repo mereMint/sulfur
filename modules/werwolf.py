@@ -7,7 +7,7 @@ from modules.api_helpers import get_werwolf_tts_message, get_random_names
 import re
 from modules.fake_user import FakeUser
 import random
-from modules.db_helpers import update_player_stats
+from modules.db_helpers import update_player_stats, update_werwolf_stats
 from modules import stock_market
 
 
@@ -1237,6 +1237,8 @@ class WerwolfGame:
                 won = player.role in winning_roles
                 try:
                     await update_player_stats(player.user.id, player.user.display_name, won)
+                    # Also update werwolf-specific stats
+                    await update_werwolf_stats(player.user.id, player.role, won)
                 except Exception as e:
                     # Log the error but continue cleanup — DB may be down on Termux or elsewhere
                     print(f"  [WW] Warning: failed to update stats for {player.user.display_name} ({player.user.id}): {e}")

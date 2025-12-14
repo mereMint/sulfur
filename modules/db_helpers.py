@@ -1937,6 +1937,77 @@ async def update_player_stats(player_id, display_name, won_game):
         cursor.close()
         cnx.close()
 
+async def update_werwolf_stats(player_id, role, won_game):
+    """Updates a player's werwolf-specific stats in the werwolf_user_stats table."""
+    if not db_pool:
+        logger.warning("Database pool not available, cannot update werwolf stats")
+        return
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return
+
+    cursor = cnx.cursor()
+    try:
+        # Map role names to column names
+        role_column = None
+        if role == "Werwolf":
+            role_column = "times_werewolf"
+        elif role == "Dorfbewohner":
+            role_column = "times_villager"
+        elif role == "Seherin":
+            role_column = "times_seer"
+        elif role == "Hexe":
+            role_column = "times_doctor"
+        
+        # Update stats
+        if won_game:
+            if role_column:
+                query = f"""
+                    INSERT INTO werwolf_user_stats (user_id, total_games, games_won, {role_column}, last_played_at)
+                    VALUES (%s, 1, 1, 1, CURRENT_TIMESTAMP)
+                    ON DUPLICATE KEY UPDATE 
+                        total_games = total_games + 1,
+                        games_won = games_won + 1,
+                        {role_column} = {role_column} + 1,
+                        last_played_at = CURRENT_TIMESTAMP
+                """
+            else:
+                query = """
+                    INSERT INTO werwolf_user_stats (user_id, total_games, games_won, last_played_at)
+                    VALUES (%s, 1, 1, CURRENT_TIMESTAMP)
+                    ON DUPLICATE KEY UPDATE 
+                        total_games = total_games + 1,
+                        games_won = games_won + 1,
+                        last_played_at = CURRENT_TIMESTAMP
+                """
+        else:
+            if role_column:
+                query = f"""
+                    INSERT INTO werwolf_user_stats (user_id, total_games, games_lost, {role_column}, last_played_at)
+                    VALUES (%s, 1, 1, 1, CURRENT_TIMESTAMP)
+                    ON DUPLICATE KEY UPDATE 
+                        total_games = total_games + 1,
+                        games_lost = games_lost + 1,
+                        {role_column} = {role_column} + 1,
+                        last_played_at = CURRENT_TIMESTAMP
+                """
+            else:
+                query = """
+                    INSERT INTO werwolf_user_stats (user_id, total_games, games_lost, last_played_at)
+                    VALUES (%s, 1, 1, CURRENT_TIMESTAMP)
+                    ON DUPLICATE KEY UPDATE 
+                        total_games = total_games + 1,
+                        games_lost = games_lost + 1,
+                        last_played_at = CURRENT_TIMESTAMP
+                """
+        cursor.execute(query, (player_id,))
+        cnx.commit()
+    except mysql.connector.Error as err:
+        print(f"Error updating werwolf stats: {err}")
+    finally:
+        cursor.close()
+        cnx.close()
+
 async def update_user_presence(user_id, display_name, status, activity_name):
     """Updates a user's presence information in the database."""
     if not db_pool:

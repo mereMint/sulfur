@@ -3415,14 +3415,14 @@ def api_users_profiles():
                     p.discord_id as user_id,
                     p.display_name,
                     0 as is_premium,
-                    COALESCE(MAX(us.level), 0) as level,
-                    COALESCE(MAX(us.xp), 0) as xp,
-                    COALESCE(MAX(us.coins), 0) as coins,
+                    COALESCE(p.level, 0) as level,
+                    COALESCE(p.xp, 0) as xp,
+                    COALESCE(p.balance, 0) as coins,
                     COALESCE(MAX(us.message_count), 0) as message_count,
                     (SELECT COUNT(*) FROM music_history mh WHERE mh.user_id = p.discord_id) as songs_played
                 FROM players p
                 LEFT JOIN user_stats us ON p.discord_id = us.user_id
-                GROUP BY p.discord_id, p.display_name
+                GROUP BY p.discord_id, p.display_name, p.level, p.xp, p.balance
                 ORDER BY 
                     level DESC, 
                     xp DESC,
@@ -3483,15 +3483,15 @@ def api_user_profile(user_id):
                     p.discord_id as user_id,
                     p.display_name,
                     0 as is_premium,
-                    COALESCE(MAX(us.level), 0) as level,
-                    COALESCE(MAX(us.xp), 0) as xp,
-                    COALESCE(MAX(us.coins), 0) as coins,
+                    COALESCE(p.level, 0) as level,
+                    COALESCE(p.xp, 0) as xp,
+                    COALESCE(p.balance, 0) as coins,
                     COALESCE(MAX(us.message_count), 0) as message_count,
                     COALESCE(MAX(us.minutes_in_vc), 0) as vc_minutes
                 FROM players p
                 LEFT JOIN user_stats us ON p.discord_id = us.user_id
                 WHERE p.discord_id = %s
-                GROUP BY p.discord_id, p.display_name
+                GROUP BY p.discord_id, p.display_name, p.level, p.xp, p.balance
             """, params=(user_id,))
             
             if not user_info:
