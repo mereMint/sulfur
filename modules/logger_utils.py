@@ -125,13 +125,17 @@ def log_error_with_context(logger, error, context):
     logger.error(f"Traceback:\n{traceback.format_exc()}")
 
 # Create default loggers for each component with file output
-# Generate session-based log file name
-session_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-log_file_path = f'logs/session_{session_timestamp}.log'
+# Generate session-based log file names
+session_timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
 
-bot_logger = setup_logger('Bot', log_file=log_file_path)
-db_logger = setup_logger('Database', log_file=log_file_path)
-api_logger = setup_logger('API', log_file=log_file_path)
-web_logger = setup_logger('WebDashboard', log_file=log_file_path)
-voice_logger = setup_logger('VoiceManager', log_file=log_file_path)
-game_logger = setup_logger('WerwolfGame', log_file=log_file_path)
+# Create separate log files for bot, web, and general session
+bot_log_file = f'logs/bot_{session_timestamp}.log'
+web_log_file = f'logs/web_{session_timestamp}.log'
+session_log_file = f'logs/session_{session_timestamp}.log'
+
+bot_logger = setup_logger('Bot', log_file=bot_log_file)
+db_logger = setup_logger('Database', log_file=bot_log_file)  # DB logs go to bot log
+api_logger = setup_logger('API', log_file=bot_log_file)  # API logs go to bot log
+web_logger = setup_logger('WebDashboard', log_file=web_log_file)
+voice_logger = setup_logger('VoiceManager', log_file=bot_log_file)
+game_logger = setup_logger('WerwolfGame', log_file=bot_log_file)

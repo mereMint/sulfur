@@ -290,10 +290,12 @@
         
         let html = '';
         songs.forEach(song => {
+            const albumInfo = song.album && song.album !== 'Unknown Album' ? `<small class="text-info">📀 ${song.album}</small><br>` : '';
             html += `
                 <div class="queue-item mb-2">
                     <strong>${song.title || 'Unknown'}</strong><br>
                     <small class="text-muted">${song.artist || 'Unknown Artist'}</small><br>
+                    ${albumInfo}
                     <small class="text-muted">${song.played_at || ''}</small>
                 </div>
             `;

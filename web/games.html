@@ -244,17 +244,23 @@
             
             // Update Casino stats
             if (data.casino) {
-                const totalCasino = data.casino.blackjack_games + 
-                                   data.casino.roulette_games + 
-                                   data.casino.mines_games;
+                const totalCasino = data.casino.total_games || 0;
                 document.getElementById('casino-games').textContent = 
                     totalCasino.toLocaleString();
-                document.getElementById('blackjack-games').textContent = 
-                    data.casino.blackjack_games.toLocaleString();
-                document.getElementById('roulette-games').textContent = 
-                    data.casino.roulette_games.toLocaleString();
-                document.getElementById('mines-games').textContent = 
-                    data.casino.mines_games.toLocaleString();
+                
+                // Update individual game stats
+                if (data.casino.blackjack) {
+                    document.getElementById('blackjack-games').textContent = 
+                        data.casino.blackjack.total_games.toLocaleString();
+                }
+                if (data.casino.roulette) {
+                    document.getElementById('roulette-games').textContent = 
+                        data.casino.roulette.total_games.toLocaleString();
+                }
+                if (data.casino.mines) {
+                    document.getElementById('mines-games').textContent = 
+                        data.casino.mines.total_games.toLocaleString();
+                }
             }
         } catch (error) {
             console.error('Error loading games stats:', error);

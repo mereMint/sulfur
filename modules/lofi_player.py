@@ -1445,7 +1445,8 @@ async def play_song_with_queue(
                 song_title=song.get('title', 'Unknown'),
                 song_artist=song.get('artist', 'Unknown'),
                 song_url=song.get('url'),
-                source='bot'
+                source='bot',
+                album=song.get('album')
             )
         
         # Create audio source with volume control
