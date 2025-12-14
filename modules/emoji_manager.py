@@ -290,7 +290,7 @@ async def get_emoji_context_for_ai(client=None):
                     'description': emoji.get('description', 'Custom emoji'),
                     'usage': emoji.get('usage_context', 'General use'),
                     'source': 'discovered'
-                    }
+                }
     
     if not verified_emojis:
         return ""

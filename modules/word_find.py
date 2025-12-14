@@ -854,10 +854,12 @@ async def get_or_create_daily_word(db_helpers, language='de'):
             """, (word, difficulty, language, theme_id, today))
             
             conn.commit()
+            affected_rows = cursor.rowcount
             word_id = cursor.lastrowid
             
-            # If word_id is 0, it means the row already existed, so fetch it
-            if word_id == 0:
+            # rowcount = 1 means INSERT, rowcount = 2 means UPDATE (ON DUPLICATE KEY)
+            # If UPDATE triggered, fetch the existing record to get actual word data
+            if affected_rows == 2 or word_id == 0:
                 cursor.execute("""
                     SELECT id, word, difficulty, language, theme_id FROM word_find_daily
                     WHERE date = %s AND language = %s
