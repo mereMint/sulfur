@@ -3187,9 +3187,12 @@ def api_users_profiles():
                 FROM players p
                 LEFT JOIN user_stats us ON p.discord_id = us.user_id 
                     AND us.stat_period = DATE_FORMAT(NOW(), '%Y-%m')
-                ORDER BY us.level DESC, us.xp DESC
+                ORDER BY 
+                    COALESCE(us.level, 0) DESC, 
+                    COALESCE(us.xp, 0) DESC,
+                    p.display_name ASC
                 LIMIT 500
-            """, fetch_all=True)
+            """, fetch_all=True, default=[])
             
             # Convert to proper format
             users_list = []
