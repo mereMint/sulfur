@@ -843,24 +843,65 @@ async def get_or_create_daily_word(db_helpers, language='de'):
             theme_id = None
             theme_name = None
         
-        # Insert with theme_id
-        cursor.execute("""
-            INSERT INTO word_find_daily (word, difficulty, language, theme_id, date)
-            VALUES (%s, %s, %s, %s, %s)
-        """, (word, difficulty, language, theme_id, today))
-        
-        conn.commit()
-        word_id = cursor.lastrowid
-        
-        logger.info(f"Created new Word Find word for {today} ({language}, {difficulty}, theme={theme_id}): {word}")
-        return {
-            'id': word_id,
-            'word': word,
-            'difficulty': difficulty,
-            'language': language,
-            'theme_id': theme_id,
-            'theme_name': theme_name
-        }
+        # Insert with theme_id using ON DUPLICATE KEY UPDATE to handle race conditions
+        # This prevents duplicate entry errors (1062) when multiple processes try to create
+        # the daily word simultaneously
+        try:
+            cursor.execute("""
+                INSERT INTO word_find_daily (word, difficulty, language, theme_id, date)
+                VALUES (%s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)
+            """, (word, difficulty, language, theme_id, today))
+            
+            conn.commit()
+            affected_rows = cursor.rowcount
+            word_id = cursor.lastrowid
+            
+            # rowcount = 1 means INSERT, rowcount = 2 means UPDATE (ON DUPLICATE KEY)
+            # If UPDATE triggered, fetch the existing record to get actual word data
+            if affected_rows == 2 or word_id == 0:
+                cursor.execute("""
+                    SELECT id, word, difficulty, language, theme_id FROM word_find_daily
+                    WHERE date = %s AND language = %s
+                """, (today, language))
+                existing = cursor.fetchone()
+                if existing:
+                    if existing.get('theme_id'):
+                        theme = get_theme_by_id(existing['theme_id'], language)
+                        if theme:
+                            existing['theme_name'] = theme.get('name', '')
+                    logger.debug(f"Fetched existing Word Find word for {today} ({language}): {existing['word']}")
+                    return existing
+            
+            logger.info(f"Created new Word Find word for {today} ({language}, {difficulty}, theme={theme_id}): {word}")
+            return {
+                'id': word_id,
+                'word': word,
+                'difficulty': difficulty,
+                'language': language,
+                'theme_id': theme_id,
+                'theme_name': theme_name
+            }
+        except Exception as insert_error:
+            # Handle duplicate key error gracefully - fetch existing record
+            if '1062' in str(insert_error) or 'Duplicate entry' in str(insert_error):
+                logger.debug(f"Duplicate entry detected, fetching existing word for {today} ({language})")
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                cursor.execute("""
+                    SELECT id, word, difficulty, language, theme_id FROM word_find_daily
+                    WHERE date = %s AND language = %s
+                """, (today, language))
+                existing = cursor.fetchone()
+                if existing:
+                    if existing.get('theme_id'):
+                        theme = get_theme_by_id(existing['theme_id'], language)
+                        if theme:
+                            existing['theme_name'] = theme.get('name', '')
+                    return existing
+            raise  # Re-raise other errors
     except Exception as e:
         logger.error(f"Database error in get_or_create_daily_word: {e}", exc_info=True)
         try:
@@ -909,6 +950,11 @@ async def get_user_attempts(db_helpers, user_id: int, word_id: int, game_type: s
 async def record_attempt(db_helpers, user_id: int, word_id: int, guess: str, similarity: float, attempt_num: int, game_type: str = 'daily'):
     """Record a guess attempt."""
     try:
+        # Validate word_id to prevent foreign key or invalid ID errors
+        if not word_id or word_id == 0:
+            logger.error(f"Cannot record attempt: Invalid word_id={word_id}")
+            return False
+        
         if not db_helpers.db_pool:
             logger.error("Cannot record attempt: Database pool not available")
             return False
@@ -932,6 +978,10 @@ async def record_attempt(db_helpers, user_id: int, word_id: int, guess: str, sim
             cursor.close()
             conn.close()
     except Exception as e:
+        # Handle foreign key constraint error gracefully
+        if '1452' in str(e) or 'foreign key constraint' in str(e).lower():
+            logger.warning(f"Foreign key constraint error for word_id={word_id}. This may be from an old schema. Attempt not recorded.")
+            return False
         logger.error(f"Error recording attempt for user {user_id}: {e}", exc_info=True)
         logger.error(f"  - word_id: {word_id}, guess: '{guess}', similarity: {similarity}, attempt_num: {attempt_num}, game_type: {game_type}")
         return False

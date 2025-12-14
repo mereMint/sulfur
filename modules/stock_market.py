@@ -74,19 +74,50 @@ async def initialize_stocks(db_helpers):
         cursor = conn.cursor()
         try:
             # Create stocks table if it doesn't exist
+            # Note: current_price uses DECIMAL(18, 8) to handle crypto with very small values (e.g., SHIB at 0.000025)
+            # trend uses DECIMAL(6, 5) to allow values from -9.99999 to 9.99999 (normal trends are ±0.5)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS stocks (
                     symbol VARCHAR(10) PRIMARY KEY,
                     name VARCHAR(100) NOT NULL,
                     category VARCHAR(20) NOT NULL,
-                    current_price DECIMAL(15, 2) NOT NULL,
-                    previous_price DECIMAL(15, 2) NOT NULL,
-                    trend DECIMAL(5, 4) DEFAULT 0,
+                    current_price DECIMAL(18, 8) NOT NULL,
+                    previous_price DECIMAL(18, 8) NOT NULL,
+                    trend DECIMAL(6, 5) DEFAULT 0,
                     last_update TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     volume_today INT DEFAULT 0,
-                    game_influence_factor DECIMAL(5, 4) DEFAULT 0
+                    game_influence_factor DECIMAL(6, 5) DEFAULT 0
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
+            
+            # Migrate existing tables to new decimal precision if needed
+            # This handles existing installations with the old DECIMAL(15, 2) and DECIMAL(5, 4) schema
+            try:
+                cursor.execute("""
+                    ALTER TABLE stocks 
+                    MODIFY COLUMN current_price DECIMAL(18, 8) NOT NULL,
+                    MODIFY COLUMN previous_price DECIMAL(18, 8) NOT NULL,
+                    MODIFY COLUMN trend DECIMAL(6, 5) DEFAULT 0,
+                    MODIFY COLUMN game_influence_factor DECIMAL(6, 5) DEFAULT 0
+                """)
+            except Exception:
+                pass  # Table might not exist yet or columns already have correct type
+            
+            try:
+                cursor.execute("""
+                    ALTER TABLE user_portfolios 
+                    MODIFY COLUMN avg_buy_price DECIMAL(18, 8) NOT NULL
+                """)
+            except Exception:
+                pass  # Table might not exist yet or column already has correct type
+            
+            try:
+                cursor.execute("""
+                    ALTER TABLE stock_history 
+                    MODIFY COLUMN price DECIMAL(18, 8) NOT NULL
+                """)
+            except Exception:
+                pass  # Table might not exist yet or column already has correct type
             
             # Create user portfolios table
             cursor.execute("""
@@ -94,7 +125,7 @@ async def initialize_stocks(db_helpers):
                     user_id BIGINT NOT NULL,
                     stock_symbol VARCHAR(10) NOT NULL,
                     shares INT NOT NULL DEFAULT 0,
-                    avg_buy_price DECIMAL(15, 2) NOT NULL,
+                    avg_buy_price DECIMAL(18, 8) NOT NULL,
                     last_transaction TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (user_id, stock_symbol),
                     FOREIGN KEY (stock_symbol) REFERENCES stocks(symbol) ON DELETE CASCADE
@@ -106,7 +137,7 @@ async def initialize_stocks(db_helpers):
                 CREATE TABLE IF NOT EXISTS stock_history (
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     stock_symbol VARCHAR(10) NOT NULL,
-                    price DECIMAL(15, 2) NOT NULL,
+                    price DECIMAL(18, 8) NOT NULL,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (stock_symbol) REFERENCES stocks(symbol) ON DELETE CASCADE,
                     INDEX idx_symbol_time (stock_symbol, timestamp)

@@ -2809,6 +2809,9 @@ def system_health():
                 try:
                     cpu_percent = process.cpu_percent(interval=0.1)
                     response['process']['cpu_percent'] = round(cpu_percent, 2)
+                except PermissionError:
+                    # This is expected in restricted environments like Termux
+                    logger.debug("Process CPU metrics unavailable (restricted environment)")
                 except Exception as e:
                     logger.warning(f"Could not get process CPU: {e}")
                 
@@ -2825,6 +2828,9 @@ def system_health():
                 try:
                     system_cpu = psutil.cpu_percent(interval=0.1)
                     response['system']['cpu_percent'] = round(system_cpu, 2)
+                except PermissionError:
+                    # This is expected in restricted environments like Termux where /proc/stat is inaccessible
+                    logger.debug("System CPU metrics unavailable (restricted environment)")
                 except Exception as e:
                     logger.warning(f"Could not get system CPU: {e}")
                 
@@ -3598,11 +3604,12 @@ def api_user_profile(user_id):
             cursor = conn.cursor(dictionary=True)
             
             # Get user info - use latest/max stats for the user
+            # Note: 'players' table does not have a 'username' column, only 'display_name'
             user_info = safe_db_query(cursor, """
                 SELECT 
                     p.discord_id as user_id,
                     p.display_name,
-                    p.username,
+                    p.display_name as username,
                     0 as is_premium,
                     COALESCE(p.level, 0) as level,
                     COALESCE(p.xp, 0) as xp,
