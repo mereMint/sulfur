@@ -148,7 +148,11 @@ async def create_mixed_audio_source(stations: List[dict], volumes: Optional[List
         if len(stations) == 1:
             with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
                 info = ydl.extract_info(stations[0]['url'], download=False)
-                audio_url = info['url']
+                audio_url = extract_audio_url(info)
+            
+            if not audio_url:
+                logger.error(f"Could not extract audio URL from: {stations[0]['url']}")
+                return None
             
             # Apply volume filter
             volume_filter = f'volume={volumes[0]}'
@@ -168,7 +172,11 @@ async def create_mixed_audio_source(stations: List[dict], volumes: Optional[List
         # A proper implementation would require custom FFmpeg piping
         with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
             info = ydl.extract_info(stations[0]['url'], download=False)
-            audio_url = info['url']
+            audio_url = extract_audio_url(info)
+        
+        if not audio_url:
+            logger.error(f"Could not extract audio URL from: {stations[0]['url']}")
+            return None
         
         volume_filter = f'volume={volumes[0]}'
         ffmpeg_options = {
@@ -180,6 +188,53 @@ async def create_mixed_audio_source(stations: List[dict], volumes: Optional[List
     except Exception as e:
         logger.error(f"Error creating mixed audio source: {e}", exc_info=True)
         return None
+
+
+def extract_audio_url(info: dict) -> Optional[str]:
+    """
+    Extract audio URL from yt-dlp info dict.
+    Handles various response formats (direct URL, entries, formats).
+    
+    Args:
+        info: Dictionary returned by yt-dlp extract_info()
+    
+    Returns:
+        Audio URL string or None if not found
+    """
+    if not info:
+        return None
+    
+    # Direct URL (most common for single videos/streams)
+    if 'url' in info:
+        return info['url']
+    
+    # For playlists or search results with entries
+    if 'entries' in info and info['entries']:
+        # Get first entry
+        first_entry = info['entries'][0]
+        if 'url' in first_entry:
+            return first_entry['url']
+        # Try formats in first entry
+        if 'formats' in first_entry and first_entry['formats']:
+            # Get best audio format
+            for fmt in reversed(first_entry['formats']):
+                if fmt.get('acodec') != 'none' and 'url' in fmt:
+                    return fmt['url']
+    
+    # Try formats array directly
+    if 'formats' in info and info['formats']:
+        # Get best audio format
+        for fmt in reversed(info['formats']):
+            if fmt.get('acodec') != 'none' and 'url' in fmt:
+                return fmt['url']
+    
+    # Try requested formats
+    if 'requested_formats' in info:
+        for fmt in info['requested_formats']:
+            if fmt.get('acodec') != 'none' and 'url' in fmt:
+                return fmt['url']
+    
+    return None
 
 
 async def play_station(voice_client: discord.VoiceClient, station: dict, volume: float = 1.0) -> bool:
@@ -209,7 +264,11 @@ async def play_station(voice_client: discord.VoiceClient, station: dict, volume:
         logger.info(f"Extracting stream URL: {station['url']}")
         with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
             info = ydl.extract_info(station['url'], download=False)
-            audio_url = info['url']
+            audio_url = extract_audio_url(info)
+        
+        if not audio_url:
+            logger.error(f"Could not extract audio URL from: {station['url']}")
+            return False
         
         # Create audio source with volume control
         volume_filter = f'volume={volume}'
@@ -596,4 +655,300 @@ async def generate_spotify_mix_station(user_id: int, username: str) -> Optional[
     except Exception as e:
         logger.error(f"Error generating Spotify mix station: {e}", exc_info=True)
         return None
+
+
+async def get_spotify_recently_played(user_id: int) -> Optional[List[dict]]:
+    """
+    Get recently played songs from user's Spotify history.
+    
+    Args:
+        user_id: Discord user ID
+    
+    Returns:
+        List of song dictionaries with title and artist, or None
+    """
+    try:
+        from modules.db_helpers import get_spotify_history
+        
+        history = await get_spotify_history(user_id)
+        if not history or len(history) == 0:
+            return None
+        
+        # Sort by play count and get recent songs
+        sorted_songs = sorted(history.items(), key=lambda x: x[1], reverse=True)
+        
+        songs = []
+        for song_key, play_count in sorted_songs[:10]:  # Get top 10
+            # Parse "Song Title by Artist Name"
+            if " by " in song_key:
+                parts = song_key.rsplit(" by ", 1)
+                if len(parts) == 2:
+                    song_title, artist = parts
+                    songs.append({
+                        "title": song_title.strip(),
+                        "artist": artist.strip(),
+                        "play_count": play_count
+                    })
+        
+        return songs if songs else None
+        
+    except Exception as e:
+        logger.error(f"Error getting recently played: {e}", exc_info=True)
+        return None
+
+
+async def search_youtube_song(song_title: str, artist: str) -> Optional[str]:
+    """
+    Search for a song on YouTube and return the video URL.
+    
+    Args:
+        song_title: Song title
+        artist: Artist name
+    
+    Returns:
+        YouTube video URL or None
+    """
+    try:
+        import yt_dlp
+        
+        search_query = f"{artist} {song_title}"
+        search_url = f"ytsearch1:{search_query}"  # ytsearch1 returns only first result
+        
+        with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
+            info = ydl.extract_info(search_url, download=False)
+            
+            # Extract URL from search result
+            if info and 'entries' in info and info['entries']:
+                video_info = info['entries'][0]
+                video_id = video_info.get('id')
+                if video_id:
+                    return f"https://www.youtube.com/watch?v={video_id}"
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error searching YouTube for {artist} - {song_title}: {e}")
+        return None
+
+
+async def get_related_songs(video_url: str, count: int = 5) -> List[dict]:
+    """
+    Get related/recommended songs from a YouTube video.
+    Uses yt-dlp to extract related videos as recommendations.
+    
+    Args:
+        video_url: YouTube video URL
+        count: Number of related songs to get
+    
+    Returns:
+        List of song dictionaries with title and url
+    """
+    try:
+        import yt_dlp
+        
+        # Use modified options to get related videos
+        ydl_options = {**YDL_OPTIONS, 'extract_flat': True}
+        
+        with yt_dlp.YoutubeDL(ydl_options) as ydl:
+            info = ydl.extract_info(video_url, download=False)
+            
+            related_songs = []
+            
+            # Try to get related videos from various fields
+            # Note: YouTube API changes may affect availability
+            if info:
+                # Method 1: Check for related videos in info
+                # This may not always be available depending on yt-dlp version
+                
+                # Method 2: Use search with similar query
+                title = info.get('title', '')
+                uploader = info.get('uploader', '')
+                
+                if title:
+                    # Search for similar songs
+                    search_query = f"{title} {uploader} similar"
+                    search_url = f"ytsearch{count}:{search_query}"
+                    
+                    search_info = ydl.extract_info(search_url, download=False)
+                    
+                    if search_info and 'entries' in search_info:
+                        for entry in search_info['entries'][:count]:
+                            if entry and entry.get('id'):
+                                related_songs.append({
+                                    'title': entry.get('title', 'Unknown'),
+                                    'url': f"https://www.youtube.com/watch?v={entry['id']}",
+                                    'artist': entry.get('uploader', 'Unknown')
+                                })
+            
+            return related_songs
+        
+    except Exception as e:
+        logger.error(f"Error getting related songs: {e}")
+        return []
+
+
+async def play_song_with_queue(
+    voice_client: discord.VoiceClient,
+    song: dict,
+    guild_id: int,
+    volume: float = 1.0
+) -> bool:
+    """
+    Play a song and set up queue to play next song when finished.
+    
+    Args:
+        voice_client: Connected Discord voice client
+        song: Song dictionary with 'url' or 'title'/'artist'
+        guild_id: Guild ID for session tracking
+        volume: Volume level (0.0-1.0)
+    
+    Returns:
+        True if playback started successfully, False otherwise
+    """
+    try:
+        import yt_dlp
+        
+        if not voice_client or not voice_client.is_connected():
+            logger.error("Voice client not connected")
+            return False
+        
+        # Stop any currently playing audio
+        if voice_client.is_playing():
+            voice_client.stop()
+        
+        # Get song URL if we have title/artist instead
+        if 'url' not in song:
+            if 'title' in song and 'artist' in song:
+                song_url = await search_youtube_song(song['title'], song['artist'])
+                if not song_url:
+                    logger.error(f"Could not find song: {song['artist']} - {song['title']}")
+                    return False
+                song['url'] = song_url
+            else:
+                logger.error("Song missing URL and title/artist")
+                return False
+        
+        # Extract audio URL using yt-dlp
+        logger.info(f"Extracting audio URL for: {song.get('title', song['url'])}")
+        with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
+            info = ydl.extract_info(song['url'], download=False)
+            audio_url = extract_audio_url(info)
+        
+        if not audio_url:
+            logger.error(f"Could not extract audio URL from: {song['url']}")
+            return False
+        
+        # Get related songs for queue
+        related_songs = await get_related_songs(song['url'], count=5)
+        
+        # Store in active session
+        if guild_id not in active_sessions:
+            active_sessions[guild_id] = {}
+        
+        active_sessions[guild_id]['queue'] = related_songs
+        active_sessions[guild_id]['current_song'] = song
+        active_sessions[guild_id]['volume'] = volume
+        
+        # Create audio source with volume control
+        volume_filter = f'volume={volume}'
+        ffmpeg_options = {
+            'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+            'options': f'-vn -af "{volume_filter}"'
+        }
+        audio_source = discord.FFmpegPCMAudio(audio_url, **ffmpeg_options)
+        
+        # Define after callback to play next song
+        def after_callback(error):
+            if error:
+                logger.error(f"Playback error: {error}")
+            else:
+                # Schedule next song
+                asyncio.run_coroutine_threadsafe(
+                    play_next_in_queue(voice_client, guild_id),
+                    voice_client.loop
+                )
+        
+        # Play audio with callback
+        voice_client.play(audio_source, after=after_callback)
+        
+        logger.info(f"Started playback: {song.get('title', song['url'])}")
+        return True
+        
+    except ImportError:
+        logger.error("yt-dlp not installed. Install with: pip install yt-dlp")
+        return False
+    except Exception as e:
+        logger.error(f"Error playing song with queue: {e}", exc_info=True)
+        return False
+
+
+async def play_next_in_queue(voice_client: discord.VoiceClient, guild_id: int) -> bool:
+    """
+    Play the next song in the queue.
+    
+    Args:
+        voice_client: Connected Discord voice client
+        guild_id: Guild ID
+    
+    Returns:
+        True if next song started, False otherwise
+    """
+    try:
+        if guild_id not in active_sessions or 'queue' not in active_sessions[guild_id]:
+            logger.info("No queue found, stopping playback")
+            return False
+        
+        queue = active_sessions[guild_id]['queue']
+        volume = active_sessions[guild_id].get('volume', 1.0)
+        
+        if not queue:
+            logger.info("Queue empty, stopping playback")
+            return False
+        
+        # Get next song (pop from front)
+        next_song = queue.pop(0)
+        
+        # Play it
+        return await play_song_with_queue(voice_client, next_song, guild_id, volume)
+        
+    except Exception as e:
+        logger.error(f"Error playing next in queue: {e}", exc_info=True)
+        return False
+
+
+async def start_spotify_queue(
+    voice_client: discord.VoiceClient,
+    user_id: int,
+    guild_id: int,
+    volume: float = 1.0
+) -> bool:
+    """
+    Start playing from user's Spotify recently played with automatic queue.
+    
+    Args:
+        voice_client: Connected Discord voice client
+        user_id: Discord user ID
+        guild_id: Guild ID
+        volume: Volume level (0.0-1.0)
+    
+    Returns:
+        True if started successfully, False otherwise
+    """
+    try:
+        # Get recently played songs
+        recent_songs = await get_spotify_recently_played(user_id)
+        
+        if not recent_songs:
+            logger.info(f"No Spotify history for user {user_id}")
+            return False
+        
+        # Start with most played song
+        first_song = recent_songs[0]
+        
+        # Play it with queue
+        return await play_song_with_queue(voice_client, first_song, guild_id, volume)
+        
+    except Exception as e:
+        logger.error(f"Error starting Spotify queue: {e}", exc_info=True)
+        return False
 
