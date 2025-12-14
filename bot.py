@@ -17005,16 +17005,15 @@ async def on_message(message):
             except AttributeError as ae:
                 logger.debug(f"[MIND] Bot mind module not available: {ae}")
         
-        # --- NEW: Passive observation and thinking about messages ---
-        # The bot observes messages even when not mentioned to build context and awareness
-        if message.guild and not message.content.startswith('/'):
-            try:
-                observer = passive_observer.get_passive_observer()
-                thought = await observer.observe_message(message, bot_mind, config)
-                if thought:
-                    logger.info(f"[PASSIVE] Bot thought: {thought}")
-            except Exception as e:
-                logger.debug(f"[PASSIVE] Observation error: {e}")
+        # --- TODO: Passive observation and thinking about messages ---
+        # The bot should observe messages even when not mentioned to build context and awareness
+        # This feature is planned but not yet fully implemented
+        # if message.guild and not message.content.startswith('/'):
+        #     try:
+        #         # Passive observation would go here - currently not implemented
+        #         pass
+        #     except Exception as e:
+        #         logger.debug(f"[PASSIVE] Observation error: {e}")
         
         # --- NEW: Focus timer activity detection ---
         try:

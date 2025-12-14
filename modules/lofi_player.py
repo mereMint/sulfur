@@ -1460,13 +1460,27 @@ async def play_song_with_queue(
                 album=song.get('album')
             )
         
-        # Create audio source with volume control
+        # Create audio source with volume control and optional timestamp handling for album tracks
         volume_filter = f'volume={volume}'
-        ffmpeg_options = {
-            'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+        
+        # Handle album tracks with start/end timestamps
+        before_options = '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5'
+        if 'start_time' in song and song['start_time'] > 0:
+            before_options += f" -ss {song['start_time']}"
+            logger.info(f"Starting playback from {song['start_time']}s for track: {song.get('title', 'Unknown')}")
+        
+        ffmpeg_options_dict = {
+            'before_options': before_options,
             'options': f'-vn -af "{volume_filter}"'
         }
-        audio_source = discord.FFmpegPCMAudio(audio_url, **ffmpeg_options)
+        
+        # Add duration limit if end_time is specified (for album tracks)
+        if 'end_time' in song and 'start_time' in song and song['end_time'] > song['start_time']:
+            duration = song['end_time'] - song['start_time']
+            ffmpeg_options_dict['options'] = f'-vn -t {duration} -af "{volume_filter}"'
+            logger.info(f"Limiting playback duration to {duration}s for track: {song.get('title', 'Unknown')}")
+        
+        audio_source = discord.FFmpegPCMAudio(audio_url, **ffmpeg_options_dict)
         
         # Define after callback to play next song
         def after_callback(error):
