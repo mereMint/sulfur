@@ -13,83 +13,140 @@ from typing import Optional, Dict, List
 from modules.logger_utils import bot_logger as logger
 
 # Music stations dictionary - organized by type
+# Each station can have alternatives in case the primary URL is unavailable
 MUSIC_STATIONS = {
     "lofi": [
         {
             "name": "📚 Beats to Relax/Study",
             "url": "https://www.youtube.com/watch?v=jfKfPfyJRdk",
-            "type": "lofi"
+            "type": "lofi",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=5qap5aO4i9A",  # lofi hip hop radio
+                "https://www.youtube.com/watch?v=lTRiuFIWV54"   # study music
+            ]
         },
         {
             "name": "🎧 Beats to Sleep/Chill",
             "url": "https://www.youtube.com/watch?v=rUxyKA_-grg",
-            "type": "lofi"
+            "type": "lofi",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=DWcJFNfaw9c",  # relaxing music
+                "https://www.youtube.com/watch?v=7NOSDKb0HlU"   # chill beats
+            ]
         }
     ],
     "nocopyright": [
         {
             "name": "🎵 No Copyright Music",
             "url": "https://www.youtube.com/watch?v=7NOSDKb0HlU",
-            "type": "nocopyright"
+            "type": "nocopyright",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=lTRiuFIWV54",
+                "https://www.youtube.com/watch?v=K4DyBUG242c"
+            ]
         },
         {
             "name": "🎸 Royalty Free Music",
             "url": "https://www.youtube.com/watch?v=lTRiuFIWV54",
-            "type": "nocopyright"
+            "type": "nocopyright",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=K4DyBUG242c",
+                "https://www.youtube.com/watch?v=7NOSDKb0HlU"
+            ]
         }
     ],
     "ambient": [
         {
             "name": "🌧️ Rain Sounds",
             "url": "https://www.youtube.com/watch?v=mPZkdNFkNps",
-            "type": "ambient"
+            "type": "ambient",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=q76bMs-NwRk",
+                "https://www.youtube.com/watch?v=nDq6TstdEi8"
+            ]
         },
         {
             "name": "🌊 Ocean Waves",
             "url": "https://www.youtube.com/watch?v=WHPEKLQID4U",
-            "type": "ambient"
+            "type": "ambient",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=V1bFr2SWP1I",
+                "https://www.youtube.com/watch?v=bn9F19Hi1Lk"
+            ]
         },
         {
             "name": "🔥 Fireplace Sounds",
             "url": "https://www.youtube.com/watch?v=UgHKb_7884o",
-            "type": "ambient"
+            "type": "ambient",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=eyU3bRy2x44",
+                "https://www.youtube.com/watch?v=L_LUpnjgPso"
+            ]
         },
         {
             "name": "☕ Coffee Shop Ambience",
             "url": "https://www.youtube.com/watch?v=h2zkV-l_TbY",
-            "type": "ambient"
+            "type": "ambient",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=gaJXeMGDCeE",
+                "https://www.youtube.com/watch?v=5Qv2Aw0BGww"
+            ]
         },
         {
             "name": "🌳 Forest Sounds",
             "url": "https://www.youtube.com/watch?v=eKFTSSKCzWA",
-            "type": "ambient"
+            "type": "ambient",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=xNN7iTA57jM",
+                "https://www.youtube.com/watch?v=d0tU18Ybcvk"
+            ]
         }
     ],
     "noise": [
         {
             "name": "⚪ White Noise",
             "url": "https://www.youtube.com/watch?v=nMfPqeZjc2c",
-            "type": "noise"
+            "type": "noise",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=wzjWIxXBs_s",
+                "https://www.youtube.com/watch?v=ArwcHjmsw3A"
+            ]
         },
         {
             "name": "🎀 Pink Noise",
             "url": "https://www.youtube.com/watch?v=ZXtimhT-ff4",
-            "type": "noise"
+            "type": "noise",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=YoNhkapEgy8",
+                "https://www.youtube.com/watch?v=oWOJfFkym8w"
+            ]
         },
         {
             "name": "🟤 Brown Noise",
             "url": "https://www.youtube.com/watch?v=RqzGzwTY-6w",
-            "type": "noise"
+            "type": "noise",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=GSaJXDsb3N8",
+                "https://www.youtube.com/watch?v=FcWgjCDPiP4"
+            ]
         },
         {
             "name": "🌊 Blue Noise",
             "url": "https://www.youtube.com/watch?v=H0JcLOE-pXY",
-            "type": "noise"
+            "type": "noise",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=x3SLP4b8H7c",
+                "https://www.youtube.com/watch?v=vAupipbJJ2M"
+            ]
         },
         {
             "name": "🔇 Grey Noise",
             "url": "https://www.youtube.com/watch?v=_vb4nzF4VFA",
-            "type": "noise"
+            "type": "noise",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=1KaOrSuWZeM",
+                "https://www.youtube.com/watch?v=9sHfAfbmfiM"
+            ]
         }
     ]
 }
@@ -279,9 +336,76 @@ def extract_audio_url(info: dict) -> Optional[str]:
     return None
 
 
+async def check_station_availability(station: dict) -> bool:
+    """
+    Check if a music station URL is available and working.
+    
+    Args:
+        station: Station dictionary with 'url'
+    
+    Returns:
+        True if available, False otherwise
+    """
+    try:
+        import yt_dlp
+        
+        # Quick check without downloading
+        ydl_options = {**YDL_OPTIONS, 'skip_download': True, 'quiet': True}
+        
+        with yt_dlp.YoutubeDL(ydl_options) as ydl:
+            info = ydl.extract_info(station['url'], download=False)
+            audio_url = extract_audio_url(info)
+            
+            if audio_url:
+                logger.debug(f"Station available: {station.get('name', station['url'])}")
+                return True
+            else:
+                logger.warning(f"Station unavailable: {station.get('name', station['url'])}")
+                return False
+                
+    except Exception as e:
+        logger.warning(f"Station check failed for {station.get('name', station['url'])}: {e}")
+        return False
+
+
+async def get_working_station(station: dict) -> Optional[dict]:
+    """
+    Get a working station URL, checking alternatives if primary fails.
+    
+    Args:
+        station: Station dictionary with 'url' and optional 'alternatives'
+    
+    Returns:
+        Station dict with working URL, or None if none work
+    """
+    try:
+        # Try primary URL first
+        if await check_station_availability(station):
+            return station
+        
+        # Try alternatives if available
+        alternatives = station.get('alternatives', [])
+        if alternatives:
+            logger.info(f"Primary URL failed, trying {len(alternatives)} alternatives")
+            
+            for i, alt_url in enumerate(alternatives, 1):
+                alt_station = {**station, 'url': alt_url}
+                if await check_station_availability(alt_station):
+                    logger.info(f"Alternative {i} works: {alt_url}")
+                    return alt_station
+        
+        logger.error(f"No working URL found for station: {station.get('name')}")
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error getting working station: {e}")
+        return None
+
+
 async def play_station(voice_client: discord.VoiceClient, station: dict, volume: float = 1.0) -> bool:
     """
     Play a single music station in a voice channel.
+    Automatically tries alternatives if primary URL fails.
     
     Args:
         voice_client: Connected Discord voice client
@@ -302,14 +426,20 @@ async def play_station(voice_client: discord.VoiceClient, station: dict, volume:
         if voice_client.is_playing():
             voice_client.stop()
         
+        # Get working station (tries alternatives if needed)
+        working_station = await get_working_station(station)
+        if not working_station:
+            logger.error(f"No working URL for station: {station.get('name')}")
+            return False
+        
         # Extract audio URL using yt-dlp
-        logger.info(f"Extracting stream URL: {station['url']}")
+        logger.info(f"Extracting stream URL: {working_station['url']}")
         with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-            info = ydl.extract_info(station['url'], download=False)
+            info = ydl.extract_info(working_station['url'], download=False)
             audio_url = extract_audio_url(info)
         
         if not audio_url:
-            logger.error(f"Could not extract audio URL from: {station['url']}")
+            logger.error(f"Could not extract audio URL from: {working_station['url']}")
             return False
         
         # Create audio source with volume control
