@@ -172,6 +172,7 @@ MAX_QUEUE_FAILURES = 3
 TARGET_QUEUE_SIZE = 80  # Total songs in queue (~4-5 hours of playback)
 HISTORY_PERCENTAGE = 0.75  # 75% history, 25% AI
 HISTORY_REPEAT_COUNT = 8  # For history-only mode
+TOP_SONGS_POOL_SIZE = 5  # Number of top songs to randomly select from for first song
 
 # FFmpeg options for streaming
 FFMPEG_OPTIONS = {
@@ -1460,13 +1461,34 @@ async def play_song_with_queue(
                 album=song.get('album')
             )
         
-        # Create audio source with volume control
+        # Create audio source with volume control and optional timestamp handling for album tracks
         volume_filter = f'volume={volume}'
-        ffmpeg_options = {
-            'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+        
+        # Handle album tracks with start/end timestamps (sanitize and validate inputs)
+        before_options = '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5'
+        MAX_TIMESTAMP = 86400  # 24 hours max to prevent resource exhaustion
+        
+        if 'start_time' in song and isinstance(song['start_time'], (int, float)) and song['start_time'] > 0:
+            # Ensure start_time is a valid number within reasonable bounds
+            start_time = min(float(song['start_time']), MAX_TIMESTAMP)
+            before_options += f" -ss {start_time}"
+            logger.info(f"Starting playback from {start_time}s for track: {song.get('title', 'Unknown')}")
+        
+        ffmpeg_options_dict = {
+            'before_options': before_options,
             'options': f'-vn -af "{volume_filter}"'
         }
-        audio_source = discord.FFmpegPCMAudio(audio_url, **ffmpeg_options)
+        
+        # Add duration limit if end_time is specified (for album tracks)
+        if ('end_time' in song and isinstance(song['end_time'], (int, float)) and 
+            'start_time' in song and isinstance(song['start_time'], (int, float)) and 
+            song['end_time'] > song['start_time']):
+            # Sanitize duration calculation with bounds checking
+            duration = min(float(song['end_time']) - float(song['start_time']), MAX_TIMESTAMP)
+            ffmpeg_options_dict['options'] = f'-vn -t {duration} -af "{volume_filter}"'
+            logger.info(f"Limiting playback duration to {duration}s for track: {song.get('title', 'Unknown')}")
+        
+        audio_source = discord.FFmpegPCMAudio(audio_url, **ffmpeg_options_dict)
         
         # Define after callback to play next song
         def after_callback(error):
@@ -1850,9 +1872,14 @@ async def start_spotify_queue(
             seen.add(song_key)
             return False
         
-        # Start with the most played song from history
-        first_song = recent_songs[0].copy()
-        is_duplicate(first_song, seen_songs)  # Add to seen set
+        # Start with a random song from top songs instead of always the same one
+        # This provides variety while still favoring popular tracks
+        if recent_songs:
+            first_song = random.choice(recent_songs[:min(TOP_SONGS_POOL_SIZE, len(recent_songs))]).copy()
+            is_duplicate(first_song, seen_songs)  # Add to seen set
+        else:
+            logger.error("No recent songs available for user")
+            return False
         
         # Create extended history pool (repeat top songs for better ratio)
         history_pool = []

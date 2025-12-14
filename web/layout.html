@@ -491,8 +491,96 @@
             100% { background-position: 200% center; }
         }
         
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
+            }
+        }
+        
         .fade-in {
             animation: fadeIn 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .slide-in {
+            animation: slideIn 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        /* Loading Skeleton */
+        .skeleton {
+            background: linear-gradient(
+                90deg,
+                rgba(157, 132, 183, 0.1) 25%,
+                rgba(244, 166, 215, 0.1) 50%,
+                rgba(157, 132, 183, 0.1) 75%
+            );
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+            border-radius: 8px;
+        }
+        
+        .skeleton-text {
+            height: 1rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .skeleton-title {
+            height: 2rem;
+            width: 60%;
+            margin-bottom: 1rem;
+        }
+        
+        .skeleton-card {
+            height: 200px;
+        }
+        
+        /* Smooth Page Transitions */
+        .page-transition {
+            animation: fadeIn 0.4s ease-in-out;
+        }
+        
+        /* Hover Effects */
+        .hover-lift {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .hover-lift:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 24px rgba(157, 132, 183, 0.2);
+        }
+        
+        /* Scrollbar Styling - Lofi */
+        ::-webkit-scrollbar {
+            width: 10px;
+            height: 10px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: rgba(26, 26, 46, 0.6);
+            border-radius: 10px;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(135deg, var(--lofi-purple), var(--lofi-pink));
+            border-radius: 10px;
+            border: 2px solid rgba(26, 26, 46, 0.6);
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(135deg, var(--lofi-pink), var(--lofi-purple));
         }
         
         /* Utility Classes - Lofi Style */
@@ -745,10 +833,25 @@
                     </li>
                 </ul>
                 <div class="d-flex align-items-center">
-                    <span class="badge bg-success me-2" id="status-badge">
+                    <!-- Theme Toggle -->
+                    <button class="btn btn-sm btn-outline-secondary me-2" 
+                            id="theme-toggle" 
+                            data-bs-toggle="tooltip" 
+                            data-bs-placement="bottom" 
+                            title="Toggle Theme (Ctrl+T)">
+                        <i class="bi bi-moon-stars" id="theme-icon"></i>
+                    </button>
+                    <span class="badge bg-success me-2" id="status-badge"
+                          data-bs-toggle="tooltip" 
+                          data-bs-placement="bottom" 
+                          title="Bot Status">
                         <i class="bi bi-circle-fill"></i> ONLINE
                     </span>
-                    <span class="text-muted" style="font-size: 0.75rem;" id="system-time"></span>
+                    <span class="text-muted" style="font-size: 0.75rem;" 
+                          id="system-time"
+                          data-bs-toggle="tooltip" 
+                          data-bs-placement="bottom" 
+                          title="Current UTC Time"></span>
                 </div>
             </div>
         </div>
@@ -770,8 +873,71 @@
         {% block content %}{% endblock %}
     </div>
     
+    <!-- Footer -->
+    <footer class="container-fluid px-3 px-md-4 py-4 mt-5 border-top" style="border-color: var(--border-color) !important;">
+        <div class="row align-items-center">
+            <div class="col-md-6 text-center text-md-start mb-3 mb-md-0">
+                <span class="text-muted" style="font-size: 0.85rem;">
+                    <i class="bi bi-lightning-charge"></i> Sulfur Bot Dashboard
+                    <span class="mx-2">|</span>
+                    <i class="bi bi-code-slash"></i> Built with 
+                    <i class="bi bi-heart-fill" style="color: var(--lofi-pink);"></i> 
+                    and lofi vibes
+                </span>
+            </div>
+            <div class="col-md-6 text-center text-md-end">
+                <span class="text-muted" style="font-size: 0.75rem;">
+                    Press <kbd>?</kbd> for keyboard shortcuts
+                    <span class="mx-2">|</span>
+                    <i class="bi bi-github"></i> <a href="https://github.com/mereMint/sulfur" target="_blank" rel="noopener noreferrer" class="text-decoration-none" style="color: var(--lofi-purple);">GitHub</a>
+                </span>
+            </div>
+        </div>
+    </footer>
+    
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        // Theme Toggle Functionality
+        const themes = {
+            dark: { theme: 'dark', icon: 'moon-stars' },
+            light: { theme: 'light', icon: 'sun-fill' }
+        };
+        
+        function getTheme() {
+            return localStorage.getItem('theme') || 'dark';
+        }
+        
+        function setTheme(themeName) {
+            const html = document.documentElement;
+            const themeIcon = document.getElementById('theme-icon');
+            
+            if (themeName === 'light') {
+                html.setAttribute('data-bs-theme', 'light');
+                if (themeIcon) themeIcon.className = 'bi bi-sun-fill';
+                // Light theme adjustments
+                document.body.style.setProperty('--bg-primary', '#f8f9fa');
+                document.body.style.setProperty('--bg-secondary', '#ffffff');
+                document.body.style.setProperty('--text-primary', '#212529');
+                document.body.style.setProperty('--text-secondary', '#6c757d');
+            } else {
+                html.setAttribute('data-bs-theme', 'dark');
+                if (themeIcon) themeIcon.className = 'bi bi-moon-stars';
+                // Dark theme (default lofi colors)
+                document.body.style.setProperty('--bg-primary', '#0f0f1e');
+                document.body.style.setProperty('--bg-secondary', '#1a1a2e');
+                document.body.style.setProperty('--text-primary', '#e8e8f0');
+                document.body.style.setProperty('--text-secondary', '#a8a8b8');
+            }
+            
+            localStorage.setItem('theme', themeName);
+        }
+        
+        function toggleTheme() {
+            const current = getTheme();
+            const newTheme = current === 'dark' ? 'light' : 'dark';
+            setTheme(newTheme);
+        }
+        
         // Update system time
         function updateSystemTime() {
             const now = new Date();
@@ -782,8 +948,97 @@
             }
         }
         
+        // Keyboard Shortcuts
+        document.addEventListener('keydown', function(e) {
+            // Ctrl+T or Cmd+T for theme toggle
+            if ((e.ctrlKey || e.metaKey) && e.key === 't') {
+                e.preventDefault();
+                toggleTheme();
+            }
+            // Ctrl+K or Cmd+K for search (if search exists)
+            if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+                e.preventDefault();
+                const searchInput = document.querySelector('input[type="text"], input[type="search"]');
+                if (searchInput) searchInput.focus();
+            }
+            // Escape to close modals
+            if (e.key === 'Escape') {
+                const modals = document.querySelectorAll('.modal.show');
+                modals.forEach(modal => {
+                    const bsModal = bootstrap.Modal.getInstance(modal);
+                    if (bsModal) bsModal.hide();
+                });
+            }
+        });
+        
+        // Show keyboard shortcuts on ? key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === '?' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                const activeEl = document.activeElement;
+                if (activeEl.tagName !== 'INPUT' && activeEl.tagName !== 'TEXTAREA') {
+                    e.preventDefault();
+                    showKeyboardShortcuts();
+                }
+            }
+        });
+        
+        function showKeyboardShortcuts() {
+            const shortcuts = `
+                <div class="modal fade" id="shortcutsModal" tabindex="-1">
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title"><i class="bi bi-keyboard"></i> Keyboard Shortcuts</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                            </div>
+                            <div class="modal-body">
+                                <table class="table table-sm">
+                                    <tbody>
+                                        <tr><td><kbd>Ctrl</kbd> + <kbd>T</kbd></td><td>Toggle theme</td></tr>
+                                        <tr><td><kbd>Ctrl</kbd> + <kbd>K</kbd></td><td>Focus search</td></tr>
+                                        <tr><td><kbd>Esc</kbd></td><td>Close modals</td></tr>
+                                        <tr><td><kbd>?</kbd></td><td>Show shortcuts</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Remove existing modal if present
+            const existingModal = document.getElementById('shortcutsModal');
+            if (existingModal) {
+                // Properly dispose of Bootstrap modal instance before removing
+                const modalInstance = bootstrap.Modal.getInstance(existingModal);
+                if (modalInstance) {
+                    modalInstance.dispose();
+                }
+                existingModal.remove();
+            }
+            
+            // Add and show new modal
+            document.body.insertAdjacentHTML('beforeend', shortcuts);
+            const modal = new bootstrap.Modal(document.getElementById('shortcutsModal'));
+            modal.show();
+            
+            // Remove modal from DOM when hidden
+            document.getElementById('shortcutsModal').addEventListener('hidden.bs.modal', function() {
+                this.remove();
+            });
+        }
+        
         // Auto-hide alerts after 5 seconds
         document.addEventListener('DOMContentLoaded', function() {
+            // Initialize theme
+            setTheme(getTheme());
+            
+            // Theme toggle button
+            const themeToggle = document.getElementById('theme-toggle');
+            if (themeToggle) {
+                themeToggle.addEventListener('click', toggleTheme);
+            }
+            
             updateSystemTime();
             setInterval(updateSystemTime, 1000);
             
@@ -793,6 +1048,24 @@
                     const bsAlert = new bootstrap.Alert(alert);
                     bsAlert.close();
                 }, 5000);
+            });
+            
+            // Initialize all Bootstrap tooltips
+            const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            tooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+            
+            // Page transition effect
+            document.body.classList.add('page-transition');
+            
+            // Add loading states to buttons that trigger actions (optional enhancement)
+            // Note: This is a simple implementation for basic buttons
+            // Complex buttons with special HTML should implement their own loading state
+            document.querySelectorAll('button.btn:not([data-bs-toggle])').forEach(button => {
+                if (button.hasAttribute('onclick')) {
+                    button.setAttribute('data-loading-text', 'Loading...');
+                }
             });
         });
     </script>
