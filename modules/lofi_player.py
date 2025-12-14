@@ -983,7 +983,8 @@ async def play_next_in_queue(voice_client: discord.VoiceClient, guild_id: int) -
             logger.info("Queue empty, stopping playback")
             return False
         
-        # Shuffle remaining queue for variety (but keep next song the same)
+        # Shuffle remaining queue for variety after each song
+        # Keep the immediate next song (first in queue) stable, shuffle the rest
         if len(queue) > 1:
             # Keep first song, shuffle the rest
             first_song = queue[0]
