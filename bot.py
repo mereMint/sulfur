@@ -3317,6 +3317,47 @@ async def on_voice_state_update(member, before, after):
     # Check if bot's voice client needs to handle empty channel
     if member.guild.voice_client:
         await lofi_player.on_voice_state_update_handler(member.guild.voice_client, member.guild.id)
+    
+    # --- NEW: Handle bot being disconnected/moved (auto-reconnect for music) ---
+    if member.bot and member.id == client.user.id:
+        # Bot's voice state changed
+        if before.channel and not after.channel:
+            # Bot was disconnected from voice
+            guild_id = member.guild.id
+            
+            # Check if there was an active music session
+            if guild_id in lofi_player.active_sessions:
+                session = lofi_player.active_sessions[guild_id]
+                
+                # Check if there are listeners who want music
+                if 'user_id' in session and before.channel:
+                    # Get non-bot members in the channel the bot left
+                    human_members = [m for m in before.channel.members if not m.bot]
+                    
+                    # If there are still people in the channel, try to reconnect
+                    if human_members:
+                        logger.info(f"Bot disconnected from voice with active session, attempting reconnect in 2 seconds...")
+                        
+                        # Wait a moment before reconnecting to avoid race conditions
+                        await asyncio.sleep(2)
+                        
+                        try:
+                            # Try to rejoin the channel
+                            voice_client = await before.channel.connect()
+                            logger.info(f"Reconnected to voice channel: {before.channel.name}")
+                            
+                            # Resume playback if there was a current song
+                            current_song = session.get('current_song')
+                            if current_song:
+                                # Try to resume from where we left off
+                                user_id = session.get('user_id')
+                                volume = session.get('volume', 1.0)
+                                await lofi_player.play_song_with_queue(voice_client, current_song, guild_id, volume, user_id)
+                                logger.info(f"Resumed music playback after reconnection")
+                        except Exception as e:
+                            logger.error(f"Failed to reconnect to voice: {e}")
+                            # Clean up session if reconnection failed
+                            lofi_player.active_sessions.pop(guild_id, None)
 
     # --- NEW: Handle "Join to Create" logic first, passing config ---
     await voice_manager.handle_voice_state_update(member, before, after, config)
@@ -15444,9 +15485,14 @@ async def get_current_song_embed(guild_id: int, user_id: int, voice_client) -> O
     song_artist = current_song.get('artist', 'Unbekannt')
     song_url = current_song.get('url', '')
     station_type = current_song.get('type', 'custom')
+    song_source = current_song.get('source', '')  # Check if AI-curated
     
     # Get station name
     station_name = STATION_DISPLAY.get(station_type, '🎵 Music')
+    
+    # Add AI indicator if song is AI-curated
+    if song_source == 'ai':
+        song_title = f"🤖 {song_title}"  # Add AI emoji to title
     
     if song_url:
         embed.add_field(
@@ -16209,7 +16255,7 @@ class PlaybackControlView(discord.ui.View):
         self.add_item(clear_button)
     
     async def skip_callback(self, interaction: discord.Interaction):
-        """Skip the current song."""
+        """Skip the current song and show the next song info."""
         await interaction.response.defer(ephemeral=True)
         
         guild_id = interaction.guild.id
@@ -16236,12 +16282,27 @@ class PlaybackControlView(discord.ui.View):
         # Stop current song (this will trigger the after_callback to play next)
         voice_client.stop()
         
-        embed = discord.Embed(
-            title="⏭️ Song übersprungen",
-            description="Nächster Song wird geladen...",
-            color=discord.Color.blue()
-        )
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        # Wait briefly for next song to start
+        await asyncio.sleep(1.5)
+        
+        # Get the now playing info for the next song
+        embed = await get_current_song_embed(guild_id, interaction.user.id, voice_client)
+        
+        if embed:
+            # Add skip notification
+            embed.title = "⏭️ Song übersprungen"
+            embed.set_thumbnail(url=interaction.user.display_avatar.url)
+            # Show playback controls for the new song
+            view = PlaybackControlView(paused=False)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        else:
+            # Fallback if next song info not available yet
+            embed = discord.Embed(
+                title="⏭️ Song übersprungen",
+                description="Nächster Song wird geladen...",
+                color=discord.Color.blue()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
     
     async def pause_callback(self, interaction: discord.Interaction):
         """Pause or resume playback."""

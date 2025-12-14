@@ -893,26 +893,31 @@ async def get_ai_curated_songs(user_id: int, username: str, count: int = 25) -> 
         
         history_text = "\n".join(history_context)
         
-        # Create prompt for AI
+        # Create prompt for AI - improved for better accuracy
         prompt = f"""Based on {username}'s music listening history, recommend {count} songs that match their taste profile.
 
-Their top songs:
+Their top songs (sorted by play count):
 {history_text}
 
-Analyze their taste and recommend {count} similar songs that they would enjoy. Focus on:
-1. Similar genres and artists
-2. Songs that complement their current favorites
-3. Include some variety but stay within their taste profile
-4. Prefer well-known songs over obscure tracks
-5. NO shorts, remixes, or low-quality content
+Analyze their music taste and recommend {count} NEW songs (NOT already in their history) that they would enjoy. 
 
-Return ONLY a JSON array with this exact format (no other text):
+IMPORTANT REQUIREMENTS:
+1. Recommend songs from similar genres and related artists
+2. Choose well-known, popular songs that are easily findable on YouTube
+3. Use EXACT official song titles and artist names (no typos or variations)
+4. NO remixes, covers, live versions, or acoustic versions
+5. NO compilation videos, mashups, or medleys
+6. Songs should be 2-7 minutes long (typical song length)
+7. Prefer songs from established artists
+8. Do NOT recommend songs already in their listening history above
+
+Return ONLY a JSON array with this exact format (no other text, no markdown):
 [
-  {{"title": "Song Name", "artist": "Artist Name"}},
+  {{"title": "Exact Song Title", "artist": "Exact Artist Name"}},
   ...
 ]
 
-Be precise with song and artist names for accurate YouTube searches."""
+Double-check that titles and artist names are spelled correctly for YouTube search accuracy.
         
         # Get AI recommendations
         # Load config to pass to API
@@ -1444,12 +1449,14 @@ async def play_song_with_queue(
         # Track in music history
         if user_id:
             from modules.db_helpers import add_music_history
+            # Determine source - check if this is an AI-curated song
+            source = song.get('source', 'bot')
             await add_music_history(
                 user_id=user_id,
                 song_title=song.get('title', 'Unknown'),
                 song_artist=song.get('artist', 'Unknown'),
                 song_url=song.get('url'),
-                source='bot',
+                source=source,  # Will be 'ai' for AI-curated songs
                 album=song.get('album')
             )
         
@@ -1475,13 +1482,29 @@ async def play_song_with_queue(
                 if guild_id in active_sessions and 'event_loop' in active_sessions[guild_id]:
                     loop = active_sessions[guild_id]['event_loop']
                     
-                    # Calculate duration if tracking
-                    # Note: Duration tracking is logged but not persisted to allow for lightweight history
-                    # In future, could batch-update durations or store in separate table
+                    # Calculate duration and track listening time
                     if 'song_start_time' in active_sessions[guild_id]:
-                        duration = int(loop.time() - active_sessions[guild_id]['song_start_time'])
-                        if duration > 0:
-                            logger.debug(f"Song played for {duration} seconds")
+                        duration_seconds = int(loop.time() - active_sessions[guild_id]['song_start_time'])
+                        if duration_seconds > 0:
+                            duration_minutes = duration_seconds / 60.0
+                            logger.debug(f"Song played for {duration_seconds} seconds ({duration_minutes:.2f} minutes)")
+                            
+                            # Track listening time for all users in the voice channel
+                            current_song = active_sessions[guild_id].get('current_song')
+                            if current_song and voice_client:
+                                song_title = current_song.get('title', 'Unknown')
+                                song_artist = current_song.get('artist', 'Unknown')
+                                # Schedule async tracking task
+                                asyncio.run_coroutine_threadsafe(
+                                    track_listening_time(
+                                        voice_client, 
+                                        guild_id, 
+                                        song_title, 
+                                        song_artist, 
+                                        duration_minutes
+                                    ),
+                                    loop
+                                )
                     
                     # Play next song
                     asyncio.run_coroutine_threadsafe(
@@ -1782,6 +1805,7 @@ async def start_spotify_queue(
     - 70-80% songs from user's actual listening history
     - 20-30% AI-curated songs based on taste profile
     - AI generates 25 recommendations that are interleaved with history
+    - Ensures no duplicate songs in the queue
     
     Args:
         voice_client: Connected Discord voice client
@@ -1816,15 +1840,30 @@ async def start_spotify_queue(
         
         # Build queue with mixed strategy
         queue = []
+        seen_songs = set()  # Track seen songs to prevent duplicates
+        
+        # Helper function to check for duplicates
+        def is_duplicate(song, seen):
+            song_key = f"{song.get('title', '').lower().strip()}|{song.get('artist', '').lower().strip()}"
+            if song_key in seen:
+                return True
+            seen.add(song_key)
+            return False
         
         # Start with the most played song from history
-        first_song = recent_songs[0]
+        first_song = recent_songs[0].copy()
+        is_duplicate(first_song, seen_songs)  # Add to seen set
         
         # Create extended history pool (repeat top songs for better ratio)
-        history_pool = recent_songs.copy()
-        # Duplicate top 5 songs for higher play probability
-        if len(history_pool) >= 5:
-            history_pool.extend(recent_songs[:5])
+        history_pool = []
+        for song in recent_songs:
+            history_pool.append(song.copy())
+        
+        # Add top 5 songs again for higher play probability (but only if not creating immediate duplicates)
+        if len(recent_songs) >= 5:
+            for song in recent_songs[:5]:
+                history_pool.append(song.copy())
+        
         random.shuffle(history_pool)
         
         # Build mixed queue (70-80% history, 20-30% AI)
@@ -1833,16 +1872,29 @@ async def start_spotify_queue(
             target_history = int(TARGET_QUEUE_SIZE * HISTORY_PERCENTAGE)  # 60
             target_ai = TARGET_QUEUE_SIZE - target_history  # 20
             
-            # Create history queue (with repeats to reach target) - efficient multiplication
-            if len(history_pool) > 0:
-                repeat_count = (target_history // len(history_pool)) + 1
-                history_queue = (history_pool * repeat_count)[:target_history]
-            else:
-                history_queue = []
+            # Create history queue with duplicate prevention
+            history_queue = []
+            for song in history_pool:
+                if len(history_queue) >= target_history:
+                    break
+                if not is_duplicate(song, seen_songs):
+                    history_queue.append(song.copy())
             
-            # Shuffle both pools
-            random.shuffle(history_queue)
-            ai_queue = ai_curated_songs.copy()
+            # If we need more songs, repeat the cycle
+            while len(history_queue) < target_history:
+                for song in history_pool:
+                    if len(history_queue) >= target_history:
+                        break
+                    # Allow duplicates after first pass but space them out
+                    history_queue.append(song.copy())
+            
+            # Prepare AI queue with duplicate checking
+            ai_queue = []
+            for song in ai_curated_songs:
+                if not is_duplicate(song, seen_songs):
+                    ai_queue.append(song.copy())
+                    song['source'] = 'ai'  # Mark as AI-curated for tracking
+            
             random.shuffle(ai_queue)
             
             # Interleave: 3-4 history songs, then 1 AI song
@@ -1859,15 +1911,16 @@ async def start_spotify_queue(
                 queue.append(ai_queue[ai_index])
                 ai_index += 1
             
-            logger.info(f"Built queue: {len(history_queue)} history + {min(len(ai_queue), target_ai)} AI = {len(queue)} total songs")
+            logger.info(f"Built queue: {len(history_queue)} history + {len(ai_queue)} AI = {len(queue)} total songs (no duplicates)")
         else:
             # No AI curation available, use only history
             logger.info("AI curation not available, using history only")
-            # Extend history to build longer queue using defined constant
-            for _ in range(HISTORY_REPEAT_COUNT):  # Repeat 8 times = ~80 songs
-                for song in history_pool:
+            # Build queue with spaced repetitions to avoid immediate duplicates
+            for cycle in range(HISTORY_REPEAT_COUNT):
+                shuffled_pool = history_pool.copy()
+                random.shuffle(shuffled_pool)
+                for song in shuffled_pool:
                     queue.append(song.copy())
-            random.shuffle(queue)
         
         # Play first song with queue, passing user_id for tracking
         success = await play_song_with_queue(voice_client, first_song, guild_id, volume, user_id)
@@ -2139,5 +2192,110 @@ def get_sleep_timer_status(guild_id: int) -> Optional[dict]:
     except Exception as e:
         logger.error(f"Error getting sleep timer status: {e}", exc_info=True)
         return None
+
+
+async def update_persistent_now_playing(guild_id: int, channel, bot_user):
+    """
+    Update or create a persistent 'now playing' message in the channel.
+    Edits the same message instead of creating new ones.
+    
+    Args:
+        guild_id: Guild ID
+        channel: Text channel to send/edit message in
+        bot_user: Bot user object for embed thumbnail
+    
+    Returns:
+        Message object if successful, None otherwise
+    """
+    try:
+        import discord
+        
+        if guild_id not in active_sessions:
+            return None
+        
+        session = active_sessions[guild_id]
+        current_song = session.get('current_song')
+        
+        if not current_song:
+            return None
+        
+        # Get or create persistent message reference
+        persistent_msg = session.get('persistent_now_playing_msg')
+        
+        # Create embed
+        embed = discord.Embed(
+            title="🎵 Now Playing",
+            color=discord.Color.blue()
+        )
+        
+        song_title = current_song.get('title', 'Unknown')
+        song_artist = current_song.get('artist', 'Unknown')
+        song_url = current_song.get('url', '')
+        song_source = current_song.get('source', '')
+        
+        # Add AI indicator
+        if song_source == 'ai':
+            song_title = f"🤖 {song_title}"
+        
+        if song_url:
+            embed.add_field(
+                name="🎧 Song",
+                value=f"**{song_title}**\nby {song_artist}\n[Link]({song_url})",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="🎧 Song",
+                value=f"**{song_title}**\nby {song_artist}",
+                inline=False
+            )
+        
+        # Add queue info
+        queue = session.get('queue', [])
+        embed.add_field(
+            name="📋 Queue",
+            value=f"{len(queue)} songs remaining",
+            inline=True
+        )
+        
+        # Add voice client info
+        voice_client = session.get('voice_client')
+        if voice_client and voice_client.channel:
+            embed.add_field(
+                name="📍 Channel",
+                value=voice_client.channel.name,
+                inline=True
+            )
+        
+        embed.set_footer(text="Updates automatically • Use /music for controls")
+        embed.set_thumbnail(url=bot_user.display_avatar.url if bot_user else None)
+        
+        # Try to edit existing message, or create new one
+        if persistent_msg:
+            try:
+                # Try to fetch and edit the message
+                msg = await channel.fetch_message(persistent_msg['message_id'])
+                await msg.edit(embed=embed)
+                logger.debug(f"Updated persistent now playing message in guild {guild_id}")
+                return msg
+            except (discord.NotFound, discord.HTTPException) as e:
+                logger.debug(f"Could not edit persistent message, creating new one: {e}")
+                # Message was deleted or error, create new one
+                persistent_msg = None
+        
+        # Create new message if no persistent one exists
+        if not persistent_msg:
+            msg = await channel.send(embed=embed)
+            session['persistent_now_playing_msg'] = {
+                'message_id': msg.id,
+                'channel_id': channel.id
+            }
+            logger.debug(f"Created persistent now playing message in guild {guild_id}")
+            return msg
+        
+    except Exception as e:
+        logger.error(f"Error updating persistent now playing: {e}", exc_info=True)
+        return None
+
 
 
