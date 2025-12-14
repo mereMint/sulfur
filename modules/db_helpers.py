@@ -636,6 +636,34 @@ def initialize_database(max_retries=3, retry_delay=2):
             )
         """)
         
+        # Add columns to music_history for better tracking
+        cursor.execute("SHOW COLUMNS FROM music_history LIKE 'title'")
+        if not cursor.fetchone():
+            cursor.execute("ALTER TABLE music_history ADD COLUMN title VARCHAR(500) NULL AFTER song_title")
+            cursor.execute("UPDATE music_history SET title = song_title WHERE title IS NULL")
+        
+        cursor.execute("SHOW COLUMNS FROM music_history LIKE 'artist'")
+        if not cursor.fetchone():
+            cursor.execute("ALTER TABLE music_history ADD COLUMN artist VARCHAR(500) NULL AFTER song_artist")
+            cursor.execute("UPDATE music_history SET artist = song_artist WHERE artist IS NULL")
+        
+        # Create listening_time table for detailed tracking
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS listening_time (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                guild_id BIGINT NOT NULL,
+                channel_id BIGINT NOT NULL,
+                listened_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                duration_minutes DECIMAL(10,2) NOT NULL DEFAULT 0,
+                song_title VARCHAR(500) NULL,
+                song_artist VARCHAR(500) NULL,
+                INDEX idx_user_id (user_id),
+                INDEX idx_listened_at (listened_at),
+                INDEX idx_guild_id (guild_id)
+            )
+        """)
+        
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS trolly_responses (
                 response_id INT AUTO_INCREMENT PRIMARY KEY,

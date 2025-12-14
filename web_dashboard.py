@@ -2874,6 +2874,342 @@ def api_voice_call_stats():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
+# --- NEW: Music Dashboard Routes ---
+
+@app.route('/music_dashboard', methods=['GET'])
+def music_dashboard_page():
+    """Render music dashboard page."""
+    return render_template('music_dashboard.html')
+
+
+@app.route('/api/music/status', methods=['GET'])
+def api_music_status():
+    """API endpoint for current music playback status."""
+    try:
+        from modules import lofi_player
+        
+        # Get active sessions from lofi_player
+        active_sessions = lofi_player.active_sessions
+        
+        now_playing = None
+        queue = []
+        stats = {
+            'total_songs_played': 0,
+            'queue_length': 0,
+            'listening_time_today_minutes': 0,
+            'active_sessions': len(active_sessions)
+        }
+        
+        # Get info from first active session if any
+        if active_sessions:
+            guild_id = list(active_sessions.keys())[0]
+            session = active_sessions[guild_id]
+            
+            # Get current song
+            current_song = lofi_player.get_current_song(guild_id)
+            if current_song:
+                voice_client = session.get('voice_client')
+                now_playing = {
+                    'title': current_song.get('title', 'Unknown'),
+                    'artist': current_song.get('artist', 'Unknown Artist'),
+                    'guild_name': voice_client.guild.name if voice_client and voice_client.guild else 'Unknown',
+                    'channel_name': voice_client.channel.name if voice_client and voice_client.channel else 'Unknown',
+                    'listeners': len(voice_client.channel.members) if voice_client and voice_client.channel else 0,
+                    'elapsed_seconds': 0,  # Would need tracking
+                    'duration_seconds': 0  # Would need from video info
+                }
+            
+            # Get queue
+            queue = lofi_player.get_queue_preview(guild_id, count=10)
+            stats['queue_length'] = lofi_player.get_queue_length(guild_id)
+        
+        # Get total songs played from database
+        if db_helpers.db_pool:
+            conn = None
+            cursor = None
+            try:
+                conn = db_helpers.get_db_connection()
+                if conn:
+                    cursor = conn.cursor(dictionary=True)
+                    
+                    # Get total songs played
+                    result = safe_db_query(cursor, """
+                        SELECT COUNT(*) as count FROM music_history
+                    """)
+                    stats['total_songs_played'] = result.get('count', 0) if result else 0
+                    
+                    # Get listening time today
+                    result = safe_db_query(cursor, """
+                        SELECT COALESCE(SUM(duration_minutes), 0) as minutes 
+                        FROM listening_time 
+                        WHERE DATE(listened_at) = CURDATE()
+                    """)
+                    stats['listening_time_today_minutes'] = int(result.get('minutes', 0) or 0) if result else 0
+                    
+            except Exception as e:
+                logger.error(f"Error querying music stats: {e}")
+            finally:
+                if cursor:
+                    cursor.close()
+                if conn:
+                    conn.close()
+        
+        # Get recent songs
+        recent_songs = []
+        if db_helpers.db_pool:
+            conn = None
+            cursor = None
+            try:
+                conn = db_helpers.get_db_connection()
+                if conn:
+                    cursor = conn.cursor(dictionary=True)
+                    recent = safe_db_query(cursor, """
+                        SELECT title, artist, played_at 
+                        FROM music_history 
+                        ORDER BY played_at DESC 
+                        LIMIT 10
+                    """, fetch_all=True)
+                    if recent:
+                        for song in recent:
+                            recent_songs.append({
+                                'title': song.get('title', 'Unknown'),
+                                'artist': song.get('artist', 'Unknown'),
+                                'played_at': str(song.get('played_at', ''))
+                            })
+            except Exception as e:
+                logger.error(f"Error querying recent songs: {e}")
+            finally:
+                if cursor:
+                    cursor.close()
+                if conn:
+                    conn.close()
+        
+        return jsonify({
+            'now_playing': now_playing,
+            'queue': queue,
+            'recent_songs': recent_songs,
+            'stats': stats
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting music status: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/music/top', methods=['GET'])
+def api_music_top():
+    """API endpoint for top songs and artists."""
+    try:
+        if not db_helpers.db_pool:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        conn = None
+        cursor = None
+        try:
+            conn = db_helpers.get_db_connection()
+            if not conn:
+                return jsonify({'error': 'Failed to get database connection'}), 500
+            
+            cursor = conn.cursor(dictionary=True)
+            
+            # Get top songs
+            top_songs = safe_db_query(cursor, """
+                SELECT title, artist, COUNT(*) as play_count
+                FROM music_history
+                WHERE played_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+                GROUP BY title, artist
+                ORDER BY play_count DESC
+                LIMIT 10
+            """, fetch_all=True)
+            
+            # Get top artists
+            top_artists = safe_db_query(cursor, """
+                SELECT artist, COUNT(*) as play_count
+                FROM music_history
+                WHERE played_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+                AND artist IS NOT NULL AND artist != ''
+                GROUP BY artist
+                ORDER BY play_count DESC
+                LIMIT 10
+            """, fetch_all=True)
+            
+            return jsonify({
+                'top_songs': top_songs or [],
+                'top_artists': top_artists or []
+            })
+            
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
+        
+    except Exception as e:
+        logger.error(f"Error getting top music: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# --- NEW: User Profiles Routes ---
+
+@app.route('/user_profiles', methods=['GET'])
+def user_profiles_page():
+    """Render user profiles page."""
+    return render_template('user_profiles.html')
+
+
+@app.route('/api/users/profiles', methods=['GET'])
+def api_users_profiles():
+    """API endpoint to get all user profiles."""
+    try:
+        if not db_helpers.db_pool:
+            return jsonify({'error': 'Database not available', 'users': []}), 500
+        
+        conn = None
+        cursor = None
+        try:
+            conn = db_helpers.get_db_connection()
+            if not conn:
+                return jsonify({'error': 'Failed to get database connection', 'users': []}), 500
+            
+            cursor = conn.cursor(dictionary=True)
+            
+            # Get user profiles with stats
+            users = safe_db_query(cursor, """
+                SELECT 
+                    p.discord_id as user_id,
+                    p.display_name,
+                    p.premium_user as is_premium,
+                    COALESCE(us.level, 0) as level,
+                    COALESCE(us.xp, 0) as xp,
+                    COALESCE(us.coins, 0) as coins,
+                    COALESCE(us.message_count, 0) as message_count,
+                    (SELECT COUNT(*) FROM music_history mh WHERE mh.user_id = p.discord_id) as songs_played
+                FROM players p
+                LEFT JOIN user_stats us ON p.discord_id = us.user_id 
+                    AND us.stat_period = DATE_FORMAT(NOW(), '%Y-%m')
+                ORDER BY us.level DESC, us.xp DESC
+                LIMIT 500
+            """, fetch_all=True)
+            
+            # Convert to proper format
+            users_list = []
+            for user in (users or []):
+                users_list.append({
+                    'user_id': user.get('user_id'),
+                    'display_name': user.get('display_name', 'Unknown'),
+                    'avatar_url': None,  # Could fetch from Discord API
+                    'is_premium': bool(user.get('is_premium')),
+                    'level': int(user.get('level', 0) or 0),
+                    'xp': int(user.get('xp', 0) or 0),
+                    'coins': int(user.get('coins', 0) or 0),
+                    'message_count': int(user.get('message_count', 0) or 0),
+                    'songs_played': int(user.get('songs_played', 0) or 0)
+                })
+            
+            return jsonify({
+                'users': users_list,
+                'count': len(users_list)
+            })
+            
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
+        
+    except Exception as e:
+        logger.error(f"Error getting user profiles: {e}")
+        return jsonify({'error': str(e), 'users': []}), 500
+
+
+@app.route('/api/users/profile/<int:user_id>', methods=['GET'])
+def api_user_profile(user_id):
+    """API endpoint to get detailed user profile."""
+    try:
+        if not db_helpers.db_pool:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        conn = None
+        cursor = None
+        try:
+            conn = db_helpers.get_db_connection()
+            if not conn:
+                return jsonify({'error': 'Failed to get database connection'}), 500
+            
+            cursor = conn.cursor(dictionary=True)
+            
+            # Get user info
+            user_info = safe_db_query(cursor, """
+                SELECT 
+                    p.discord_id as user_id,
+                    p.display_name,
+                    p.premium_user as is_premium,
+                    COALESCE(us.level, 0) as level,
+                    COALESCE(us.xp, 0) as xp,
+                    COALESCE(us.coins, 0) as coins,
+                    COALESCE(us.message_count, 0) as message_count,
+                    COALESCE(us.minutes_in_vc, 0) as vc_minutes
+                FROM players p
+                LEFT JOIN user_stats us ON p.discord_id = us.user_id 
+                    AND us.stat_period = DATE_FORMAT(NOW(), '%Y-%m')
+                WHERE p.discord_id = %s
+            """, params=(user_id,))
+            
+            if not user_info:
+                return jsonify({'error': 'User not found'}), 404
+            
+            # Get favorite songs
+            favorite_songs = safe_db_query(cursor, """
+                SELECT title, artist, COUNT(*) as play_count
+                FROM music_history
+                WHERE user_id = %s
+                GROUP BY title, artist
+                ORDER BY play_count DESC
+                LIMIT 5
+            """, params=(user_id,), fetch_all=True)
+            
+            # Get total listening time
+            listening_time = safe_db_query(cursor, """
+                SELECT COALESCE(SUM(duration_minutes), 0) as total_minutes
+                FROM listening_time
+                WHERE user_id = %s
+            """, params=(user_id,))
+            
+            # Format response
+            user_profile = {
+                'user_id': user_info.get('user_id'),
+                'display_name': user_info.get('display_name', 'Unknown'),
+                'avatar_url': None,
+                'is_premium': bool(user_info.get('is_premium')),
+                'level': int(user_info.get('level', 0) or 0),
+                'xp': int(user_info.get('xp', 0) or 0),
+                'coins': int(user_info.get('coins', 0) or 0),
+                'message_count': int(user_info.get('message_count', 0) or 0),
+                'songs_played': len(favorite_songs) if favorite_songs else 0,
+                'listening_time_minutes': int(listening_time.get('total_minutes', 0) or 0) if listening_time else 0,
+                'favorite_songs': [
+                    {
+                        'title': song.get('title', 'Unknown'),
+                        'artist': song.get('artist', 'Unknown'),
+                        'play_count': int(song.get('play_count', 0) or 0)
+                    }
+                    for song in (favorite_songs or [])
+                ]
+            }
+            
+            return jsonify({'user': user_profile})
+            
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
+        
+    except Exception as e:
+        logger.error(f"Error getting user profile: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     # Start the log following thread
     log_thread = threading.Thread(target=follow_log_file, daemon=True)
