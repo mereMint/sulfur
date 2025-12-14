@@ -3414,7 +3414,7 @@ def api_users_profiles():
                 SELECT 
                     p.discord_id as user_id,
                     p.display_name,
-                    p.premium_user as is_premium,
+                    0 as is_premium,
                     COALESCE(MAX(us.level), 0) as level,
                     COALESCE(MAX(us.xp), 0) as xp,
                     COALESCE(MAX(us.coins), 0) as coins,
@@ -3422,7 +3422,7 @@ def api_users_profiles():
                     (SELECT COUNT(*) FROM music_history mh WHERE mh.user_id = p.discord_id) as songs_played
                 FROM players p
                 LEFT JOIN user_stats us ON p.discord_id = us.user_id
-                GROUP BY p.discord_id, p.display_name, p.premium_user
+                GROUP BY p.discord_id, p.display_name
                 ORDER BY 
                     level DESC, 
                     xp DESC,
@@ -3482,7 +3482,7 @@ def api_user_profile(user_id):
                 SELECT 
                     p.discord_id as user_id,
                     p.display_name,
-                    p.premium_user as is_premium,
+                    0 as is_premium,
                     COALESCE(MAX(us.level), 0) as level,
                     COALESCE(MAX(us.xp), 0) as xp,
                     COALESCE(MAX(us.coins), 0) as coins,
@@ -3491,7 +3491,7 @@ def api_user_profile(user_id):
                 FROM players p
                 LEFT JOIN user_stats us ON p.discord_id = us.user_id
                 WHERE p.discord_id = %s
-                GROUP BY p.discord_id, p.display_name, p.premium_user
+                GROUP BY p.discord_id, p.display_name
             """, params=(user_id,))
             
             if not user_info:
