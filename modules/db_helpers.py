@@ -1937,6 +1937,62 @@ async def update_player_stats(player_id, display_name, won_game):
         cursor.close()
         cnx.close()
 
+async def update_werwolf_stats(player_id, role, won_game):
+    """Updates a player's werwolf-specific stats in the werwolf_user_stats table."""
+    if not db_pool:
+        logger.warning("Database pool not available, cannot update werwolf stats")
+        return
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return
+
+    cursor = cnx.cursor()
+    try:
+        # Map role names to column names - whitelist of valid columns
+        role_columns = {
+            'Werwolf': 'times_werewolf',
+            'Dorfbewohner': 'times_villager',
+            'Seherin': 'times_seer',
+            'Hexe': 'times_doctor'
+        }
+        role_column = role_columns.get(role)
+        
+        # Build base stats update
+        base_columns = "user_id, total_games, last_played_at"
+        base_values = "(%s, 1, CURRENT_TIMESTAMP)"
+        base_updates = "total_games = total_games + 1, last_played_at = CURRENT_TIMESTAMP"
+        
+        # Add win/loss specific columns
+        if won_game:
+            base_columns += ", games_won"
+            base_values = "(%s, 1, 1, CURRENT_TIMESTAMP)"
+            base_updates += ", games_won = games_won + 1"
+        else:
+            base_columns += ", games_lost"
+            base_values = "(%s, 1, 1, CURRENT_TIMESTAMP)"
+            base_updates += ", games_lost = games_lost + 1"
+        
+        # Add role-specific column if valid role
+        if role_column:
+            # Only add if the role is in our whitelist - prevents SQL injection
+            base_columns += f", {role_column}"
+            base_values = base_values.replace("CURRENT_TIMESTAMP)", "1, CURRENT_TIMESTAMP)")
+            base_updates += f", {role_column} = {role_column} + 1"
+        
+        query = f"""
+            INSERT INTO werwolf_user_stats ({base_columns})
+            VALUES {base_values}
+            ON DUPLICATE KEY UPDATE {base_updates}
+        """
+        
+        cursor.execute(query, (player_id,))
+        cnx.commit()
+    except mysql.connector.Error as err:
+        print(f"Error updating werwolf stats: {err}")
+    finally:
+        cursor.close()
+        cnx.close()
+
 async def update_user_presence(user_id, display_name, status, activity_name):
     """Updates a user's presence information in the database."""
     if not db_pool:
