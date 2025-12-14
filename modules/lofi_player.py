@@ -211,7 +211,7 @@ def notify_dashboard(event_type: str, guild_id: int, data: dict = None):
     if _dashboard_update_callback:
         try:
             import asyncio
-            # Try to run callback asynchronously if possible
+            # Try to schedule callback asynchronously if an event loop is running
             try:
                 loop = asyncio.get_running_loop()
                 asyncio.run_coroutine_threadsafe(
@@ -219,8 +219,8 @@ def notify_dashboard(event_type: str, guild_id: int, data: dict = None):
                     loop
                 )
             except RuntimeError:
-                # No running loop, run synchronously
-                asyncio.run(_dashboard_update_callback(event_type, guild_id, data or {}))
+                # No running loop - just log and skip (non-critical feature)
+                logger.debug(f"Cannot notify dashboard (no event loop): {event_type}")
         except Exception as e:
             logger.debug(f"Dashboard callback error (non-critical): {e}")
 
@@ -286,7 +286,7 @@ def is_stop_locked(guild_id: int) -> bool:
 
 # FFmpeg options for streaming with better reconnection handling
 FFMPEG_OPTIONS = {
-    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -reconnect_on_network_error 1 -reconnect_on_http_error 4xx,5xx',
+    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -reconnect_on_network_error 1',
     'options': '-vn -bufsize 512k'
 }
 

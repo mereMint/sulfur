@@ -16116,9 +16116,12 @@ class MusicControlView(discord.ui.View):
         await lofi_player.stop_lofi(voice_client, user_id=interaction.user.id)
         await lofi_player.leave_voice_channel(voice_client)
         
+        # Calculate timeout in minutes from the constant
+        timeout_minutes = lofi_player.STOP_LOCK_TIMEOUT // 60
+        
         embed = discord.Embed(
             title="⏹️ Musik gestoppt",
-            description=f"## Playback beendet\n*Bis zum nächsten Mal!*\n\n*Der Bot wird für 5 Minuten nicht automatisch wieder beitreten.*",
+            description=f"## Playback beendet\n*Bis zum nächsten Mal!*\n\n*Der Bot wird für {timeout_minutes} Minuten nicht automatisch wieder beitreten.*",
             color=discord.Color.green()
         )
         embed.add_field(
