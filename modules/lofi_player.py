@@ -7,6 +7,7 @@ Supports multiple station types, audio mixing, and auto-disconnect.
 """
 
 import asyncio
+import random
 import discord
 from typing import Optional, Dict, List
 from modules.logger_utils import bot_logger as logger
@@ -882,7 +883,6 @@ async def play_song_with_queue(
             active_sessions[guild_id] = {}
         
         # Shuffle related songs for variety
-        import random
         random.shuffle(related_songs)
         
         active_sessions[guild_id]['queue'] = related_songs
@@ -921,15 +921,14 @@ async def play_song_with_queue(
             
             # Schedule next song using asyncio (whether error or not)
             try:
-                import asyncio
                 loop = asyncio.get_event_loop()
                 
                 # Calculate duration if tracking
+                # Note: Duration tracking is logged but not persisted to allow for lightweight history
+                # In future, could batch-update durations or store in separate table
                 if guild_id in active_sessions and 'song_start_time' in active_sessions[guild_id]:
                     duration = int(loop.time() - active_sessions[guild_id]['song_start_time'])
-                    # Update music history with duration if we have user_id
-                    if user_id and duration > 0:
-                        # We can't easily update the last entry, so we'll just log it
+                    if duration > 0:
                         logger.debug(f"Song played for {duration} seconds")
                 
                 # Play next song
