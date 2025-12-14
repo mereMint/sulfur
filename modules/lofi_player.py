@@ -7,6 +7,7 @@ Supports multiple station types, audio mixing, and auto-disconnect.
 """
 
 import asyncio
+import random
 import discord
 from typing import Optional, Dict, List
 from modules.logger_utils import bot_logger as logger
@@ -21,7 +22,7 @@ MUSIC_STATIONS = {
         },
         {
             "name": "🎧 Beats to Sleep/Chill",
-            "url": "https://www.youtube.com/watch?v=5qap5aO4i9A",
+            "url": "https://www.youtube.com/watch?v=rUxyKA_-grg",
             "type": "lofi"
         }
     ],
@@ -33,7 +34,7 @@ MUSIC_STATIONS = {
         },
         {
             "name": "🎸 Royalty Free Music",
-            "url": "https://www.youtube.com/watch?v=WsK7RmY9xUg",
+            "url": "https://www.youtube.com/watch?v=lTRiuFIWV54",
             "type": "nocopyright"
         }
     ],
@@ -55,13 +56,40 @@ MUSIC_STATIONS = {
         },
         {
             "name": "☕ Coffee Shop Ambience",
-            "url": "https://www.youtube.com/watch?v=gaGltwCbBRA",
+            "url": "https://www.youtube.com/watch?v=h2zkV-l_TbY",
             "type": "ambient"
         },
         {
             "name": "🌳 Forest Sounds",
-            "url": "https://www.youtube.com/watch?v=xNN7iTA57jg",
+            "url": "https://www.youtube.com/watch?v=eKFTSSKCzWA",
             "type": "ambient"
+        }
+    ],
+    "noise": [
+        {
+            "name": "⚪ White Noise",
+            "url": "https://www.youtube.com/watch?v=nMfPqeZjc2c",
+            "type": "noise"
+        },
+        {
+            "name": "🎀 Pink Noise",
+            "url": "https://www.youtube.com/watch?v=ZXtimhT-ff4",
+            "type": "noise"
+        },
+        {
+            "name": "🟤 Brown Noise",
+            "url": "https://www.youtube.com/watch?v=RqzGzwTY-6w",
+            "type": "noise"
+        },
+        {
+            "name": "🌊 Blue Noise",
+            "url": "https://www.youtube.com/watch?v=H0JcLOE-pXY",
+            "type": "noise"
+        },
+        {
+            "name": "🔇 Grey Noise",
+            "url": "https://www.youtube.com/watch?v=_vb4nzF4VFA",
+            "type": "noise"
         }
     ]
 }
@@ -598,8 +626,9 @@ async def on_voice_state_update_handler(voice_client: discord.VoiceClient, guild
 
 async def generate_spotify_mix_station(user_id: int, username: str) -> Optional[dict]:
     """
-    Generate a personalized station based on user's Spotify listening history.
+    Generate a personalized station based on user's unified listening history.
     Creates a YouTube search URL based on most played artists/songs.
+    Now uses both bot playback history and Spotify history for better variety.
     
     Args:
         user_id: Discord user ID
@@ -609,60 +638,52 @@ async def generate_spotify_mix_station(user_id: int, username: str) -> Optional[
         Station dictionary or None if no history available
     """
     try:
-        # Import db_helpers to get Spotify history
-        from modules.db_helpers import get_spotify_history
+        # Import db_helpers to get unified history
+        from modules.db_helpers import get_unified_music_history
         
-        # Get user's Spotify history
-        history = await get_spotify_history(user_id)
+        # Get user's unified music history
+        history = await get_unified_music_history(user_id, limit=50)
         
         if not history or len(history) == 0:
-            logger.info(f"No Spotify history found for user {username}")
+            logger.info(f"No music history found for user {username}")
             return None
         
-        # Sort by play count and get top songs
-        sorted_songs = sorted(history.items(), key=lambda x: x[1], reverse=True)
-        top_songs = sorted_songs[:5]  # Get top 5 most played songs
+        # Get top songs (already sorted by play count)
+        top_songs = history[:5]  # Get top 5 most played songs
         
         # Create a search query from top songs
-        # Format: "artist - song" for the top song
         if top_songs:
-            top_song_key = top_songs[0][0]
-            # The key format is "Song Title by Artist Name"
-            # Parse more carefully - split from the rightmost " by " to handle songs with "by" in title
-            if " by " in top_song_key:
-                parts = top_song_key.rsplit(" by ", 1)  # Split from right, max 1 split
-                if len(parts) == 2:
-                    song_title, artist = parts
-                    search_query = f"{artist} {song_title}"
-                else:
-                    search_query = top_song_key.replace(" by ", " ")
-            else:
-                search_query = top_song_key
+            # Use the most played song
+            top_song = top_songs[0]
+            song_title = top_song['title']
+            artist = top_song['artist']
             
             # Create a YouTube search URL
             # We'll use a playlist search for similar music
+            search_query = f"{artist} {song_title}"
             search_url = f"ytsearch:{search_query} mix playlist"
             
             station = {
                 "name": f"🎧 {username}'s Mix",
                 "url": search_url,
                 "type": "spotify_mix",
-                "based_on": top_song_key
+                "based_on": f"{song_title} by {artist}"
             }
             
-            logger.info(f"Generated Spotify mix station for {username} based on: {top_song_key}")
+            logger.info(f"Generated mix station for {username} based on: {song_title} by {artist}")
             return station
         
         return None
         
     except Exception as e:
-        logger.error(f"Error generating Spotify mix station: {e}", exc_info=True)
+        logger.error(f"Error generating mix station: {e}", exc_info=True)
         return None
 
 
 async def get_spotify_recently_played(user_id: int) -> Optional[List[dict]]:
     """
-    Get recently played songs from user's Spotify history.
+    Get recently played songs from user's unified music history.
+    Uses both bot playback and Spotify history for better variety.
     
     Args:
         user_id: Discord user ID
@@ -671,27 +692,21 @@ async def get_spotify_recently_played(user_id: int) -> Optional[List[dict]]:
         List of song dictionaries with title and artist, or None
     """
     try:
-        from modules.db_helpers import get_spotify_history
+        from modules.db_helpers import get_unified_music_history
         
-        history = await get_spotify_history(user_id)
+        history = await get_unified_music_history(user_id, limit=50)
         if not history:
             return None
         
-        # Sort by play count and get recent songs
-        sorted_songs = sorted(history.items(), key=lambda x: x[1], reverse=True)
-        
+        # Already sorted by play count, take top songs
         songs = []
-        for song_key, play_count in sorted_songs[:10]:  # Get top 10
-            # Parse "Song Title by Artist Name"
-            if " by " in song_key:
-                parts = song_key.rsplit(" by ", 1)
-                if len(parts) == 2:
-                    song_title, artist = parts
-                    songs.append({
-                        "title": song_title.strip(),
-                        "artist": artist.strip(),
-                        "play_count": play_count
-                    })
+        for entry in history[:10]:  # Get top 10
+            songs.append({
+                "title": entry['title'],
+                "artist": entry['artist'],
+                "url": entry.get('url'),  # May be None
+                "play_count": entry['play_count']
+            })
         
         return songs if songs else None
         
@@ -804,16 +819,19 @@ async def play_song_with_queue(
     voice_client: discord.VoiceClient,
     song: dict,
     guild_id: int,
-    volume: float = 1.0
+    volume: float = 1.0,
+    user_id: int = None
 ) -> bool:
     """
     Play a song and set up queue to play next song when finished.
+    Tracks song playback in music history.
     
     Args:
         voice_client: Connected Discord voice client
         song: Song dictionary with 'url' or 'title'/'artist'
         guild_id: Guild ID for session tracking
         volume: Volume level (0.0-1.0)
+        user_id: Optional Discord user ID for history tracking
     
     Returns:
         True if playback started successfully, False otherwise
@@ -830,7 +848,7 @@ async def play_song_with_queue(
             voice_client.stop()
         
         # Get song URL if we have title/artist instead
-        if 'url' not in song:
+        if 'url' not in song or not song['url']:
             if 'title' in song and 'artist' in song:
                 song_url = await search_youtube_song(song['title'], song['artist'])
                 if not song_url:
@@ -846,22 +864,44 @@ async def play_song_with_queue(
         with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
             info = ydl.extract_info(song['url'], download=False)
             audio_url = extract_audio_url(info)
+            
+            # Extract song info if not provided
+            if 'title' not in song and info:
+                song['title'] = info.get('title', 'Unknown')
+            if 'artist' not in song and info:
+                song['artist'] = info.get('uploader', 'Unknown')
         
         if not audio_url:
             logger.error(f"Could not extract audio URL from: {song['url']}")
             return False
         
-        # Get related songs for queue
-        related_songs = await get_related_songs(song['url'], count=5)
+        # Get related songs for queue (vary the selection)
+        related_songs = await get_related_songs(song['url'], count=10)
         
         # Store in active session
         if guild_id not in active_sessions:
             active_sessions[guild_id] = {}
         
+        # Shuffle related songs for variety
+        random.shuffle(related_songs)
+        
         active_sessions[guild_id]['queue'] = related_songs
         active_sessions[guild_id]['current_song'] = song
         active_sessions[guild_id]['volume'] = volume
         active_sessions[guild_id]['failure_count'] = 0  # Reset failure count on success
+        active_sessions[guild_id]['user_id'] = user_id  # Track user for history
+        active_sessions[guild_id]['song_start_time'] = asyncio.get_event_loop().time()  # Track start time
+        
+        # Track in music history
+        if user_id:
+            from modules.db_helpers import add_music_history
+            await add_music_history(
+                user_id=user_id,
+                song_title=song.get('title', 'Unknown'),
+                song_artist=song.get('artist', 'Unknown'),
+                song_url=song.get('url'),
+                source='bot'
+            )
         
         # Create audio source with volume control
         volume_filter = f'volume={volume}'
@@ -875,22 +915,34 @@ async def play_song_with_queue(
         def after_callback(error):
             if error:
                 logger.error(f"Playback error: {error}")
-            else:
-                # Schedule next song using asyncio
-                try:
-                    import asyncio
-                    loop = asyncio.get_event_loop()
-                    asyncio.run_coroutine_threadsafe(
-                        play_next_in_queue(voice_client, guild_id),
-                        loop
-                    )
-                except Exception as e:
-                    logger.error(f"Error scheduling next song: {e}")
+                # Increment failure count on error
+                if guild_id in active_sessions:
+                    active_sessions[guild_id]['failure_count'] = active_sessions[guild_id].get('failure_count', 0) + 1
+            
+            # Schedule next song using asyncio (whether error or not)
+            try:
+                loop = asyncio.get_event_loop()
+                
+                # Calculate duration if tracking
+                # Note: Duration tracking is logged but not persisted to allow for lightweight history
+                # In future, could batch-update durations or store in separate table
+                if guild_id in active_sessions and 'song_start_time' in active_sessions[guild_id]:
+                    duration = int(loop.time() - active_sessions[guild_id]['song_start_time'])
+                    if duration > 0:
+                        logger.debug(f"Song played for {duration} seconds")
+                
+                # Play next song
+                asyncio.run_coroutine_threadsafe(
+                    play_next_in_queue(voice_client, guild_id),
+                    loop
+                )
+            except Exception as e:
+                logger.error(f"Error scheduling next song: {e}")
         
         # Play audio with callback
         voice_client.play(audio_source, after=after_callback)
         
-        logger.info(f"Started playback: {song.get('title', song['url'])}")
+        logger.info(f"Started playback: {song.get('title', 'Unknown')} by {song.get('artist', 'Unknown')}")
         return True
         
     except ImportError:
@@ -987,8 +1039,8 @@ async def start_spotify_queue(
         # Start with most played song
         first_song = recent_songs[0]
         
-        # Play it with queue
-        return await play_song_with_queue(voice_client, first_song, guild_id, volume)
+        # Play it with queue, passing user_id for tracking
+        return await play_song_with_queue(voice_client, first_song, guild_id, volume, user_id)
         
     except Exception as e:
         logger.error(f"Error starting Spotify queue: {e}", exc_info=True)

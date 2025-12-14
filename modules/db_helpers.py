@@ -621,6 +621,22 @@ def initialize_database(max_retries=3, retry_delay=2):
         """)
         
         cursor.execute("""
+            CREATE TABLE IF NOT EXISTS music_history (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                song_title VARCHAR(500) NOT NULL,
+                song_artist VARCHAR(500) NOT NULL,
+                song_url VARCHAR(1000) NULL,
+                played_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                duration_seconds INT NULL,
+                source VARCHAR(50) NOT NULL DEFAULT 'bot',
+                INDEX idx_user_id (user_id),
+                INDEX idx_played_at (played_at),
+                INDEX idx_source (source)
+            )
+        """)
+        
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS trolly_responses (
                 response_id INT AUTO_INCREMENT PRIMARY KEY,
                 user_id BIGINT NOT NULL,
@@ -2193,6 +2209,150 @@ async def get_spotify_history(user_id):
     finally:
         cursor.close()
         cnx.close()
+
+async def add_music_history(user_id: int, song_title: str, song_artist: str, song_url: str = None, duration_seconds: int = None, source: str = "bot"):
+    """
+    Add a song to the user's music listening history.
+    
+    Args:
+        user_id: Discord user ID
+        song_title: Title of the song
+        song_artist: Artist name
+        song_url: Optional URL of the song
+        duration_seconds: Optional duration of playback
+        source: Source of playback ('bot', 'spotify', etc.)
+    """
+    if not db_pool:
+        logger.warning("Database pool not available, cannot add music history")
+        return
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return
+    
+    cursor = cnx.cursor()
+    try:
+        query = """
+            INSERT INTO music_history (user_id, song_title, song_artist, song_url, duration_seconds, source)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """
+        cursor.execute(query, (user_id, song_title, song_artist, song_url, duration_seconds, source))
+        cnx.commit()
+        logger.debug(f"Added music history for user {user_id}: {song_artist} - {song_title}")
+    except mysql.connector.Error as err:
+        logger.error(f"Error adding music history: {err}")
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def get_music_history(user_id: int, limit: int = 100):
+    """
+    Get a user's music listening history.
+    
+    Args:
+        user_id: Discord user ID
+        limit: Maximum number of songs to return
+    
+    Returns:
+        List of song dictionaries with title, artist, played_at, etc.
+    """
+    if not db_pool:
+        logger.warning("Database pool not available, cannot get music history")
+        return []
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return []
+    
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        query = """
+            SELECT song_title, song_artist, song_url, played_at, duration_seconds, source
+            FROM music_history
+            WHERE user_id = %s
+            ORDER BY played_at DESC
+            LIMIT %s
+        """
+        cursor.execute(query, (user_id, limit))
+        return cursor.fetchall()
+    except mysql.connector.Error as err:
+        logger.error(f"Error getting music history: {err}")
+        return []
+    finally:
+        cursor.close()
+        cnx.close()
+
+async def get_unified_music_history(user_id: int, limit: int = 50):
+    """
+    Get unified music history from both bot playback and Spotify.
+    Returns top songs sorted by play count.
+    
+    Args:
+        user_id: Discord user ID
+        limit: Maximum number of unique songs to return
+    
+    Returns:
+        List of song dictionaries with title, artist, play_count, sources
+    """
+    if not db_pool:
+        logger.warning("Database pool not available, cannot get unified music history")
+        return []
+    
+    # Get bot music history
+    bot_history = await get_music_history(user_id, limit=1000)
+    
+    # Get Spotify history
+    spotify_history = await get_spotify_history(user_id)
+    
+    # Combine and count
+    song_counts = {}
+    
+    # Process bot history
+    for entry in bot_history:
+        song_key = f"{entry['song_title']} by {entry['song_artist']}"
+        if song_key not in song_counts:
+            song_counts[song_key] = {
+                'title': entry['song_title'],
+                'artist': entry['song_artist'],
+                'url': entry.get('song_url'),
+                'play_count': 0,
+                'sources': set()
+            }
+        song_counts[song_key]['play_count'] += 1
+        song_counts[song_key]['sources'].add(entry.get('source', 'bot'))
+    
+    # Process Spotify history
+    if spotify_history:
+        for song_key, count in spotify_history.items():
+            # Parse "Song Title by Artist Name"
+            if " by " in song_key:
+                parts = song_key.rsplit(" by ", 1)
+                if len(parts) == 2:
+                    song_title, artist = parts
+                    if song_key not in song_counts:
+                        song_counts[song_key] = {
+                            'title': song_title.strip(),
+                            'artist': artist.strip(),
+                            'url': None,
+                            'play_count': 0,
+                            'sources': set()
+                        }
+                    song_counts[song_key]['play_count'] += count
+                    song_counts[song_key]['sources'].add('spotify')
+    
+    # Convert to list and sort by play count
+    songs = []
+    for song_key, data in song_counts.items():
+        songs.append({
+            'title': data['title'],
+            'artist': data['artist'],
+            'url': data['url'],
+            'play_count': data['play_count'],
+            'sources': list(data['sources'])
+        })
+    
+    # Sort by play count descending
+    songs.sort(key=lambda x: x['play_count'], reverse=True)
+    
+    return songs[:limit]
 
 @db_operation("add_xp")
 async def add_xp(user_id, display_name, xp_to_add):
