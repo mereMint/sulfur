@@ -27,6 +27,7 @@
                 <div>
                     <h6 class="text-muted mb-1">AI_CALLS</h6>
                     <div class="stat-value" id="quick-ai-calls" style="font-size: 1.5rem;">0</div>
+                    <small class="text-muted" id="quick-ai-tokens" style="font-size: 0.7rem;">0 tokens</small>
                 </div>
                 <i class="bi bi-cpu" style="font-size: 2rem; color: var(--matrix-cyan);"></i>
             </div>
@@ -586,8 +587,22 @@
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'success') {
+                        const totalCalls = data.summary.total_calls;
+                        const totalTokens = data.summary.total_tokens;
+                        
+                        // Update calls display
                         document.getElementById('quick-ai-calls').textContent = 
-                            data.summary.total_calls.toLocaleString();
+                            totalCalls.toLocaleString();
+                        
+                        // Update tokens display
+                        const tokensElement = document.getElementById('quick-ai-tokens');
+                        if (tokensElement) {
+                            tokensElement.textContent = `${totalTokens.toLocaleString()} tokens`;
+                        }
+                        
+                        // Add tooltip with token info
+                        document.getElementById('quick-ai-calls').title = 
+                            `${totalTokens.toLocaleString()} tokens used (30 days)`;
                     }
                 })
                 .catch(error => console.error('Error loading AI stats:', error));
