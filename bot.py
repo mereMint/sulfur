@@ -16091,7 +16091,7 @@ async def music_add(interaction: discord.Interaction, song_query: str):
                 song['url'] = f"ytsearch:{song_query}"
         
         # If no active queue, start playing this song
-        if guild_id not in lofi_player.active_sessions or not lofi_player.active_sessions[guild_id].get('queue'):
+        if lofi_player.get_queue_length(guild_id) == 0:
             success = await lofi_player.play_song_with_queue(
                 voice_client, 
                 song, 
@@ -16145,8 +16145,7 @@ async def music_add(interaction: discord.Interaction, song_query: str):
                 await interaction.followup.send(embed=embed, ephemeral=True)
         else:
             # Add to existing queue
-            lofi_player.active_sessions[guild_id]['queue'].append(song)
-            queue_pos = len(lofi_player.active_sessions[guild_id]['queue'])
+            queue_pos = lofi_player.add_to_queue(guild_id, song)
             
             embed = discord.Embed(
                 title="✅ Zur Warteschlange hinzugefügt",
@@ -16223,7 +16222,7 @@ async def music_queue(interaction: discord.Interaction):
             )
             
             # Show total queue size if there are more
-            total_queue = len(lofi_player.active_sessions[guild_id].get('queue', []))
+            total_queue = lofi_player.get_queue_length(guild_id)
             if total_queue > len(queue_preview):
                 embed.set_footer(text=f"... und {total_queue - len(queue_preview)} weitere Songs")
         else:

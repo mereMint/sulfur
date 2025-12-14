@@ -1066,6 +1066,53 @@ def get_current_song(guild_id: int) -> Optional[dict]:
         return None
 
 
+def get_queue_length(guild_id: int) -> int:
+    """
+    Get the length of the current queue.
+    
+    Args:
+        guild_id: Guild ID
+    
+    Returns:
+        Number of songs in queue, or 0 if no queue exists
+    """
+    try:
+        if guild_id not in active_sessions or 'queue' not in active_sessions[guild_id]:
+            return 0
+        
+        return len(active_sessions[guild_id]['queue'])
+        
+    except Exception as e:
+        logger.error(f"Error getting queue length: {e}", exc_info=True)
+        return 0
+
+
+def add_to_queue(guild_id: int, song: dict) -> int:
+    """
+    Add a song to the queue.
+    
+    Args:
+        guild_id: Guild ID
+        song: Song dictionary to add
+    
+    Returns:
+        Position in queue (1-indexed), or 0 if failed
+    """
+    try:
+        if guild_id not in active_sessions:
+            active_sessions[guild_id] = {}
+        
+        if 'queue' not in active_sessions[guild_id]:
+            active_sessions[guild_id]['queue'] = []
+        
+        active_sessions[guild_id]['queue'].append(song)
+        return len(active_sessions[guild_id]['queue'])
+        
+    except Exception as e:
+        logger.error(f"Error adding to queue: {e}", exc_info=True)
+        return 0
+
+
 async def start_spotify_queue(
     voice_client: discord.VoiceClient,
     user_id: int,
