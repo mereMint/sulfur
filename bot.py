@@ -15718,6 +15718,142 @@ class MusicStationSelect(discord.ui.Select):
             await interaction.followup.send(embed=embed, ephemeral=True)
 
 
+class CustomSongModal(discord.ui.Modal, title='🎵 Custom Song hinzufügen'):
+    """Modal for adding custom songs to the queue."""
+    
+    song_input = discord.ui.TextInput(
+        label='Song-Name oder URL',
+        placeholder='z.B. "Artist - Song Title" oder YouTube-URL',
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=200
+    )
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        """Handle modal submission."""
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            song_query = self.song_input.value.strip()
+            
+            # Check if user is in voice channel
+            if not interaction.user.voice or not interaction.user.voice.channel:
+                embed = discord.Embed(
+                    title="❌ Nicht in Voice-Channel",
+                    description="Du musst in einem Voice-Channel sein!",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+            
+            voice_channel = interaction.user.voice.channel
+            guild_id = interaction.guild.id
+            
+            # Get or create voice client
+            voice_client = interaction.guild.voice_client
+            if not voice_client or not voice_client.is_connected():
+                voice_client = await lofi_player.join_voice_channel(voice_channel)
+                if not voice_client:
+                    embed = discord.Embed(
+                        title="❌ Verbindungsfehler",
+                        description="Konnte dem Voice-Channel nicht beitreten!",
+                        color=discord.Color.red()
+                    )
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+                    return
+            
+            # Parse song query
+            song = {}
+            if song_query.startswith('http'):
+                # It's a URL
+                song['url'] = song_query
+                # Title will be extracted when playing
+            else:
+                # It's a search query - try to parse as "artist - title" or just search
+                if ' - ' in song_query:
+                    parts = song_query.split(' - ', 1)
+                    song['artist'] = parts[0].strip()
+                    song['title'] = parts[1].strip()
+                else:
+                    # Search YouTube directly
+                    song['url'] = f"ytsearch:{song_query}"
+            
+            # Sanitize title if provided
+            if 'title' in song:
+                song['title'] = lofi_player.sanitize_song_title(song['title'])
+            
+            # If no active queue, start playing this song
+            if lofi_player.get_queue_length(guild_id) == 0:
+                success = await lofi_player.play_song_with_queue(
+                    voice_client, 
+                    song, 
+                    guild_id, 
+                    volume=1.0,
+                    user_id=interaction.user.id
+                )
+                
+                if success:
+                    # Get current song and queue preview
+                    current_song = lofi_player.get_current_song(guild_id)
+                    
+                    embed = discord.Embed(
+                        title="▶️ Jetzt läuft",
+                        description="Song wird abgespielt...",
+                        color=discord.Color.green()
+                    )
+                    
+                    # Show currently playing song
+                    if current_song:
+                        current_title = current_song.get('title', 'Unknown')
+                        current_artist = current_song.get('artist', 'Unknown')
+                        embed.add_field(
+                            name="🎵 Song",
+                            value=f"**{current_title}**\n*{current_artist}*",
+                            inline=False
+                        )
+                    
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+                else:
+                    embed = discord.Embed(
+                        title="❌ Fehler",
+                        description="Song konnte nicht abgespielt werden!",
+                        color=discord.Color.red()
+                    )
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+            else:
+                # Add to existing queue (with duplicate checking)
+                queue_pos = lofi_player.add_to_queue(guild_id, song, check_duplicates=True)
+                
+                if queue_pos > 0:
+                    embed = discord.Embed(
+                        title="✅ Zur Warteschlange hinzugefügt",
+                        description=f"**Position in Queue:** {queue_pos}",
+                        color=discord.Color.green()
+                    )
+                    embed.add_field(
+                        name="🎵 Song",
+                        value=f"*{song_query}*",
+                        inline=False
+                    )
+                else:
+                    embed = discord.Embed(
+                        title="⚠️ Bereits in Queue",
+                        description="Dieser Song ist bereits in der Warteschlange!",
+                        color=discord.Color.orange()
+                    )
+                
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                
+        except Exception as e:
+            logger.error(f"Error in custom song modal: {e}", exc_info=True)
+            embed = discord.Embed(
+                title="❌ Fehler",
+                description=f"Es ist ein Fehler aufgetreten: {str(e)}",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+
 class MusicControlView(discord.ui.View):
     """View with buttons for music controls."""
     
@@ -15819,6 +15955,75 @@ class MusicControlView(discord.ui.View):
             value=f"**{channel_name}**",
             inline=True
         )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="Add Song", style=discord.ButtonStyle.success, emoji="➕")
+    async def add_song_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Show custom song modal."""
+        modal = CustomSongModal()
+        await interaction.response.send_modal(modal)
+    
+    @discord.ui.button(label="Show Queue", style=discord.ButtonStyle.secondary, emoji="📋")
+    async def show_queue_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Show the current queue."""
+        await interaction.response.defer(ephemeral=True)
+        
+        guild_id = interaction.guild.id
+        
+        # Check if there's an active session
+        if guild_id not in lofi_player.active_sessions:
+            embed = discord.Embed(
+                title="📋 Warteschlange",
+                description="Keine aktive Musik-Session!",
+                color=discord.Color.orange()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        # Get current song and queue
+        current_song = lofi_player.get_current_song(guild_id)
+        queue_preview = lofi_player.get_queue_preview(guild_id, count=10)
+        
+        embed = discord.Embed(
+            title="📋 Musik-Warteschlange",
+            color=discord.Color.blue()
+        )
+        
+        # Show currently playing song
+        if current_song:
+            current_title = current_song.get('title', 'Unknown')
+            current_artist = current_song.get('artist', 'Unknown')
+            embed.add_field(
+                name="🎵 Spielt gerade",
+                value=f"**{current_title}**\n*{current_artist}*",
+                inline=False
+            )
+        
+        # Show queue
+        if queue_preview and len(queue_preview) > 0:
+            queue_text = ""
+            for i, song in enumerate(queue_preview, 1):
+                song_title = song.get('title', 'Unknown')[:40]  # Truncate long titles
+                song_artist = song.get('artist', 'Unknown')[:30]
+                queue_text += f"**{i}.** {song_title}\n   *{song_artist}*\n"
+            
+            embed.add_field(
+                name=f"⏭️ Als Nächstes ({len(queue_preview)} Songs)",
+                value=queue_text.strip(),
+                inline=False
+            )
+            
+            # Show total queue size
+            total_queue = lofi_player.get_queue_length(guild_id)
+            if total_queue > len(queue_preview):
+                embed.set_footer(text=f"... und {total_queue - len(queue_preview)} weitere Songs")
+        else:
+            embed.add_field(
+                name="⏭️ Als Nächstes",
+                value="*Queue ist leer*",
+                inline=False
+            )
+        
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
@@ -16236,6 +16441,90 @@ async def music_queue(interaction: discord.Interaction):
         
     except Exception as e:
         logger.error(f"Error in musicqueue command: {e}", exc_info=True)
+        embed = discord.Embed(
+            title="❌ Fehler",
+            description=f"Es ist ein Fehler aufgetreten: {str(e)}",
+            color=discord.Color.red()
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+@tree.command(name="listening", description="📊 Zeige deine Musik-Hörstatistiken")
+async def listening_stats(interaction: discord.Interaction):
+    """Show user's listening statistics from bot and Spotify."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        # Get user's listening stats
+        stats = await lofi_player.get_user_listening_stats(interaction.user.id)
+        
+        if not stats or stats['total_songs'] == 0:
+            embed = discord.Embed(
+                title="📊 Hörstatistiken",
+                description="Du hast noch keine Musik-History! Höre etwas Musik, um deine Statistiken zu sehen.",
+                color=discord.Color.orange()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        # Get user's custom embed color
+        embed_color = await get_user_embed_color(interaction.user.id, config)
+        
+        # Calculate hours and minutes
+        total_minutes = stats.get('total_listening_time_minutes', 0)
+        hours = total_minutes // 60
+        minutes = total_minutes % 60
+        
+        embed = discord.Embed(
+            title="🎧 Deine Musik-Statistiken",
+            description=f"## {interaction.user.display_name}'s Listening Profile\n*Kombiniert aus Bot & Spotify History*",
+            color=embed_color
+        )
+        
+        # Overall stats
+        embed.add_field(
+            name="📊 Gesamt",
+            value=f"**Songs:** {stats['total_songs']}\n"
+                  f"**Zeit:** {hours}h {minutes}m",
+            inline=True
+        )
+        
+        # Top songs
+        if stats.get('favorite_songs'):
+            top_songs_text = ""
+            for i, song in enumerate(stats['favorite_songs'][:5], 1):
+                title = song.get('title', 'Unknown')[:30]  # Truncate long titles
+                artist = song.get('artist', 'Unknown')[:20]
+                plays = song.get('play_count', 0)
+                top_songs_text += f"**{i}.** {title}\n   *{artist}* - {plays}x\n"
+            
+            embed.add_field(
+                name="🎵 Top Songs",
+                value=top_songs_text.strip(),
+                inline=False
+            )
+        
+        # Top artists
+        if stats.get('favorite_artists'):
+            top_artists_text = ""
+            for i, artist_data in enumerate(stats['favorite_artists'][:5], 1):
+                artist = artist_data.get('artist', 'Unknown')[:25]
+                count = artist_data.get('play_count', 0)
+                top_artists_text += f"**{i}.** {artist} - {count} plays\n"
+            
+            embed.add_field(
+                name="🎤 Top Artists",
+                value=top_artists_text.strip(),
+                inline=False
+            )
+        
+        embed.set_thumbnail(url=interaction.user.display_avatar.url)
+        embed.set_footer(text="Daten aus deiner Bot- & Spotify-Hörhistorie")
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error in listening command: {e}", exc_info=True)
         embed = discord.Embed(
             title="❌ Fehler",
             description=f"Es ist ein Fehler aufgetreten: {str(e)}",

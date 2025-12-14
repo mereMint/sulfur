@@ -1273,16 +1273,17 @@ def get_queue_length(guild_id: int) -> int:
         return 0
 
 
-def add_to_queue(guild_id: int, song: dict) -> int:
+def add_to_queue(guild_id: int, song: dict, check_duplicates: bool = True) -> int:
     """
-    Add a song to the queue.
+    Add a song to the queue with optional duplicate checking.
     
     Args:
         guild_id: Guild ID
         song: Song dictionary to add
+        check_duplicates: If True, prevents adding duplicate songs
     
     Returns:
-        Position in queue (1-indexed), or 0 if failed
+        Position in queue (1-indexed), or 0 if failed or duplicate
     """
     try:
         if guild_id not in active_sessions:
@@ -1291,12 +1292,83 @@ def add_to_queue(guild_id: int, song: dict) -> int:
         if 'queue' not in active_sessions[guild_id]:
             active_sessions[guild_id]['queue'] = []
         
+        # Check for duplicates if enabled
+        if check_duplicates:
+            queue = active_sessions[guild_id]['queue']
+            song_title = song.get('title', '').lower().strip()
+            song_artist = song.get('artist', '').lower().strip()
+            
+            # Check if song is already in queue (case-insensitive comparison)
+            for existing_song in queue:
+                existing_title = existing_song.get('title', '').lower().strip()
+                existing_artist = existing_song.get('artist', '').lower().strip()
+                
+                # Consider it a duplicate if title matches and artist matches (or both empty)
+                if song_title and existing_title and song_title == existing_title:
+                    if not song_artist or not existing_artist or song_artist == existing_artist:
+                        logger.debug(f"Skipping duplicate song: {song.get('title')} by {song.get('artist')}")
+                        return 0  # Return 0 to indicate duplicate (not added)
+        
         active_sessions[guild_id]['queue'].append(song)
         return len(active_sessions[guild_id]['queue'])
         
     except Exception as e:
         logger.error(f"Error adding to queue: {e}", exc_info=True)
         return 0
+
+
+def sanitize_song_title(title: str) -> str:
+    """
+    Sanitize song title by removing common YouTube artifacts.
+    
+    Args:
+        title: Raw song title from YouTube
+    
+    Returns:
+        Cleaned song title
+    """
+    if not title:
+        return "Unknown"
+    
+    # Remove common patterns
+    patterns_to_remove = [
+        r'\(Official\s+Audio\)',
+        r'\(Official\s+Video\)',
+        r'\(Official\s+Music\s+Video\)',
+        r'\[Official\s+Audio\]',
+        r'\[Official\s+Video\]',
+        r'\[Official\s+Music\s+Video\]',
+        r'\(Lyrics?\)',
+        r'\[Lyrics?\]',
+        r'\(HD\)',
+        r'\[HD\]',
+        r'\(4K\)',
+        r'\[4K\]',
+        r'\(Visualizer\)',
+        r'\[Visualizer\]',
+        r'\(Lyric\s+Video\)',
+        r'\[Lyric\s+Video\]',
+        r'\(Music\s+Video\)',
+        r'\[Music\s+Video\]',
+        r'\(Audio\)',
+        r'\[Audio\]',
+        r'\(Explicit\)',
+        r'\[Explicit\]',
+        r'ft\.\s+.*$',  # Remove featuring artists at end
+        r'feat\.\s+.*$',
+        r'\|.*$',  # Remove anything after pipe
+        r'-\s+Topic$',  # Remove "- Topic" at end
+    ]
+    
+    import re
+    cleaned = title
+    for pattern in patterns_to_remove:
+        cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE)
+    
+    # Clean up extra whitespace
+    cleaned = ' '.join(cleaned.split())
+    
+    return cleaned.strip() if cleaned.strip() else title
 
 
 async def start_spotify_queue(
@@ -1413,4 +1485,113 @@ async def start_spotify_queue(
     except Exception as e:
         logger.error(f"Error starting Spotify queue: {e}", exc_info=True)
         return False
+
+
+async def track_listening_time(voice_client: discord.VoiceClient, guild_id: int, song_title: str = None, song_artist: str = None, duration_minutes: float = 0.0):
+    """
+    Track listening time for all users in the voice channel.
+    
+    Args:
+        voice_client: Connected voice client
+        guild_id: Guild ID
+        song_title: Optional song title
+        song_artist: Optional song artist
+        duration_minutes: Duration in minutes
+    """
+    try:
+        if not voice_client or not voice_client.is_connected() or not voice_client.channel:
+            return
+        
+        from modules.db_helpers import get_db_connection
+        
+        # Get all human members in the voice channel
+        listeners = [m for m in voice_client.channel.members if not m.bot]
+        
+        if not listeners:
+            return
+        
+        # Record listening time for each user
+        async with get_db_connection() as (conn, cursor):
+            for member in listeners:
+                try:
+                    await cursor.execute("""
+                        INSERT INTO listening_time 
+                        (user_id, guild_id, channel_id, listened_at, duration_minutes, song_title, song_artist)
+                        VALUES (%s, %s, %s, NOW(), %s, %s, %s)
+                    """, (
+                        member.id,
+                        guild_id,
+                        voice_client.channel.id,
+                        duration_minutes,
+                        song_title,
+                        song_artist
+                    ))
+                except Exception as e:
+                    logger.error(f"Error tracking listening time for user {member.id}: {e}")
+            
+            await conn.commit()
+            logger.debug(f"Tracked listening time for {len(listeners)} users")
+            
+    except Exception as e:
+        logger.error(f"Error in track_listening_time: {e}", exc_info=True)
+
+
+async def get_user_listening_stats(user_id: int) -> dict:
+    """
+    Get comprehensive listening statistics for a user.
+    Combines bot playback history and Spotify history.
+    
+    Args:
+        user_id: Discord user ID
+    
+    Returns:
+        Dictionary with listening stats
+    """
+    try:
+        from modules.db_helpers import get_db_connection, get_unified_music_history
+        
+        stats = {
+            'total_songs': 0,
+            'total_listening_time_minutes': 0,
+            'favorite_songs': [],
+            'favorite_artists': [],
+            'recent_songs': [],
+            'top_genres': []
+        }
+        
+        # Get unified music history
+        history = await get_unified_music_history(user_id, limit=100)
+        if history:
+            stats['total_songs'] = len(history)
+            stats['favorite_songs'] = history[:10]  # Top 10
+            
+            # Calculate favorite artists
+            artist_counts = {}
+            for song in history:
+                artist = song.get('artist', 'Unknown')
+                if artist and artist != 'Unknown':
+                    artist_counts[artist] = artist_counts.get(artist, 0) + song.get('play_count', 1)
+            
+            stats['favorite_artists'] = [
+                {'artist': artist, 'play_count': count}
+                for artist, count in sorted(artist_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+            ]
+        
+        # Get total listening time from listening_time table
+        async with get_db_connection() as (conn, cursor):
+            await cursor.execute("""
+                SELECT COALESCE(SUM(duration_minutes), 0) as total_minutes
+                FROM listening_time
+                WHERE user_id = %s
+            """, (user_id,))
+            result = await cursor.fetchone()
+            if result:
+                stats['total_listening_time_minutes'] = int(result.get('total_minutes', 0) or 0)
+        
+        return stats
+        
+    except Exception as e:
+        logger.error(f"Error getting user listening stats: {e}", exc_info=True)
+        return stats
+
 
