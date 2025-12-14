@@ -1,180 +1,600 @@
 {% extends "layout.html" %}
-{% block title %}Database Viewer{% endblock %}
+{% block title %}Database Explorer - Sulfur Bot{% endblock %}
 
 {% block extra_styles %}
 <style>
-    .table-search {
+    /* Modern Database Explorer Styles */
+    .db-sidebar {
+        background: linear-gradient(135deg, rgba(26, 26, 46, 0.95), rgba(22, 33, 62, 0.95));
+        border-radius: 16px;
+        padding: 1.5rem;
+        border: 1px solid var(--border-color);
+        max-height: 85vh;
+        overflow-y: auto;
+        position: sticky;
+        top: 80px;
+    }
+    
+    .db-sidebar::-webkit-scrollbar {
+        width: 6px;
+    }
+    
+    .db-sidebar::-webkit-scrollbar-track {
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 10px;
+    }
+    
+    .db-sidebar::-webkit-scrollbar-thumb {
+        background: var(--lofi-purple);
+        border-radius: 10px;
+    }
+    
+    .table-list-item {
+        padding: 0.75rem 1rem;
+        margin-bottom: 0.5rem;
+        border-radius: 12px;
+        cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        border: 1px solid transparent;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    
+    .table-list-item:hover {
+        background: rgba(157, 132, 183, 0.15);
+        border-color: var(--lofi-purple);
+        transform: translateX(5px);
+    }
+    
+    .table-list-item.active {
+        background: linear-gradient(135deg, rgba(157, 132, 183, 0.25), rgba(244, 166, 215, 0.15));
+        border-color: var(--lofi-purple);
+        box-shadow: 0 4px 15px rgba(157, 132, 183, 0.3);
+    }
+    
+    .table-icon {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(157, 132, 183, 0.2);
+        margin-right: 0.75rem;
+        font-size: 1rem;
+    }
+    
+    .table-list-item.active .table-icon {
+        background: var(--lofi-purple);
+        color: white;
+    }
+    
+    .table-count {
+        font-size: 0.75rem;
+        padding: 0.25rem 0.5rem;
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.3);
+        color: var(--lofi-teal);
+    }
+    
+    .db-content-area {
+        background: linear-gradient(135deg, rgba(26, 26, 46, 0.95), rgba(22, 33, 62, 0.95));
+        border-radius: 16px;
+        border: 1px solid var(--border-color);
+        min-height: 85vh;
+    }
+    
+    .db-toolbar {
+        background: rgba(15, 15, 30, 0.8);
+        padding: 1.25rem;
+        border-radius: 16px 16px 0 0;
+        border-bottom: 1px solid var(--border-color);
+    }
+    
+    .search-box-db {
+        background: rgba(26, 26, 46, 0.9);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 0.75rem 1rem;
+        color: var(--text-primary);
+        transition: all 0.3s ease;
+    }
+    
+    .search-box-db:focus {
+        border-color: var(--lofi-purple);
+        box-shadow: 0 0 0 0.25rem rgba(157, 132, 183, 0.15);
+        background: rgba(26, 26, 46, 1);
+    }
+    
+    .data-table-container {
+        overflow-x: auto;
+        max-height: 65vh;
+        border-radius: 0 0 16px 16px;
+    }
+    
+    .data-table-container::-webkit-scrollbar {
+        height: 8px;
+        width: 8px;
+    }
+    
+    .data-table-container::-webkit-scrollbar-track {
+        background: rgba(0, 0, 0, 0.3);
+    }
+    
+    .data-table-container::-webkit-scrollbar-thumb {
+        background: var(--lofi-purple);
+        border-radius: 10px;
+    }
+    
+    .modern-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+    
+    .modern-table thead th {
+        background: linear-gradient(135deg, rgba(157, 132, 183, 0.2), rgba(106, 155, 216, 0.15));
+        color: var(--lofi-purple);
+        font-weight: 600;
+        padding: 1rem 0.75rem;
+        text-align: left;
         position: sticky;
         top: 0;
-        background: var(--bg-card);
         z-index: 10;
-        padding: 1rem 0;
+        border-bottom: 2px solid var(--lofi-purple);
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    
+    .modern-table thead th:hover {
+        background: linear-gradient(135deg, rgba(157, 132, 183, 0.3), rgba(106, 155, 216, 0.25));
+    }
+    
+    .modern-table tbody tr {
+        transition: all 0.3s ease;
+        border-bottom: 1px solid rgba(157, 132, 183, 0.1);
+    }
+    
+    .modern-table tbody tr:hover {
+        background: rgba(157, 132, 183, 0.08);
+        transform: translateX(2px);
+    }
+    
+    .modern-table tbody td {
+        padding: 0.85rem 0.75rem;
+        color: var(--text-primary);
+        font-size: 0.9rem;
+        max-width: 300px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    
+    .modern-table tbody td.cell-expandable {
+        cursor: pointer;
+    }
+    
+    .modern-table tbody td.cell-expandable:hover {
+        background: rgba(106, 155, 216, 0.1);
+        color: var(--lofi-blue);
+    }
+    
+    .empty-state {
+        text-align: center;
+        padding: 4rem 2rem;
+        color: var(--text-secondary);
+    }
+    
+    .empty-state-icon {
+        font-size: 4rem;
+        margin-bottom: 1rem;
+        opacity: 0.3;
+    }
+    
+    .stat-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.4rem 0.8rem;
+        border-radius: 10px;
+        font-size: 0.85rem;
+        font-weight: 500;
+        gap: 0.5rem;
+    }
+    
+    .stat-badge.primary {
+        background: rgba(157, 132, 183, 0.2);
+        color: var(--lofi-purple);
+        border: 1px solid rgba(157, 132, 183, 0.3);
+    }
+    
+    .stat-badge.success {
+        background: rgba(126, 196, 207, 0.2);
+        color: var(--lofi-teal);
+        border: 1px solid rgba(126, 196, 207, 0.3);
+    }
+    
+    .stat-badge.warning {
+        background: rgba(249, 198, 166, 0.2);
+        color: var(--lofi-peach);
+        border: 1px solid rgba(249, 198, 166, 0.3);
+    }
+    
+    .action-btn {
+        padding: 0.6rem 1.2rem;
+        border-radius: 10px;
+        font-size: 0.85rem;
+        font-weight: 500;
+        border: none;
+        transition: all 0.3s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    
+    .action-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+    }
+    
+    .action-btn.btn-export {
+        background: linear-gradient(135deg, var(--lofi-teal), var(--lofi-blue));
+        color: white;
+    }
+    
+    .action-btn.btn-refresh {
+        background: linear-gradient(135deg, var(--lofi-purple), var(--lofi-pink));
+        color: white;
+    }
+    
+    .category-divider {
+        padding: 0.5rem 1rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-top: 1rem;
+        border-bottom: 1px solid rgba(157, 132, 183, 0.2);
+    }
+    
+    .delete-section {
+        background: linear-gradient(135deg, rgba(232, 164, 164, 0.1), rgba(244, 166, 215, 0.05));
+        border: 2px solid rgba(232, 164, 164, 0.3);
+        border-radius: 16px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+    }
+    
+    .delete-section h5 {
+        color: var(--danger);
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+    }
+    
+    .pagination-modern {
+        display: flex;
+        gap: 0.5rem;
+        justify-content: center;
+        padding: 1.5rem;
+        background: rgba(15, 15, 30, 0.8);
+        border-radius: 0 0 16px 16px;
+        border-top: 1px solid var(--border-color);
+    }
+    
+    .pagination-modern .page-btn {
+        padding: 0.5rem 1rem;
+        border-radius: 10px;
+        background: rgba(26, 26, 46, 0.8);
+        border: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        cursor: pointer;
+        transition: all 0.3s ease;
+        font-size: 0.85rem;
+    }
+    
+    .pagination-modern .page-btn:hover {
+        background: rgba(157, 132, 183, 0.2);
+        border-color: var(--lofi-purple);
+        color: var(--lofi-purple);
+    }
+    
+    .pagination-modern .page-btn.active {
+        background: linear-gradient(135deg, var(--lofi-purple), var(--lofi-pink));
+        border-color: transparent;
+        color: white;
+    }
+    
+    .no-data-message {
+        padding: 3rem;
+        text-align: center;
+        color: var(--text-muted);
+        font-style: italic;
     }
 </style>
 {% endblock %}
 
 {% block content %}
+<!-- Header Section -->
 <div class="row mb-4 fade-in">
     <div class="col-12">
-        <h2 class="matrix-text mb-4">
-            <i class="bi bi-database"></i> DATABASE_VIEWER
-        </h2>
-        <p class="text-muted" style="font-family: 'Courier New', monospace;">
-            > Browse, search, and export database tables
-        </p>
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <h2 class="gradient-text mb-2">
+                    <i class="bi bi-database-gear"></i> Database Explorer
+                </h2>
+                <p class="text-muted mb-0">
+                    <i class="bi bi-info-circle"></i> Browse, search, and export database tables with ease
+                </p>
+            </div>
+            <div class="d-flex gap-2">
+                <span class="stat-badge success">
+                    <i class="bi bi-server"></i>
+                    <span id="total-tables">{{ all_tables|length if all_tables else 0 }}</span> Tables
+                </span>
+                {% if selected_table %}
+                <span class="stat-badge primary">
+                    <i class="bi bi-table"></i>
+                    <span id="total-rows">{{ total_rows }}</span> Rows
+                </span>
+                {% endif %}
+            </div>
+        </div>
     </div>
 </div>
 
 {% if error %}
-    <div class="alert alert-danger">{{ error }}</div>
+    <div class="alert alert-danger fade-in">
+        <i class="bi bi-exclamation-triangle"></i> {{ error }}
+    </div>
 {% endif %}
 
 <!-- User Data Deletion Section -->
-<div class="card mb-4 border-danger">
-    <div class="card-header bg-danger text-white">
-        <h5 class="mb-0">🗑️ User Data Deletion</h5>
-    </div>
-    <div class="card-body">
-        <p class="text-muted">Delete all data for a specific user ID. This action is irreversible!</p>
-        <div class="row g-3">
-            <div class="col-md-6">
-                <label for="deleteUserId" class="form-label">User ID:</label>
-                <input type="number" class="form-control" id="deleteUserId" placeholder="Enter Discord User ID">
-            </div>
-            <div class="col-md-6 d-flex align-items-end">
-                <button class="btn btn-danger w-100" onclick="deleteUserData()">
-                    <i class="bi bi-trash"></i> Delete All User Data
-                </button>
-            </div>
+<div class="delete-section fade-in">
+    <h5>
+        <i class="bi bi-trash3"></i> User Data Management
+    </h5>
+    <p class="text-muted mb-3">Permanently delete all data associated with a specific user ID. This action cannot be undone.</p>
+    <div class="row g-3">
+        <div class="col-md-8">
+            <input type="number" class="form-control search-box-db" id="deleteUserId" placeholder="Enter Discord User ID (e.g., 123456789012345678)">
         </div>
-        <div id="deleteResult" class="mt-3"></div>
+        <div class="col-md-4">
+            <button class="btn btn-danger w-100 action-btn" onclick="deleteUserData()">
+                <i class="bi bi-trash3-fill"></i> Delete User Data
+            </button>
+        </div>
     </div>
+    <div id="deleteResult" class="mt-3"></div>
 </div>
 
-<!-- Table Selection -->
-<div class="card mb-4 fade-in">
-    <div class="card-body">
-        <div class="row g-3">
-            <div class="col-md-8">
-                <label for="tableSelect" class="form-label"><strong>Select Table:</strong></label>
-                <select class="form-select" id="tableSelect" onchange="window.location.href='?table=' + this.value">
-                    <option value="">-- Select a table --</option>
-                    {% for table in all_tables %}
-                        <option value="{{ table }}" {% if table == selected_table %}selected{% endif %}>{{ table }}</option>
+<!-- Main Content Area -->
+<div class="row fade-in">
+    <!-- Sidebar: Table List -->
+    <div class="col-md-3 mb-4">
+        <div class="db-sidebar">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0 gradient-text">Tables</h5>
+                <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()" title="Refresh">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
+            </div>
+            
+            <input type="text" class="form-control search-box-db mb-3" id="tableFilterInput" placeholder="🔍 Filter tables..." onkeyup="filterTableList()">
+            
+            <div id="tableList">
+                {% if all_tables %}
+                    {% set categories = {
+                        'user': ['players', 'user_stats', 'user_settings', 'premium_users'],
+                        'games': ['werwolf', 'detective', 'wordle', 'blackjack', 'roulette', 'mines', 'horse_racing', 'trolly', 'word_find'],
+                        'economy': ['transaction_history', 'shop_items', 'inventory'],
+                        'ai': ['ai_model_usage', 'conversation_context', 'wrapped_summaries'],
+                        'music': ['music_history', 'spotify_mix'],
+                        'system': ['message_activity', 'voice_sessions', 'api_usage_log']
+                    } %}
+                    
+                    {% for category, keywords in categories.items() %}
+                        {% set category_tables = [] %}
+                        {% for table in all_tables %}
+                            {% for keyword in keywords %}
+                                {% if keyword in table and table not in category_tables %}
+                                    {% set _ = category_tables.append(table) %}
+                                {% endif %}
+                            {% endfor %}
+                        {% endfor %}
+                        
+                        {% if category_tables %}
+                            <div class="category-divider">{{ category|upper }}</div>
+                            {% for table in category_tables %}
+                                <div class="table-list-item {% if table == selected_table %}active{% endif %}" onclick="window.location.href='?table={{ table }}'">
+                                    <div class="d-flex align-items-center">
+                                        <div class="table-icon">
+                                            <i class="bi bi-table"></i>
+                                        </div>
+                                        <span>{{ table }}</span>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        {% endif %}
                     {% endfor %}
-                </select>
+                    
+                    <!-- Uncategorized tables -->
+                    {% set categorized = [] %}
+                    {% for category, keywords in categories.items() %}
+                        {% for table in all_tables %}
+                            {% for keyword in keywords %}
+                                {% if keyword in table and table not in categorized %}
+                                    {% set _ = categorized.append(table) %}
+                                {% endif %}
+                            {% endfor %}
+                        {% endfor %}
+                    {% endfor %}
+                    
+                    {% set uncategorized = [] %}
+                    {% for table in all_tables %}
+                        {% if table not in categorized %}
+                            {% set _ = uncategorized.append(table) %}
+                        {% endif %}
+                    {% endfor %}
+                    
+                    {% if uncategorized %}
+                        <div class="category-divider">OTHER</div>
+                        {% for table in uncategorized %}
+                            <div class="table-list-item {% if table == selected_table %}active{% endif %}" onclick="window.location.href='?table={{ table }}'">
+                                <div class="d-flex align-items-center">
+                                    <div class="table-icon">
+                                        <i class="bi bi-table"></i>
+                                    </div>
+                                    <span>{{ table }}</span>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                {% else %}
+                    <div class="text-center text-muted py-4">
+                        <i class="bi bi-inbox" style="font-size: 2rem;"></i>
+                        <p class="mt-2 mb-0">No tables found</p>
+                    </div>
+                {% endif %}
             </div>
+        </div>
+    </div>
+    
+    <!-- Main Content: Table Data -->
+    <div class="col-md-9 mb-4">
+        <div class="db-content-area">
             {% if selected_table %}
-            <div class="col-md-4 d-flex align-items-end">
-                <div class="btn-group w-100" role="group">
-                    <button class="btn btn-success" onclick="exportTable('{{ selected_table }}', 'csv')">
-                        <i class="bi bi-file-earmark-spreadsheet"></i> Export CSV
-                    </button>
-                    <button class="btn btn-info" onclick="exportTable('{{ selected_table }}', 'json')">
-                        <i class="bi bi-filetype-json"></i> Export JSON
-                    </button>
+                <!-- Toolbar -->
+                <div class="db-toolbar">
+                    <div class="row align-items-center g-3">
+                        <div class="col-md-6">
+                            <h4 class="mb-0 gradient-text">
+                                <i class="bi bi-table"></i> {{ selected_table }}
+                            </h4>
+                            <small class="text-muted">
+                                Page {{ current_page }} of {{ total_pages }} · Total: {{ total_rows }} rows
+                            </small>
+                        </div>
+                        <div class="col-md-6 text-end">
+                            <div class="d-flex gap-2 justify-content-end">
+                                <button class="action-btn btn-refresh" onclick="location.reload()">
+                                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                                </button>
+                                <div class="btn-group">
+                                    <button class="action-btn btn-export" onclick="exportTable('{{ selected_table }}', 'csv')">
+                                        <i class="bi bi-file-earmark-spreadsheet"></i> CSV
+                                    </button>
+                                    <button class="action-btn btn-export" onclick="exportTable('{{ selected_table }}', 'json')">
+                                        <i class="bi bi-filetype-json"></i> JSON
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row mt-3">
+                        <div class="col-12">
+                            <input type="text" class="form-control search-box-db" id="tableSearch" placeholder="🔍 Search in table data..." onkeyup="filterTable()">
+                        </div>
+                    </div>
                 </div>
-            </div>
+                
+                <!-- Table Data -->
+                {% if table_data and table_data|length > 0 %}
+                    <div class="data-table-container">
+                        <table class="modern-table" id="dataTable">
+                            <thead>
+                                <tr>
+                                    {% for key in table_data[0].keys() %}
+                                        <th onclick="sortTable({{ loop.index0 }})">
+                                            {{ key }} <i class="bi bi-chevron-expand ms-1" style="font-size: 0.7rem;"></i>
+                                        </th>
+                                    {% endfor %}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in table_data %}
+                                    <tr>
+                                        {% for value in row.values() %}
+                                            <td class="cell-expandable" title="{{ value if value is not none else 'NULL' }}">
+                                                {% if value is none %}
+                                                    <span style="color: var(--text-muted); font-style: italic;">NULL</span>
+                                                {% elif value|string|length > 50 %}
+                                                    {{ value|string|truncate(50) }}
+                                                {% else %}
+                                                    {{ value }}
+                                                {% endif %}
+                                            </td>
+                                        {% endfor %}
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- Pagination -->
+                    {% if total_pages > 1 %}
+                        <div class="pagination-modern">
+                            {% if current_page > 1 %}
+                                <a href="?table={{ selected_table }}&page=1&per_page={{ per_page }}" class="page-btn">
+                                    <i class="bi bi-chevron-double-left"></i>
+                                </a>
+                                <a href="?table={{ selected_table }}&page={{ current_page - 1 }}&per_page={{ per_page }}" class="page-btn">
+                                    <i class="bi bi-chevron-left"></i>
+                                </a>
+                            {% endif %}
+                            
+                            {% set start_page = [1, current_page - 2]|max %}
+                            {% set end_page = [total_pages, current_page + 2]|min %}
+                            
+                            {% for page_num in range(start_page, end_page + 1) %}
+                                <a href="?table={{ selected_table }}&page={{ page_num }}&per_page={{ per_page }}" 
+                                   class="page-btn {% if page_num == current_page %}active{% endif %}">
+                                    {{ page_num }}
+                                </a>
+                            {% endfor %}
+                            
+                            {% if current_page < total_pages %}
+                                <a href="?table={{ selected_table }}&page={{ current_page + 1 }}&per_page={{ per_page }}" class="page-btn">
+                                    <i class="bi bi-chevron-right"></i>
+                                </a>
+                                <a href="?table={{ selected_table }}&page={{ total_pages }}&per_page={{ per_page }}" class="page-btn">
+                                    <i class="bi bi-chevron-double-right"></i>
+                                </a>
+                            {% endif %}
+                            
+                            <select class="page-btn" onchange="window.location.href='?table={{ selected_table }}&page=1&per_page=' + this.value">
+                                <option value="25" {% if per_page == 25 %}selected{% endif %}>25 rows</option>
+                                <option value="50" {% if per_page == 50 %}selected{% endif %}>50 rows</option>
+                                <option value="100" {% if per_page == 100 %}selected{% endif %}>100 rows</option>
+                                <option value="200" {% if per_page == 200 %}selected{% endif %}>200 rows</option>
+                            </select>
+                        </div>
+                    {% endif %}
+                {% else %}
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📭</div>
+                        <h4>No Data Available</h4>
+                        <p class="text-muted">This table exists but contains no records yet.</p>
+                    </div>
+                {% endif %}
+            {% else %}
+                <!-- No Table Selected -->
+                <div class="empty-state">
+                    <div class="empty-state-icon">👈</div>
+                    <h4>Select a Table</h4>
+                    <p class="text-muted">Choose a table from the sidebar to view its contents</p>
+                </div>
             {% endif %}
         </div>
     </div>
 </div>
-
-<!-- Table Data Display -->
-{% if selected_table and table_data is not none %}
-    <div class="card fade-in">
-        <div class="card-header">
-            <div class="row align-items-center">
-                <div class="col-md-6">
-                    <h4 class="mb-0">📊 {{ selected_table }}</h4>
-                    <small class="text-muted">Total rows: {{ total_rows }} | Page {{ current_page }} of {{ total_pages }}</small>
-                </div>
-                <div class="col-md-6">
-                    <input type="text" class="form-control" id="tableSearch" placeholder="🔍 Search in table..." onkeyup="filterTable()">
-                </div>
-            </div>
-        </div>
-        <div class="card-body p-0">
-            {% if table_data and table_data|length > 0 %}
-                <div class="table-responsive" style="max-height: 70vh;">
-                    <table class="table table-dark table-striped table-hover mb-0" id="dataTable">
-                        <thead class="table-dark" style="position: sticky; top: 0; z-index: 5;">
-                            <tr>
-                                {% for key in table_data[0].keys() %}
-                                    <th style="cursor: pointer;" onclick="sortTable({{ loop.index0 }})">
-                                        {{ key }} <i class="bi bi-chevron-expand text-muted"></i>
-                                    </th>
-                                {% endfor %}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for row in table_data %}
-                                <tr>
-                                    {% for value in row.values() %}
-                                        <td>
-                                            <div style="max-width: 300px; max-height: 100px; overflow: auto; white-space: pre-wrap; word-break: break-word;">
-                                                {{ value if value is not none else '-' }}
-                                            </div>
-                                        </td>
-                                    {% endfor %}
-                                </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-        
-        <!-- Pagination -->
-        {% if total_pages > 1 %}
-        <div class="card-footer">
-            <div class="row align-items-center">
-                <div class="col-md-8">
-                    <nav aria-label="Table pagination">
-                        <ul class="pagination mb-0">
-                            {% if current_page > 1 %}
-                                <li class="page-item">
-                                    <a class="page-link" href="?table={{ selected_table }}&page=1&per_page={{ per_page }}">First</a>
-                                </li>
-                                <li class="page-item">
-                                    <a class="page-link" href="?table={{ selected_table }}&page={{ current_page - 1 }}&per_page={{ per_page }}">Previous</a>
-                                </li>
-                            {% endif %}
-                            
-                            <li class="page-item active">
-                                <span class="page-link">Page {{ current_page }} of {{ total_pages }}</span>
-                            </li>
-                            
-                            {% if current_page < total_pages %}
-                                <li class="page-item">
-                                    <a class="page-link" href="?table={{ selected_table }}&page={{ current_page + 1 }}&per_page={{ per_page }}">Next</a>
-                                </li>
-                                <li class="page-item">
-                                    <a class="page-link" href="?table={{ selected_table }}&page={{ total_pages }}&per_page={{ per_page }}">Last</a>
-                                </li>
-                            {% endif %}
-                        </ul>
-                    </nav>
-                </div>
-                <div class="col-md-4">
-                    <label for="perPageSelect" class="form-label small mb-1">Rows per page:</label>
-                    <select class="form-select form-select-sm" id="perPageSelect" onchange="window.location.href='?table={{ selected_table }}&page=1&per_page=' + this.value">
-                        <option value="25" {% if per_page == 25 %}selected{% endif %}>25</option>
-                        <option value="50" {% if per_page == 50 %}selected{% endif %}>50</option>
-                        <option value="100" {% if per_page == 100 %}selected{% endif %}>100</option>
-                        <option value="200" {% if per_page == 200 %}selected{% endif %}>200</option>
-                    </select>
-                </div>
-            </div>
-        </div>
-        {% endif %}
-    {% else %}
-        <div class="card-body">
-            <p class="text-muted mb-0">No data in this table.</p>
-        </div>
-    {% endif %}
-    </div>
-{% elif selected_table %}
-    <div class="alert alert-warning">Please select a table from the dropdown above.</div>
-{% endif %}
+{% endblock %}
 
 <script>
 function deleteUserData() {
@@ -378,6 +798,19 @@ function exportJSON(table, tableName) {
     a.download = `${tableName}_${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     window.URL.revokeObjectURL(url);
+}
+
+function filterTableList() {
+    const input = document.getElementById('tableFilterInput');
+    if (!input) return;
+    
+    const filter = input.value.toLowerCase();
+    const tableItems = document.querySelectorAll('.table-list-item');
+    
+    tableItems.forEach(item => {
+        const text = item.textContent.toLowerCase();
+        item.style.display = text.includes(filter) ? '' : 'none';
+    });
 }
 </script>
 {% endblock %}
