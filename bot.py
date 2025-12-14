@@ -864,10 +864,10 @@ async def on_ready():
             spotify_activity = next((activity for activity in member.activities if isinstance(activity, discord.Spotify)), None)
             if spotify_activity:
                 # --- REFACTORED: Use a single user_id key for all caches ---
-                song_tuple = (spotify_activity.title, spotify_activity.artist)
+                song_tuple = (spotify_activity.title, spotify_activity.artist, getattr(spotify_activity, 'album', None))
                 # --- FIX: Check pause cache on startup ---
                 if member.id not in spotify_pause_cache:
-                    await db_helpers.update_spotify_history(client, member.id, member.display_name, song_tuple[0], song_tuple[1])
+                    await db_helpers.update_spotify_history(client, member.id, member.display_name, song_tuple[0], song_tuple[1], song_tuple[2])
                 
                 last_spotify_log[member.id] = song_tuple
                 spotify_start_times[member.id] = (song_tuple, datetime.now(timezone.utc))
@@ -1428,9 +1428,9 @@ async def on_presence_update(before, after):
 
         # Case 2: Song has started (or resumed)
         if after_spotify:
-            resumed_song = (after_spotify.title, after_spotify.artist)
+            resumed_song = (after_spotify.title, after_spotify.artist, getattr(after_spotify, 'album', None))
             # Check if it's a resume from pause
-            if user_id in spotify_pause_cache and spotify_pause_cache[user_id][0] == resumed_song:
+            if user_id in spotify_pause_cache and spotify_pause_cache[user_id][0][:2] == resumed_song[:2]:  # Compare title and artist only
                 print(f"  -> [Spotify] Resumed '{resumed_song[0]}' for {after.display_name}. Restarting timer.")
                 spotify_start_times[user_id] = spotify_pause_cache.pop(user_id) # Restore timer from cache
             # Check if it's a brand new song session

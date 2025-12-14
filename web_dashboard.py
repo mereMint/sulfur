@@ -2379,9 +2379,9 @@ def games_stats():
                 'total_players': detective_players
             }
             
-            # Wordle stats  
-            wordle_games = safe_query("SELECT COUNT(*) as total_games FROM wordle_games WHERE completed = TRUE")
-            wordle_players = safe_query("SELECT COUNT(DISTINCT user_id) as total_players FROM wordle_games")
+            # Wordle stats - use wordle_stats table which tracks all games
+            wordle_games = safe_query("SELECT COALESCE(SUM(total_games), 0) as total_games FROM wordle_stats")
+            wordle_players = safe_query("SELECT COUNT(*) as total_players FROM wordle_stats WHERE total_games > 0")
             
             stats['wordle'] = {
                 'total_games': wordle_games,
@@ -2397,15 +2397,30 @@ def games_stats():
                 'total_players': wordfind_players
             }
             
-            # Casino games
+            # Casino games - get total count for display
             blackjack_games = safe_query("SELECT COUNT(*) as total_games FROM blackjack_games")
+            blackjack_players = safe_query("SELECT COUNT(DISTINCT user_id) as total_players FROM blackjack_games")
+            
             roulette_games = safe_query("SELECT COUNT(*) as total_games FROM roulette_games")
+            roulette_players = safe_query("SELECT COUNT(DISTINCT user_id) as total_players FROM roulette_games")
+            
             mines_games = safe_query("SELECT COUNT(*) as total_games FROM mines_games")
+            mines_players = safe_query("SELECT COUNT(DISTINCT user_id) as total_players FROM mines_games")
             
             stats['casino'] = {
-                'blackjack_games': blackjack_games,
-                'roulette_games': roulette_games,
-                'mines_games': mines_games
+                'blackjack': {
+                    'total_games': blackjack_games,
+                    'total_players': blackjack_players
+                },
+                'roulette': {
+                    'total_games': roulette_games,
+                    'total_players': roulette_players
+                },
+                'mines': {
+                    'total_games': mines_games,
+                    'total_players': mines_players
+                },
+                'total_games': blackjack_games + roulette_games + mines_games
             }
             
             # Horse Racing stats
@@ -3048,7 +3063,7 @@ def api_music_status():
                 if conn:
                     cursor = conn.cursor(dictionary=True)
                     recent = safe_db_query(cursor, """
-                        SELECT title, artist, played_at 
+                        SELECT song_title as title, song_artist as artist, album, played_at 
                         FROM music_history 
                         ORDER BY played_at DESC 
                         LIMIT 10
@@ -3057,7 +3072,8 @@ def api_music_status():
                         for song in recent:
                             recent_songs.append({
                                 'title': song.get('title', 'Unknown'),
-                                'artist': song.get('artist', 'Unknown'),
+                                'artist': song.get('artist', 'Unknown Artist'),
+                                'album': song.get('album', 'Unknown Album'),
                                 'played_at': str(song.get('played_at', ''))
                             })
             except Exception as e:
@@ -3098,21 +3114,21 @@ def api_music_top():
             
             # Get top songs
             top_songs = safe_db_query(cursor, """
-                SELECT title, artist, COUNT(*) as play_count
+                SELECT song_title as title, song_artist as artist, album, COUNT(*) as play_count
                 FROM music_history
                 WHERE played_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-                GROUP BY title, artist
+                GROUP BY song_title, song_artist, album
                 ORDER BY play_count DESC
                 LIMIT 10
             """, fetch_all=True)
             
             # Get top artists
             top_artists = safe_db_query(cursor, """
-                SELECT artist, COUNT(*) as play_count
+                SELECT song_artist as artist, COUNT(*) as play_count
                 FROM music_history
                 WHERE played_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-                AND artist IS NOT NULL AND artist != ''
-                GROUP BY artist
+                AND song_artist IS NOT NULL AND song_artist != ''
+                GROUP BY song_artist
                 ORDER BY play_count DESC
                 LIMIT 10
             """, fetch_all=True)

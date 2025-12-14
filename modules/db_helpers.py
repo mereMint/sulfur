@@ -647,6 +647,11 @@ def initialize_database(max_retries=3, retry_delay=2):
             cursor.execute("ALTER TABLE music_history ADD COLUMN artist VARCHAR(500) NULL AFTER song_artist")
             cursor.execute("UPDATE music_history SET artist = song_artist WHERE artist IS NULL")
         
+        # Add album column for better music tracking
+        cursor.execute("SHOW COLUMNS FROM music_history LIKE 'album'")
+        if not cursor.fetchone():
+            cursor.execute("ALTER TABLE music_history ADD COLUMN album VARCHAR(500) NULL AFTER artist")
+        
         # Create listening_time table for detailed tracking
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS listening_time (
@@ -2013,10 +2018,19 @@ async def get_balance(user_id):
         cursor.close()
         cnx.close()
 
-async def update_spotify_history(client, user_id: int, display_name: str, song_title: str, song_artist: str):
+async def update_spotify_history(client, user_id: int, display_name: str, song_title: str, song_artist: str, album_name: str = None):
     """
     Increments the play count for a song in a user's persistent Spotify history.
     The history is stored as a JSON object mapping 'song by artist' to a play count.
+    Also logs to music_history table for unified music tracking.
+    
+    Args:
+        client: Discord client
+        user_id: Discord user ID
+        display_name: User's display name
+        song_title: Title of the song
+        song_artist: Artist name
+        album_name: Optional album name
     """
     if not db_pool:
         logger.warning("Database pool not available, cannot update Spotify history")
@@ -2024,7 +2038,7 @@ async def update_spotify_history(client, user_id: int, display_name: str, song_t
     cnx = db_pool.get_connection()
     if not cnx: return
 
-    print(f"    - [DB] Updating spotify_history for {display_name} ({user_id}) with song: '{song_title}'")
+    print(f"    - [DB] Updating spotify_history for {display_name} ({user_id}) with song: '{song_title}' by '{song_artist}'")
     cursor = cnx.cursor()
     song_key = f"{song_title} by {song_artist}"
     try:
@@ -2047,6 +2061,14 @@ async def update_spotify_history(client, user_id: int, display_name: str, song_t
             WHERE discord_id = %s;
         """
         cursor.execute(update_query, (song_key, song_key, user_id))
+        
+        # Step 3: Also insert into music_history for unified music dashboard tracking
+        music_history_query = """
+            INSERT INTO music_history (user_id, song_title, song_artist, album, source)
+            VALUES (%s, %s, %s, %s, 'spotify')
+        """
+        cursor.execute(music_history_query, (user_id, song_title, song_artist, album_name))
+        
         cnx.commit()
     finally:
         cursor.close()
@@ -2238,7 +2260,7 @@ async def get_spotify_history(user_id):
         cursor.close()
         cnx.close()
 
-async def add_music_history(user_id: int, song_title: str, song_artist: str, song_url: str = None, duration_seconds: int = None, source: str = "bot"):
+async def add_music_history(user_id: int, song_title: str, song_artist: str, song_url: str = None, duration_seconds: int = None, source: str = "bot", album: str = None):
     """
     Add a song to the user's music listening history.
     
@@ -2249,6 +2271,7 @@ async def add_music_history(user_id: int, song_title: str, song_artist: str, son
         song_url: Optional URL of the song
         duration_seconds: Optional duration of playback
         source: Source of playback ('bot', 'spotify', etc.)
+        album: Optional album name
     """
     if not db_pool:
         logger.warning("Database pool not available, cannot add music history")
@@ -2260,12 +2283,12 @@ async def add_music_history(user_id: int, song_title: str, song_artist: str, son
     cursor = cnx.cursor()
     try:
         query = """
-            INSERT INTO music_history (user_id, song_title, song_artist, song_url, duration_seconds, source)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO music_history (user_id, song_title, song_artist, song_url, duration_seconds, source, album)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
         """
-        cursor.execute(query, (user_id, song_title, song_artist, song_url, duration_seconds, source))
+        cursor.execute(query, (user_id, song_title, song_artist, song_url, duration_seconds, source, album))
         cnx.commit()
-        logger.debug(f"Added music history for user {user_id}: {song_artist} - {song_title}")
+        logger.debug(f"Added music history for user {user_id}: {song_artist} - {song_title}" + (f" ({album})" if album else ""))
     except mysql.connector.Error as err:
         logger.error(f"Error adding music history: {err}")
     finally:
