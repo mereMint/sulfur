@@ -15481,9 +15481,9 @@ class MusicStationSelect(discord.ui.Select):
             selection = self.values[0]
             
             # Get user's custom embed color
-            from modules.themes import get_user_theme, apply_theme_to_embed
-            theme = await get_user_theme(interaction.user.id, config)
-            embed_color = discord.Color.from_rgb(*theme["embed_color"])
+            from modules.themes import get_user_theme, get_theme_color
+            theme = await get_user_theme(db_helpers, interaction.user.id)
+            embed_color = get_theme_color(theme, 'primary') if theme else discord.Color.blue()
             
             if selection == "spotify_mix":
                 # Start Spotify queue
@@ -15599,9 +15599,9 @@ class MusicControlView(discord.ui.View):
         
         embed_color = discord.Color.blue()
         try:
-            from modules.themes import get_user_theme
-            theme = await get_user_theme(interaction.user.id, config)
-            embed_color = discord.Color.from_rgb(*theme["embed_color"])
+            from modules.themes import get_user_theme, get_theme_color
+            theme = await get_user_theme(db_helpers, interaction.user.id)
+            embed_color = get_theme_color(theme, 'primary') if theme else discord.Color.blue()
         except:
             pass
         
