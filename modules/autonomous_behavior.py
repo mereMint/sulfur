@@ -7,9 +7,10 @@ that are referenced in the codebase but not yet fully implemented.
 
 from modules.logger_utils import bot_logger as logger
 from datetime import datetime, timezone, timedelta
+from typing import Dict, Any
 
 # In-memory store for temporary DM access (user_id -> expiry timestamp)
-_temp_dm_access = {}
+_temp_dm_access: Dict[int, datetime] = {}
 
 
 async def has_temp_dm_access(user_id: int) -> bool:
@@ -69,7 +70,7 @@ async def get_user_autonomous_settings(user_id: int) -> dict:
     }
 
 
-async def update_user_autonomous_settings(user_id: int, setting: str, value) -> bool:
+async def update_user_autonomous_settings(user_id: int, setting: str, value: Any) -> bool:
     """
     Update a specific autonomous behavior setting for a user.
     

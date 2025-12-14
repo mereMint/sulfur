@@ -5,10 +5,11 @@ This module provides stub implementations for the bot mind/consciousness feature
 that are referenced in the codebase but not yet fully implemented.
 """
 
+import random
 from modules.logger_utils import bot_logger as logger
 from enum import Enum
 from datetime import datetime, timezone
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Callable, Optional
 
 
 class Mood(Enum):
@@ -155,7 +156,13 @@ def get_state_summary() -> str:
     return f"Stimmung: {mood.title()}, Energie: {energy_desc}{boredom_desc}"
 
 
-async def generate_random_thought(context: str, get_chat_response, config, gemini_key, openai_key) -> str:
+async def generate_random_thought(
+    context: str, 
+    get_chat_response: Callable, 
+    config: Dict[str, Any], 
+    gemini_key: Optional[str], 
+    openai_key: Optional[str]
+) -> str:
     """
     Generate a random thought using AI.
     
@@ -177,5 +184,4 @@ async def generate_random_thought(context: str, get_chat_response, config, gemin
         "Ich könnte mal wieder jemanden roasten.",
         "Wie wäre es mit einem Spiel?",
     ]
-    import random
     return random.choice(thoughts)
