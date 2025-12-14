@@ -671,7 +671,7 @@ async def get_spotify_recently_played(user_id: int) -> Optional[List[dict]]:
         from modules.db_helpers import get_spotify_history
         
         history = await get_spotify_history(user_id)
-        if not history or len(history) == 0:
+        if not history:
             return None
         
         # Sort by play count and get recent songs
@@ -710,8 +710,14 @@ async def search_youtube_song(song_title: str, artist: str) -> Optional[str]:
     """
     try:
         import yt_dlp
+        import re
         
-        search_query = f"{artist} {song_title}"
+        # Sanitize inputs to prevent injection attacks
+        # Remove special characters that could break yt-dlp search
+        safe_artist = re.sub(r'[^\w\s-]', '', artist)
+        safe_title = re.sub(r'[^\w\s-]', '', song_title)
+        
+        search_query = f"{safe_artist} {safe_title}"
         search_url = f"ytsearch1:{search_query}"  # ytsearch1 returns only first result
         
         with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
@@ -862,11 +868,16 @@ async def play_song_with_queue(
             if error:
                 logger.error(f"Playback error: {error}")
             else:
-                # Schedule next song
-                asyncio.run_coroutine_threadsafe(
-                    play_next_in_queue(voice_client, guild_id),
-                    voice_client.loop
-                )
+                # Schedule next song using asyncio
+                try:
+                    import asyncio
+                    loop = asyncio.get_event_loop()
+                    asyncio.run_coroutine_threadsafe(
+                        play_next_in_queue(voice_client, guild_id),
+                        loop
+                    )
+                except Exception as e:
+                    logger.error(f"Error scheduling next song: {e}")
         
         # Play audio with callback
         voice_client.play(audio_source, after=after_callback)
@@ -908,8 +919,19 @@ async def play_next_in_queue(voice_client: discord.VoiceClient, guild_id: int) -
         # Get next song (pop from front)
         next_song = queue.pop(0)
         
-        # Play it
-        return await play_song_with_queue(voice_client, next_song, guild_id, volume)
+        # Play it - but check if voice client is still connected
+        if not voice_client or not voice_client.is_connected():
+            logger.info("Voice client disconnected, stopping playback")
+            return False
+        
+        # Play with queue system
+        success = await play_song_with_queue(voice_client, next_song, guild_id, volume)
+        
+        if not success:
+            logger.warning(f"Failed to play next song, stopping queue")
+            return False
+        
+        return True
         
     except Exception as e:
         logger.error(f"Error playing next in queue: {e}", exc_info=True)

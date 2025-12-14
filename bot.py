@@ -15387,6 +15387,9 @@ async def focusstats(interaction: discord.Interaction, days: int = 7):
 # Music Player Views - Modern UI Components
 # ============================================================================
 
+# UI timeout constant (5 minutes)
+MUSIC_VIEW_TIMEOUT = 300
+
 class MusicStationSelect(discord.ui.Select):
     """Select menu for choosing music stations."""
     
@@ -15587,7 +15590,7 @@ class MusicControlView(discord.ui.View):
     """View with buttons for music controls."""
     
     def __init__(self):
-        super().__init__(timeout=300)  # 5 minute timeout
+        super().__init__(timeout=MUSIC_VIEW_TIMEOUT)
         
     @discord.ui.button(label="Browse Stations", style=discord.ButtonStyle.primary, emoji="📋")
     async def browse_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -15649,7 +15652,7 @@ class MusicStationView(discord.ui.View):
     """View with select menu for choosing stations."""
     
     def __init__(self):
-        super().__init__(timeout=300)  # 5 minute timeout
+        super().__init__(timeout=MUSIC_VIEW_TIMEOUT)
         self.add_item(MusicStationSelect("all"))
 
 
