@@ -44,13 +44,8 @@ BEGIN
         END IF;
     END IF;
     
-    -- Optionally drop tiles_revealed if it exists and revealed_count now exists
-    -- Only do this after data has been copied
-    IF tiles_revealed_exists = 1 AND column_exists = 0 THEN
-        -- Column was just added and data copied, now safe to drop old column
-        ALTER TABLE mines_games DROP COLUMN tiles_revealed;
-    ELSEIF tiles_revealed_exists = 1 AND column_exists = 1 THEN
-        -- Both columns exist (edge case), drop the old one
+    -- Drop tiles_revealed if it exists (data was already copied above)
+    IF tiles_revealed_exists = 1 THEN
         ALTER TABLE mines_games DROP COLUMN tiles_revealed;
     END IF;
 END$$
