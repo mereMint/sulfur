@@ -32,6 +32,18 @@
         -webkit-text-fill-color: transparent;
         background-clip: text;
     }
+    
+    .wordle-word {
+        font-family: 'Courier New', monospace;
+        font-size: 1.5rem;
+        font-weight: bold;
+        letter-spacing: 0.3rem;
+        padding: 0.5rem 1rem;
+        background: linear-gradient(135deg, var(--lofi-purple), var(--lofi-pink));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
 </style>
 {% endblock %}
 
@@ -90,6 +102,59 @@
             <small class="text-muted">Total Games</small>
             <div class="mt-2">
                 <small class="text-muted">All Games Combined</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Word of the Day Section -->
+<div class="row mb-4 fade-in">
+    <div class="col-12">
+        <div class="card p-4">
+            <h4 class="section-title mb-4">
+                <i class="bi bi-calendar-day"></i> Word of the Day
+            </h4>
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <div class="card bg-dark p-3">
+                        <h5 class="mb-3">📝 Wordle</h5>
+                        <div class="row">
+                            <div class="col-6">
+                                <div class="text-center">
+                                    <span class="badge bg-secondary mb-2">🇩🇪 German</span>
+                                    <div class="wordle-word" id="wordle-de">-----</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="text-center">
+                                    <span class="badge bg-primary mb-2">🇬🇧 English</span>
+                                    <div class="wordle-word" id="wordle-en">-----</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 mb-3">
+                    <div class="card bg-dark p-3">
+                        <h5 class="mb-3">🔍 Word Find</h5>
+                        <div class="row">
+                            <div class="col-6">
+                                <div class="text-center">
+                                    <span class="badge bg-secondary mb-2">🇩🇪 German</span>
+                                    <div class="wordle-word" id="wordfind-de">---</div>
+                                    <small class="text-muted" id="wordfind-de-theme"></small>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="text-center">
+                                    <span class="badge bg-primary mb-2">🇬🇧 English</span>
+                                    <div class="wordle-word" id="wordfind-en">---</div>
+                                    <small class="text-muted" id="wordfind-en-theme"></small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -204,11 +269,52 @@
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         loadGamesStats();
+        loadWordOfDay();
         loadGameLeaderboard('detective');
         
         // Refresh every minute
         setInterval(loadGamesStats, 60000);
     });
+    
+    async function loadWordOfDay() {
+        try {
+            const response = await fetch('/api/games/word_of_day');
+            const data = await response.json();
+            
+            if (data.error) {
+                console.error('Error loading word of day:', data.error);
+                return;
+            }
+            
+            // Update Wordle words
+            if (data.wordle) {
+                if (data.wordle.de && data.wordle.de.word) {
+                    document.getElementById('wordle-de').textContent = data.wordle.de.word.toUpperCase();
+                }
+                if (data.wordle.en && data.wordle.en.word) {
+                    document.getElementById('wordle-en').textContent = data.wordle.en.word.toUpperCase();
+                }
+            }
+            
+            // Update Wordfind words
+            if (data.wordfind) {
+                if (data.wordfind.de && data.wordfind.de.word) {
+                    document.getElementById('wordfind-de').textContent = data.wordfind.de.word.toUpperCase();
+                    if (data.wordfind.de.theme) {
+                        document.getElementById('wordfind-de-theme').textContent = `Theme: ${data.wordfind.de.theme}`;
+                    }
+                }
+                if (data.wordfind.en && data.wordfind.en.word) {
+                    document.getElementById('wordfind-en').textContent = data.wordfind.en.word.toUpperCase();
+                    if (data.wordfind.en.theme) {
+                        document.getElementById('wordfind-en-theme').textContent = `Theme: ${data.wordfind.en.theme}`;
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Error loading word of day:', error);
+        }
+    }
     
     async function loadGamesStats() {
         try {
