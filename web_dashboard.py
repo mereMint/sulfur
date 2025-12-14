@@ -14,13 +14,8 @@ from flask_socketio import SocketIO, emit
 from modules import db_helpers
 from modules.controls import stop_bot_processes, restart_bot, sync_database_changes, update_bot_from_git
 
-# Setup logging
-logger = logging.getLogger('WebDashboard')
-logger.setLevel(logging.INFO)
-if not logger.handlers:
-    handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter('[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s'))
-    logger.addHandler(handler)
+# Setup logging - use the structured logger from logger_utils
+from modules.logger_utils import web_logger as logger
 
 
 # --- Helper function for async operations ---
