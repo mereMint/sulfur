@@ -152,8 +152,12 @@ MUSIC_STATIONS = {
 }
 
 # Active playback sessions per guild
-# Format: {guild_id: {'voice_client': VoiceClient, 'stations': [station_configs], 'auto_disconnect_task': Task, 'queue': list, 'failure_count': int, 'preloaded_song': dict}}
+# Format: {guild_id: {'voice_client': VoiceClient, 'stations': [station_configs], 'auto_disconnect_task': Task, 'queue': list, 'failure_count': int, 'preloaded_song': dict, 'sleep_timer_task': Task}}
 active_sessions: Dict[int, dict] = {}
+
+# Sleep timers per guild
+# Format: {guild_id: {'task': Task, 'end_time': float, 'duration_minutes': int}}
+sleep_timers: Dict[int, dict] = {}
 
 # Preloaded song cache for faster playback
 # Format: {song_url: {'audio_url': str, 'title': str, 'artist': str, 'duration': int, 'timestamp': float}}
@@ -2012,5 +2016,128 @@ async def get_user_listening_stats(user_id: int) -> dict:
     except Exception as e:
         logger.error(f"Error getting user listening stats: {e}", exc_info=True)
         return stats
+
+
+async def set_sleep_timer(guild_id: int, minutes: int) -> bool:
+    """
+    Set a sleep timer to automatically disconnect after specified minutes.
+    
+    Args:
+        guild_id: Guild ID
+        minutes: Number of minutes until disconnect
+    
+    Returns:
+        True if timer was set successfully, False otherwise
+    """
+    try:
+        # Cancel existing timer if any
+        await cancel_sleep_timer(guild_id)
+        
+        # Check if bot is currently playing in this guild
+        if guild_id not in active_sessions:
+            logger.warning(f"Cannot set sleep timer - no active session for guild {guild_id}")
+            return False
+        
+        async def sleep_timer_task():
+            """Task that waits and then disconnects."""
+            try:
+                await asyncio.sleep(minutes * 60)
+                logger.info(f"Sleep timer expired for guild {guild_id}, disconnecting...")
+                
+                # Stop playback and disconnect
+                if guild_id in active_sessions:
+                    voice_client = active_sessions[guild_id].get('voice_client')
+                    if voice_client and voice_client.is_connected():
+                        await voice_client.disconnect()
+                        logger.info(f"Disconnected from guild {guild_id} due to sleep timer")
+                    
+                    # Clean up session
+                    active_sessions.pop(guild_id, None)
+                
+                # Remove timer reference
+                sleep_timers.pop(guild_id, None)
+                
+            except asyncio.CancelledError:
+                logger.info(f"Sleep timer cancelled for guild {guild_id}")
+            except Exception as e:
+                logger.error(f"Error in sleep timer task: {e}", exc_info=True)
+        
+        # Create and store the task
+        task = asyncio.create_task(sleep_timer_task())
+        import time
+        end_time = time.time() + (minutes * 60)
+        
+        sleep_timers[guild_id] = {
+            'task': task,
+            'end_time': end_time,
+            'duration_minutes': minutes
+        }
+        
+        logger.info(f"Sleep timer set for {minutes} minutes in guild {guild_id}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error setting sleep timer: {e}", exc_info=True)
+        return False
+
+
+async def cancel_sleep_timer(guild_id: int) -> bool:
+    """
+    Cancel an active sleep timer.
+    
+    Args:
+        guild_id: Guild ID
+    
+    Returns:
+        True if timer was cancelled, False if no timer was active
+    """
+    try:
+        if guild_id not in sleep_timers:
+            return False
+        
+        # Cancel the task
+        timer_info = sleep_timers[guild_id]
+        if 'task' in timer_info and not timer_info['task'].done():
+            timer_info['task'].cancel()
+        
+        # Remove from dictionary
+        sleep_timers.pop(guild_id, None)
+        
+        logger.info(f"Sleep timer cancelled for guild {guild_id}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error cancelling sleep timer: {e}", exc_info=True)
+        return False
+
+
+def get_sleep_timer_status(guild_id: int) -> Optional[dict]:
+    """
+    Get the status of a sleep timer.
+    
+    Args:
+        guild_id: Guild ID
+    
+    Returns:
+        Dictionary with timer info or None if no timer active
+    """
+    try:
+        if guild_id not in sleep_timers:
+            return None
+        
+        import time
+        timer_info = sleep_timers[guild_id]
+        remaining_seconds = max(0, int(timer_info['end_time'] - time.time()))
+        
+        return {
+            'active': True,
+            'duration_minutes': timer_info['duration_minutes'],
+            'remaining_seconds': remaining_seconds,
+            'remaining_minutes': round(remaining_seconds / 60, 1)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting sleep timer status: {e}", exc_info=True)
+        return None
 
 

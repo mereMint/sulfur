@@ -3007,6 +3007,7 @@ def api_music_status():
             if current_song:
                 voice_client = session.get('voice_client')
                 now_playing = {
+                    'guild_id': guild_id,  # Add guild_id
                     'title': current_song.get('title', 'Unknown'),
                     'artist': current_song.get('artist', 'Unknown Artist'),
                     'guild_name': voice_client.guild.name if voice_client and voice_client.guild else 'Unknown',
@@ -3144,6 +3145,147 @@ def api_music_top():
         
     except Exception as e:
         logger.error(f"Error getting top music: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/music/album/search', methods=['POST'])
+def api_album_search():
+    """API endpoint to search for an album and get tracklist."""
+    try:
+        data = request.get_json()
+        album_name = data.get('album_name')
+        artist = data.get('artist', None)
+        
+        if not album_name:
+            return jsonify({'error': 'Album name is required'}), 400
+        
+        # Import lofi_player module
+        from modules import lofi_player
+        
+        # Get album info asynchronously
+        async def search_album():
+            return await lofi_player.get_album_info(album_name, artist)
+        
+        album_info = run_async(search_album())
+        
+        if not album_info:
+            return jsonify({'error': 'Album not found'}), 404
+        
+        return jsonify({
+            'status': 'success',
+            'album': album_info
+        })
+        
+    except Exception as e:
+        logger.error(f"Error searching for album: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/music/album/queue', methods=['POST'])
+def api_album_queue():
+    """API endpoint to add album tracks to queue (requires bot running)."""
+    try:
+        data = request.get_json()
+        guild_id = data.get('guild_id')
+        album_name = data.get('album_name')
+        artist = data.get('artist', None)
+        
+        if not guild_id or not album_name:
+            return jsonify({'error': 'Guild ID and album name are required'}), 400
+        
+        # Import lofi_player module
+        from modules import lofi_player
+        
+        # Add album to queue asynchronously
+        async def add_to_queue():
+            return await lofi_player.add_album_to_queue(int(guild_id), album_name, artist)
+        
+        tracks_added = run_async(add_to_queue())
+        
+        if tracks_added == 0:
+            return jsonify({'error': 'No tracks were added to queue'}), 400
+        
+        return jsonify({
+            'status': 'success',
+            'tracks_added': tracks_added,
+            'message': f'Added {tracks_added} tracks from {album_name} to queue'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error adding album to queue: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/music/sleep_timer', methods=['POST'])
+def api_music_sleep_timer():
+    """API endpoint to set a sleep timer for music playback."""
+    try:
+        data = request.get_json()
+        guild_id = data.get('guild_id')
+        minutes = data.get('minutes')
+        
+        if not guild_id or not minutes:
+            return jsonify({'error': 'Guild ID and minutes are required'}), 400
+        
+        try:
+            minutes = int(minutes)
+            if minutes < 1 or minutes > 480:  # Max 8 hours
+                return jsonify({'error': 'Minutes must be between 1 and 480'}), 400
+        except ValueError:
+            return jsonify({'error': 'Invalid minutes value'}), 400
+        
+        # Import lofi_player module
+        from modules import lofi_player
+        
+        # Set sleep timer asynchronously
+        async def set_timer():
+            return await lofi_player.set_sleep_timer(int(guild_id), minutes)
+        
+        success = run_async(set_timer())
+        
+        if not success:
+            return jsonify({'error': 'Failed to set sleep timer. Is music playing?'}), 400
+        
+        return jsonify({
+            'status': 'success',
+            'minutes': minutes,
+            'message': f'Sleep timer set for {minutes} minutes'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error setting sleep timer: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/music/sleep_timer/cancel', methods=['POST'])
+def api_music_sleep_timer_cancel():
+    """API endpoint to cancel the sleep timer."""
+    try:
+        data = request.get_json()
+        guild_id = data.get('guild_id')
+        
+        if not guild_id:
+            return jsonify({'error': 'Guild ID is required'}), 400
+        
+        # Import lofi_player module
+        from modules import lofi_player
+        
+        # Cancel sleep timer asynchronously
+        async def cancel_timer():
+            return await lofi_player.cancel_sleep_timer(int(guild_id))
+        
+        success = run_async(cancel_timer())
+        
+        if not success:
+            return jsonify({'error': 'No active sleep timer found'}), 400
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Sleep timer cancelled'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error cancelling sleep timer: {e}")
         return jsonify({'error': str(e)}), 500
 
 
