@@ -715,13 +715,140 @@ async def get_spotify_recently_played(user_id: int) -> Optional[List[dict]]:
         return None
 
 
-async def search_youtube_song(song_title: str, artist: str) -> Optional[str]:
+async def get_ai_curated_songs(user_id: int, username: str, count: int = 25) -> Optional[List[dict]]:
+    """
+    Get AI-curated song recommendations based on user's listening history.
+    Uses AI API to analyze taste profile and generate personalized recommendations.
+    
+    Args:
+        user_id: Discord user ID
+        username: Discord username for personalization
+        count: Number of songs to recommend (default: 25)
+    
+    Returns:
+        List of song dictionaries with title and artist, or None
+    """
+    try:
+        from modules.db_helpers import get_unified_music_history
+        from modules.api_helpers import get_ai_response_with_model
+        import json
+        import os
+        
+        # Get user's listening history
+        history = await get_unified_music_history(user_id, limit=50)
+        
+        if not history or len(history) == 0:
+            logger.info(f"No music history found for user {username}")
+            return None
+        
+        # Build context for AI from listening history
+        history_context = []
+        for i, song in enumerate(history[:20], 1):  # Use top 20 most played
+            history_context.append(f"{i}. {song['title']} by {song['artist']} (played {song['play_count']} times)")
+        
+        history_text = "\n".join(history_context)
+        
+        # Create prompt for AI
+        prompt = f"""Based on {username}'s music listening history, recommend {count} songs that match their taste profile.
+
+Their top songs:
+{history_text}
+
+Analyze their taste and recommend {count} similar songs that they would enjoy. Focus on:
+1. Similar genres and artists
+2. Songs that complement their current favorites
+3. Include some variety but stay within their taste profile
+4. Prefer well-known songs over obscure tracks
+5. NO shorts, remixes, or low-quality content
+
+Return ONLY a JSON array with this exact format (no other text):
+[
+  {{"title": "Song Name", "artist": "Artist Name"}},
+  ...
+]
+
+Be precise with song and artist names for accurate YouTube searches."""
+        
+        # Get AI recommendations
+        # Load config to pass to API
+        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config', 'config.json')
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        
+        gemini_key = os.getenv('GEMINI_API_KEY', '')
+        openai_key = os.getenv('OPENAI_API_KEY', '')
+        
+        # Use utility model for recommendations
+        model_name = config.get('api', {}).get('gemini', {}).get('utility_model', 'gemini-2.5-flash')
+        
+        response, error = await get_ai_response_with_model(
+            prompt=prompt,
+            model_name=model_name,
+            config=config,
+            gemini_key=gemini_key,
+            openai_key=openai_key,
+            temperature=0.8  # Slightly higher for creativity
+        )
+        
+        if error or not response:
+            logger.error(f"AI curation failed: {error}")
+            return None
+        
+        # Parse AI response
+        try:
+            # Try to extract JSON from response
+            response = response.strip()
+            
+            # Handle markdown code blocks if present
+            if response.startswith('```'):
+                response = response.split('```')[1]
+                if response.startswith('json'):
+                    response = response[4:]
+                response = response.strip()
+            
+            songs = json.loads(response)
+            
+            if not isinstance(songs, list):
+                logger.error("AI response is not a list")
+                return None
+            
+            # Validate and clean recommendations
+            curated_songs = []
+            for song in songs[:count]:  # Limit to requested count
+                if isinstance(song, dict) and 'title' in song and 'artist' in song:
+                    curated_songs.append({
+                        'title': song['title'].strip(),
+                        'artist': song['artist'].strip(),
+                        'url': None  # Will be searched on YouTube
+                    })
+            
+            if len(curated_songs) > 0:
+                logger.info(f"AI curated {len(curated_songs)} songs for {username}")
+                return curated_songs
+            else:
+                logger.warning("No valid songs in AI response")
+                return None
+                
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse AI response as JSON: {e}")
+            logger.debug(f"AI response was: {response[:500]}")
+            return None
+        
+    except Exception as e:
+        logger.error(f"Error getting AI curated songs: {e}", exc_info=True)
+        return None
+
+
+
+async def search_youtube_song(song_title: str, artist: str, filter_shorts: bool = True) -> Optional[str]:
     """
     Search for a song on YouTube and return the video URL.
+    Filters out shorts and non-music content by default.
     
     Args:
         song_title: Song title
         artist: Artist name
+        filter_shorts: If True, excludes videos under 2 minutes (likely shorts)
     
     Returns:
         YouTube video URL or None
@@ -739,18 +866,56 @@ async def search_youtube_song(song_title: str, artist: str) -> Optional[str]:
         safe_artist = safe_artist[:100]
         safe_title = safe_title[:100]
         
-        search_query = f"{safe_artist} {safe_title}"
-        search_url = f"ytsearch1:{search_query}"  # ytsearch1 returns only first result
+        # Add music-specific keywords to improve search quality
+        # Prioritize official audio, lyrics videos, and music over random content
+        search_query = f"{safe_artist} {safe_title} official audio lyrics music"
+        search_url = f"ytsearch5:{search_query}"  # Get top 5 results to filter
         
         with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
             info = ydl.extract_info(search_url, download=False)
             
             # Extract URL from search result
             if info and 'entries' in info and info['entries']:
-                video_info = info['entries'][0]
-                video_id = video_info.get('id')
-                if video_id:
+                # Filter and select best match
+                for video_info in info['entries']:
+                    if not video_info:
+                        continue
+                    
+                    video_id = video_info.get('id')
+                    duration = video_info.get('duration', 0)
+                    title = video_info.get('title', '').lower()
+                    
+                    # Skip if no video ID
+                    if not video_id:
+                        continue
+                    
+                    # Filter out shorts (videos under 2 minutes = 120 seconds)
+                    if filter_shorts and duration and duration < 120:
+                        logger.debug(f"Skipping short video: {title} ({duration}s)")
+                        continue
+                    
+                    # Prefer videos with music-related keywords
+                    music_keywords = ['official', 'audio', 'lyrics', 'music', 'video']
+                    has_music_keyword = any(keyword in title for keyword in music_keywords)
+                    
+                    # Skip videos that are clearly not music (compilations, shorts, etc.)
+                    bad_keywords = ['#shorts', 'compilation', 'reaction', 'tutorial', 'how to']
+                    has_bad_keyword = any(keyword in title for keyword in bad_keywords)
+                    
+                    if has_bad_keyword:
+                        logger.debug(f"Skipping non-music video: {title}")
+                        continue
+                    
+                    # Accept this video
+                    logger.info(f"Selected video: {title} ({duration}s)")
                     return f"https://www.youtube.com/watch?v={video_id}"
+                
+                # If no good match found after filtering, return first result
+                if info['entries']:
+                    video_id = info['entries'][0].get('id')
+                    if video_id:
+                        logger.warning(f"No ideal match found, using first result")
+                        return f"https://www.youtube.com/watch?v={video_id}"
         
         return None
         
@@ -875,22 +1040,33 @@ async def play_song_with_queue(
             logger.error(f"Could not extract audio URL from: {song['url']}")
             return False
         
-        # Get related songs for queue (vary the selection)
-        related_songs = await get_related_songs(song['url'], count=10)
-        
         # Store in active session
         if guild_id not in active_sessions:
             active_sessions[guild_id] = {}
         
-        # Shuffle related songs for variety
-        random.shuffle(related_songs)
-        
-        active_sessions[guild_id]['queue'] = related_songs
+        # Only generate related songs if no queue exists
+        # This allows pre-built queues (like Spotify mix) to be preserved
+        if 'queue' not in active_sessions[guild_id] or not active_sessions[guild_id]['queue']:
+            # Get related songs for queue (vary the selection)
+            related_songs = await get_related_songs(song['url'], count=10)
+            # Shuffle related songs for variety
+            random.shuffle(related_songs)
+            active_sessions[guild_id]['queue'] = related_songs
+        # If queue already exists, keep it (don't overwrite)
         active_sessions[guild_id]['current_song'] = song
         active_sessions[guild_id]['volume'] = volume
         active_sessions[guild_id]['failure_count'] = 0  # Reset failure count on success
         active_sessions[guild_id]['user_id'] = user_id  # Track user for history
-        active_sessions[guild_id]['song_start_time'] = asyncio.get_event_loop().time()  # Track start time
+        
+        # Store event loop reference for callback thread
+        try:
+            loop = asyncio.get_running_loop()
+            active_sessions[guild_id]['event_loop'] = loop
+            active_sessions[guild_id]['song_start_time'] = loop.time()  # Track start time
+        except RuntimeError:
+            # Fallback if no running loop
+            active_sessions[guild_id]['event_loop'] = asyncio.get_event_loop()
+            active_sessions[guild_id]['song_start_time'] = active_sessions[guild_id]['event_loop'].time()
         
         # Track in music history
         if user_id:
@@ -921,21 +1097,25 @@ async def play_song_with_queue(
             
             # Schedule next song using asyncio (whether error or not)
             try:
-                loop = asyncio.get_event_loop()
-                
-                # Calculate duration if tracking
-                # Note: Duration tracking is logged but not persisted to allow for lightweight history
-                # In future, could batch-update durations or store in separate table
-                if guild_id in active_sessions and 'song_start_time' in active_sessions[guild_id]:
-                    duration = int(loop.time() - active_sessions[guild_id]['song_start_time'])
-                    if duration > 0:
-                        logger.debug(f"Song played for {duration} seconds")
-                
-                # Play next song
-                asyncio.run_coroutine_threadsafe(
-                    play_next_in_queue(voice_client, guild_id),
-                    loop
-                )
+                # Use stored event loop instead of get_event_loop()
+                if guild_id in active_sessions and 'event_loop' in active_sessions[guild_id]:
+                    loop = active_sessions[guild_id]['event_loop']
+                    
+                    # Calculate duration if tracking
+                    # Note: Duration tracking is logged but not persisted to allow for lightweight history
+                    # In future, could batch-update durations or store in separate table
+                    if 'song_start_time' in active_sessions[guild_id]:
+                        duration = int(loop.time() - active_sessions[guild_id]['song_start_time'])
+                        if duration > 0:
+                            logger.debug(f"Song played for {duration} seconds")
+                    
+                    # Play next song
+                    asyncio.run_coroutine_threadsafe(
+                        play_next_in_queue(voice_client, guild_id),
+                        loop
+                    )
+                else:
+                    logger.warning(f"No event loop stored for guild {guild_id}, cannot schedule next song")
             except Exception as e:
                 logger.error(f"Error scheduling next song: {e}")
         
@@ -1122,6 +1302,12 @@ async def start_spotify_queue(
 ) -> bool:
     """
     Start playing from user's Spotify recently played with automatic queue.
+    Now enhanced with AI curation - plays mostly from history with AI-curated songs mixed in.
+    
+    Strategy:
+    - 70-80% songs from user's actual listening history
+    - 20-30% AI-curated songs based on taste profile
+    - AI generates 25 recommendations that are interleaved with history
     
     Args:
         voice_client: Connected Discord voice client
@@ -1133,18 +1319,93 @@ async def start_spotify_queue(
         True if started successfully, False otherwise
     """
     try:
-        # Get recently played songs
+        # Get user's listening history
         recent_songs = await get_spotify_recently_played(user_id)
         
         if not recent_songs:
             logger.info(f"No Spotify history for user {user_id}")
             return False
         
-        # Start with most played song
+        # Get AI-curated recommendations (25 songs)
+        # Get username for AI personalization
+        try:
+            # Try to get username from voice client
+            if voice_client and voice_client.guild:
+                member = voice_client.guild.get_member(user_id)
+                username = member.display_name if member else f"User {user_id}"
+            else:
+                username = f"User {user_id}"
+        except:
+            username = f"User {user_id}"
+        
+        ai_curated_songs = await get_ai_curated_songs(user_id, username, count=25)
+        
+        # Build queue with mixed strategy
+        queue = []
+        
+        # Start with the most played song from history
         first_song = recent_songs[0]
         
-        # Play it with queue, passing user_id for tracking
-        return await play_song_with_queue(voice_client, first_song, guild_id, volume, user_id)
+        # Create extended history pool (repeat top songs for better ratio)
+        history_pool = recent_songs.copy()
+        # Duplicate top 5 songs for higher play probability
+        if len(history_pool) >= 5:
+            history_pool.extend(recent_songs[:5])
+        random.shuffle(history_pool)
+        
+        # Build mixed queue (70-80% history, 20-30% AI)
+        if ai_curated_songs and len(ai_curated_songs) > 0:
+            # Target: 80 total songs (will play for hours)
+            # 60 from history (75%), 20 from AI (25%)
+            target_history = 60
+            target_ai = 20
+            
+            # Create history queue (with repeats to reach target)
+            history_queue = []
+            while len(history_queue) < target_history:
+                for song in history_pool:
+                    if len(history_queue) >= target_history:
+                        break
+                    history_queue.append(song.copy())
+            
+            # Shuffle both pools
+            random.shuffle(history_queue)
+            ai_queue = ai_curated_songs.copy()
+            random.shuffle(ai_queue)
+            
+            # Interleave: 3-4 history songs, then 1 AI song
+            ai_index = 0
+            for i, song in enumerate(history_queue):
+                queue.append(song)
+                # After every 4 history songs, add 1 AI song
+                if (i + 1) % 4 == 0 and ai_index < len(ai_queue):
+                    queue.append(ai_queue[ai_index])
+                    ai_index += 1
+            
+            # Add remaining AI songs at the end if any
+            while ai_index < len(ai_queue):
+                queue.append(ai_queue[ai_index])
+                ai_index += 1
+            
+            logger.info(f"Built queue: {len(history_queue)} history + {min(len(ai_queue), target_ai)} AI = {len(queue)} total songs")
+        else:
+            # No AI curation available, use only history
+            logger.info("AI curation not available, using history only")
+            # Extend history to build longer queue
+            for _ in range(8):  # Repeat 8 times = ~80 songs
+                for song in history_pool:
+                    queue.append(song.copy())
+            random.shuffle(queue)
+        
+        # Play first song with queue, passing user_id for tracking
+        success = await play_song_with_queue(voice_client, first_song, guild_id, volume, user_id)
+        
+        if success and guild_id in active_sessions:
+            # Replace the auto-generated queue with our curated queue
+            active_sessions[guild_id]['queue'] = queue
+            logger.info(f"Started Spotify mix queue with {len(queue)} songs")
+        
+        return success
         
     except Exception as e:
         logger.error(f"Error starting Spotify queue: {e}", exc_info=True)
