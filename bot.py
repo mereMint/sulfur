@@ -15424,7 +15424,8 @@ async def get_current_song_embed(guild_id: int, user_id: int, voice_client) -> O
         from modules.themes import get_user_theme, get_theme_color
         theme = await get_user_theme(db_helpers, user_id)
         embed_color = get_theme_color(theme, 'primary') if theme else discord.Color.blue()
-    except:
+    except (ImportError, AttributeError, Exception) as e:
+        logger.debug(f"Could not load user theme: {e}")
         pass
     
     # Create embed
@@ -15741,15 +15742,6 @@ class MusicControlView(discord.ui.View):
             )
             await interaction.followup.send(embed=embed, ephemeral=True)
             return
-        
-        # Get current song from active sessions
-        embed_color = discord.Color.blue()
-        try:
-            from modules.themes import get_user_theme, get_theme_color
-            theme = await get_user_theme(db_helpers, interaction.user.id)
-            embed_color = get_theme_color(theme, 'primary') if theme else discord.Color.blue()
-        except:
-            pass
         
         # Use helper function to get current song embed
         embed = await get_current_song_embed(guild_id, interaction.user.id, voice_client)
