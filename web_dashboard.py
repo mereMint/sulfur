@@ -2402,6 +2402,9 @@ def games_stats():
             mines_games = safe_query("SELECT COUNT(*) as total_games FROM mines_games")
             mines_players = safe_query("SELECT COUNT(DISTINCT user_id) as total_players FROM mines_games")
             
+            # Calculate total from individual games
+            total_casino_games = blackjack_games + roulette_games + mines_games
+            
             stats['casino'] = {
                 'blackjack': {
                     'total_games': blackjack_games,
@@ -2415,7 +2418,7 @@ def games_stats():
                     'total_games': mines_games,
                     'total_players': mines_players
                 },
-                'total_games': blackjack_games + roulette_games + mines_games
+                'total_games': total_casino_games
             }
             
             # Horse Racing stats

@@ -2038,7 +2038,7 @@ async def update_spotify_history(client, user_id: int, display_name: str, song_t
     cnx = db_pool.get_connection()
     if not cnx: return
 
-    print(f"    - [DB] Updating spotify_history for {display_name} ({user_id}) with song: '{song_title}' by '{song_artist}'")
+    logger.debug(f"[DB] Updating spotify_history for {display_name} ({user_id}) with song: '{song_title}' by '{song_artist}'")
     cursor = cnx.cursor()
     song_key = f"{song_title} by {song_artist}"
     try:

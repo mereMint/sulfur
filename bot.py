@@ -1429,10 +1429,15 @@ async def on_presence_update(before, after):
         # Case 2: Song has started (or resumed)
         if after_spotify:
             resumed_song = (after_spotify.title, after_spotify.artist, getattr(after_spotify, 'album', None))
-            # Check if it's a resume from pause
-            if user_id in spotify_pause_cache and spotify_pause_cache[user_id][0][:2] == resumed_song[:2]:  # Compare title and artist only
-                print(f"  -> [Spotify] Resumed '{resumed_song[0]}' for {after.display_name}. Restarting timer.")
-                spotify_start_times[user_id] = spotify_pause_cache.pop(user_id) # Restore timer from cache
+            resumed_song_title, resumed_song_artist = resumed_song[:2]
+            
+            # Check if it's a resume from pause (compare title and artist only, not album)
+            if user_id in spotify_pause_cache:
+                cached_song = spotify_pause_cache[user_id][0]
+                cached_title, cached_artist = cached_song[:2]
+                if cached_title == resumed_song_title and cached_artist == resumed_song_artist:
+                    print(f"  -> [Spotify] Resumed '{resumed_song_title}' for {after.display_name}. Restarting timer.")
+                    spotify_start_times[user_id] = spotify_pause_cache.pop(user_id) # Restore timer from cache
             # Check if it's a brand new song session
             elif user_id not in spotify_start_times:
                  print(f"  -> [Spotify] New song session started for {after.display_name} (ID: {user_id}): '{after_spotify.title}'. Starting timer.")
