@@ -15625,6 +15625,117 @@ class MusicControlView(discord.ui.View):
         
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
     
+    @discord.ui.button(label="Now Playing", style=discord.ButtonStyle.secondary, emoji="🎵")
+    async def now_playing_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Show currently playing song and update the embed."""
+        await interaction.response.defer(ephemeral=True)
+        
+        guild_id = interaction.guild.id
+        voice_client = interaction.guild.voice_client
+        
+        if not voice_client or not voice_client.is_connected():
+            embed = discord.Embed(
+                title="❌ Nicht verbunden",
+                description="Der Bot spielt gerade keine Musik!",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        if not voice_client.is_playing():
+            embed = discord.Embed(
+                title="❌ Keine Wiedergabe",
+                description="Es läuft gerade keine Musik!",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        # Get current song from active sessions
+        embed_color = discord.Color.blue()
+        try:
+            from modules.themes import get_user_theme, get_theme_color
+            theme = await get_user_theme(db_helpers, interaction.user.id)
+            embed_color = get_theme_color(theme, 'primary') if theme else discord.Color.blue()
+        except:
+            pass
+        
+        if guild_id in lofi_player.active_sessions and 'current_song' in lofi_player.active_sessions[guild_id]:
+            current_song = lofi_player.active_sessions[guild_id]['current_song']
+            queue = lofi_player.active_sessions[guild_id].get('queue', [])
+            
+            # Create enhanced embed with current song info
+            embed = discord.Embed(
+                title="🎵 Jetzt läuft",
+                color=embed_color
+            )
+            
+            # Add current song info
+            song_title = current_song.get('title', 'Unbekannt')
+            song_artist = current_song.get('artist', 'Unbekannt')
+            song_url = current_song.get('url', '')
+            station_type = current_song.get('type', 'custom')
+            
+            # Display station type
+            station_display = {
+                "lofi": "🎧 Lofi Beats",
+                "nocopyright": "🎵 No Copyright",
+                "ambient": "🌧️ Ambient Sounds",
+                "noise": "⚪ Noise Station",
+                "spotify_mix": "✨ Spotify Mix",
+                "custom": "🎼 Custom Song"
+            }
+            station_name = station_display.get(station_type, '🎵 Music')
+            
+            if song_url:
+                embed.add_field(
+                    name="🎧 Song",
+                    value=f"**{song_title}**\nby {song_artist}\n[Link]({song_url})",
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="🎧 Song",
+                    value=f"**{song_title}**\nby {song_artist}",
+                    inline=False
+                )
+            
+            # Add station type
+            embed.add_field(
+                name="📻 Station",
+                value=station_name,
+                inline=True
+            )
+            
+            # Add queue info
+            embed.add_field(
+                name="📋 In der Warteschlange",
+                value=f"**{len(queue)}** Songs",
+                inline=True
+            )
+            
+            # Add voice channel info
+            if voice_client.channel:
+                embed.add_field(
+                    name="📍 Voice Channel",
+                    value=f"**{voice_client.channel.name}**",
+                    inline=True
+                )
+            
+            embed.set_thumbnail(url=interaction.user.display_avatar.url)
+            embed.set_footer(text="Nutze die Buttons unten zur Steuerung")
+            
+            # Create a new view with playback controls
+            view = PlaybackControlView()
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        else:
+            embed = discord.Embed(
+                title="ℹ️ Keine Song-Info",
+                description="Es konnte keine Information über den aktuellen Song gefunden werden.",
+                color=discord.Color.blue()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+    
     @discord.ui.button(label="Stop", style=discord.ButtonStyle.danger, emoji="⏹️")
     async def stop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Stop music playback."""
@@ -15657,6 +15768,205 @@ class MusicControlView(discord.ui.View):
             inline=True
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+class PlaybackControlView(discord.ui.View):
+    """View with playback control buttons (skip, pause/resume)."""
+    
+    def __init__(self):
+        super().__init__(timeout=MUSIC_VIEW_TIMEOUT)
+    
+    @discord.ui.button(label="Skip", style=discord.ButtonStyle.primary, emoji="⏭️")
+    async def skip_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Skip the current song."""
+        await interaction.response.defer(ephemeral=True)
+        
+        guild_id = interaction.guild.id
+        voice_client = interaction.guild.voice_client
+        
+        if not voice_client or not voice_client.is_connected():
+            embed = discord.Embed(
+                title="❌ Nicht verbunden",
+                description="Der Bot spielt gerade keine Musik!",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        if not voice_client.is_playing():
+            embed = discord.Embed(
+                title="❌ Keine Wiedergabe",
+                description="Es läuft gerade keine Musik!",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        # Stop current song (this will trigger the after_callback to play next)
+        voice_client.stop()
+        
+        embed = discord.Embed(
+            title="⏭️ Song übersprungen",
+            description="Nächster Song wird geladen...",
+            color=discord.Color.blue()
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="Pause", style=discord.ButtonStyle.secondary, emoji="⏸️")
+    async def pause_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Pause or resume playback."""
+        await interaction.response.defer(ephemeral=True)
+        
+        voice_client = interaction.guild.voice_client
+        
+        if not voice_client or not voice_client.is_connected():
+            embed = discord.Embed(
+                title="❌ Nicht verbunden",
+                description="Der Bot spielt gerade keine Musik!",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        if voice_client.is_playing():
+            voice_client.pause()
+            embed = discord.Embed(
+                title="⏸️ Pausiert",
+                description="Musik wurde pausiert.",
+                color=discord.Color.blue()
+            )
+            button.label = "Resume"
+            button.emoji = "▶️"
+        elif voice_client.is_paused():
+            voice_client.resume()
+            embed = discord.Embed(
+                title="▶️ Fortgesetzt",
+                description="Musik wird fortgesetzt.",
+                color=discord.Color.green()
+            )
+            button.label = "Pause"
+            button.emoji = "⏸️"
+        else:
+            embed = discord.Embed(
+                title="❌ Keine Wiedergabe",
+                description="Es läuft gerade keine Musik!",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    
+    @discord.ui.button(label="Refresh", style=discord.ButtonStyle.success, emoji="🔄")
+    async def refresh_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Refresh and show current song info."""
+        await interaction.response.defer(ephemeral=True)
+        
+        guild_id = interaction.guild.id
+        voice_client = interaction.guild.voice_client
+        
+        if not voice_client or not voice_client.is_connected():
+            embed = discord.Embed(
+                title="❌ Nicht verbunden",
+                description="Der Bot spielt gerade keine Musik!",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        if not voice_client.is_playing():
+            embed = discord.Embed(
+                title="❌ Keine Wiedergabe",
+                description="Es läuft gerade keine Musik!",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        # Get current song from active sessions
+        embed_color = discord.Color.blue()
+        try:
+            from modules.themes import get_user_theme, get_theme_color
+            theme = await get_user_theme(db_helpers, interaction.user.id)
+            embed_color = get_theme_color(theme, 'primary') if theme else discord.Color.blue()
+        except:
+            pass
+        
+        if guild_id in lofi_player.active_sessions and 'current_song' in lofi_player.active_sessions[guild_id]:
+            current_song = lofi_player.active_sessions[guild_id]['current_song']
+            queue = lofi_player.active_sessions[guild_id].get('queue', [])
+            
+            # Create enhanced embed with current song info
+            embed = discord.Embed(
+                title="🎵 Jetzt läuft",
+                color=embed_color
+            )
+            
+            # Add current song info
+            song_title = current_song.get('title', 'Unbekannt')
+            song_artist = current_song.get('artist', 'Unbekannt')
+            song_url = current_song.get('url', '')
+            station_type = current_song.get('type', 'custom')
+            
+            # Display station type
+            station_display = {
+                "lofi": "🎧 Lofi Beats",
+                "nocopyright": "🎵 No Copyright",
+                "ambient": "🌧️ Ambient Sounds",
+                "noise": "⚪ Noise Station",
+                "spotify_mix": "✨ Spotify Mix",
+                "custom": "🎼 Custom Song"
+            }
+            station_name = station_display.get(station_type, '🎵 Music')
+            
+            if song_url:
+                embed.add_field(
+                    name="🎧 Song",
+                    value=f"**{song_title}**\nby {song_artist}\n[Link]({song_url})",
+                    inline=False
+                )
+            else:
+                embed.add_field(
+                    name="🎧 Song",
+                    value=f"**{song_title}**\nby {song_artist}",
+                    inline=False
+                )
+            
+            # Add station type
+            embed.add_field(
+                name="📻 Station",
+                value=station_name,
+                inline=True
+            )
+            
+            # Add queue info
+            embed.add_field(
+                name="📋 In der Warteschlange",
+                value=f"**{len(queue)}** Songs",
+                inline=True
+            )
+            
+            # Add voice channel info
+            if voice_client.channel:
+                embed.add_field(
+                    name="📍 Voice Channel",
+                    value=f"**{voice_client.channel.name}**",
+                    inline=True
+                )
+            
+            embed.set_thumbnail(url=interaction.user.display_avatar.url)
+            embed.set_footer(text="Nutze die Buttons unten zur Steuerung")
+            
+            # Update with same view
+            view = PlaybackControlView()
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        else:
+            embed = discord.Embed(
+                title="ℹ️ Keine Song-Info",
+                description="Es konnte keine Information über den aktuellen Song gefunden werden.",
+                color=discord.Color.blue()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 class MusicStationView(discord.ui.View):
@@ -15815,144 +16125,6 @@ async def music_add(interaction: discord.Interaction, song_query: str):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-@tree.command(name="musicskip", description="⏭️ Überspringe den aktuellen Song")
-async def music_skip(interaction: discord.Interaction):
-    """Skip the current song in the queue."""
-    await interaction.response.defer(ephemeral=True)
-    
-    try:
-        guild_id = interaction.guild.id
-        voice_client = interaction.guild.voice_client
-        
-        if not voice_client or not voice_client.is_connected():
-            embed = discord.Embed(
-                title="❌ Nicht verbunden",
-                description="Der Bot spielt gerade keine Musik!",
-                color=discord.Color.red()
-            )
-            await interaction.followup.send(embed=embed, ephemeral=True)
-            return
-        
-        if not voice_client.is_playing():
-            embed = discord.Embed(
-                title="❌ Keine Wiedergabe",
-                description="Es läuft gerade keine Musik!",
-                color=discord.Color.red()
-            )
-            await interaction.followup.send(embed=embed, ephemeral=True)
-            return
-        
-        # Stop current song (this will trigger the after_callback to play next)
-        voice_client.stop()
-        
-        embed = discord.Embed(
-            title="⏭️ Song übersprungen",
-            description="Nächster Song wird geladen...",
-            color=discord.Color.blue()
-        )
-        await interaction.followup.send(embed=embed, ephemeral=True)
-        
-    except Exception as e:
-        logger.error(f"Error in musicskip command: {e}", exc_info=True)
-        embed = discord.Embed(
-            title="❌ Fehler",
-            description=f"Es ist ein Fehler aufgetreten: {str(e)}",
-            color=discord.Color.red()
-        )
-        await interaction.followup.send(embed=embed, ephemeral=True)
-
-
-@tree.command(name="musiccurrent", description="🎵 Zeige den aktuellen Song")
-async def music_current(interaction: discord.Interaction):
-    """Show the currently playing song."""
-    await interaction.response.defer(ephemeral=True)
-    
-    try:
-        guild_id = interaction.guild.id
-        voice_client = interaction.guild.voice_client
-        
-        if not voice_client or not voice_client.is_connected():
-            embed = discord.Embed(
-                title="❌ Nicht verbunden",
-                description="Der Bot spielt gerade keine Musik!",
-                color=discord.Color.red()
-            )
-            await interaction.followup.send(embed=embed, ephemeral=True)
-            return
-        
-        if not voice_client.is_playing():
-            embed = discord.Embed(
-                title="❌ Keine Wiedergabe",
-                description="Es läuft gerade keine Musik!",
-                color=discord.Color.red()
-            )
-            await interaction.followup.send(embed=embed, ephemeral=True)
-            return
-        
-        # Get current song from active sessions
-        if guild_id in lofi_player.active_sessions and 'current_song' in lofi_player.active_sessions[guild_id]:
-            current_song = lofi_player.active_sessions[guild_id]['current_song']
-            queue = lofi_player.active_sessions[guild_id].get('queue', [])
-            
-            # Get user's custom embed color
-            embed_color = await get_user_embed_color(interaction.user.id, config)
-            
-            embed = discord.Embed(
-                title="🎵 Jetzt läuft",
-                color=embed_color
-            )
-            
-            # Add current song info
-            song_title = current_song.get('title', 'Unbekannt')
-            song_artist = current_song.get('artist', 'Unbekannt')
-            song_url = current_song.get('url', '')
-            
-            if song_url:
-                embed.add_field(
-                    name="🎧 Song",
-                    value=f"**{song_title}**\nby {song_artist}\n[Link]({song_url})",
-                    inline=False
-                )
-            else:
-                embed.add_field(
-                    name="🎧 Song",
-                    value=f"**{song_title}**\nby {song_artist}",
-                    inline=False
-                )
-            
-            # Add queue info
-            embed.add_field(
-                name="📋 In der Warteschlange",
-                value=f"**{len(queue)}** Songs",
-                inline=True
-            )
-            
-            # Add voice channel info
-            if voice_client.channel:
-                embed.add_field(
-                    name="📍 Voice Channel",
-                    value=f"**{voice_client.channel.name}**",
-                    inline=True
-                )
-            
-            embed.set_thumbnail(url=interaction.user.display_avatar.url)
-            await interaction.followup.send(embed=embed, ephemeral=True)
-        else:
-            embed = discord.Embed(
-                title="ℹ️ Keine Song-Info",
-                description="Es konnte keine Information über den aktuellen Song gefunden werden.",
-                color=discord.Color.blue()
-            )
-            await interaction.followup.send(embed=embed, ephemeral=True)
-        
-    except Exception as e:
-        logger.error(f"Error in musiccurrent command: {e}", exc_info=True)
-        embed = discord.Embed(
-            title="❌ Fehler",
-            description=f"Es ist ein Fehler aufgetreten: {str(e)}",
-            color=discord.Color.red()
-        )
-        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 @tree.command(name="rr", description="Spiele Russian Roulette!")
