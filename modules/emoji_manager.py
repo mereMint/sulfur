@@ -264,6 +264,7 @@ async def get_emoji_context_for_ai(client=None):
     
     # Build list of emojis that actually exist
     verified_emojis = {}
+    missing_emojis = []  # Track missing emojis for consolidated warning
     
     # First, add configured emojis that actually exist in application emojis
     for emoji_name, emoji_data in configured_emojis.items():
@@ -274,7 +275,11 @@ async def get_emoji_context_for_ai(client=None):
                 'source': 'configured'
             }
         else:
-            print(f"[Emoji System] Warning: Configured emoji '{emoji_name}' not found in application emojis")
+            missing_emojis.append(emoji_name)
+    
+    # Print a single consolidated warning for all missing emojis
+    if missing_emojis:
+        print(f"[Emoji System] Warning: {len(missing_emojis)} configured emoji(s) not found in application emojis: {', '.join(missing_emojis)}")
     
     # Add database emojis that exist in application emojis
     for emoji in db_emojis:
@@ -285,7 +290,7 @@ async def get_emoji_context_for_ai(client=None):
                     'description': emoji.get('description', 'Custom emoji'),
                     'usage': emoji.get('usage_context', 'General use'),
                     'source': 'discovered'
-                }
+                    }
     
     if not verified_emojis:
         return ""

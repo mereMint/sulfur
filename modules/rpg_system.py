@@ -2185,12 +2185,21 @@ async def initialize_rpg_tables(db_helpers):
             """)
             
             # Add uses_remaining column if it doesn't exist (migration)
+            # Check first to avoid "Duplicate column name" warnings
             try:
                 cursor.execute("""
-                    ALTER TABLE rpg_inventory ADD COLUMN IF NOT EXISTS uses_remaining INT DEFAULT NULL
+                    SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+                    WHERE TABLE_SCHEMA = DATABASE()
+                    AND TABLE_NAME = 'rpg_inventory' 
+                    AND COLUMN_NAME = 'uses_remaining'
                 """)
+                result = cursor.fetchone()
+                if result and result[0] == 0:
+                    cursor.execute("""
+                        ALTER TABLE rpg_inventory ADD COLUMN uses_remaining INT DEFAULT NULL
+                    """)
             except Exception:
-                pass  # Column might already exist
+                pass  # Column might already exist or table doesn't exist yet
             
             # Equipment
             cursor.execute("""
@@ -2241,12 +2250,21 @@ async def initialize_rpg_tables(db_helpers):
             """)
             
             # Add max_uses column if it doesn't exist (migration)
+            # Check first to avoid "Duplicate column name" warnings
             try:
                 cursor.execute("""
-                    ALTER TABLE rpg_items ADD COLUMN IF NOT EXISTS max_uses INT DEFAULT NULL
+                    SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+                    WHERE TABLE_SCHEMA = DATABASE()
+                    AND TABLE_NAME = 'rpg_items' 
+                    AND COLUMN_NAME = 'max_uses'
                 """)
+                result = cursor.fetchone()
+                if result and result[0] == 0:
+                    cursor.execute("""
+                        ALTER TABLE rpg_items ADD COLUMN max_uses INT DEFAULT NULL
+                    """)
             except Exception:
-                pass  # Column might already exist
+                pass  # Column might already exist or table doesn't exist yet
             
             # Daily shop rotation - stores which items are available each day
             cursor.execute("""
