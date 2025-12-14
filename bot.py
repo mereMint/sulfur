@@ -16533,6 +16533,144 @@ async def listening_stats(interaction: discord.Interaction):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
+@tree.command(name="album", description="📀 Füge ein Album zur Warteschlange hinzu")
+@app_commands.describe(
+    album_name="Name des Albums",
+    artist="Name des Künstlers (optional, aber empfohlen)"
+)
+async def add_album(interaction: discord.Interaction, album_name: str, artist: str = None):
+    """Add an entire album to the queue."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        # Check if user is in voice channel
+        if not interaction.user.voice or not interaction.user.voice.channel:
+            embed = discord.Embed(
+                title="❌ Nicht in Voice-Channel",
+                description="Du musst in einem Voice-Channel sein!",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        voice_channel = interaction.user.voice.channel
+        guild_id = interaction.guild.id
+        
+        # Get or create voice client
+        voice_client = interaction.guild.voice_client
+        if not voice_client or not voice_client.is_connected():
+            voice_client = await lofi_player.join_voice_channel(voice_channel)
+            if not voice_client:
+                embed = discord.Embed(
+                    title="❌ Verbindungsfehler",
+                    description="Konnte dem Voice-Channel nicht beitreten!",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+        
+        # Get user's custom embed color
+        embed_color = await get_user_embed_color(interaction.user.id, config)
+        
+        # Show loading message
+        loading_embed = discord.Embed(
+            title="🔍 Suche Album...",
+            description=f"Suche nach: **{album_name}**" + (f" von *{artist}*" if artist else ""),
+            color=embed_color
+        )
+        await interaction.followup.send(embed=loading_embed, ephemeral=True)
+        
+        # Get album info and add to queue
+        album_info = await lofi_player.get_album_info(album_name, artist)
+        
+        if not album_info:
+            embed = discord.Embed(
+                title="❌ Album nicht gefunden",
+                description=f"Konnte das Album '{album_name}' nicht finden!",
+                color=discord.Color.red()
+            )
+            await interaction.edit_original_response(embed=embed)
+            return
+        
+        # If no queue, start playing first track
+        if lofi_player.get_queue_length(guild_id) == 0 and album_info['tracks']:
+            first_track = album_info['tracks'][0]
+            success = await lofi_player.play_song_with_queue(
+                voice_client,
+                first_track,
+                guild_id,
+                volume=1.0,
+                user_id=interaction.user.id
+            )
+            
+            if success:
+                # Add remaining tracks to queue
+                for track in album_info['tracks'][1:]:
+                    lofi_player.add_to_queue(guild_id, track, check_duplicates=False)
+                
+                embed = discord.Embed(
+                    title="📀 Album wird abgespielt!",
+                    description=f"## {album_info['album_name']}\n*von {album_info['artist']}*",
+                    color=embed_color
+                )
+                embed.add_field(
+                    name="📊 Album Info",
+                    value=f"**{album_info['total_tracks']} Tracks** wurden zur Queue hinzugefügt",
+                    inline=False
+                )
+                
+                if album_info.get('thumbnail'):
+                    embed.set_thumbnail(url=album_info['thumbnail'])
+                
+                await interaction.edit_original_response(embed=embed)
+            else:
+                embed = discord.Embed(
+                    title="❌ Fehler",
+                    description="Konnte Album nicht abspielen!",
+                    color=discord.Color.red()
+                )
+                await interaction.edit_original_response(embed=embed)
+        else:
+            # Add all tracks to existing queue
+            added_count = await lofi_player.add_album_to_queue(guild_id, album_name, artist)
+            
+            if added_count > 0:
+                embed = discord.Embed(
+                    title="✅ Album zur Queue hinzugefügt",
+                    description=f"## {album_info['album_name']}\n*von {album_info['artist']}*",
+                    color=embed_color
+                )
+                embed.add_field(
+                    name="📊 Tracks hinzugefügt",
+                    value=f"**{added_count}** von {album_info['total_tracks']} Tracks",
+                    inline=False
+                )
+                
+                if album_info.get('thumbnail'):
+                    embed.set_thumbnail(url=album_info['thumbnail'])
+                
+                await interaction.edit_original_response(embed=embed)
+            else:
+                embed = discord.Embed(
+                    title="⚠️ Keine neuen Tracks",
+                    description="Alle Tracks sind bereits in der Queue!",
+                    color=discord.Color.orange()
+                )
+                await interaction.edit_original_response(embed=embed)
+        
+    except Exception as e:
+        logger.error(f"Error in album command: {e}", exc_info=True)
+        embed = discord.Embed(
+            title="❌ Fehler",
+            description=f"Es ist ein Fehler aufgetreten: {str(e)}",
+            color=discord.Color.red()
+        )
+        try:
+            await interaction.edit_original_response(embed=embed)
+        except:
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+
 @tree.command(name="rr", description="Spiele Russian Roulette!")
 @app_commands.describe(bet="Einsatz (optional, Standard: 100)")
 async def russian_roulette(interaction: discord.Interaction, bet: int = None):

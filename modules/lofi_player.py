@@ -95,8 +95,14 @@ MUSIC_STATIONS = {
 }
 
 # Active playback sessions per guild
-# Format: {guild_id: {'voice_client': VoiceClient, 'stations': [station_configs], 'auto_disconnect_task': Task, 'queue': list, 'failure_count': int}}
+# Format: {guild_id: {'voice_client': VoiceClient, 'stations': [station_configs], 'auto_disconnect_task': Task, 'queue': list, 'failure_count': int, 'preloaded_song': dict}}
 active_sessions: Dict[int, dict] = {}
+
+# Preloaded song cache for faster playback
+# Format: {song_url: {'audio_url': str, 'title': str, 'artist': str, 'duration': int, 'timestamp': float}}
+preload_cache: Dict[str, dict] = {}
+PRELOAD_CACHE_MAX_SIZE = 50  # Maximum number of preloaded songs
+PRELOAD_CACHE_TTL = 3600  # Cache TTL in seconds (1 hour)
 
 # Maximum consecutive failures before stopping queue
 MAX_QUEUE_FAILURES = 3
@@ -985,6 +991,214 @@ async def get_related_songs(video_url: str, count: int = 5) -> List[dict]:
         return []
 
 
+async def preload_song(song: dict) -> bool:
+    """
+    Preload a song by extracting its audio URL and caching it.
+    
+    Args:
+        song: Song dictionary with 'url' or 'title'/'artist'
+    
+    Returns:
+        True if preloaded successfully, False otherwise
+    """
+    try:
+        import yt_dlp
+        import time
+        
+        # Get song URL if needed
+        song_url = song.get('url')
+        if not song_url:
+            if 'title' in song and 'artist' in song:
+                song_url = await search_youtube_song(song['title'], song['artist'])
+                if not song_url:
+                    return False
+                song['url'] = song_url
+            else:
+                return False
+        
+        # Check if already in cache and not expired
+        if song_url in preload_cache:
+            cached = preload_cache[song_url]
+            if time.time() - cached.get('timestamp', 0) < PRELOAD_CACHE_TTL:
+                logger.debug(f"Song already in preload cache: {song.get('title', song_url)}")
+                return True
+        
+        # Extract audio URL
+        with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
+            info = ydl.extract_info(song_url, download=False)
+            audio_url = extract_audio_url(info)
+            
+            if not audio_url:
+                return False
+            
+            # Cache the preloaded song data
+            preload_cache[song_url] = {
+                'audio_url': audio_url,
+                'title': info.get('title', song.get('title', 'Unknown')),
+                'artist': info.get('uploader', song.get('artist', 'Unknown')),
+                'duration': info.get('duration', 0),
+                'timestamp': time.time()
+            }
+            
+            # Manage cache size
+            if len(preload_cache) > PRELOAD_CACHE_MAX_SIZE:
+                # Remove oldest entries
+                sorted_cache = sorted(preload_cache.items(), key=lambda x: x[1]['timestamp'])
+                for url, _ in sorted_cache[:10]:  # Remove 10 oldest
+                    del preload_cache[url]
+            
+            logger.info(f"Preloaded song: {preload_cache[song_url]['title']}")
+            return True
+            
+    except Exception as e:
+        logger.error(f"Error preloading song: {e}")
+        return False
+
+
+async def preload_next_songs(guild_id: int, count: int = 2):
+    """
+    Preload the next songs in the queue for faster playback.
+    
+    Args:
+        guild_id: Guild ID
+        count: Number of songs to preload (default: 2)
+    """
+    try:
+        if guild_id not in active_sessions:
+            return
+        
+        queue = active_sessions[guild_id].get('queue', [])
+        if not queue:
+            return
+        
+        # Preload next songs asynchronously (don't wait)
+        for song in queue[:count]:
+            asyncio.create_task(preload_song(song))
+        
+        logger.debug(f"Started preloading {min(count, len(queue))} songs for guild {guild_id}")
+        
+    except Exception as e:
+        logger.error(f"Error preloading next songs: {e}")
+
+
+async def get_album_info(album_name: str, artist: str = None) -> Optional[dict]:
+    """
+    Get album information and track list from YouTube/Music.
+    
+    Args:
+        album_name: Name of the album
+        artist: Optional artist name for better search
+    
+    Returns:
+        Dictionary with album info and tracks, or None
+    """
+    try:
+        import yt_dlp
+        
+        # Build search query
+        search_query = f"{artist} {album_name} full album" if artist else f"{album_name} full album"
+        search_url = f"ytsearch1:{search_query}"
+        
+        ydl_options = {**YDL_OPTIONS, 'extract_flat': False}
+        
+        with yt_dlp.YoutubeDL(ydl_options) as ydl:
+            info = ydl.extract_info(search_url, download=False)
+            
+            if not info or 'entries' not in info or not info['entries']:
+                return None
+            
+            album_video = info['entries'][0]
+            
+            # Try to extract chapters as tracks
+            tracks = []
+            if 'chapters' in album_video and album_video['chapters']:
+                for i, chapter in enumerate(album_video['chapters'], 1):
+                    track_title = chapter.get('title', f'Track {i}')
+                    tracks.append({
+                        'track_number': i,
+                        'title': sanitize_song_title(track_title),
+                        'artist': artist or album_video.get('uploader', 'Unknown'),
+                        'album': album_name,
+                        'start_time': chapter.get('start_time', 0),
+                        'end_time': chapter.get('end_time', 0),
+                        'url': album_video.get('webpage_url', '')
+                    })
+            else:
+                # No chapters, treat whole video as single track
+                tracks.append({
+                    'track_number': 1,
+                    'title': sanitize_song_title(album_video.get('title', album_name)),
+                    'artist': artist or album_video.get('uploader', 'Unknown'),
+                    'album': album_name,
+                    'start_time': 0,
+                    'end_time': album_video.get('duration', 0),
+                    'url': album_video.get('webpage_url', '')
+                })
+            
+            album_info = {
+                'album_name': album_name,
+                'artist': artist or album_video.get('uploader', 'Unknown'),
+                'tracks': tracks,
+                'total_tracks': len(tracks),
+                'url': album_video.get('webpage_url', ''),
+                'thumbnail': album_video.get('thumbnail', ''),
+                'duration': album_video.get('duration', 0)
+            }
+            
+            logger.info(f"Retrieved album info: {album_name} with {len(tracks)} tracks")
+            return album_info
+            
+    except Exception as e:
+        logger.error(f"Error getting album info: {e}")
+        return None
+
+
+async def add_album_to_queue(guild_id: int, album_name: str, artist: str = None) -> int:
+    """
+    Add all tracks from an album to the queue.
+    
+    Args:
+        guild_id: Guild ID
+        album_name: Name of the album
+        artist: Optional artist name
+    
+    Returns:
+        Number of tracks added to queue
+    """
+    try:
+        # Get album info
+        album_info = await get_album_info(album_name, artist)
+        
+        if not album_info or not album_info['tracks']:
+            logger.warning(f"No tracks found for album: {album_name}")
+            return 0
+        
+        # Add each track to queue
+        added_count = 0
+        for track in album_info['tracks']:
+            # Add track as a song with album metadata
+            song = {
+                'title': track['title'],
+                'artist': track['artist'],
+                'album': track['album'],
+                'track_number': track['track_number'],
+                'url': track['url'],
+                'start_time': track.get('start_time', 0),
+                'end_time': track.get('end_time', 0)
+            }
+            
+            # Add to queue with duplicate checking
+            if add_to_queue(guild_id, song, check_duplicates=True) > 0:
+                added_count += 1
+        
+        logger.info(f"Added {added_count} tracks from album '{album_name}' to queue")
+        return added_count
+        
+    except Exception as e:
+        logger.error(f"Error adding album to queue: {e}")
+        return 0
+
+
 async def play_song_with_queue(
     voice_client: discord.VoiceClient,
     song: dict,
@@ -1008,6 +1222,7 @@ async def play_song_with_queue(
     """
     try:
         import yt_dlp
+        import time
         
         if not voice_client or not voice_client.is_connected():
             logger.error("Voice client not connected")
@@ -1029,11 +1244,30 @@ async def play_song_with_queue(
                 logger.error("Song missing URL and title/artist")
                 return False
         
-        # Extract audio URL using yt-dlp
-        logger.info(f"Extracting audio URL for: {song.get('title', song['url'])}")
-        with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-            info = ydl.extract_info(song['url'], download=False)
-            audio_url = extract_audio_url(info)
+        # Check if song is in preload cache
+        song_url = song['url']
+        audio_url = None
+        
+        if song_url in preload_cache:
+            cached = preload_cache[song_url]
+            # Check if cache is still valid
+            if time.time() - cached.get('timestamp', 0) < PRELOAD_CACHE_TTL:
+                audio_url = cached['audio_url']
+                if 'title' not in song:
+                    song['title'] = cached['title']
+                if 'artist' not in song:
+                    song['artist'] = cached['artist']
+                logger.info(f"Using preloaded audio for: {song.get('title', 'Unknown')}")
+            else:
+                # Cache expired, remove it
+                del preload_cache[song_url]
+        
+        # If not in cache, extract audio URL
+        if not audio_url:
+            logger.info(f"Extracting audio URL for: {song.get('title', song_url)}")
+            with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
+                info = ydl.extract_info(song_url, download=False)
+                audio_url = extract_audio_url(info)
             
             # Extract song info if not provided
             if 'title' not in song and info:
@@ -1126,6 +1360,9 @@ async def play_song_with_queue(
         
         # Play audio with callback
         voice_client.play(audio_source, after=after_callback)
+        
+        # Start preloading next songs in queue (async, don't wait)
+        asyncio.create_task(preload_next_songs(guild_id, count=2))
         
         logger.info(f"Started playback: {song.get('title', 'Unknown')} by {song.get('artist', 'Unknown')}")
         return True
@@ -1511,26 +1748,39 @@ async def track_listening_time(voice_client: discord.VoiceClient, guild_id: int,
             return
         
         # Record listening time for each user
-        async with get_db_connection() as (conn, cursor):
-            for member in listeners:
-                try:
-                    await cursor.execute("""
-                        INSERT INTO listening_time 
-                        (user_id, guild_id, channel_id, listened_at, duration_minutes, song_title, song_artist)
-                        VALUES (%s, %s, %s, NOW(), %s, %s, %s)
-                    """, (
-                        member.id,
-                        guild_id,
-                        voice_client.channel.id,
-                        duration_minutes,
-                        song_title,
-                        song_artist
-                    ))
-                except Exception as e:
-                    logger.error(f"Error tracking listening time for user {member.id}: {e}")
-            
-            await conn.commit()
-            logger.debug(f"Tracked listening time for {len(listeners)} users")
+        conn = None
+        cursor = None
+        try:
+            from modules.db_helpers import get_db_connection
+            conn = get_db_connection()
+            if conn:
+                cursor = conn.cursor()
+                for member in listeners:
+                    try:
+                        cursor.execute("""
+                            INSERT INTO listening_time 
+                            (user_id, guild_id, channel_id, listened_at, duration_minutes, song_title, song_artist)
+                            VALUES (%s, %s, %s, NOW(), %s, %s, %s)
+                        """, (
+                            member.id,
+                            guild_id,
+                            voice_client.channel.id,
+                            duration_minutes,
+                            song_title,
+                            song_artist
+                        ))
+                    except Exception as e:
+                        logger.error(f"Error tracking listening time for user {member.id}: {e}")
+                
+                conn.commit()
+                logger.debug(f"Tracked listening time for {len(listeners)} users")
+        except Exception as e:
+            logger.error(f"Error in database operations: {e}")
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
             
     except Exception as e:
         logger.error(f"Error in track_listening_time: {e}", exc_info=True)
@@ -1578,15 +1828,28 @@ async def get_user_listening_stats(user_id: int) -> dict:
             ]
         
         # Get total listening time from listening_time table
-        async with get_db_connection() as (conn, cursor):
-            await cursor.execute("""
-                SELECT COALESCE(SUM(duration_minutes), 0) as total_minutes
-                FROM listening_time
-                WHERE user_id = %s
-            """, (user_id,))
-            result = await cursor.fetchone()
-            if result:
-                stats['total_listening_time_minutes'] = int(result.get('total_minutes', 0) or 0)
+        conn = None
+        cursor = None
+        try:
+            from modules.db_helpers import get_db_connection
+            conn = get_db_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute("""
+                    SELECT COALESCE(SUM(duration_minutes), 0) as total_minutes
+                    FROM listening_time
+                    WHERE user_id = %s
+                """, (user_id,))
+                result = cursor.fetchone()
+                if result:
+                    stats['total_listening_time_minutes'] = int(result.get('total_minutes', 0) or 0)
+        except Exception as e:
+            logger.error(f"Error fetching listening time: {e}")
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
         
         return stats
         
