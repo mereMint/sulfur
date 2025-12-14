@@ -2442,17 +2442,9 @@ def games_stats():
         stats = {}
         
         try:
-            # Helper function to safely query tables
+            # Helper function to safely query tables with logging
             def safe_query(query, default=0):
-                try:
-                    cursor.execute(query)
-                    result = cursor.fetchone()
-                    value = result[list(result.keys())[0]] if result else default
-                    logger.debug(f"Query result: {value} for query: {query[:60]}...")
-                    return value
-                except Exception as e:
-                    logger.warning(f"Query failed: {query[:50]}... Error: {e}")
-                    return default
+                return safe_db_query(cursor, query, default=default)
             
             # Werwolf stats - use werwolf_user_stats which tracks game participation
             werwolf_games = safe_query("SELECT COUNT(*) as total_games FROM werwolf_user_stats")

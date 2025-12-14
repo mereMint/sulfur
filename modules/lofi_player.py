@@ -1463,11 +1463,13 @@ async def play_song_with_queue(
         # Create audio source with volume control and optional timestamp handling for album tracks
         volume_filter = f'volume={volume}'
         
-        # Handle album tracks with start/end timestamps
+        # Handle album tracks with start/end timestamps (sanitize inputs)
         before_options = '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5'
-        if 'start_time' in song and song['start_time'] > 0:
-            before_options += f" -ss {song['start_time']}"
-            logger.info(f"Starting playback from {song['start_time']}s for track: {song.get('title', 'Unknown')}")
+        if 'start_time' in song and isinstance(song['start_time'], (int, float)) and song['start_time'] > 0:
+            # Ensure start_time is a valid number to prevent injection
+            start_time = float(song['start_time'])
+            before_options += f" -ss {start_time}"
+            logger.info(f"Starting playback from {start_time}s for track: {song.get('title', 'Unknown')}")
         
         ffmpeg_options_dict = {
             'before_options': before_options,
@@ -1475,8 +1477,11 @@ async def play_song_with_queue(
         }
         
         # Add duration limit if end_time is specified (for album tracks)
-        if 'end_time' in song and 'start_time' in song and song['end_time'] > song['start_time']:
-            duration = song['end_time'] - song['start_time']
+        if ('end_time' in song and isinstance(song['end_time'], (int, float)) and 
+            'start_time' in song and isinstance(song['start_time'], (int, float)) and 
+            song['end_time'] > song['start_time']):
+            # Sanitize duration calculation
+            duration = float(song['end_time']) - float(song['start_time'])
             ffmpeg_options_dict['options'] = f'-vn -t {duration} -af "{volume_filter}"'
             logger.info(f"Limiting playback duration to {duration}s for track: {song.get('title', 'Unknown')}")
         
@@ -1866,8 +1871,12 @@ async def start_spotify_queue(
         
         # Start with a random song from top songs instead of always the same one
         # This provides variety while still favoring popular tracks
-        first_song = random.choice(recent_songs[:min(5, len(recent_songs))]).copy()
-        is_duplicate(first_song, seen_songs)  # Add to seen set
+        if recent_songs:
+            first_song = random.choice(recent_songs[:min(5, len(recent_songs))]).copy()
+            is_duplicate(first_song, seen_songs)  # Add to seen set
+        else:
+            logger.error("No recent songs available for user")
+            return False
         
         # Create extended history pool (repeat top songs for better ratio)
         history_pool = []
