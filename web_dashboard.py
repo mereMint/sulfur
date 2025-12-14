@@ -2443,13 +2443,14 @@ def games_stats():
         stats = {}
         
         try:
-            # Helper function to safely query tables with logging
-            # Extracts the first column value from the result, returning default on error
+            # Helper function to safely query single-value COUNT(*) results
+            # This helper is designed only for single-row queries (e.g., SELECT COUNT(*))
+            # and extracts the first column value, returning default on error
             def safe_query(query, default=0):
                 result = safe_db_query(cursor, query, default=None)
                 if result is None:
                     return default
-                # Result is a dict, get the first value
+                # Result is a dict (single row), get the first value
                 if isinstance(result, dict):
                     values = list(result.values())
                     return int(values[0]) if values and values[0] is not None else default
