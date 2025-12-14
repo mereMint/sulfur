@@ -4,59 +4,59 @@
 {% block extra_styles %}
 <style>
     .user-card {
-        background: linear-gradient(135deg, rgba(13, 202, 240, 0.2) 0%, rgba(147, 51, 234, 0.2) 100%);
+        background: linear-gradient(135deg, rgba(106, 155, 216, 0.2) 0%, rgba(157, 132, 183, 0.2) 100%);
         border: 2px solid var(--border-color);
-        border-radius: 12px;
+        border-radius: 16px;
         padding: 1.5rem;
-        transition: all 0.3s ease;
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         cursor: pointer;
     }
     
     .user-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 10px 30px rgba(0, 255, 65, 0.3);
-        border-color: var(--matrix-green);
+        transform: translateY(-6px);
+        box-shadow: 0 12px 40px rgba(157, 132, 183, 0.3);
+        border-color: var(--lofi-purple);
     }
     
     .user-avatar {
         width: 80px;
         height: 80px;
         border-radius: 50%;
-        border: 3px solid var(--matrix-green);
-        box-shadow: 0 0 20px rgba(0, 255, 65, 0.5);
+        border: 3px solid var(--lofi-purple);
+        box-shadow: 0 4px 20px rgba(157, 132, 183, 0.4);
     }
     
     .user-badge {
         font-size: 0.7rem;
         padding: 0.25rem 0.5rem;
         margin-right: 0.25rem;
-        border-radius: 4px;
+        border-radius: 12px;
     }
     
     .stat-box {
-        background: rgba(13, 17, 23, 0.7);
-        border-left: 3px solid var(--matrix-cyan);
+        background: rgba(26, 26, 46, 0.6);
+        border-left: 3px solid var(--lofi-teal);
         padding: 0.75rem;
-        border-radius: 4px;
+        border-radius: 8px;
         margin-bottom: 0.5rem;
     }
     
     .modal-content {
         background: var(--bg-card);
-        border: 2px solid var(--matrix-green);
+        border: 2px solid var(--lofi-purple);
     }
     
     .search-box {
-        background: rgba(13, 17, 23, 0.9);
+        background: rgba(26, 26, 46, 0.8);
         border: 1px solid var(--border-color);
         color: var(--text-primary);
-        border-radius: 8px;
+        border-radius: 12px;
     }
     
     .search-box:focus {
-        border-color: var(--matrix-green);
-        box-shadow: 0 0 10px rgba(0, 255, 65, 0.3);
-        background: rgba(13, 17, 23, 1);
+        border-color: var(--lofi-purple);
+        box-shadow: 0 0 0 0.25rem rgba(157, 132, 183, 0.15);
+        background: rgba(26, 26, 46, 0.95);
     }
 </style>
 {% endblock %}
@@ -70,7 +70,7 @@
             </h2>
             <div class="input-group" style="max-width: 400px;">
                 <span class="input-group-text bg-transparent border-end-0">
-                    <i class="bi bi-search" style="color: var(--matrix-green);"></i>
+                    <i class="bi bi-search" style="color: var(--lofi-green);"></i>
                 </span>
                 <input type="text" 
                        class="form-control search-box border-start-0" 
@@ -228,13 +228,13 @@
                         
                         <div class="stat-box">
                             <small class="text-muted">Level</small><br>
-                            <strong style="color: var(--matrix-green);">${level}</strong>
+                            <strong style="color: var(--lofi-purple);">${level}</strong>
                             <small class="text-muted">(${xp.toLocaleString()} XP)</small>
                         </div>
                         
                         <div class="stat-box">
                             <small class="text-muted">Coins</small><br>
-                            <strong style="color: gold;">💰 ${coins.toLocaleString()}</strong>
+                            <strong style="color: var(--lofi-peach);">💰 ${coins.toLocaleString()}</strong>
                         </div>
                         
                         <div class="d-flex justify-content-between mt-2">
@@ -376,7 +376,7 @@
                 <div class="row">
                     <div class="col-md-4 text-center mb-4">
                         <img src="${avatarUrl}" class="img-fluid rounded-circle mb-3" 
-                             style="max-width: 200px; border: 4px solid var(--matrix-green); box-shadow: 0 0 30px rgba(0, 255, 65, 0.5);"
+                             style="max-width: 200px; border: 4px solid var(--lofi-green); box-shadow: 0 0 30px rgba(0, 255, 65, 0.5);"
                              alt="${user.display_name}">
                         <h3>${user.display_name || 'Unknown'}</h3>
                         <p class="text-muted">Discord ID: ${user.user_id}</p>
@@ -392,13 +392,13 @@
                             <div class="col-6">
                                 <div class="stat-box">
                                     <small class="text-muted">Level</small><br>
-                                    <h4 style="color: var(--matrix-green);">${user.level || 0}</h4>
+                                    <h4 style="color: var(--lofi-green);">${user.level || 0}</h4>
                                 </div>
                             </div>
                             <div class="col-6">
                                 <div class="stat-box">
                                     <small class="text-muted">Experience</small><br>
-                                    <h4 style="color: var(--matrix-cyan);">${(user.xp || 0).toLocaleString()}</h4>
+                                    <h4 style="color: var(--lofi-teal);">${(user.xp || 0).toLocaleString()}</h4>
                                 </div>
                             </div>
                         </div>

@@ -4,45 +4,46 @@
 {% block extra_styles %}
 <style>
     .music-card {
-        background: linear-gradient(135deg, rgba(147, 51, 234, 0.2) 0%, rgba(236, 72, 153, 0.2) 100%);
+        background: linear-gradient(135deg, rgba(157, 132, 183, 0.2) 0%, rgba(244, 166, 215, 0.2) 100%);
         border: 2px solid var(--border-color);
-        border-radius: 12px;
+        border-radius: 16px;
         padding: 1.5rem;
-        transition: all 0.3s ease;
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     }
     
     .music-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 0 20px rgba(147, 51, 234, 0.3);
+        transform: translateY(-4px);
+        box-shadow: 0 12px 40px rgba(157, 132, 183, 0.3);
+        border-color: var(--lofi-purple);
     }
     
     .now-playing {
-        border-color: var(--matrix-green);
+        border-color: var(--lofi-green);
         animation: pulse-border 2s ease-in-out infinite;
     }
     
     @keyframes pulse-border {
         0%, 100% {
-            box-shadow: 0 0 10px rgba(0, 255, 65, 0.3);
+            box-shadow: 0 8px 32px rgba(184, 212, 168, 0.3);
         }
         50% {
-            box-shadow: 0 0 25px rgba(0, 255, 65, 0.6);
+            box-shadow: 0 12px 48px rgba(184, 212, 168, 0.5);
         }
     }
     
     .queue-item {
-        background: rgba(13, 17, 23, 0.7);
-        border-left: 3px solid var(--matrix-cyan);
+        background: rgba(26, 26, 46, 0.7);
+        border-left: 3px solid var(--lofi-teal);
         padding: 0.75rem;
         margin-bottom: 0.5rem;
-        border-radius: 4px;
-        transition: all 0.2s ease;
+        border-radius: 8px;
+        transition: all 0.3s ease;
     }
     
     .queue-item:hover {
-        background: rgba(13, 17, 23, 0.9);
-        border-left-color: var(--matrix-green);
-        transform: translateX(5px);
+        background: rgba(26, 26, 46, 0.9);
+        border-left-color: var(--lofi-pink);
+        transform: translateX(8px);
     }
     
     .progress-ring {
@@ -74,7 +75,7 @@
                 <div class="col-md-3 text-center">
                     <div class="position-relative">
                         <img src="" id="album-art" class="img-fluid rounded" style="max-width: 150px; display: none;" alt="Album Art">
-                        <i class="bi bi-disc" id="default-icon" style="font-size: 6rem; color: var(--matrix-green);"></i>
+                        <i class="bi bi-disc" id="default-icon" style="font-size: 6rem; color: var(--lofi-green);"></i>
                     </div>
                 </div>
                 <div class="col-md-7">
@@ -101,8 +102,8 @@
                 </div>
                 <div class="col-md-2 text-center">
                     <div class="mb-3">
-                        <i class="bi bi-people-fill" style="font-size: 2rem; color: var(--matrix-cyan);"></i>
-                        <h4 id="listener-count" style="color: var(--matrix-cyan);">0</h4>
+                        <i class="bi bi-people-fill" style="font-size: 2rem; color: var(--lofi-teal);"></i>
+                        <h4 id="listener-count" style="color: var(--lofi-teal);">0</h4>
                         <small class="text-muted">Listeners</small>
                     </div>
                 </div>
