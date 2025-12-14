@@ -101,6 +101,11 @@ active_sessions: Dict[int, dict] = {}
 # Maximum consecutive failures before stopping queue
 MAX_QUEUE_FAILURES = 3
 
+# Queue building constants
+TARGET_QUEUE_SIZE = 80  # Total songs in queue (~4-5 hours of playback)
+HISTORY_PERCENTAGE = 0.75  # 75% history, 25% AI
+HISTORY_REPEAT_COUNT = 8  # For history-only mode
+
 # FFmpeg options for streaming
 FFMPEG_OPTIONS = {
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
@@ -1355,18 +1360,16 @@ async def start_spotify_queue(
         
         # Build mixed queue (70-80% history, 20-30% AI)
         if ai_curated_songs and len(ai_curated_songs) > 0:
-            # Target: 80 total songs (will play for hours)
-            # 60 from history (75%), 20 from AI (25%)
-            target_history = 60
-            target_ai = 20
+            # Calculate targets based on constants
+            target_history = int(TARGET_QUEUE_SIZE * HISTORY_PERCENTAGE)  # 60
+            target_ai = TARGET_QUEUE_SIZE - target_history  # 20
             
-            # Create history queue (with repeats to reach target)
-            history_queue = []
-            while len(history_queue) < target_history:
-                for song in history_pool:
-                    if len(history_queue) >= target_history:
-                        break
-                    history_queue.append(song.copy())
+            # Create history queue (with repeats to reach target) - efficient multiplication
+            if len(history_pool) > 0:
+                repeat_count = (target_history // len(history_pool)) + 1
+                history_queue = (history_pool * repeat_count)[:target_history]
+            else:
+                history_queue = []
             
             # Shuffle both pools
             random.shuffle(history_queue)
@@ -1391,8 +1394,8 @@ async def start_spotify_queue(
         else:
             # No AI curation available, use only history
             logger.info("AI curation not available, using history only")
-            # Extend history to build longer queue
-            for _ in range(8):  # Repeat 8 times = ~80 songs
+            # Extend history to build longer queue using defined constant
+            for _ in range(HISTORY_REPEAT_COUNT):  # Repeat 8 times = ~80 songs
                 for song in history_pool:
                     queue.append(song.copy())
             random.shuffle(queue)
