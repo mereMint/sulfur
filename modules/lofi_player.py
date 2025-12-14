@@ -173,6 +173,12 @@ TARGET_QUEUE_SIZE = 80  # Total songs in queue (~4-5 hours of playback)
 HISTORY_PERCENTAGE = 0.75  # 75% history, 25% AI
 HISTORY_REPEAT_COUNT = 8  # For history-only mode
 TOP_SONGS_POOL_SIZE = 5  # Number of top songs to randomly select from for first song
+MIN_REPEAT_SPACING = 10  # Minimum songs between playing same song again
+
+# Album search constants
+MAX_INDIVIDUAL_SONG_DURATION = 1800  # 30 minutes - songs longer than this are likely full albums
+SKIP_KEYWORDS = ['compilation', 'reaction', 'cover', 'tutorial', 'review', 
+                 'karaoke', 'instrumental', 'remix', 'mashup', 'live at']
 
 # FFmpeg options for streaming
 FFMPEG_OPTIONS = {
@@ -1221,9 +1227,75 @@ async def preload_next_songs(guild_id: int, count: int = 2):
         logger.error(f"Error preloading next songs: {e}")
 
 
+async def preload_all_stations() -> int:
+    """
+    Preload all music stations for faster playback.
+    Should be called at bot startup.
+    
+    Returns:
+        Number of stations successfully preloaded
+    """
+    preloaded = 0
+    logger.info("Starting to preload all music stations...")
+    
+    try:
+        import yt_dlp
+        import time
+        
+        all_stations = get_all_stations()
+        
+        for station in all_stations:
+            try:
+                station_url = station.get('url')
+                if not station_url:
+                    continue
+                
+                # Skip if already cached
+                if station_url in preload_cache:
+                    cached = preload_cache[station_url]
+                    if time.time() - cached.get('timestamp', 0) < PRELOAD_CACHE_TTL:
+                        preloaded += 1
+                        continue
+                
+                # Extract audio URL
+                with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
+                    info = ydl.extract_info(station_url, download=False)
+                    audio_url = extract_audio_url(info)
+                    
+                    if audio_url:
+                        preload_cache[station_url] = {
+                            'audio_url': audio_url,
+                            'title': info.get('title', station.get('name', 'Unknown')),
+                            'artist': info.get('uploader', 'Unknown'),
+                            'duration': info.get('duration', 0),
+                            'timestamp': time.time()
+                        }
+                        preloaded += 1
+                        logger.debug(f"Preloaded station: {station.get('name', station_url)}")
+                
+                # Small delay to not overwhelm YouTube
+                await asyncio.sleep(0.5)
+                
+            except Exception as e:
+                logger.warning(f"Failed to preload station {station.get('name', 'Unknown')}: {e}")
+                continue
+        
+        logger.info(f"Preloaded {preloaded}/{len(all_stations)} music stations")
+        return preloaded
+        
+    except Exception as e:
+        logger.error(f"Error preloading stations: {e}")
+        return preloaded
+
+
 async def get_album_info(album_name: str, artist: str = None) -> Optional[dict]:
     """
     Get album information and track list from YouTube/Music.
+    
+    Tries multiple strategies to find individual tracks:
+    1. Search for playlist/album with chapters
+    2. Search for individual songs from the album
+    3. Fall back to single video only if no tracks found
     
     Args:
         album_name: Name of the album
@@ -1235,7 +1307,13 @@ async def get_album_info(album_name: str, artist: str = None) -> Optional[dict]:
     try:
         import yt_dlp
         
-        # Build search query
+        tracks = []
+        album_artist = artist or 'Unknown'
+        album_thumbnail = ''
+        album_url = ''
+        album_duration = 0
+        
+        # Strategy 1: Try to find YouTube Music playlist or album video with chapters
         search_query = f"{artist} {album_name} full album" if artist else f"{album_name} full album"
         search_url = f"ytsearch1:{search_query}"
         
@@ -1244,50 +1322,138 @@ async def get_album_info(album_name: str, artist: str = None) -> Optional[dict]:
         with yt_dlp.YoutubeDL(ydl_options) as ydl:
             info = ydl.extract_info(search_url, download=False)
             
-            if not info or 'entries' not in info or not info['entries']:
-                return None
+            if info and 'entries' in info and info['entries']:
+                album_video = info['entries'][0]
+                album_url = album_video.get('webpage_url', '')
+                album_thumbnail = album_video.get('thumbnail', '')
+                album_duration = album_video.get('duration', 0)
+                album_artist = artist or album_video.get('uploader', 'Unknown')
+                
+                # Check if video has chapters - use them as tracks
+                if 'chapters' in album_video and album_video['chapters']:
+                    for i, chapter in enumerate(album_video['chapters'], 1):
+                        track_title = chapter.get('title', f'Track {i}')
+                        tracks.append({
+                            'track_number': i,
+                            'title': sanitize_song_title(track_title),
+                            'artist': album_artist,
+                            'album': album_name,
+                            'start_time': chapter.get('start_time', 0),
+                            'end_time': chapter.get('end_time', 0),
+                            'url': album_url
+                        })
+                    logger.info(f"Found {len(tracks)} tracks from chapters for album: {album_name}")
+        
+        # Strategy 2: If no chapters found, search for individual songs
+        if not tracks:
+            logger.info(f"No chapters found, searching for individual songs for album: {album_name}")
             
-            album_video = info['entries'][0]
-            
-            # Try to extract chapters as tracks
-            tracks = []
-            if 'chapters' in album_video and album_video['chapters']:
-                for i, chapter in enumerate(album_video['chapters'], 1):
-                    track_title = chapter.get('title', f'Track {i}')
-                    tracks.append({
-                        'track_number': i,
-                        'title': sanitize_song_title(track_title),
-                        'artist': artist or album_video.get('uploader', 'Unknown'),
-                        'album': album_name,
-                        'start_time': chapter.get('start_time', 0),
-                        'end_time': chapter.get('end_time', 0),
-                        'url': album_video.get('webpage_url', '')
-                    })
+            # Search for multiple songs from the album
+            if artist:
+                # Try searching for "[artist] [album_name] songs" to get a playlist-like result
+                search_queries = [
+                    f"{artist} {album_name}",
+                    f"{artist} {album_name} songs"
+                ]
             else:
-                # No chapters, treat whole video as single track
-                tracks.append({
-                    'track_number': 1,
-                    'title': sanitize_song_title(album_video.get('title', album_name)),
-                    'artist': artist or album_video.get('uploader', 'Unknown'),
-                    'album': album_name,
-                    'start_time': 0,
-                    'end_time': album_video.get('duration', 0),
-                    'url': album_video.get('webpage_url', '')
-                })
+                search_queries = [
+                    f"{album_name}",
+                    f"{album_name} songs"
+                ]
             
-            album_info = {
-                'album_name': album_name,
-                'artist': artist or album_video.get('uploader', 'Unknown'),
-                'tracks': tracks,
-                'total_tracks': len(tracks),
-                'url': album_video.get('webpage_url', ''),
-                'thumbnail': album_video.get('thumbnail', ''),
-                'duration': album_video.get('duration', 0)
-            }
+            # Search for up to 15 individual songs
+            ydl_options_flat = {**YDL_OPTIONS, 'extract_flat': True}
             
-            logger.info(f"Retrieved album info: {album_name} with {len(tracks)} tracks")
-            return album_info
-            
+            with yt_dlp.YoutubeDL(ydl_options_flat) as ydl:
+                search_url = f"ytsearch15:{search_queries[0]}"
+                info = ydl.extract_info(search_url, download=False)
+                
+                if info and 'entries' in info and info['entries']:
+                    seen_titles = set()
+                    
+                    for i, entry in enumerate(info['entries'], 1):
+                        if not entry:
+                            continue
+                        
+                        video_id = entry.get('id')
+                        video_title = entry.get('title', '')
+                        video_uploader = entry.get('uploader', '')
+                        duration = entry.get('duration', 0)
+                        
+                        if not video_id:
+                            continue
+                        
+                        # Filter out videos that don't seem related
+                        video_title_lower = video_title.lower()
+                        
+                        # Skip if it looks like a full album video (too long or has "full album" in title)
+                        if duration and duration > MAX_INDIVIDUAL_SONG_DURATION:
+                            if 'full album' in video_title_lower or 'full ep' in video_title_lower:
+                                continue
+                        
+                        # Skip compilations, reactions, covers, etc.
+                        if any(keyword in video_title_lower for keyword in SKIP_KEYWORDS):
+                            continue
+                        
+                        # Create a normalized title for deduplication
+                        normalized_title = sanitize_song_title(video_title).lower()
+                        
+                        if normalized_title in seen_titles:
+                            continue
+                        seen_titles.add(normalized_title)
+                        
+                        # Get clean song title
+                        clean_title = sanitize_song_title(video_title)
+                        
+                        tracks.append({
+                            'track_number': len(tracks) + 1,
+                            'title': clean_title,
+                            'artist': artist or video_uploader or album_artist,
+                            'album': album_name,
+                            'start_time': 0,
+                            'end_time': 0,
+                            'url': f"https://www.youtube.com/watch?v={video_id}"
+                        })
+                        
+                        # Limit to 12 tracks for individual song searches
+                        if len(tracks) >= 12:
+                            break
+                    
+                    logger.info(f"Found {len(tracks)} individual song results for album: {album_name}")
+        
+        # Strategy 3: If still no tracks, fall back to single video (last resort)
+        if not tracks and album_url:
+            logger.warning(f"No individual tracks found, using single video for album: {album_name}")
+            with yt_dlp.YoutubeDL(ydl_options) as ydl:
+                info = ydl.extract_info(search_url, download=False)
+                if info and 'entries' in info and info['entries']:
+                    album_video = info['entries'][0]
+                    tracks.append({
+                        'track_number': 1,
+                        'title': sanitize_song_title(album_video.get('title', album_name)),
+                        'artist': album_artist,
+                        'album': album_name,
+                        'start_time': 0,
+                        'end_time': album_video.get('duration', 0),
+                        'url': album_url
+                    })
+        
+        if not tracks:
+            return None
+        
+        album_info = {
+            'album_name': album_name,
+            'artist': album_artist,
+            'tracks': tracks,
+            'total_tracks': len(tracks),
+            'url': album_url,
+            'thumbnail': album_thumbnail,
+            'duration': album_duration
+        }
+        
+        logger.info(f"Retrieved album info: {album_name} with {len(tracks)} tracks")
+        return album_info
+        
     except Exception as e:
         logger.error(f"Error getting album info: {e}")
         return None
@@ -1693,6 +1859,7 @@ def get_queue_length(guild_id: int) -> int:
 def add_to_queue(guild_id: int, song: dict, check_duplicates: bool = True) -> int:
     """
     Add a song to the queue with optional duplicate checking.
+    Also checks against the currently playing song to prevent immediate repeats.
     
     Args:
         guild_id: Guild ID
@@ -1715,6 +1882,16 @@ def add_to_queue(guild_id: int, song: dict, check_duplicates: bool = True) -> in
             song_title = song.get('title', '').lower().strip()
             song_artist = song.get('artist', '').lower().strip()
             
+            # First check if song matches currently playing song
+            current_song = active_sessions[guild_id].get('current_song')
+            if current_song:
+                current_title = current_song.get('title', '').lower().strip()
+                current_artist = current_song.get('artist', '').lower().strip()
+                if song_title and current_title and song_title == current_title:
+                    if not song_artist or not current_artist or song_artist == current_artist:
+                        logger.debug(f"Skipping song that's currently playing: {song.get('title')} by {song.get('artist')}")
+                        return 0
+            
             # Check if song is already in queue (case-insensitive comparison)
             for existing_song in queue:
                 existing_title = existing_song.get('title', '').lower().strip()
@@ -1723,7 +1900,7 @@ def add_to_queue(guild_id: int, song: dict, check_duplicates: bool = True) -> in
                 # Consider it a duplicate if title matches and artist matches (or both empty)
                 if song_title and existing_title and song_title == existing_title:
                     if not song_artist or not existing_artist or song_artist == existing_artist:
-                        logger.debug(f"Skipping duplicate song: {song.get('title')} by {song.get('artist')}")
+                        logger.debug(f"Skipping duplicate song in queue: {song.get('title')} by {song.get('artist')}")
                         return 0  # Return 0 to indicate duplicate (not added)
         
         active_sessions[guild_id]['queue'].append(song)
@@ -1907,21 +2084,38 @@ async def start_spotify_queue(
                 if not is_duplicate(song, seen_songs):
                     history_queue.append(song.copy())
             
-            # If we need more songs, repeat the cycle (with safety check)
-            if len(history_pool) > 0:
-                while len(history_queue) < target_history:
-                    for song in history_pool:
+            # If we need more songs, repeat the cycle with minimum spacing between repeats
+            if len(history_pool) > 0 and len(history_queue) < target_history:
+                cycles = 0
+                max_cycles = 20  # Prevent infinite loop
+                while len(history_queue) < target_history and cycles < max_cycles:
+                    shuffled_pool = history_pool.copy()
+                    random.shuffle(shuffled_pool)
+                    for song in shuffled_pool:
                         if len(history_queue) >= target_history:
                             break
-                        # Allow duplicates after first pass but space them out
-                        history_queue.append(song.copy())
+                        song_key = f"{song.get('title', '').lower().strip()}|{song.get('artist', '').lower().strip()}"
+                        # Check if this song was added too recently
+                        can_add = True
+                        for i in range(1, min(MIN_REPEAT_SPACING + 1, len(history_queue) + 1)):
+                            if i > len(history_queue):
+                                break
+                            recent_song = history_queue[-i]
+                            recent_key = f"{recent_song.get('title', '').lower().strip()}|{recent_song.get('artist', '').lower().strip()}"
+                            if song_key == recent_key:
+                                can_add = False
+                                break
+                        if can_add:
+                            history_queue.append(song.copy())
+                    cycles += 1
             
             # Prepare AI queue with duplicate checking
             ai_queue = []
             for song in ai_curated_songs:
                 if not is_duplicate(song, seen_songs):
-                    ai_queue.append(song.copy())
-                    song['source'] = 'ai'  # Mark as AI-curated for tracking
+                    song_copy = song.copy()
+                    song_copy['source'] = 'ai'  # Mark as AI-curated for tracking
+                    ai_queue.append(song_copy)
             
             random.shuffle(ai_queue)
             
@@ -1939,16 +2133,32 @@ async def start_spotify_queue(
                 queue.append(ai_queue[ai_index])
                 ai_index += 1
             
-            logger.info(f"Built queue: {len(history_queue)} history + {len(ai_queue)} AI = {len(queue)} total songs (no duplicates)")
+            logger.info(f"Built queue: {len(history_queue)} history + {len(ai_queue)} AI = {len(queue)} total songs (with spacing)")
         else:
-            # No AI curation available, use only history
+            # No AI curation available, use only history with proper spacing
             logger.info("AI curation not available, using history only")
-            # Build queue with spaced repetitions to avoid immediate duplicates
-            for cycle in range(HISTORY_REPEAT_COUNT):
+            cycles = 0
+            max_cycles = 20  # Prevent infinite loop
+            while len(queue) < TARGET_QUEUE_SIZE and cycles < max_cycles:
                 shuffled_pool = history_pool.copy()
                 random.shuffle(shuffled_pool)
                 for song in shuffled_pool:
-                    queue.append(song.copy())
+                    if len(queue) >= TARGET_QUEUE_SIZE:
+                        break
+                    song_key = f"{song.get('title', '').lower().strip()}|{song.get('artist', '').lower().strip()}"
+                    # Check if this song was added too recently
+                    can_add = True
+                    for i in range(1, min(MIN_REPEAT_SPACING + 1, len(queue) + 1)):
+                        if i > len(queue):
+                            break
+                        recent_song = queue[-i]
+                        recent_key = f"{recent_song.get('title', '').lower().strip()}|{recent_song.get('artist', '').lower().strip()}"
+                        if song_key == recent_key:
+                            can_add = False
+                            break
+                    if can_add:
+                        queue.append(song.copy())
+                cycles += 1
         
         # Play first song with queue, passing user_id for tracking
         success = await play_song_with_queue(voice_client, first_song, guild_id, volume, user_id)
