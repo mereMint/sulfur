@@ -44,7 +44,7 @@ BEGIN
     IF tiles_revealed_exists = 1 THEN
         -- Copy data from old column to new column
         -- Uses COALESCE to handle any potential NULL values gracefully
-        UPDATE mines_games SET revealed_count = COALESCE(tiles_revealed, revealed_count, 0);
+        UPDATE mines_games SET revealed_count = COALESCE(tiles_revealed, 0);
         
         -- Drop the old column after data is copied
         ALTER TABLE mines_games DROP COLUMN tiles_revealed;
