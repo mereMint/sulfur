@@ -1850,8 +1850,9 @@ async def start_spotify_queue(
             seen.add(song_key)
             return False
         
-        # Start with the most played song from history
-        first_song = recent_songs[0].copy()
+        # Start with a random song from top songs instead of always the same one
+        # This provides variety while still favoring popular tracks
+        first_song = random.choice(recent_songs[:min(5, len(recent_songs))]).copy()
         is_duplicate(first_song, seen_songs)  # Add to seen set
         
         # Create extended history pool (repeat top songs for better ratio)

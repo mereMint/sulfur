@@ -174,7 +174,12 @@
             if (data.error) {
                 console.error('Error loading users:', data.error);
                 document.getElementById('users-container').innerHTML = 
-                    '<div class="col-12 text-center"><p class="text-danger">Error loading users</p></div>';
+                    `<div class="col-12 text-center">
+                        <div class="alert alert-warning">
+                            <i class="bi bi-exclamation-triangle"></i>
+                            <strong>Error loading users:</strong> ${data.error}
+                        </div>
+                    </div>`;
                 return;
             }
             
@@ -183,12 +188,28 @@
             
             document.getElementById('total-users').textContent = allUsers.length;
             
+            if (allUsers.length === 0 && data.message) {
+                document.getElementById('users-container').innerHTML = 
+                    `<div class="col-12 text-center">
+                        <div class="alert alert-info">
+                            <i class="bi bi-info-circle"></i>
+                            <p class="mb-0">${data.message}</p>
+                        </div>
+                    </div>`;
+                return;
+            }
+            
             displayUsers();
             
         } catch (error) {
             console.error('Error loading users:', error);
             document.getElementById('users-container').innerHTML = 
-                '<div class="col-12 text-center"><p class="text-danger">Error loading users</p></div>';
+                `<div class="col-12 text-center">
+                    <div class="alert alert-danger">
+                        <i class="bi bi-x-circle"></i>
+                        <strong>Connection Error:</strong> Could not connect to server
+                    </div>
+                </div>`;
         }
     }
     

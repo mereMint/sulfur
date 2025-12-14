@@ -2447,7 +2447,9 @@ def games_stats():
                 try:
                     cursor.execute(query)
                     result = cursor.fetchone()
-                    return result[list(result.keys())[0]] if result else default
+                    value = result[list(result.keys())[0]] if result else default
+                    logger.debug(f"Query result: {value} for query: {query[:60]}...")
+                    return value
                 except Exception as e:
                     logger.warning(f"Query failed: {query[:50]}... Error: {e}")
                     return default
@@ -3409,6 +3411,20 @@ def api_users_profiles():
             
             cursor = conn.cursor(dictionary=True)
             
+            # First check if players table has data
+            cursor.execute("SELECT COUNT(*) as count FROM players")
+            player_count_result = cursor.fetchone()
+            player_count = player_count_result['count'] if player_count_result else 0
+            logger.info(f"Players table has {player_count} entries")
+            
+            if player_count == 0:
+                logger.warning("No players found in database - users may not have interacted with bot yet")
+                return jsonify({
+                    'users': [],
+                    'count': 0,
+                    'message': 'No users found. Users will appear after interacting with the bot.'
+                })
+            
             # Get user profiles with stats - use latest stats for each user
             users = safe_db_query(cursor, """
                 SELECT 
@@ -3429,6 +3445,8 @@ def api_users_profiles():
                     p.display_name ASC
                 LIMIT 500
             """, fetch_all=True, default=[])
+            
+            logger.info(f"Retrieved {len(users or [])} user profiles from database")
             
             # Convert to proper format
             users_list = []
