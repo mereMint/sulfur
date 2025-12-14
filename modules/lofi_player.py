@@ -21,7 +21,7 @@ MUSIC_STATIONS = {
         },
         {
             "name": "🎧 Beats to Sleep/Chill",
-            "url": "https://www.youtube.com/watch?v=5qap5aO4i9A",
+            "url": "https://www.youtube.com/watch?v=rUxyKA_-grg",
             "type": "lofi"
         }
     ],
@@ -33,7 +33,7 @@ MUSIC_STATIONS = {
         },
         {
             "name": "🎸 Royalty Free Music",
-            "url": "https://www.youtube.com/watch?v=WsK7RmY9xUg",
+            "url": "https://www.youtube.com/watch?v=lTRiuFIWV54",
             "type": "nocopyright"
         }
     ],
@@ -55,13 +55,40 @@ MUSIC_STATIONS = {
         },
         {
             "name": "☕ Coffee Shop Ambience",
-            "url": "https://www.youtube.com/watch?v=gaGltwCbBRA",
+            "url": "https://www.youtube.com/watch?v=h2zkV-l_TbY",
             "type": "ambient"
         },
         {
             "name": "🌳 Forest Sounds",
-            "url": "https://www.youtube.com/watch?v=xNN7iTA57jg",
+            "url": "https://www.youtube.com/watch?v=eKFTSSKCzWA",
             "type": "ambient"
+        }
+    ],
+    "noise": [
+        {
+            "name": "⚪ White Noise",
+            "url": "https://www.youtube.com/watch?v=nMfPqeZjc2c",
+            "type": "noise"
+        },
+        {
+            "name": "🎀 Pink Noise",
+            "url": "https://www.youtube.com/watch?v=ZXtimhT-ff4",
+            "type": "noise"
+        },
+        {
+            "name": "🟤 Brown Noise",
+            "url": "https://www.youtube.com/watch?v=RqzGzwTY-6w",
+            "type": "noise"
+        },
+        {
+            "name": "🌊 Blue Noise",
+            "url": "https://www.youtube.com/watch?v=H0JcLOE-pXY",
+            "type": "noise"
+        },
+        {
+            "name": "🔇 Grey Noise",
+            "url": "https://www.youtube.com/watch?v=_vb4nzF4VFA",
+            "type": "noise"
         }
     ]
 }
