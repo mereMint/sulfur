@@ -16,6 +16,9 @@ from modules.db_helpers import (
 )
 from modules.api_helpers import get_emoji_description as analyze_emoji
 
+# Track which missing emojis we've already warned about to reduce log noise
+_warned_missing_emojis = set()
+
 
 def load_server_emojis():
     """
@@ -277,9 +280,12 @@ async def get_emoji_context_for_ai(client=None):
         else:
             missing_emojis.append(emoji_name)
     
-    # Print a single consolidated warning for all missing emojis
-    if missing_emojis:
-        print(f"[Emoji System] Warning: {len(missing_emojis)} configured emoji(s) not found in application emojis: {', '.join(missing_emojis)}")
+    # Print a single consolidated warning for all missing emojis (only if new ones found)
+    # Reduce log noise by only warning about emojis we haven't warned about before
+    new_missing = [e for e in missing_emojis if e not in _warned_missing_emojis]
+    if new_missing:
+        _warned_missing_emojis.update(new_missing)
+        print(f"[Emoji System] Warning: {len(new_missing)} configured emoji(s) not found in application emojis: {', '.join(new_missing)}")
     
     # Add database emojis that exist in application emojis
     for emoji in db_emojis:

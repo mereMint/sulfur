@@ -224,10 +224,12 @@ async def update_stock_prices(db_helpers):
                 new_price = current_price * (1 + price_change_pct)
                 
                 # Prevent negative or zero prices
-                new_price = max(new_price, 0.01)
+                # Use smaller minimum for crypto (SHIB can be 0.000025)
+                new_price = max(new_price, 0.00000001)
                 
-                # Round to 2 decimal places to fit DECIMAL(15, 2)
-                new_price = round(new_price, 2)
+                # Round to 8 decimal places to fit DECIMAL(18, 8) schema
+                # This preserves precision for crypto with very small values
+                new_price = round(new_price, 8)
                 
                 # Update trend (with mean reversion)
                 new_trend = (trend * 0.7) + (price_change_pct * 0.3)

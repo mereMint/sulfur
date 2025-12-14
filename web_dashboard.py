@@ -612,6 +612,128 @@ def api_get_config():
     try:
         with open('config/config.json', 'r', encoding='utf-8') as f:
             config = json.load(f)
+        return jsonify({'status': 'success', 'data': config})
+    except Exception as e:
+        logger.error(f"Error getting config: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/music/state', methods=['GET'])
+def api_music_state():
+    """
+    API endpoint to get current music playback state for all guilds.
+    Used by dashboard to display "Now Playing" and queue information.
+    """
+    try:
+        from modules import lofi_player
+        
+        music_state = {}
+        
+        for guild_id, session in lofi_player.active_sessions.items():
+            current_song = session.get('current_song')
+            queue = session.get('queue', [])
+            voice_client = session.get('voice_client')
+            
+            guild_state = {
+                'guild_id': guild_id,
+                'is_playing': voice_client.is_playing() if voice_client else False,
+                'is_paused': voice_client.is_paused() if voice_client else False,
+                'is_connected': voice_client.is_connected() if voice_client else False,
+                'channel_name': voice_client.channel.name if voice_client and voice_client.channel else None,
+                'current_song': None,
+                'queue_length': len(queue),
+                'queue_preview': []
+            }
+            
+            if current_song:
+                guild_state['current_song'] = {
+                    'title': current_song.get('title', 'Unknown'),
+                    'artist': current_song.get('artist', 'Unknown'),
+                    'url': current_song.get('url'),
+                    'source': current_song.get('source', 'bot')
+                }
+            
+            # Add queue preview (first 5 songs)
+            for song in queue[:5]:
+                guild_state['queue_preview'].append({
+                    'title': song.get('title', 'Unknown'),
+                    'artist': song.get('artist', 'Unknown')
+                })
+            
+            music_state[str(guild_id)] = guild_state
+        
+        return jsonify({
+            'status': 'success',
+            'data': music_state,
+            'active_sessions': len(lofi_player.active_sessions)
+        })
+    except Exception as e:
+        logger.error(f"Error getting music state: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/music/state/<int:guild_id>', methods=['GET'])
+def api_music_state_guild(guild_id):
+    """
+    API endpoint to get music playback state for a specific guild.
+    """
+    try:
+        from modules import lofi_player
+        
+        if guild_id not in lofi_player.active_sessions:
+            return jsonify({
+                'status': 'success',
+                'data': {
+                    'guild_id': guild_id,
+                    'is_playing': False,
+                    'is_connected': False,
+                    'current_song': None,
+                    'queue_length': 0
+                }
+            })
+        
+        session = lofi_player.active_sessions[guild_id]
+        current_song = session.get('current_song')
+        queue = session.get('queue', [])
+        voice_client = session.get('voice_client')
+        
+        guild_state = {
+            'guild_id': guild_id,
+            'is_playing': voice_client.is_playing() if voice_client else False,
+            'is_paused': voice_client.is_paused() if voice_client else False,
+            'is_connected': voice_client.is_connected() if voice_client else False,
+            'channel_name': voice_client.channel.name if voice_client and voice_client.channel else None,
+            'current_song': None,
+            'queue_length': len(queue),
+            'queue': []
+        }
+        
+        if current_song:
+            guild_state['current_song'] = {
+                'title': current_song.get('title', 'Unknown'),
+                'artist': current_song.get('artist', 'Unknown'),
+                'url': current_song.get('url'),
+                'source': current_song.get('source', 'bot')
+            }
+        
+        # Full queue for single guild view
+        for song in queue[:20]:  # Limit to 20
+            guild_state['queue'].append({
+                'title': song.get('title', 'Unknown'),
+                'artist': song.get('artist', 'Unknown')
+            })
+        
+        return jsonify({
+            'status': 'success',
+            'data': guild_state
+        })
+    except Exception as e:
+        logger.error(f"Error getting music state for guild {guild_id}: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+    """API endpoint to get current configuration."""
+    try:
+        with open('config/config.json', 'r', encoding='utf-8') as f:
+            config = json.load(f)
         return jsonify({'status': 'success', 'config': config})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500

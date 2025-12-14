@@ -16096,7 +16096,7 @@ class MusicControlView(discord.ui.View):
     
     @discord.ui.button(label="Stop", style=discord.ButtonStyle.danger, emoji="⏹️")
     async def stop_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Stop music playback."""
+        """Stop music playback and set stop lock to prevent auto-rejoin."""
         await interaction.response.defer(ephemeral=True)
         
         voice_client = interaction.guild.voice_client
@@ -16112,12 +16112,13 @@ class MusicControlView(discord.ui.View):
         
         channel_name = voice_client.channel.name if voice_client.channel else "Unknown"
         
-        await lofi_player.stop_lofi(voice_client)
+        # Pass user_id to set stop lock and prevent auto-rejoin
+        await lofi_player.stop_lofi(voice_client, user_id=interaction.user.id)
         await lofi_player.leave_voice_channel(voice_client)
         
         embed = discord.Embed(
             title="⏹️ Musik gestoppt",
-            description=f"## Playback beendet\n*Bis zum nächsten Mal!*",
+            description=f"## Playback beendet\n*Bis zum nächsten Mal!*\n\n*Der Bot wird für 5 Minuten nicht automatisch wieder beitreten.*",
             color=discord.Color.green()
         )
         embed.add_field(

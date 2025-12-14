@@ -23,6 +23,48 @@ _EMOJI_FULL_FORMAT_PATTERN = re.compile(r'<a?:([\w]+):\d+>')
 
 db_pool = None
 
+# --- Performance: In-memory cache for frequently accessed data ---
+# TTL-based cache to reduce database queries for hot data
+_cache = {}
+_cache_ttl = {}
+DEFAULT_CACHE_TTL = 60  # 1 minute default TTL
+BALANCE_CACHE_TTL = 30  # 30 seconds for balance (changes frequently)
+PLAYER_CACHE_TTL = 120  # 2 minutes for player profiles
+STATS_CACHE_TTL = 300  # 5 minutes for statistics
+
+
+def _get_cached(key: str):
+    """Get a value from cache if it exists and is not expired."""
+    if key in _cache and key in _cache_ttl:
+        if time.time() < _cache_ttl[key]:
+            return _cache[key]
+        else:
+            # Expired, remove from cache
+            del _cache[key]
+            del _cache_ttl[key]
+    return None
+
+
+def _set_cached(key: str, value, ttl: int = DEFAULT_CACHE_TTL):
+    """Set a value in cache with TTL."""
+    _cache[key] = value
+    _cache_ttl[key] = time.time() + ttl
+
+
+def _invalidate_cache(key: str):
+    """Invalidate a specific cache key."""
+    if key in _cache:
+        del _cache[key]
+    if key in _cache_ttl:
+        del _cache_ttl[key]
+
+
+def _invalidate_cache_prefix(prefix: str):
+    """Invalidate all cache keys with a given prefix."""
+    keys_to_remove = [k for k in _cache.keys() if k.startswith(prefix)]
+    for key in keys_to_remove:
+        _invalidate_cache(key)
+
 def convert_decimals(obj):
     """
     Recursively converts Decimal objects to int or float for JSON serialization.
@@ -2051,6 +2093,9 @@ async def add_balance(user_id, display_name, amount_to_add, config, stat_period=
             """
             cursor.execute(stat_query, (user_id, stat_period, amount_to_add))
             cnx.commit()
+        
+        # Invalidate balance cache since it changed
+        _invalidate_cache(f"balance:{user_id}")
             
         logger.debug(f"Added {amount_to_add} balance to user {user_id}")
     finally:
@@ -2059,7 +2104,13 @@ async def add_balance(user_id, display_name, amount_to_add, config, stat_period=
 
 # --- NEW: Balance helpers for shop/commands ---
 async def get_balance(user_id):
-    """Returns current balance for a user, creating the player if necessary."""
+    """Returns current balance for a user, creating the player if necessary. Uses cache for performance."""
+    # Check cache first
+    cache_key = f"balance:{user_id}"
+    cached = _get_cached(cache_key)
+    if cached is not None:
+        return cached
+    
     if not db_pool:
         return 0
     cnx = db_pool.get_connection()
@@ -2069,7 +2120,10 @@ async def get_balance(user_id):
     try:
         cursor.execute("SELECT balance FROM players WHERE discord_id = %s", (user_id,))
         row = cursor.fetchone()
-        return int(row["balance"]) if row and row.get("balance") is not None else 0
+        balance = int(row["balance"]) if row and row.get("balance") is not None else 0
+        # Cache the result
+        _set_cached(cache_key, balance, BALANCE_CACHE_TTL)
+        return balance
     finally:
         cursor.close()
         cnx.close()
@@ -2561,7 +2615,13 @@ async def get_level_leaderboard():
         cnx.close()
 
 async def get_player_profile(user_id):
-    """Fetches all relevant stats for a user's profile."""
+    """Fetches all relevant stats for a user's profile. Uses cache for performance."""
+    # Check cache first
+    cache_key = f"profile:{user_id}"
+    cached = _get_cached(cache_key)
+    if cached is not None:
+        return cached, None
+    
     if not db_pool:
         logger.warning("Database pool not available, cannot get player profile")
         return None, "Database pool not available."
@@ -2580,6 +2640,9 @@ async def get_player_profile(user_id):
         """
         cursor.execute(query, (user_id,))
         result = cursor.fetchone()
+        # Cache the result
+        if result:
+            _set_cached(cache_key, result, PLAYER_CACHE_TTL)
         return result, None
     except mysql.connector.Error as err:
         print(f"Error fetching player profile: {err}")
