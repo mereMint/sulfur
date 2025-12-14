@@ -55,6 +55,9 @@
                     <h4><i class="bi bi-robot"></i> Bot Status</h4>
                     <h3 class="metric-value" id="bot-status">Loading...</h3>
                     <p class="text-muted mb-0">Uptime: <span id="bot-uptime">-</span></p>
+                    <small class="text-muted" style="font-size: 0.7rem;">
+                        <i class="bi bi-info-circle"></i> Some metrics may show N/A on Termux/Android due to system limitations
+                    </small>
                 </div>
                 <div class="col-md-4 text-end">
                     <i class="bi bi-circle-fill" id="status-icon" style="font-size: 4rem; color: #888;"></i>
@@ -220,13 +223,13 @@
             const response = await fetch('/api/system/health');
             const data = await response.json();
             
-            if (data.error) {
-                console.error('Error loading system health:', data.error);
-                return;
+            // Show platform info if available
+            if (data.platform) {
+                console.log(`Platform: ${data.platform}`);
             }
             
-            // Bot Status
-            const botStatus = data.bot_status;
+            // Bot Status - always try to display
+            const botStatus = data.bot_status || 'Unknown';
             document.getElementById('bot-status').textContent = botStatus;
             
             const statusCard = document.getElementById('bot-status-card');
@@ -245,57 +248,63 @@
             }
             
             // Uptime
-            const uptime = data.process.uptime_seconds;
+            const uptime = data.process?.uptime_seconds || 0;
             const hours = Math.floor(uptime / 3600);
             const minutes = Math.floor((uptime % 3600) / 60);
             document.getElementById('bot-uptime').textContent = 
-                `${hours}h ${minutes}m`;
+                uptime > 0 ? `${hours}h ${minutes}m` : 'N/A';
             
-            // Memory
-            const processMemory = data.process.memory_mb;
-            const systemMemoryPercent = data.system.memory_percent;
+            // Memory - handle zero or missing data gracefully
+            const processMemory = data.process?.memory_mb || 0;
+            const systemMemoryPercent = data.system?.memory_percent || 0;
             
             // Calculate memory bar width based on percentage of reasonable max (1GB = 1024MB)
             const maxMemoryForBar = 1024; // MB - adjust based on expected usage
-            const memoryBarPercent = Math.min((processMemory / maxMemoryForBar) * 100, 100);
+            const memoryBarPercent = processMemory > 0 ? Math.min((processMemory / maxMemoryForBar) * 100, 100) : 0;
             
             document.getElementById('process-memory-bar').style.width = 
                 `${memoryBarPercent}%`;
             document.getElementById('process-memory-bar').textContent = 
-                `${processMemory} MB`;
+                processMemory > 0 ? `${processMemory} MB` : 'N/A';
             document.getElementById('process-memory-bar').className = 
-                `progress-bar ${processMemory > 500 ? 'bg-danger' : processMemory > 300 ? 'bg-warning' : 'bg-success'}`;
+                `progress-bar ${processMemory > 500 ? 'bg-danger' : processMemory > 300 ? 'bg-warning' : processMemory > 0 ? 'bg-success' : 'bg-secondary'}`;
             
             document.getElementById('system-memory-bar').style.width = 
                 `${systemMemoryPercent}%`;
             document.getElementById('system-memory-bar').textContent = 
-                `${systemMemoryPercent.toFixed(1)}%`;
+                systemMemoryPercent > 0 ? `${systemMemoryPercent.toFixed(1)}%` : 'N/A';
             document.getElementById('system-memory-bar').className = 
-                `progress-bar ${systemMemoryPercent > 80 ? 'bg-danger' : systemMemoryPercent > 60 ? 'bg-warning' : 'bg-success'}`;
+                `progress-bar ${systemMemoryPercent > 80 ? 'bg-danger' : systemMemoryPercent > 60 ? 'bg-warning' : systemMemoryPercent > 0 ? 'bg-success' : 'bg-secondary'}`;
+            
+            const memUsedGB = data.system?.memory_used_gb || 0;
+            const memTotalGB = data.system?.memory_total_gb || 0;
             document.getElementById('system-memory-text').textContent = 
-                `${data.system.memory_used_gb} GB / ${data.system.memory_total_gb} GB`;
+                memTotalGB > 0 ? `${memUsedGB.toFixed(2)} GB / ${memTotalGB.toFixed(2)} GB` : 'N/A';
             
             // CPU
-            const processCPU = data.process.cpu_percent;
-            const systemCPU = data.system.cpu_percent;
+            const processCPU = data.process?.cpu_percent || 0;
+            const systemCPU = data.system?.cpu_percent || 0;
             
             document.getElementById('process-cpu-bar').style.width = `${processCPU}%`;
-            document.getElementById('process-cpu-bar').textContent = `${processCPU}%`;
+            document.getElementById('process-cpu-bar').textContent = processCPU > 0 ? `${processCPU}%` : 'N/A';
             
             document.getElementById('system-cpu-bar').style.width = `${systemCPU}%`;
-            document.getElementById('system-cpu-bar').textContent = `${systemCPU}%`;
+            document.getElementById('system-cpu-bar').textContent = systemCPU > 0 ? `${systemCPU}%` : 'N/A';
             
             // Disk
-            const diskPercent = data.system.disk_percent;
+            const diskPercent = data.system?.disk_percent || 0;
+            const diskUsedGB = data.system?.disk_used_gb || 0;
+            const diskTotalGB = data.system?.disk_total_gb || 0;
+            
             document.getElementById('disk-bar').style.width = `${diskPercent}%`;
-            document.getElementById('disk-bar').textContent = `${diskPercent.toFixed(1)}%`;
+            document.getElementById('disk-bar').textContent = diskPercent > 0 ? `${diskPercent.toFixed(1)}%` : 'N/A';
             document.getElementById('disk-bar').className = 
-                `progress-bar ${diskPercent > 90 ? 'bg-danger' : diskPercent > 75 ? 'bg-warning' : 'bg-success'}`;
+                `progress-bar ${diskPercent > 90 ? 'bg-danger' : diskPercent > 75 ? 'bg-warning' : diskPercent > 0 ? 'bg-success' : 'bg-secondary'}`;
             document.getElementById('disk-text').textContent = 
-                `${data.system.disk_used_gb} GB / ${data.system.disk_total_gb} GB`;
+                diskTotalGB > 0 ? `${diskUsedGB.toFixed(2)} GB / ${diskTotalGB.toFixed(2)} GB` : 'N/A';
             
             // Database
-            const dbHealthy = data.database.healthy;
+            const dbHealthy = data.database?.healthy || false;
             const dbIcon = document.getElementById('db-status-icon');
             const dbStatus = document.getElementById('db-status');
             
@@ -309,14 +318,22 @@
                 dbStatus.className = 'mb-0 text-danger';
             }
             
-            document.getElementById('db-pool-size').textContent = data.database.pool_size;
+            document.getElementById('db-pool-size').textContent = data.database?.pool_size || 0;
             
             // Logs
-            document.getElementById('error-count').textContent = data.logs.error_count;
-            document.getElementById('warning-count').textContent = data.logs.warning_count;
+            document.getElementById('error-count').textContent = data.logs?.error_count || 0;
+            document.getElementById('warning-count').textContent = data.logs?.warning_count || 0;
             
         } catch (error) {
             console.error('Error loading system health:', error);
+            // Set N/A for all fields on error
+            document.getElementById('bot-status').textContent = 'Error';
+            document.getElementById('bot-uptime').textContent = 'N/A';
+            document.getElementById('process-memory-bar').textContent = 'N/A';
+            document.getElementById('system-memory-bar').textContent = 'N/A';
+            document.getElementById('process-cpu-bar').textContent = 'N/A';
+            document.getElementById('system-cpu-bar').textContent = 'N/A';
+            document.getElementById('disk-bar').textContent = 'N/A';
         }
     }
     

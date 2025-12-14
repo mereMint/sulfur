@@ -13,90 +13,153 @@ from typing import Optional, Dict, List
 from modules.logger_utils import bot_logger as logger
 
 # Music stations dictionary - organized by type
+# Each station can have alternatives in case the primary URL is unavailable
 MUSIC_STATIONS = {
     "lofi": [
         {
             "name": "📚 Beats to Relax/Study",
             "url": "https://www.youtube.com/watch?v=jfKfPfyJRdk",
-            "type": "lofi"
+            "type": "lofi",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=5qap5aO4i9A",  # lofi hip hop radio
+                "https://www.youtube.com/watch?v=lTRiuFIWV54"   # study music
+            ]
         },
         {
             "name": "🎧 Beats to Sleep/Chill",
             "url": "https://www.youtube.com/watch?v=rUxyKA_-grg",
-            "type": "lofi"
+            "type": "lofi",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=DWcJFNfaw9c",  # relaxing music
+                "https://www.youtube.com/watch?v=7NOSDKb0HlU"   # chill beats
+            ]
         }
     ],
     "nocopyright": [
         {
             "name": "🎵 No Copyright Music",
             "url": "https://www.youtube.com/watch?v=7NOSDKb0HlU",
-            "type": "nocopyright"
+            "type": "nocopyright",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=lTRiuFIWV54",
+                "https://www.youtube.com/watch?v=K4DyBUG242c"
+            ]
         },
         {
             "name": "🎸 Royalty Free Music",
             "url": "https://www.youtube.com/watch?v=lTRiuFIWV54",
-            "type": "nocopyright"
+            "type": "nocopyright",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=K4DyBUG242c",
+                "https://www.youtube.com/watch?v=7NOSDKb0HlU"
+            ]
         }
     ],
     "ambient": [
         {
             "name": "🌧️ Rain Sounds",
             "url": "https://www.youtube.com/watch?v=mPZkdNFkNps",
-            "type": "ambient"
+            "type": "ambient",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=q76bMs-NwRk",
+                "https://www.youtube.com/watch?v=nDq6TstdEi8"
+            ]
         },
         {
             "name": "🌊 Ocean Waves",
             "url": "https://www.youtube.com/watch?v=WHPEKLQID4U",
-            "type": "ambient"
+            "type": "ambient",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=V1bFr2SWP1I",
+                "https://www.youtube.com/watch?v=bn9F19Hi1Lk"
+            ]
         },
         {
             "name": "🔥 Fireplace Sounds",
             "url": "https://www.youtube.com/watch?v=UgHKb_7884o",
-            "type": "ambient"
+            "type": "ambient",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=eyU3bRy2x44",
+                "https://www.youtube.com/watch?v=L_LUpnjgPso"
+            ]
         },
         {
             "name": "☕ Coffee Shop Ambience",
             "url": "https://www.youtube.com/watch?v=h2zkV-l_TbY",
-            "type": "ambient"
+            "type": "ambient",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=gaJXeMGDCeE",
+                "https://www.youtube.com/watch?v=5Qv2Aw0BGww"
+            ]
         },
         {
             "name": "🌳 Forest Sounds",
             "url": "https://www.youtube.com/watch?v=eKFTSSKCzWA",
-            "type": "ambient"
+            "type": "ambient",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=xNN7iTA57jM",
+                "https://www.youtube.com/watch?v=d0tU18Ybcvk"
+            ]
         }
     ],
     "noise": [
         {
             "name": "⚪ White Noise",
             "url": "https://www.youtube.com/watch?v=nMfPqeZjc2c",
-            "type": "noise"
+            "type": "noise",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=wzjWIxXBs_s",
+                "https://www.youtube.com/watch?v=ArwcHjmsw3A"
+            ]
         },
         {
             "name": "🎀 Pink Noise",
             "url": "https://www.youtube.com/watch?v=ZXtimhT-ff4",
-            "type": "noise"
+            "type": "noise",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=YoNhkapEgy8",
+                "https://www.youtube.com/watch?v=oWOJfFkym8w"
+            ]
         },
         {
             "name": "🟤 Brown Noise",
             "url": "https://www.youtube.com/watch?v=RqzGzwTY-6w",
-            "type": "noise"
+            "type": "noise",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=GSaJXDsb3N8",
+                "https://www.youtube.com/watch?v=FcWgjCDPiP4"
+            ]
         },
         {
             "name": "🌊 Blue Noise",
             "url": "https://www.youtube.com/watch?v=H0JcLOE-pXY",
-            "type": "noise"
+            "type": "noise",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=x3SLP4b8H7c",
+                "https://www.youtube.com/watch?v=vAupipbJJ2M"
+            ]
         },
         {
             "name": "🔇 Grey Noise",
             "url": "https://www.youtube.com/watch?v=_vb4nzF4VFA",
-            "type": "noise"
+            "type": "noise",
+            "alternatives": [
+                "https://www.youtube.com/watch?v=1KaOrSuWZeM",
+                "https://www.youtube.com/watch?v=9sHfAfbmfiM"
+            ]
         }
     ]
 }
 
 # Active playback sessions per guild
-# Format: {guild_id: {'voice_client': VoiceClient, 'stations': [station_configs], 'auto_disconnect_task': Task, 'queue': list, 'failure_count': int}}
+# Format: {guild_id: {'voice_client': VoiceClient, 'stations': [station_configs], 'auto_disconnect_task': Task, 'queue': list, 'failure_count': int, 'preloaded_song': dict}}
 active_sessions: Dict[int, dict] = {}
+
+# Preloaded song cache for faster playback
+# Format: {song_url: {'audio_url': str, 'title': str, 'artist': str, 'duration': int, 'timestamp': float}}
+preload_cache: Dict[str, dict] = {}
+PRELOAD_CACHE_MAX_SIZE = 50  # Maximum number of preloaded songs
+PRELOAD_CACHE_TTL = 3600  # Cache TTL in seconds (1 hour)
 
 # Maximum consecutive failures before stopping queue
 MAX_QUEUE_FAILURES = 3
@@ -273,9 +336,76 @@ def extract_audio_url(info: dict) -> Optional[str]:
     return None
 
 
+async def check_station_availability(station: dict) -> bool:
+    """
+    Check if a music station URL is available and working.
+    
+    Args:
+        station: Station dictionary with 'url'
+    
+    Returns:
+        True if available, False otherwise
+    """
+    try:
+        import yt_dlp
+        
+        # Quick check without downloading
+        ydl_options = {**YDL_OPTIONS, 'skip_download': True, 'quiet': True}
+        
+        with yt_dlp.YoutubeDL(ydl_options) as ydl:
+            info = ydl.extract_info(station['url'], download=False)
+            audio_url = extract_audio_url(info)
+            
+            if audio_url:
+                logger.debug(f"Station available: {station.get('name', station['url'])}")
+                return True
+            else:
+                logger.warning(f"Station unavailable: {station.get('name', station['url'])}")
+                return False
+                
+    except Exception as e:
+        logger.warning(f"Station check failed for {station.get('name', station['url'])}: {e}")
+        return False
+
+
+async def get_working_station(station: dict) -> Optional[dict]:
+    """
+    Get a working station URL, checking alternatives if primary fails.
+    
+    Args:
+        station: Station dictionary with 'url' and optional 'alternatives'
+    
+    Returns:
+        Station dict with working URL, or None if none work
+    """
+    try:
+        # Try primary URL first
+        if await check_station_availability(station):
+            return station
+        
+        # Try alternatives if available
+        alternatives = station.get('alternatives', [])
+        if alternatives:
+            logger.info(f"Primary URL failed, trying {len(alternatives)} alternatives")
+            
+            for i, alt_url in enumerate(alternatives, 1):
+                alt_station = {**station, 'url': alt_url}
+                if await check_station_availability(alt_station):
+                    logger.info(f"Alternative {i} works: {alt_url}")
+                    return alt_station
+        
+        logger.error(f"No working URL found for station: {station.get('name')}")
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error getting working station: {e}")
+        return None
+
+
 async def play_station(voice_client: discord.VoiceClient, station: dict, volume: float = 1.0) -> bool:
     """
     Play a single music station in a voice channel.
+    Automatically tries alternatives if primary URL fails.
     
     Args:
         voice_client: Connected Discord voice client
@@ -296,14 +426,20 @@ async def play_station(voice_client: discord.VoiceClient, station: dict, volume:
         if voice_client.is_playing():
             voice_client.stop()
         
+        # Get working station (tries alternatives if needed)
+        working_station = await get_working_station(station)
+        if not working_station:
+            logger.error(f"No working URL for station: {station.get('name')}")
+            return False
+        
         # Extract audio URL using yt-dlp
-        logger.info(f"Extracting stream URL: {station['url']}")
+        logger.info(f"Extracting stream URL: {working_station['url']}")
         with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-            info = ydl.extract_info(station['url'], download=False)
+            info = ydl.extract_info(working_station['url'], download=False)
             audio_url = extract_audio_url(info)
         
         if not audio_url:
-            logger.error(f"Could not extract audio URL from: {station['url']}")
+            logger.error(f"Could not extract audio URL from: {working_station['url']}")
             return False
         
         # Create audio source with volume control
@@ -985,6 +1121,214 @@ async def get_related_songs(video_url: str, count: int = 5) -> List[dict]:
         return []
 
 
+async def preload_song(song: dict) -> bool:
+    """
+    Preload a song by extracting its audio URL and caching it.
+    
+    Args:
+        song: Song dictionary with 'url' or 'title'/'artist'
+    
+    Returns:
+        True if preloaded successfully, False otherwise
+    """
+    try:
+        import yt_dlp
+        import time
+        
+        # Get song URL if needed
+        song_url = song.get('url')
+        if not song_url:
+            if 'title' in song and 'artist' in song:
+                song_url = await search_youtube_song(song['title'], song['artist'])
+                if not song_url:
+                    return False
+                song['url'] = song_url
+            else:
+                return False
+        
+        # Check if already in cache and not expired
+        if song_url in preload_cache:
+            cached = preload_cache[song_url]
+            if time.time() - cached.get('timestamp', 0) < PRELOAD_CACHE_TTL:
+                logger.debug(f"Song already in preload cache: {song.get('title', song_url)}")
+                return True
+        
+        # Extract audio URL
+        with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
+            info = ydl.extract_info(song_url, download=False)
+            audio_url = extract_audio_url(info)
+            
+            if not audio_url:
+                return False
+            
+            # Cache the preloaded song data
+            preload_cache[song_url] = {
+                'audio_url': audio_url,
+                'title': info.get('title', song.get('title', 'Unknown')),
+                'artist': info.get('uploader', song.get('artist', 'Unknown')),
+                'duration': info.get('duration', 0),
+                'timestamp': time.time()
+            }
+            
+            # Manage cache size
+            if len(preload_cache) > PRELOAD_CACHE_MAX_SIZE:
+                # Remove oldest entries
+                sorted_cache = sorted(preload_cache.items(), key=lambda x: x[1]['timestamp'])
+                for url, _ in sorted_cache[:10]:  # Remove 10 oldest
+                    del preload_cache[url]
+            
+            logger.info(f"Preloaded song: {preload_cache[song_url]['title']}")
+            return True
+            
+    except Exception as e:
+        logger.error(f"Error preloading song: {e}")
+        return False
+
+
+async def preload_next_songs(guild_id: int, count: int = 2):
+    """
+    Preload the next songs in the queue for faster playback.
+    
+    Args:
+        guild_id: Guild ID
+        count: Number of songs to preload (default: 2)
+    """
+    try:
+        if guild_id not in active_sessions:
+            return
+        
+        queue = active_sessions[guild_id].get('queue', [])
+        if not queue:
+            return
+        
+        # Preload next songs asynchronously (don't wait)
+        for song in queue[:count]:
+            asyncio.create_task(preload_song(song))
+        
+        logger.debug(f"Started preloading {min(count, len(queue))} songs for guild {guild_id}")
+        
+    except Exception as e:
+        logger.error(f"Error preloading next songs: {e}")
+
+
+async def get_album_info(album_name: str, artist: str = None) -> Optional[dict]:
+    """
+    Get album information and track list from YouTube/Music.
+    
+    Args:
+        album_name: Name of the album
+        artist: Optional artist name for better search
+    
+    Returns:
+        Dictionary with album info and tracks, or None
+    """
+    try:
+        import yt_dlp
+        
+        # Build search query
+        search_query = f"{artist} {album_name} full album" if artist else f"{album_name} full album"
+        search_url = f"ytsearch1:{search_query}"
+        
+        ydl_options = {**YDL_OPTIONS, 'extract_flat': False}
+        
+        with yt_dlp.YoutubeDL(ydl_options) as ydl:
+            info = ydl.extract_info(search_url, download=False)
+            
+            if not info or 'entries' not in info or not info['entries']:
+                return None
+            
+            album_video = info['entries'][0]
+            
+            # Try to extract chapters as tracks
+            tracks = []
+            if 'chapters' in album_video and album_video['chapters']:
+                for i, chapter in enumerate(album_video['chapters'], 1):
+                    track_title = chapter.get('title', f'Track {i}')
+                    tracks.append({
+                        'track_number': i,
+                        'title': sanitize_song_title(track_title),
+                        'artist': artist or album_video.get('uploader', 'Unknown'),
+                        'album': album_name,
+                        'start_time': chapter.get('start_time', 0),
+                        'end_time': chapter.get('end_time', 0),
+                        'url': album_video.get('webpage_url', '')
+                    })
+            else:
+                # No chapters, treat whole video as single track
+                tracks.append({
+                    'track_number': 1,
+                    'title': sanitize_song_title(album_video.get('title', album_name)),
+                    'artist': artist or album_video.get('uploader', 'Unknown'),
+                    'album': album_name,
+                    'start_time': 0,
+                    'end_time': album_video.get('duration', 0),
+                    'url': album_video.get('webpage_url', '')
+                })
+            
+            album_info = {
+                'album_name': album_name,
+                'artist': artist or album_video.get('uploader', 'Unknown'),
+                'tracks': tracks,
+                'total_tracks': len(tracks),
+                'url': album_video.get('webpage_url', ''),
+                'thumbnail': album_video.get('thumbnail', ''),
+                'duration': album_video.get('duration', 0)
+            }
+            
+            logger.info(f"Retrieved album info: {album_name} with {len(tracks)} tracks")
+            return album_info
+            
+    except Exception as e:
+        logger.error(f"Error getting album info: {e}")
+        return None
+
+
+async def add_album_to_queue(guild_id: int, album_name: str, artist: str = None) -> int:
+    """
+    Add all tracks from an album to the queue.
+    
+    Args:
+        guild_id: Guild ID
+        album_name: Name of the album
+        artist: Optional artist name
+    
+    Returns:
+        Number of tracks added to queue
+    """
+    try:
+        # Get album info
+        album_info = await get_album_info(album_name, artist)
+        
+        if not album_info or not album_info['tracks']:
+            logger.warning(f"No tracks found for album: {album_name}")
+            return 0
+        
+        # Add each track to queue
+        added_count = 0
+        for track in album_info['tracks']:
+            # Add track as a song with album metadata
+            song = {
+                'title': track['title'],
+                'artist': track['artist'],
+                'album': track['album'],
+                'track_number': track['track_number'],
+                'url': track['url'],
+                'start_time': track.get('start_time', 0),
+                'end_time': track.get('end_time', 0)
+            }
+            
+            # Add to queue with duplicate checking
+            if add_to_queue(guild_id, song, check_duplicates=True) > 0:
+                added_count += 1
+        
+        logger.info(f"Added {added_count} tracks from album '{album_name}' to queue")
+        return added_count
+        
+    except Exception as e:
+        logger.error(f"Error adding album to queue: {e}")
+        return 0
+
+
 async def play_song_with_queue(
     voice_client: discord.VoiceClient,
     song: dict,
@@ -1008,6 +1352,7 @@ async def play_song_with_queue(
     """
     try:
         import yt_dlp
+        import time
         
         if not voice_client or not voice_client.is_connected():
             logger.error("Voice client not connected")
@@ -1029,11 +1374,30 @@ async def play_song_with_queue(
                 logger.error("Song missing URL and title/artist")
                 return False
         
-        # Extract audio URL using yt-dlp
-        logger.info(f"Extracting audio URL for: {song.get('title', song['url'])}")
-        with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-            info = ydl.extract_info(song['url'], download=False)
-            audio_url = extract_audio_url(info)
+        # Check if song is in preload cache
+        song_url = song['url']
+        audio_url = None
+        
+        if song_url in preload_cache:
+            cached = preload_cache[song_url]
+            # Check if cache is still valid
+            if time.time() - cached.get('timestamp', 0) < PRELOAD_CACHE_TTL:
+                audio_url = cached['audio_url']
+                if 'title' not in song:
+                    song['title'] = cached['title']
+                if 'artist' not in song:
+                    song['artist'] = cached['artist']
+                logger.info(f"Using preloaded audio for: {song.get('title', 'Unknown')}")
+            else:
+                # Cache expired, remove it
+                del preload_cache[song_url]
+        
+        # If not in cache, extract audio URL
+        if not audio_url:
+            logger.info(f"Extracting audio URL for: {song.get('title', song_url)}")
+            with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
+                info = ydl.extract_info(song_url, download=False)
+                audio_url = extract_audio_url(info)
             
             # Extract song info if not provided
             if 'title' not in song and info:
@@ -1126,6 +1490,9 @@ async def play_song_with_queue(
         
         # Play audio with callback
         voice_client.play(audio_source, after=after_callback)
+        
+        # Start preloading next songs in queue (async, don't wait)
+        asyncio.create_task(preload_next_songs(guild_id, count=2))
         
         logger.info(f"Started playback: {song.get('title', 'Unknown')} by {song.get('artist', 'Unknown')}")
         return True
@@ -1273,16 +1640,17 @@ def get_queue_length(guild_id: int) -> int:
         return 0
 
 
-def add_to_queue(guild_id: int, song: dict) -> int:
+def add_to_queue(guild_id: int, song: dict, check_duplicates: bool = True) -> int:
     """
-    Add a song to the queue.
+    Add a song to the queue with optional duplicate checking.
     
     Args:
         guild_id: Guild ID
         song: Song dictionary to add
+        check_duplicates: If True, prevents adding duplicate songs
     
     Returns:
-        Position in queue (1-indexed), or 0 if failed
+        Position in queue (1-indexed), or 0 if failed or duplicate
     """
     try:
         if guild_id not in active_sessions:
@@ -1291,12 +1659,108 @@ def add_to_queue(guild_id: int, song: dict) -> int:
         if 'queue' not in active_sessions[guild_id]:
             active_sessions[guild_id]['queue'] = []
         
+        # Check for duplicates if enabled
+        if check_duplicates:
+            queue = active_sessions[guild_id]['queue']
+            song_title = song.get('title', '').lower().strip()
+            song_artist = song.get('artist', '').lower().strip()
+            
+            # Check if song is already in queue (case-insensitive comparison)
+            for existing_song in queue:
+                existing_title = existing_song.get('title', '').lower().strip()
+                existing_artist = existing_song.get('artist', '').lower().strip()
+                
+                # Consider it a duplicate if title matches and artist matches (or both empty)
+                if song_title and existing_title and song_title == existing_title:
+                    if not song_artist or not existing_artist or song_artist == existing_artist:
+                        logger.debug(f"Skipping duplicate song: {song.get('title')} by {song.get('artist')}")
+                        return 0  # Return 0 to indicate duplicate (not added)
+        
         active_sessions[guild_id]['queue'].append(song)
         return len(active_sessions[guild_id]['queue'])
         
     except Exception as e:
         logger.error(f"Error adding to queue: {e}", exc_info=True)
         return 0
+
+
+def clear_queue(guild_id: int) -> int:
+    """
+    Clear all songs from the queue.
+    
+    Args:
+        guild_id: Guild ID
+    
+    Returns:
+        Number of songs that were in the queue before clearing
+    """
+    try:
+        if guild_id not in active_sessions or 'queue' not in active_sessions[guild_id]:
+            return 0
+        
+        queue_length = len(active_sessions[guild_id]['queue'])
+        active_sessions[guild_id]['queue'] = []
+        
+        logger.info(f"Cleared queue for guild {guild_id}: {queue_length} songs removed")
+        return queue_length
+        
+    except Exception as e:
+        logger.error(f"Error clearing queue: {e}", exc_info=True)
+        return 0
+
+
+def sanitize_song_title(title: str) -> str:
+    """
+    Sanitize song title by removing common YouTube artifacts.
+    
+    Args:
+        title: Raw song title from YouTube
+    
+    Returns:
+        Cleaned song title
+    """
+    if not title:
+        return "Unknown"
+    
+    # Remove common patterns
+    patterns_to_remove = [
+        r'\(Official\s+Audio\)',
+        r'\(Official\s+Video\)',
+        r'\(Official\s+Music\s+Video\)',
+        r'\[Official\s+Audio\]',
+        r'\[Official\s+Video\]',
+        r'\[Official\s+Music\s+Video\]',
+        r'\(Lyrics?\)',
+        r'\[Lyrics?\]',
+        r'\(HD\)',
+        r'\[HD\]',
+        r'\(4K\)',
+        r'\[4K\]',
+        r'\(Visualizer\)',
+        r'\[Visualizer\]',
+        r'\(Lyric\s+Video\)',
+        r'\[Lyric\s+Video\]',
+        r'\(Music\s+Video\)',
+        r'\[Music\s+Video\]',
+        r'\(Audio\)',
+        r'\[Audio\]',
+        r'\(Explicit\)',
+        r'\[Explicit\]',
+        r'ft\.\s+.*$',  # Remove featuring artists at end
+        r'feat\.\s+.*$',
+        r'\|.*$',  # Remove anything after pipe
+        r'-\s+Topic$',  # Remove "- Topic" at end
+    ]
+    
+    import re
+    cleaned = title
+    for pattern in patterns_to_remove:
+        cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE)
+    
+    # Clean up extra whitespace
+    cleaned = ' '.join(cleaned.split())
+    
+    return cleaned.strip() if cleaned.strip() else title
 
 
 async def start_spotify_queue(
@@ -1413,4 +1877,139 @@ async def start_spotify_queue(
     except Exception as e:
         logger.error(f"Error starting Spotify queue: {e}", exc_info=True)
         return False
+
+
+async def track_listening_time(voice_client: discord.VoiceClient, guild_id: int, song_title: str = None, song_artist: str = None, duration_minutes: float = 0.0):
+    """
+    Track listening time for all users in the voice channel.
+    
+    Args:
+        voice_client: Connected voice client
+        guild_id: Guild ID
+        song_title: Optional song title
+        song_artist: Optional song artist
+        duration_minutes: Duration in minutes
+    """
+    try:
+        if not voice_client or not voice_client.is_connected() or not voice_client.channel:
+            return
+        
+        from modules.db_helpers import get_db_connection
+        
+        # Get all human members in the voice channel
+        listeners = [m for m in voice_client.channel.members if not m.bot]
+        
+        if not listeners:
+            return
+        
+        # Record listening time for each user
+        conn = None
+        cursor = None
+        try:
+            from modules.db_helpers import get_db_connection
+            conn = get_db_connection()
+            if conn:
+                cursor = conn.cursor()
+                for member in listeners:
+                    try:
+                        cursor.execute("""
+                            INSERT INTO listening_time 
+                            (user_id, guild_id, channel_id, listened_at, duration_minutes, song_title, song_artist)
+                            VALUES (%s, %s, %s, NOW(), %s, %s, %s)
+                        """, (
+                            member.id,
+                            guild_id,
+                            voice_client.channel.id,
+                            duration_minutes,
+                            song_title,
+                            song_artist
+                        ))
+                    except Exception as e:
+                        logger.error(f"Error tracking listening time for user {member.id}: {e}")
+                
+                conn.commit()
+                logger.debug(f"Tracked listening time for {len(listeners)} users")
+        except Exception as e:
+            logger.error(f"Error in database operations: {e}")
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
+            
+    except Exception as e:
+        logger.error(f"Error in track_listening_time: {e}", exc_info=True)
+
+
+async def get_user_listening_stats(user_id: int) -> dict:
+    """
+    Get comprehensive listening statistics for a user.
+    Combines bot playback history and Spotify history.
+    
+    Args:
+        user_id: Discord user ID
+    
+    Returns:
+        Dictionary with listening stats
+    """
+    try:
+        from modules.db_helpers import get_db_connection, get_unified_music_history
+        
+        stats = {
+            'total_songs': 0,
+            'total_listening_time_minutes': 0,
+            'favorite_songs': [],
+            'favorite_artists': [],
+            'recent_songs': [],
+            'top_genres': []
+        }
+        
+        # Get unified music history
+        history = await get_unified_music_history(user_id, limit=100)
+        if history:
+            stats['total_songs'] = len(history)
+            stats['favorite_songs'] = history[:10]  # Top 10
+            
+            # Calculate favorite artists
+            artist_counts = {}
+            for song in history:
+                artist = song.get('artist', 'Unknown')
+                if artist and artist != 'Unknown':
+                    artist_counts[artist] = artist_counts.get(artist, 0) + song.get('play_count', 1)
+            
+            stats['favorite_artists'] = [
+                {'artist': artist, 'play_count': count}
+                for artist, count in sorted(artist_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+            ]
+        
+        # Get total listening time from listening_time table
+        conn = None
+        cursor = None
+        try:
+            from modules.db_helpers import get_db_connection
+            conn = get_db_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+                cursor.execute("""
+                    SELECT COALESCE(SUM(duration_minutes), 0) as total_minutes
+                    FROM listening_time
+                    WHERE user_id = %s
+                """, (user_id,))
+                result = cursor.fetchone()
+                if result:
+                    stats['total_listening_time_minutes'] = int(result.get('total_minutes', 0) or 0)
+        except Exception as e:
+            logger.error(f"Error fetching listening time: {e}")
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
+        
+        return stats
+        
+    except Exception as e:
+        logger.error(f"Error getting user listening stats: {e}", exc_info=True)
+        return stats
+
 

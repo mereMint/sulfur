@@ -1,0 +1,388 @@
+{% extends "layout.html" %}
+{% block title %}Music Dashboard - Sulfur Bot{% endblock %}
+
+{% block extra_styles %}
+<style>
+    .music-card {
+        background: linear-gradient(135deg, rgba(147, 51, 234, 0.2) 0%, rgba(236, 72, 153, 0.2) 100%);
+        border: 2px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+        transition: all 0.3s ease;
+    }
+    
+    .music-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 0 20px rgba(147, 51, 234, 0.3);
+    }
+    
+    .now-playing {
+        border-color: var(--matrix-green);
+        animation: pulse-border 2s ease-in-out infinite;
+    }
+    
+    @keyframes pulse-border {
+        0%, 100% {
+            box-shadow: 0 0 10px rgba(0, 255, 65, 0.3);
+        }
+        50% {
+            box-shadow: 0 0 25px rgba(0, 255, 65, 0.6);
+        }
+    }
+    
+    .queue-item {
+        background: rgba(13, 17, 23, 0.7);
+        border-left: 3px solid var(--matrix-cyan);
+        padding: 0.75rem;
+        margin-bottom: 0.5rem;
+        border-radius: 4px;
+        transition: all 0.2s ease;
+    }
+    
+    .queue-item:hover {
+        background: rgba(13, 17, 23, 0.9);
+        border-left-color: var(--matrix-green);
+        transform: translateX(5px);
+    }
+    
+    .progress-ring {
+        transform: rotate(-90deg);
+    }
+    
+    .progress-ring-circle {
+        stroke-dasharray: 283;
+        stroke-dashoffset: 283;
+        transition: stroke-dashoffset 0.35s;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4 fade-in">
+    <div class="col-12">
+        <h2 class="gradient-text mb-4">
+            <i class="bi bi-music-note-beamed"></i> Music Dashboard
+        </h2>
+    </div>
+</div>
+
+<!-- Now Playing Section -->
+<div class="row mb-4 fade-in">
+    <div class="col-lg-8 mb-4">
+        <div class="music-card now-playing" id="now-playing-card">
+            <div class="row align-items-center">
+                <div class="col-md-3 text-center">
+                    <div class="position-relative">
+                        <img src="" id="album-art" class="img-fluid rounded" style="max-width: 150px; display: none;" alt="Album Art">
+                        <i class="bi bi-disc" id="default-icon" style="font-size: 6rem; color: var(--matrix-green);"></i>
+                    </div>
+                </div>
+                <div class="col-md-7">
+                    <h5 class="text-muted mb-2"><i class="bi bi-play-circle"></i> NOW PLAYING</h5>
+                    <h3 class="mb-1" id="current-song-title">No song playing</h3>
+                    <p class="text-muted mb-2" id="current-song-artist">-</p>
+                    <div class="d-flex gap-2 mb-2">
+                        <span class="badge bg-success" id="current-guild">Guild: -</span>
+                        <span class="badge bg-info" id="current-channel">Channel: -</span>
+                    </div>
+                    <div class="progress" style="height: 8px;">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                             role="progressbar" 
+                             id="playback-progress" 
+                             style="width: 0%"
+                             aria-valuenow="0" 
+                             aria-valuemin="0" 
+                             aria-valuemax="100">
+                        </div>
+                    </div>
+                    <small class="text-muted">
+                        <span id="current-time">0:00</span> / <span id="total-time">0:00</span>
+                    </small>
+                </div>
+                <div class="col-md-2 text-center">
+                    <div class="mb-3">
+                        <i class="bi bi-people-fill" style="font-size: 2rem; color: var(--matrix-cyan);"></i>
+                        <h4 id="listener-count" style="color: var(--matrix-cyan);">0</h4>
+                        <small class="text-muted">Listeners</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-4 mb-4">
+        <div class="card p-4">
+            <h5 class="mb-3"><i class="bi bi-graph-up"></i> Music Stats</h5>
+            <div class="mb-3">
+                <div class="d-flex justify-content-between mb-1">
+                    <span>Total Songs Played</span>
+                    <strong id="total-songs-played">0</strong>
+                </div>
+                <div class="d-flex justify-content-between mb-1">
+                    <span>Queue Length</span>
+                    <strong id="queue-length">0</strong>
+                </div>
+                <div class="d-flex justify-content-between mb-1">
+                    <span>Listening Time Today</span>
+                    <strong id="listening-time-today">0h 0m</strong>
+                </div>
+                <div class="d-flex justify-content-between">
+                    <span>Active Sessions</span>
+                    <strong id="active-sessions">0</strong>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Queue Section -->
+<div class="row mb-4 fade-in">
+    <div class="col-lg-6 mb-4">
+        <div class="card p-4">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0"><i class="bi bi-list-ol"></i> Queue</h5>
+                <button class="btn btn-sm btn-outline-primary" onclick="refreshQueue()">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+            </div>
+            <div id="queue-list" style="max-height: 500px; overflow-y: auto;">
+                <p class="text-muted text-center">Queue is empty</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-6 mb-4">
+        <div class="card p-4">
+            <h5 class="mb-3"><i class="bi bi-clock-history"></i> Recently Played</h5>
+            <div id="recent-songs-list" style="max-height: 500px; overflow-y: auto;">
+                <p class="text-muted text-center">No recent songs</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Top Songs & Artists -->
+<div class="row fade-in">
+    <div class="col-lg-6 mb-4">
+        <div class="card p-4">
+            <h5 class="mb-3"><i class="bi bi-trophy"></i> Top Songs (30 Days)</h5>
+            <div id="top-songs-list">
+                <p class="text-muted text-center">Loading...</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-6 mb-4">
+        <div class="card p-4">
+            <h5 class="mb-3"><i class="bi bi-star"></i> Top Artists (30 Days)</h5>
+            <div id="top-artists-list">
+                <p class="text-muted text-center">Loading...</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let updateInterval;
+    
+    document.addEventListener('DOMContentLoaded', function() {
+        loadMusicDashboard();
+        
+        // Update every 5 seconds
+        updateInterval = setInterval(loadMusicDashboard, 5000);
+    });
+    
+    async function loadMusicDashboard() {
+        try {
+            const response = await fetch('/api/music/status');
+            const data = await response.json();
+            
+            if (data.error) {
+                console.error('Error loading music status:', data.error);
+                return;
+            }
+            
+            // Update now playing
+            if (data.now_playing && data.now_playing.title) {
+                document.getElementById('current-song-title').textContent = data.now_playing.title;
+                document.getElementById('current-song-artist').textContent = data.now_playing.artist || 'Unknown Artist';
+                document.getElementById('current-guild').textContent = `Guild: ${data.now_playing.guild_name || 'Unknown'}`;
+                document.getElementById('current-channel').textContent = `Channel: ${data.now_playing.channel_name || 'Unknown'}`;
+                document.getElementById('listener-count').textContent = data.now_playing.listeners || 0;
+                
+                // Update progress (mock for now)
+                const progress = Math.min((data.now_playing.elapsed_seconds || 0) / (data.now_playing.duration_seconds || 1) * 100, 100);
+                document.getElementById('playback-progress').style.width = `${progress}%`;
+                
+                const currentMins = Math.floor((data.now_playing.elapsed_seconds || 0) / 60);
+                const currentSecs = Math.floor((data.now_playing.elapsed_seconds || 0) % 60);
+                const totalMins = Math.floor((data.now_playing.duration_seconds || 0) / 60);
+                const totalSecs = Math.floor((data.now_playing.duration_seconds || 0) % 60);
+                
+                document.getElementById('current-time').textContent = `${currentMins}:${currentSecs.toString().padStart(2, '0')}`;
+                document.getElementById('total-time').textContent = `${totalMins}:${totalSecs.toString().padStart(2, '0')}`;
+            } else {
+                document.getElementById('current-song-title').textContent = 'No song playing';
+                document.getElementById('current-song-artist').textContent = '-';
+                document.getElementById('listener-count').textContent = '0';
+            }
+            
+            // Update stats
+            document.getElementById('total-songs-played').textContent = (data.stats?.total_songs_played || 0).toLocaleString();
+            document.getElementById('queue-length').textContent = data.stats?.queue_length || 0;
+            document.getElementById('active-sessions').textContent = data.stats?.active_sessions || 0;
+            
+            const listeningMins = data.stats?.listening_time_today_minutes || 0;
+            const hours = Math.floor(listeningMins / 60);
+            const mins = listeningMins % 60;
+            document.getElementById('listening-time-today').textContent = `${hours}h ${mins}m`;
+            
+            // Update queue
+            updateQueue(data.queue || []);
+            
+            // Update recent songs
+            updateRecentSongs(data.recent_songs || []);
+            
+        } catch (error) {
+            console.error('Error loading music dashboard:', error);
+        }
+    }
+    
+    function updateQueue(queue) {
+        const queueList = document.getElementById('queue-list');
+        
+        if (!queue || queue.length === 0) {
+            queueList.innerHTML = '<p class="text-muted text-center">Queue is empty</p>';
+            return;
+        }
+        
+        let html = '';
+        queue.forEach((song, index) => {
+            html += `
+                <div class="queue-item">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <span class="badge bg-secondary me-2">${index + 1}</span>
+                            <strong>${song.title || 'Unknown'}</strong>
+                            <br>
+                            <small class="text-muted ms-4">${song.artist || 'Unknown Artist'}</small>
+                        </div>
+                        <div>
+                            ${song.source ? `<span class="badge bg-info">${song.source}</span>` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        
+        queueList.innerHTML = html;
+    }
+    
+    function updateRecentSongs(songs) {
+        const recentList = document.getElementById('recent-songs-list');
+        
+        if (!songs || songs.length === 0) {
+            recentList.innerHTML = '<p class="text-muted text-center">No recent songs</p>';
+            return;
+        }
+        
+        let html = '';
+        songs.forEach(song => {
+            html += `
+                <div class="queue-item mb-2">
+                    <strong>${song.title || 'Unknown'}</strong><br>
+                    <small class="text-muted">${song.artist || 'Unknown Artist'}</small><br>
+                    <small class="text-muted">${song.played_at || ''}</small>
+                </div>
+            `;
+        });
+        
+        recentList.innerHTML = html;
+    }
+    
+    function refreshQueue() {
+        loadMusicDashboard();
+    }
+    
+    // Load top songs and artists
+    async function loadTopMusic() {
+        try {
+            const response = await fetch('/api/music/top');
+            const data = await response.json();
+            
+            if (!data.error) {
+                updateTopSongs(data.top_songs || []);
+                updateTopArtists(data.top_artists || []);
+            }
+        } catch (error) {
+            console.error('Error loading top music:', error);
+        }
+    }
+    
+    function updateTopSongs(songs) {
+        const topList = document.getElementById('top-songs-list');
+        
+        if (!songs || songs.length === 0) {
+            topList.innerHTML = '<p class="text-muted">No data available</p>';
+            return;
+        }
+        
+        let html = '<div class="list-group list-group-flush">';
+        songs.forEach((song, index) => {
+            const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}.`;
+            html += `
+                <div class="list-group-item bg-transparent border-0 p-2">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <span class="me-2">${medal}</span>
+                            <strong>${song.title}</strong><br>
+                            <small class="text-muted ms-4">${song.artist}</small>
+                        </div>
+                        <div class="text-end">
+                            <strong>${song.play_count}</strong><br>
+                            <small class="text-muted">plays</small>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+        topList.innerHTML = html;
+    }
+    
+    function updateTopArtists(artists) {
+        const topList = document.getElementById('top-artists-list');
+        
+        if (!artists || artists.length === 0) {
+            topList.innerHTML = '<p class="text-muted">No data available</p>';
+            return;
+        }
+        
+        let html = '<div class="list-group list-group-flush">';
+        artists.forEach((artist, index) => {
+            const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}.`;
+            html += `
+                <div class="list-group-item bg-transparent border-0 p-2">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <span class="me-2">${medal}</span>
+                            <strong>${artist.artist}</strong>
+                        </div>
+                        <div>
+                            <strong>${artist.play_count}</strong>
+                            <small class="text-muted">plays</small>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+        topList.innerHTML = html;
+    }
+    
+    // Load top music on page load
+    setTimeout(loadTopMusic, 1000);
+</script>
+{% endblock %}
