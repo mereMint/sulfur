@@ -15596,6 +15596,10 @@ class MusicStationSelect(discord.ui.Select):
                 )
                 
                 if success:
+                    # Get current song and queue preview
+                    current_song = lofi_player.get_current_song(interaction.guild.id)
+                    queue_preview = lofi_player.get_queue_preview(interaction.guild.id, count=3)
+                    
                     embed = discord.Embed(
                         title="🎧 Spotify Mix gestartet!",
                         description="## Deine personalisierte Playlist\n*Basierend auf deiner Hörhistorie*",
@@ -15616,6 +15620,31 @@ class MusicStationSelect(discord.ui.Select):
                         value=f"**{interaction.user.display_name}**",
                         inline=True
                     )
+                    
+                    # Show currently playing song
+                    if current_song:
+                        current_title = current_song.get('title', 'Unknown')
+                        current_artist = current_song.get('artist', 'Unknown')
+                        embed.add_field(
+                            name="🎵 Spielt gerade",
+                            value=f"**{current_title}**\n*{current_artist}*",
+                            inline=False
+                        )
+                    
+                    # Show next 3 songs in queue
+                    if queue_preview:
+                        queue_text = ""
+                        for i, song in enumerate(queue_preview, 1):
+                            song_title = song.get('title', 'Unknown')
+                            song_artist = song.get('artist', 'Unknown')
+                            queue_text += f"**{i}.** {song_title}\n   *{song_artist}*\n"
+                        
+                        embed.add_field(
+                            name="⏭️ Als Nächstes",
+                            value=queue_text.strip(),
+                            inline=False
+                        )
+                    
                     embed.set_thumbnail(url=interaction.user.display_avatar.url)
                     await interaction.followup.send(embed=embed, ephemeral=True)
                 else:
@@ -16062,7 +16091,7 @@ async def music_add(interaction: discord.Interaction, song_query: str):
                 song['url'] = f"ytsearch:{song_query}"
         
         # If no active queue, start playing this song
-        if guild_id not in lofi_player.active_sessions or not lofi_player.active_sessions[guild_id].get('queue'):
+        if lofi_player.get_queue_length(guild_id) == 0:
             success = await lofi_player.play_song_with_queue(
                 voice_client, 
                 song, 
@@ -16072,11 +16101,40 @@ async def music_add(interaction: discord.Interaction, song_query: str):
             )
             
             if success:
+                # Get current song and queue preview
+                current_song = lofi_player.get_current_song(guild_id)
+                queue_preview = lofi_player.get_queue_preview(guild_id, count=3)
+                
                 embed = discord.Embed(
                     title="▶️ Jetzt läuft",
-                    description=f"Song wird abgespielt...",
+                    description="Song wird abgespielt...",
                     color=discord.Color.green()
                 )
+                
+                # Show currently playing song
+                if current_song:
+                    current_title = current_song.get('title', 'Unknown')
+                    current_artist = current_song.get('artist', 'Unknown')
+                    embed.add_field(
+                        name="🎵 Song",
+                        value=f"**{current_title}**\n*{current_artist}*",
+                        inline=False
+                    )
+                
+                # Show next 3 songs in queue
+                if queue_preview:
+                    queue_text = ""
+                    for i, next_song in enumerate(queue_preview, 1):
+                        song_title = next_song.get('title', 'Unknown')
+                        song_artist = next_song.get('artist', 'Unknown')
+                        queue_text += f"**{i}.** {song_title}\n   *{song_artist}*\n"
+                    
+                    embed.add_field(
+                        name="⏭️ Als Nächstes",
+                        value=queue_text.strip(),
+                        inline=False
+                    )
+                
                 await interaction.followup.send(embed=embed, ephemeral=True)
             else:
                 embed = discord.Embed(
@@ -16087,8 +16145,7 @@ async def music_add(interaction: discord.Interaction, song_query: str):
                 await interaction.followup.send(embed=embed, ephemeral=True)
         else:
             # Add to existing queue
-            lofi_player.active_sessions[guild_id]['queue'].append(song)
-            queue_pos = len(lofi_player.active_sessions[guild_id]['queue'])
+            queue_pos = lofi_player.add_to_queue(guild_id, song)
             
             embed = discord.Embed(
                 title="✅ Zur Warteschlange hinzugefügt",
@@ -16107,6 +16164,84 @@ async def music_add(interaction: discord.Interaction, song_query: str):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
+@tree.command(name="musicqueue", description="📋 Zeige die aktuelle Musik-Warteschlange")
+async def music_queue(interaction: discord.Interaction):
+    """Show the current music queue."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        guild_id = interaction.guild.id
+        
+        # Check if there's an active session
+        if guild_id not in lofi_player.active_sessions:
+            embed = discord.Embed(
+                title="📋 Warteschlange",
+                description="Keine aktive Musik-Session!",
+                color=discord.Color.orange()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        # Get current song and queue
+        current_song = lofi_player.get_current_song(guild_id)
+        queue_preview = lofi_player.get_queue_preview(guild_id, count=10)  # Show up to 10
+        
+        embed = discord.Embed(
+            title="📋 Musik-Warteschlange",
+            color=discord.Color.blue()
+        )
+        
+        # Show currently playing song
+        if current_song:
+            current_title = current_song.get('title', 'Unknown')
+            current_artist = current_song.get('artist', 'Unknown')
+            embed.add_field(
+                name="🎵 Spielt gerade",
+                value=f"**{current_title}**\n*{current_artist}*",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="🎵 Spielt gerade",
+                value="*Nichts*",
+                inline=False
+            )
+        
+        # Show queue
+        if queue_preview and len(queue_preview) > 0:
+            queue_text = ""
+            for i, song in enumerate(queue_preview, 1):
+                song_title = song.get('title', 'Unknown')
+                song_artist = song.get('artist', 'Unknown')
+                queue_text += f"**{i}.** {song_title}\n   *{song_artist}*\n"
+            
+            embed.add_field(
+                name=f"⏭️ Als Nächstes ({len(queue_preview)} Songs)",
+                value=queue_text.strip(),
+                inline=False
+            )
+            
+            # Show total queue size if there are more
+            total_queue = lofi_player.get_queue_length(guild_id)
+            if total_queue > len(queue_preview):
+                embed.set_footer(text=f"... und {total_queue - len(queue_preview)} weitere Songs")
+        else:
+            embed.add_field(
+                name="⏭️ Als Nächstes",
+                value="*Queue ist leer*",
+                inline=False
+            )
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error in musicqueue command: {e}", exc_info=True)
+        embed = discord.Embed(
+            title="❌ Fehler",
+            description=f"Es ist ein Fehler aufgetreten: {str(e)}",
+            color=discord.Color.red()
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 
 @tree.command(name="rr", description="Spiele Russian Roulette!")

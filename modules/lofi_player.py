@@ -977,10 +977,21 @@ async def play_next_in_queue(voice_client: discord.VoiceClient, guild_id: int) -
         
         queue = active_sessions[guild_id]['queue']
         volume = active_sessions[guild_id].get('volume', 1.0)
+        user_id = active_sessions[guild_id].get('user_id')  # Get user_id from session
         
         if not queue:
             logger.info("Queue empty, stopping playback")
             return False
+        
+        # Shuffle remaining queue for variety after each song
+        # Keep the immediate next song (first in queue) stable, shuffle the rest
+        if len(queue) > 1:
+            # Keep first song, shuffle the rest
+            first_song = queue[0]
+            remaining = queue[1:]
+            random.shuffle(remaining)
+            queue = [first_song] + remaining
+            active_sessions[guild_id]['queue'] = queue
         
         # Get next song (pop from front)
         next_song = queue.pop(0)
@@ -990,8 +1001,8 @@ async def play_next_in_queue(voice_client: discord.VoiceClient, guild_id: int) -
             logger.info("Voice client disconnected, stopping playback")
             return False
         
-        # Play with queue system
-        success = await play_song_with_queue(voice_client, next_song, guild_id, volume)
+        # Play with queue system, passing user_id to maintain history tracking
+        success = await play_song_with_queue(voice_client, next_song, guild_id, volume, user_id)
         
         if not success:
             logger.warning(f"Failed to play next song, incrementing failure count")
@@ -1008,6 +1019,99 @@ async def play_next_in_queue(voice_client: discord.VoiceClient, guild_id: int) -
     except Exception as e:
         logger.error(f"Error playing next in queue: {e}", exc_info=True)
         return False
+
+
+def get_queue_preview(guild_id: int, count: int = 3) -> List[dict]:
+    """
+    Get the next N songs in the queue without removing them.
+    
+    Args:
+        guild_id: Guild ID
+        count: Number of songs to preview (default: 3)
+    
+    Returns:
+        List of song dictionaries from the queue
+    """
+    try:
+        if guild_id not in active_sessions or 'queue' not in active_sessions[guild_id]:
+            return []
+        
+        queue = active_sessions[guild_id]['queue']
+        
+        # Return up to 'count' songs from the queue
+        return queue[:count]
+        
+    except Exception as e:
+        logger.error(f"Error getting queue preview: {e}", exc_info=True)
+        return []
+
+
+def get_current_song(guild_id: int) -> Optional[dict]:
+    """
+    Get the currently playing song.
+    
+    Args:
+        guild_id: Guild ID
+    
+    Returns:
+        Current song dictionary or None
+    """
+    try:
+        if guild_id not in active_sessions or 'current_song' not in active_sessions[guild_id]:
+            return None
+        
+        return active_sessions[guild_id]['current_song']
+        
+    except Exception as e:
+        logger.error(f"Error getting current song: {e}", exc_info=True)
+        return None
+
+
+def get_queue_length(guild_id: int) -> int:
+    """
+    Get the length of the current queue.
+    
+    Args:
+        guild_id: Guild ID
+    
+    Returns:
+        Number of songs in queue, or 0 if no queue exists
+    """
+    try:
+        if guild_id not in active_sessions or 'queue' not in active_sessions[guild_id]:
+            return 0
+        
+        return len(active_sessions[guild_id]['queue'])
+        
+    except Exception as e:
+        logger.error(f"Error getting queue length: {e}", exc_info=True)
+        return 0
+
+
+def add_to_queue(guild_id: int, song: dict) -> int:
+    """
+    Add a song to the queue.
+    
+    Args:
+        guild_id: Guild ID
+        song: Song dictionary to add
+    
+    Returns:
+        Position in queue (1-indexed), or 0 if failed
+    """
+    try:
+        if guild_id not in active_sessions:
+            active_sessions[guild_id] = {}
+        
+        if 'queue' not in active_sessions[guild_id]:
+            active_sessions[guild_id]['queue'] = []
+        
+        active_sessions[guild_id]['queue'].append(song)
+        return len(active_sessions[guild_id]['queue'])
+        
+    except Exception as e:
+        logger.error(f"Error adding to queue: {e}", exc_info=True)
+        return 0
 
 
 async def start_spotify_queue(
