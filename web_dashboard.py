@@ -357,6 +357,60 @@ def database_viewer():
                          current_page=page,
                          per_page=per_page)
 
+
+@app.route('/api/database/empty_tables', methods=['GET'])
+def api_empty_tables():
+    """API endpoint to identify empty or rarely-used tables."""
+    if not db_helpers.db_pool:
+        return jsonify({'error': 'Database not available', 'empty_tables': []}), 500
+    
+    conn = None
+    cursor = None
+    try:
+        conn = db_helpers.get_db_connection()
+        if not conn:
+            return jsonify({'error': 'Failed to get database connection', 'empty_tables': []}), 500
+        
+        cursor = conn.cursor(dictionary=True)
+        
+        # Get all tables
+        cursor.execute("SHOW TABLES")
+        all_tables = [list(row.values())[0] for row in cursor.fetchall()]
+        
+        empty_tables = []
+        low_usage_tables = []
+        
+        for table in all_tables:
+            try:
+                # Get row count
+                cursor.execute(f"SELECT COUNT(*) as count FROM `{table}`")
+                count = cursor.fetchone()['count']
+                
+                if count == 0:
+                    empty_tables.append({'table': table, 'rows': 0})
+                elif count < 10:
+                    low_usage_tables.append({'table': table, 'rows': count})
+            except Exception as e:
+                logger.warning(f"Could not check table {table}: {e}")
+                continue
+        
+        return jsonify({
+            'status': 'success',
+            'empty_tables': empty_tables,
+            'low_usage_tables': low_usage_tables,
+            'total_tables': len(all_tables),
+            'empty_count': len(empty_tables),
+            'low_usage_count': len(low_usage_tables)
+        })
+    except Exception as e:
+        logger.error(f"Error checking empty tables: {e}")
+        return jsonify({'error': str(e), 'empty_tables': []}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
 @app.route('/ai_usage', methods=['GET'])
 def ai_usage_viewer():
     """Renders the AI usage page."""

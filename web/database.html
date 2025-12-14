@@ -380,9 +380,14 @@
         <div class="db-sidebar">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h5 class="mb-0 gradient-text">Tables</h5>
-                <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()" title="Refresh">
-                    <i class="bi bi-arrow-clockwise"></i>
-                </button>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-warning" onclick="checkEmptyTables()" title="Find Empty Tables">
+                        <i class="bi bi-inbox"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()" title="Refresh">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                </div>
             </div>
             
             <input type="text" class="form-control search-box-db mb-3" id="tableFilterInput" placeholder="🔍 Filter tables..." onkeyup="filterTableList()">
@@ -811,6 +816,98 @@ function filterTableList() {
         const text = item.textContent.toLowerCase();
         item.style.display = text.includes(filter) ? '' : 'none';
     });
+}
+
+function checkEmptyTables() {
+    // Show loading state
+    const sidebar = document.querySelector('.db-sidebar');
+    const originalContent = sidebar.innerHTML;
+    
+    sidebar.innerHTML = `
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Checking...</span>
+            </div>
+            <p class="text-muted mt-2">Analyzing database tables...</p>
+        </div>
+    `;
+    
+    fetch('/api/database/empty_tables')
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                let html = `
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0 gradient-text">Empty Tables Analysis</h5>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="location.reload()" title="Back">
+                            <i class="bi bi-arrow-left"></i>
+                        </button>
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <strong>Total Tables:</strong> ${data.total_tables}<br>
+                        <strong>Empty Tables:</strong> ${data.empty_count}<br>
+                        <strong>Low Usage Tables (&lt;10 rows):</strong> ${data.low_usage_count}
+                    </div>
+                `;
+                
+                if (data.empty_tables && data.empty_tables.length > 0) {
+                    html += '<div class="category-divider">EMPTY TABLES</div>';
+                    data.empty_tables.forEach(item => {
+                        html += `
+                            <div class="table-list-item" onclick="window.location.href='?table=${item.table}'">
+                                <div class="d-flex align-items-center">
+                                    <div class="table-icon" style="background: rgba(232, 164, 164, 0.3);">
+                                        <i class="bi bi-inbox"></i>
+                                    </div>
+                                    <span>${item.table}</span>
+                                </div>
+                                <span class="table-count" style="background: rgba(232, 164, 164, 0.3);">${item.rows}</span>
+                            </div>
+                        `;
+                    });
+                }
+                
+                if (data.low_usage_tables && data.low_usage_tables.length > 0) {
+                    html += '<div class="category-divider">LOW USAGE TABLES</div>';
+                    data.low_usage_tables.forEach(item => {
+                        html += `
+                            <div class="table-list-item" onclick="window.location.href='?table=${item.table}'">
+                                <div class="d-flex align-items-center">
+                                    <div class="table-icon" style="background: rgba(249, 198, 166, 0.3);">
+                                        <i class="bi bi-exclamation-triangle"></i>
+                                    </div>
+                                    <span>${item.table}</span>
+                                </div>
+                                <span class="table-count">${item.rows}</span>
+                            </div>
+                        `;
+                    });
+                }
+                
+                if (data.empty_count === 0 && data.low_usage_count === 0) {
+                    html += '<div class="text-center text-success py-4"><i class="bi bi-check-circle" style="font-size: 2rem;"></i><p class="mt-2 mb-0">All tables have data!</p></div>';
+                }
+                
+                sidebar.innerHTML = html;
+            } else {
+                sidebar.innerHTML = `
+                    <div class="alert alert-danger">
+                        <strong>Error:</strong> ${data.error || 'Failed to analyze tables'}
+                    </div>
+                    <button class="btn btn-secondary w-100" onclick="location.reload()">Go Back</button>
+                `;
+            }
+        })
+        .catch(error => {
+            console.error('Error checking empty tables:', error);
+            sidebar.innerHTML = `
+                <div class="alert alert-danger">
+                    <strong>Error:</strong> Failed to analyze tables
+                </div>
+                <button class="btn btn-secondary w-100" onclick="location.reload()">Go Back</button>
+            `;
+        });
 }
 </script>
 {% endblock %}
