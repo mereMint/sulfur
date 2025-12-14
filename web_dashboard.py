@@ -226,6 +226,15 @@ def index():
     """Renders the main dashboard page."""
     return render_template('index.html')
 
+
+@app.route('/favicon.ico')
+def favicon():
+    """Serve a default favicon to prevent 404 errors."""
+    # Return an empty response with the correct content type
+    # In production, you could serve an actual favicon file
+    return '', 204
+
+
 @app.route('/config', methods=['GET', 'POST'])
 def config_editor():
     """Renders the config editor and handles saving changes."""

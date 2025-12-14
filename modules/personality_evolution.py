@@ -415,7 +415,8 @@ Be honest and self-aware. Write in first person as Sulfur."""
         }
         
         gemini_key = getenv('GEMINI_API_KEY')
-        reflection_text, error, _ = await _call_gemini_api(
+        # _call_gemini_api returns 4 values: (response_text, error, usage_data, is_quota_error)
+        reflection_text, error, _, _ = await _call_gemini_api(
             payload, 
             "gemini-2.5-flash",
             gemini_key,

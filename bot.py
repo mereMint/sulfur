@@ -124,6 +124,7 @@ from modules import focus_timer  # NEW: Focus timer with activity monitoring
 from modules import lofi_player  # NEW: Lofi music player
 from modules import personality_evolution  # NEW: Personality evolution and learning system
 from modules import advanced_ai  # NEW: Advanced AI reasoning and intelligence
+from modules import bot_mind  # Bot consciousness and mood system
 from modules.bot_enhancements import (
     handle_image_attachment,
     handle_unknown_emojis_in_message,
