@@ -103,6 +103,10 @@
         font-size: 0.9rem;
     }
     
+    .search-box-db.compact {
+        padding: 0.5rem 0.7rem;
+    }
+    
     .search-box-db:focus {
         border-color: var(--lofi-purple);
         box-shadow: 0 0 0 0.25rem rgba(157, 132, 183, 0.15);
@@ -268,7 +272,11 @@
         border: 2px solid rgba(232, 164, 164, 0.3);
         border-radius: 12px;
         padding: 1rem;
-        margin-bottom: 2rem;
+        margin-bottom: 1rem;
+    }
+    
+    .delete-section-toggle {
+        cursor: pointer;
     }
     
     .delete-section h5 {
@@ -332,12 +340,12 @@
                 </h3>
             </div>
             <div class="d-flex gap-2 align-items-center">
-                <span class="stat-badge success" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">
+                <span class="stat-badge success">
                     <i class="bi bi-server"></i>
                     <span id="total-tables">{{ all_tables|length if all_tables else 0 }}</span> Tables
                 </span>
                 {% if selected_table %}
-                <span class="stat-badge primary" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">
+                <span class="stat-badge primary">
                     <i class="bi bi-table"></i>
                     <span id="total-rows">{{ total_rows }}</span> Rows
                 </span>
@@ -354,8 +362,8 @@
 {% endif %}
 
 <!-- Collapsible User Data Deletion Section -->
-<div class="delete-section fade-in mb-3" style="padding: 1rem;">
-    <div class="d-flex justify-content-between align-items-center" style="cursor: pointer;" onclick="toggleDeleteSection()">
+<div class="delete-section fade-in mb-3">
+    <div class="d-flex justify-content-between align-items-center delete-section-toggle" onclick="toggleDeleteSection()">
         <h6 class="mb-0">
             <i class="bi bi-trash3"></i> User Data Management
         </h6>
@@ -365,7 +373,7 @@
         <p class="text-muted mb-2" style="font-size: 0.9rem;">Permanently delete all data associated with a specific user ID.</p>
         <div class="row g-2">
             <div class="col-md-8">
-                <input type="number" class="form-control search-box-db" id="deleteUserId" placeholder="Enter Discord User ID" style="padding: 0.5rem;">
+                <input type="number" class="form-control search-box-db compact" id="deleteUserId" placeholder="Enter Discord User ID">
             </div>
             <div class="col-md-4">
                 <button class="btn btn-danger w-100 action-btn" onclick="deleteUserData()" style="padding: 0.5rem;">
@@ -394,7 +402,7 @@
                 </div>
             </div>
             
-            <input type="text" class="form-control search-box-db mb-2" id="tableFilterInput" placeholder="🔍 Filter..." onkeyup="filterTableList()"  style="padding: 0.5rem 0.7rem;">
+            <input type="text" class="form-control search-box-db compact mb-2" id="tableFilterInput" placeholder="🔍 Filter..." onkeyup="filterTableList()">
             
             <div id="tableList">
                 {% if all_tables %}
