@@ -173,6 +173,12 @@ TARGET_QUEUE_SIZE = 80  # Total songs in queue (~4-5 hours of playback)
 HISTORY_PERCENTAGE = 0.75  # 75% history, 25% AI
 HISTORY_REPEAT_COUNT = 8  # For history-only mode
 TOP_SONGS_POOL_SIZE = 5  # Number of top songs to randomly select from for first song
+MIN_REPEAT_SPACING = 10  # Minimum songs between playing same song again
+
+# Album search constants
+MAX_INDIVIDUAL_SONG_DURATION = 1800  # 30 minutes - songs longer than this are likely full albums
+SKIP_KEYWORDS = ['compilation', 'reaction', 'cover', 'tutorial', 'review', 
+                 'karaoke', 'instrumental', 'remix', 'mashup', 'live at']
 
 # FFmpeg options for streaming
 FFMPEG_OPTIONS = {
@@ -1381,14 +1387,12 @@ async def get_album_info(album_name: str, artist: str = None) -> Optional[dict]:
                         video_title_lower = video_title.lower()
                         
                         # Skip if it looks like a full album video (too long or has "full album" in title)
-                        if duration and duration > 1800:  # Over 30 minutes
+                        if duration and duration > MAX_INDIVIDUAL_SONG_DURATION:
                             if 'full album' in video_title_lower or 'full ep' in video_title_lower:
                                 continue
                         
                         # Skip compilations, reactions, covers, etc.
-                        skip_keywords = ['compilation', 'reaction', 'cover', 'tutorial', 'review', 
-                                       'karaoke', 'instrumental', 'remix', 'mashup', 'live at']
-                        if any(keyword in video_title_lower for keyword in skip_keywords):
+                        if any(keyword in video_title_lower for keyword in SKIP_KEYWORDS):
                             continue
                         
                         # Create a normalized title for deduplication
@@ -2081,7 +2085,6 @@ async def start_spotify_queue(
                     history_queue.append(song.copy())
             
             # If we need more songs, repeat the cycle with minimum spacing between repeats
-            MIN_REPEAT_SPACING = 10  # Minimum songs between playing same song again
             if len(history_pool) > 0 and len(history_queue) < target_history:
                 cycles = 0
                 max_cycles = 20  # Prevent infinite loop
@@ -2134,7 +2137,6 @@ async def start_spotify_queue(
         else:
             # No AI curation available, use only history with proper spacing
             logger.info("AI curation not available, using history only")
-            MIN_REPEAT_SPACING = 8  # Minimum songs between playing same song again
             cycles = 0
             max_cycles = 20  # Prevent infinite loop
             while len(queue) < TARGET_QUEUE_SIZE and cycles < max_cycles:
