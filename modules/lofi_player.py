@@ -229,7 +229,8 @@ MAX_INDIVIDUAL_SONG_DURATION = 1800  # 30 minutes - songs longer than this are l
 
 # Keywords to skip when searching for songs/albums
 # These indicate covers, remixes, non-official content, or movie versions
-SKIP_KEYWORDS = [
+# Using frozenset for O(1) lookup performance with 'in' checks
+SKIP_KEYWORDS_LIST = [
     'compilation', 'reaction', 'cover', 'tutorial', 'review',
     'karaoke', 'instrumental', 'remix', 'mashup', 'live at',
     'movie version', 'movie clip', 'film version', 'soundtrack',
@@ -239,18 +240,42 @@ SKIP_KEYWORDS = [
     'acoustic version', 'acoustic cover', 'unplugged', 'stripped',
     'behind the scenes', 'making of', 'music video reaction'
 ]
+SKIP_KEYWORDS = frozenset(SKIP_KEYWORDS_LIST)
 
 # Keywords that indicate official content (boost in search)
-OFFICIAL_KEYWORDS = [
+OFFICIAL_KEYWORDS = frozenset([
     'official', 'official audio', 'official video', 'official music video',
     'audio', 'lyrics', 'vevo', 'topic'
-]
+])
 
 # Keywords to skip for album tracks specifically
-ALBUM_SKIP_KEYWORDS = SKIP_KEYWORDS + [
+ALBUM_SKIP_KEYWORDS_LIST = SKIP_KEYWORDS_LIST + [
     'from the motion picture', 'from the film', 'from the movie',
     'motion picture soundtrack', 'ost', 'credits'
 ]
+ALBUM_SKIP_KEYWORDS = frozenset(ALBUM_SKIP_KEYWORDS_LIST)
+
+
+def contains_skip_keyword(text: str, keywords: frozenset = None) -> bool:
+    """
+    Check if text contains any of the skip keywords.
+    Uses substring matching for multi-word keywords.
+    
+    Args:
+        text: Text to check (should be lowercase)
+        keywords: Set of keywords to check against (default: SKIP_KEYWORDS)
+    
+    Returns:
+        True if text contains any skip keyword
+    """
+    if keywords is None:
+        keywords = SKIP_KEYWORDS
+    
+    # Check each keyword (substring matching for multi-word phrases)
+    for keyword in keywords:
+        if keyword in text:
+            return True
+    return False
 
 
 def set_stop_lock(guild_id: int, user_id: int = None):
@@ -1273,8 +1298,7 @@ async def search_youtube_song(song_title: str, artist: str, filter_shorts: bool 
                     
                     # Skip remixes, radio edits, and other versions if enabled
                     if skip_remixes:
-                        has_skip_keyword = any(keyword in video_title for keyword in skip_keywords)
-                        if has_skip_keyword:
+                        if contains_skip_keyword(video_title, skip_keywords):
                             logger.debug(f"Skipping remix/edit/cover: {video_title}")
                             continue
                     
@@ -1331,7 +1355,7 @@ async def search_youtube_song(song_title: str, artist: str, filter_shorts: bool 
                     # Apply basic filters
                     if filter_shorts and duration and duration < 120:
                         continue
-                    if skip_remixes and any(keyword in video_title for keyword in skip_keywords):
+                    if skip_remixes and contains_skip_keyword(video_title, skip_keywords):
                         continue
                     
                     if video_id:
@@ -1664,7 +1688,7 @@ async def get_album_info(album_name: str, artist: str = None) -> Optional[dict]:
                                 continue
                         
                         # Skip compilations, reactions, covers, movie versions, etc.
-                        if any(keyword in video_title_lower for keyword in ALBUM_SKIP_KEYWORDS):
+                        if contains_skip_keyword(video_title_lower, ALBUM_SKIP_KEYWORDS):
                             continue
                         
                         # Artist verification: If we have an artist name, prefer videos from that artist
