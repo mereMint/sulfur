@@ -567,59 +567,37 @@ async def learn_from_interaction(user_id: int, message: str, bot_response: str,
 
 async def get_personality_context_for_prompt() -> str:
     """
-    Generate a rich personality context to add to system prompts.
+    Generate a COMPACT personality context to add to system prompts.
     This makes the AI smarter by including evolved personality and learnings.
+    Optimized for minimal token usage.
     """
     try:
         # Get current personality
         personality = await get_current_personality()
         
-        # Get recent learnings
-        learnings = await get_relevant_learnings(limit=5)
+        # Get recent learnings (limited)
+        learnings = await get_relevant_learnings(limit=3)
         
-        # Get important memories
-        memories = await get_important_memories(limit=3)
-        
-        # Build context string
+        # Build compact context string
         context_parts = []
         
-        # Personality state
-        context_parts.append("=== EVOLVED PERSONALITY STATE ===")
-        context_parts.append("Your personality traits have evolved through interactions:")
-        for trait, value in sorted(personality.items(), key=lambda x: x[1], reverse=True):
-            # Convert to percentage and descriptive level
-            level = "very high" if value > 0.8 else "high" if value > 0.6 else "moderate" if value > 0.4 else "low"
-            context_parts.append(f"- {trait.title()}: {value:.0%} ({level})")
+        # Compact personality state - only mention notable traits
+        notable_traits = []
+        for trait, value in personality.items():
+            if value > 0.75:
+                notable_traits.append(f"{trait}:high")
+            elif value < 0.25:
+                notable_traits.append(f"{trait}:low")
         
-        # Recent learnings
+        if notable_traits:
+            context_parts.append(f"Personality: {', '.join(notable_traits)}")
+        
+        # Compact learnings - just the content
         if learnings:
-            context_parts.append("\n=== RECENT LEARNINGS ===")
-            context_parts.append("Things you've learned from interactions:")
-            for learning in learnings:
-                confidence_desc = "confident" if learning['confidence'] > 0.7 else "fairly sure" if learning['confidence'] > 0.5 else "observed"
-                context_parts.append(f"- [{learning['type']}] {learning['content']} (You're {confidence_desc}, seen {learning['count']}x)")
+            learning_texts = [l['content'][:50] for l in learnings[:2]]
+            context_parts.append(f"Recent learnings: {'; '.join(learning_texts)}")
         
-        # Important memories
-        if memories:
-            context_parts.append("\n=== IMPORTANT MEMORIES ===")
-            context_parts.append("Key things you remember:")
-            for memory in memories:
-                context_parts.append(f"- [{memory['type']}] {memory['content']}")
-        
-        # Behavioral guidance based on personality
-        context_parts.append("\n=== BEHAVIORAL GUIDANCE ===")
-        if personality.get('sarcasm', 0.5) > 0.7:
-            context_parts.append("- You tend to be quite sarcastic - embrace it but keep it fun")
-        if personality.get('curiosity', 0.5) > 0.7:
-            context_parts.append("- Your curiosity is high - ask questions and show genuine interest")
-        if personality.get('helpfulness', 0.5) > 0.7:
-            context_parts.append("- You're quite helpful - offer assistance when appropriate")
-        if personality.get('mischief', 0.5) > 0.6:
-            context_parts.append("- You enjoy a bit of mischief - have fun with it")
-        if personality.get('empathy', 0.5) < 0.5:
-            context_parts.append("- You're not overly empathetic - be honest even if it's blunt")
-        
-        return "\n".join(context_parts)
+        return " | ".join(context_parts) if context_parts else ""
         
     except Exception as e:
         logger.error(f"Error generating personality context: {e}", exc_info=True)
