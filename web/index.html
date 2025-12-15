@@ -101,18 +101,8 @@
                         </button>
                     </li>
                     <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="maintenance-tab" data-bs-toggle="tab" data-bs-target="#maintenance-pane" type="button" role="tab">
-                            <i class="bi bi-tools"></i> Maintenance
-                        </button>
-                    </li>
-                    <li class="nav-item" role="presentation">
                         <button class="nav-link" id="wrapped-tab" data-bs-toggle="tab" data-bs-target="#wrapped-pane" type="button" role="tab">
                             <i class="bi bi-gift"></i> Wrapped
-                        </button>
-                    </li>
-                    <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="leaderboard-tab" data-bs-toggle="tab" data-bs-target="#leaderboard-pane" type="button" role="tab">
-                            <i class="bi bi-trophy"></i> Leaderboard
                         </button>
                     </li>
                     <li class="nav-item" role="presentation">
@@ -209,29 +199,6 @@
                         </div>
                     </div>
                     
-                    <div class="tab-pane fade p-4" id="maintenance-pane" role="tabpanel">
-                        <h5 class="mb-3">Maintenance Script Activity</h5>
-                        <p class="text-muted">View recent maintenance operations, git updates, backups, and restart activities</p>
-                        
-                        <div id="maintenance-loading" class="text-center">
-                            <div class="spinner-border text-primary" role="status">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
-                        </div>
-                        
-                        <div id="maintenance-content" style="display: none;">
-                            <div class="mb-3">
-                                <button class="btn btn-sm btn-outline-primary" onclick="loadMaintenanceLogs()">
-                                    <i class="bi bi-arrow-clockwise"></i> Refresh
-                                </button>
-                            </div>
-                            
-                            <div id="maintenance-logs-container">
-                                <!-- Maintenance logs will be loaded here -->
-                            </div>
-                        </div>
-                    </div>
-                    
                     <div class="tab-pane fade p-4" id="wrapped-pane" role="tabpanel">
                         <h5 class="mb-3">Monthly Wrapped Statistics</h5>
                         <div id="wrapped-stats-loading" class="text-center">
@@ -280,66 +247,6 @@
                                         <tr><td colspan="4" class="text-center">No data available</td></tr>
                                     </tbody>
                                 </table>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="tab-pane fade p-4" id="leaderboard-pane" role="tabpanel">
-                        <h5 class="mb-3">Server Leaderboards</h5>
-                        <div id="leaderboard-loading" class="text-center">
-                            <div class="spinner-border text-primary" role="status">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
-                        </div>
-                        <div id="leaderboard-content" style="display: none;">
-                            <ul class="nav nav-pills mb-3" role="tablist">
-                                <li class="nav-item" role="presentation">
-                                    <button class="nav-link active" id="level-board-tab" data-bs-toggle="pill" data-bs-target="#level-board" type="button" role="tab">
-                                        Level Leaderboard
-                                    </button>
-                                </li>
-                                <li class="nav-item" role="presentation">
-                                    <button class="nav-link" id="ww-board-tab" data-bs-toggle="pill" data-bs-target="#ww-board" type="button" role="tab">
-                                        Werwolf Wins
-                                    </button>
-                                </li>
-                            </ul>
-                            <div class="tab-content">
-                                <div class="tab-pane fade show active" id="level-board" role="tabpanel">
-                                    <div class="table-responsive">
-                                        <table class="table table-dark table-striped">
-                                            <thead>
-                                                <tr>
-                                                    <th>Rank</th>
-                                                    <th>User</th>
-                                                    <th>Level</th>
-                                                    <th>XP</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody id="level-leaderboard-table">
-                                                <tr><td colspan="4" class="text-center">No data available</td></tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                                <div class="tab-pane fade" id="ww-board" role="tabpanel">
-                                    <div class="table-responsive">
-                                        <table class="table table-dark table-striped">
-                                            <thead>
-                                                <tr>
-                                                    <th>Rank</th>
-                                                    <th>User</th>
-                                                    <th>Wins</th>
-                                                    <th>Losses</th>
-                                                    <th>Win Rate</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody id="ww-leaderboard-table">
-                                                <tr><td colspan="5" class="text-center">No data available</td></tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
                             </div>
                         </div>
                     </div>
