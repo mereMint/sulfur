@@ -27,7 +27,21 @@
     }
   },
   "features": {
-    "emoji_analysis_on_startup": true
+    "emoji_analysis_on_startup": true,
+    "music_player": true,
+    "podcasts": true,
+    "audiobooks": true,
+    "economy": true,
+    "leveling": true,
+    "games": true,
+    "ai_chat": true,
+    "stock_market": true,
+    "rpg_system": true,
+    "sport_betting": true,
+    "word_games": true,
+    "focus_timer": true,
+    "autonomous_behavior": true,
+    "bot_mind": true
   },
   "api": {
     "provider": "openai",

@@ -806,6 +806,165 @@ def api_update_setting():
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+
+@app.route('/api/features', methods=['GET'])
+def api_get_features():
+    """API endpoint to get all feature toggles."""
+    try:
+        with open('config/config.json', 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        
+        features = config.get('features', {})
+        
+        # Define feature metadata for the dashboard
+        feature_metadata = {
+            'music_player': {
+                'name': '🎵 Music Player',
+                'description': 'Lofi music, stations, and song playback',
+                'category': 'Entertainment'
+            },
+            'podcasts': {
+                'name': '🎙️ Podcasts',
+                'description': 'Podcast search and playback',
+                'category': 'Entertainment'
+            },
+            'audiobooks': {
+                'name': '📚 Audiobooks',
+                'description': 'Hörbücher / Audiobook support (German & English)',
+                'category': 'Entertainment'
+            },
+            'economy': {
+                'name': '💰 Economy System',
+                'description': 'Currency, trading, and shop',
+                'category': 'Economy'
+            },
+            'leveling': {
+                'name': '⬆️ Leveling System',
+                'description': 'XP and level progression',
+                'category': 'Progression'
+            },
+            'games': {
+                'name': '🎮 Mini Games',
+                'description': 'Blackjack, Roulette, Mines, etc.',
+                'category': 'Entertainment'
+            },
+            'ai_chat': {
+                'name': '🤖 AI Chat',
+                'description': 'AI-powered conversations',
+                'category': 'Core'
+            },
+            'stock_market': {
+                'name': '📈 Stock Market',
+                'description': 'Virtual stock trading',
+                'category': 'Economy'
+            },
+            'rpg_system': {
+                'name': '⚔️ RPG System',
+                'description': 'Combat, items, and monsters',
+                'category': 'Entertainment'
+            },
+            'sport_betting': {
+                'name': '⚽ Sport Betting',
+                'description': 'Bet on real sports matches',
+                'category': 'Economy'
+            },
+            'word_games': {
+                'name': '📝 Word Games',
+                'description': 'Wordle and Word Find games',
+                'category': 'Entertainment'
+            },
+            'focus_timer': {
+                'name': '⏱️ Focus Timer',
+                'description': 'Pomodoro-style focus sessions',
+                'category': 'Productivity'
+            },
+            'autonomous_behavior': {
+                'name': '🧠 Autonomous Behavior',
+                'description': 'Bot initiates conversations autonomously',
+                'category': 'AI'
+            },
+            'bot_mind': {
+                'name': '💭 Bot Mind',
+                'description': 'Bot mood and consciousness system',
+                'category': 'AI'
+            },
+            'emoji_analysis_on_startup': {
+                'name': '😀 Emoji Analysis',
+                'description': 'Analyze emojis on startup',
+                'category': 'Core'
+            }
+        }
+        
+        # Build response with metadata
+        feature_list = []
+        for feature_key, enabled in features.items():
+            meta = feature_metadata.get(feature_key, {
+                'name': feature_key.replace('_', ' ').title(),
+                'description': f'{feature_key} feature',
+                'category': 'Other'
+            })
+            feature_list.append({
+                'key': feature_key,
+                'enabled': enabled,
+                'name': meta['name'],
+                'description': meta['description'],
+                'category': meta['category']
+            })
+        
+        return jsonify({
+            'status': 'success',
+            'features': feature_list
+        })
+    except Exception as e:
+        logger.error(f"Error getting features: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/features/<feature_key>', methods=['POST'])
+def api_toggle_feature(feature_key):
+    """API endpoint to toggle a specific feature on/off."""
+    try:
+        data = request.get_json()
+        enabled = data.get('enabled')
+        
+        if enabled is None:
+            return jsonify({'status': 'error', 'message': 'enabled field is required'}), 400
+        
+        # Load current config
+        with open('config/config.json', 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        
+        # Ensure features section exists
+        if 'features' not in config:
+            config['features'] = {}
+        
+        # Update the feature
+        config['features'][feature_key] = bool(enabled)
+        
+        # Save updated config
+        with open('config/config.json', 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=2)
+        
+        status_text = 'enabled' if enabled else 'disabled'
+        logger.info(f"Feature '{feature_key}' {status_text} via dashboard")
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Feature {feature_key} {status_text} successfully.',
+            'feature': feature_key,
+            'enabled': bool(enabled)
+        })
+    except Exception as e:
+        logger.error(f"Error toggling feature: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/features', methods=['GET'])
+def features_page():
+    """Renders the feature toggles management page."""
+    return render_template('features.html')
+
+
 @app.route('/api/wrapped_stats', methods=['GET'])
 def api_wrapped_stats():
     """API endpoint to get wrapped registration statistics."""

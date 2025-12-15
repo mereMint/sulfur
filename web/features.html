@@ -1,0 +1,276 @@
+{% extends "layout.html" %}
+{% block title %}Feature Toggles{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-toggles"></i> Feature Toggles</h5>
+                <button class="btn btn-sm btn-secondary" onclick="refreshFeatures()">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">Enable or disable bot features. Changes take effect immediately for new commands, but may require a bot restart for some features.</p>
+                
+                <div id="feature-alert"></div>
+                
+                <div id="features-loading" class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Loading features...</p>
+                </div>
+                
+                <div id="features-container" style="display: none;">
+                    <!-- Features will be loaded here -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const categoryIcons = {
+    'Core': 'bi-cpu',
+    'Entertainment': 'bi-controller',
+    'Economy': 'bi-currency-dollar',
+    'Progression': 'bi-graph-up-arrow',
+    'Productivity': 'bi-clock',
+    'AI': 'bi-robot',
+    'Other': 'bi-gear'
+};
+
+const categoryColors = {
+    'Core': 'var(--lofi-blue)',
+    'Entertainment': 'var(--lofi-pink)',
+    'Economy': 'var(--lofi-peach)',
+    'Progression': 'var(--lofi-green)',
+    'Productivity': 'var(--lofi-teal)',
+    'AI': 'var(--lofi-purple)',
+    'Other': 'var(--text-muted)'
+};
+
+async function loadFeatures() {
+    const container = document.getElementById('features-container');
+    const loading = document.getElementById('features-loading');
+    
+    try {
+        const response = await fetch('/api/features');
+        const data = await response.json();
+        
+        if (data.status !== 'success') {
+            throw new Error(data.message || 'Failed to load features');
+        }
+        
+        // Group features by category
+        const categories = {};
+        data.features.forEach(feature => {
+            const cat = feature.category || 'Other';
+            if (!categories[cat]) {
+                categories[cat] = [];
+            }
+            categories[cat].push(feature);
+        });
+        
+        // Build HTML
+        let html = '';
+        for (const [category, features] of Object.entries(categories)) {
+            const icon = categoryIcons[category] || 'bi-folder';
+            const color = categoryColors[category] || 'var(--text-muted)';
+            
+            html += `
+                <div class="category-section mb-4">
+                    <h6 class="category-header" style="color: ${color};">
+                        <i class="bi ${icon}"></i> ${category}
+                    </h6>
+                    <div class="row">
+            `;
+            
+            features.forEach(feature => {
+                const checked = feature.enabled ? 'checked' : '';
+                const statusClass = feature.enabled ? 'text-success' : 'text-muted';
+                const statusText = feature.enabled ? 'Enabled' : 'Disabled';
+                
+                html += `
+                    <div class="col-md-6 col-lg-4 mb-3">
+                        <div class="card h-100 feature-card ${feature.enabled ? 'feature-enabled' : 'feature-disabled'}">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-start mb-2">
+                                    <h6 class="card-title mb-0">${feature.name}</h6>
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input feature-toggle" 
+                                               type="checkbox" 
+                                               id="toggle-${feature.key}" 
+                                               data-feature="${feature.key}"
+                                               ${checked}>
+                                    </div>
+                                </div>
+                                <p class="card-text small text-muted mb-2">${feature.description}</p>
+                                <span class="badge ${feature.enabled ? 'bg-success' : 'bg-secondary'}" id="status-${feature.key}">
+                                    ${statusText}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += `
+                    </div>
+                </div>
+            `;
+        }
+        
+        container.innerHTML = html;
+        loading.style.display = 'none';
+        container.style.display = 'block';
+        
+        // Add event listeners to toggles
+        document.querySelectorAll('.feature-toggle').forEach(toggle => {
+            toggle.addEventListener('change', handleToggle);
+        });
+        
+    } catch (error) {
+        loading.innerHTML = `
+            <div class="alert alert-danger">
+                <i class="bi bi-exclamation-triangle"></i> Error loading features: ${error.message}
+            </div>
+        `;
+    }
+}
+
+async function handleToggle(event) {
+    const toggle = event.target;
+    const featureKey = toggle.dataset.feature;
+    const enabled = toggle.checked;
+    
+    // Disable toggle while updating
+    toggle.disabled = true;
+    
+    try {
+        const response = await fetch(`/api/features/${featureKey}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ enabled: enabled })
+        });
+        
+        const data = await response.json();
+        
+        if (data.status !== 'success') {
+            throw new Error(data.message || 'Failed to update feature');
+        }
+        
+        // Update UI
+        const statusBadge = document.getElementById(`status-${featureKey}`);
+        const card = toggle.closest('.feature-card');
+        
+        if (enabled) {
+            statusBadge.textContent = 'Enabled';
+            statusBadge.className = 'badge bg-success';
+            card.classList.remove('feature-disabled');
+            card.classList.add('feature-enabled');
+        } else {
+            statusBadge.textContent = 'Disabled';
+            statusBadge.className = 'badge bg-secondary';
+            card.classList.remove('feature-enabled');
+            card.classList.add('feature-disabled');
+        }
+        
+        showAlert('success', `Feature "${featureKey}" ${enabled ? 'enabled' : 'disabled'} successfully!`);
+        
+    } catch (error) {
+        // Revert toggle
+        toggle.checked = !enabled;
+        showAlert('danger', `Error updating feature: ${error.message}`);
+    } finally {
+        toggle.disabled = false;
+    }
+}
+
+function showAlert(type, message) {
+    const alertContainer = document.getElementById('feature-alert');
+    alertContainer.innerHTML = `
+        <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    `;
+    
+    // Auto-dismiss after 3 seconds
+    setTimeout(() => {
+        const alert = alertContainer.querySelector('.alert');
+        if (alert) {
+            alert.classList.remove('show');
+            setTimeout(() => alertContainer.innerHTML = '', 150);
+        }
+    }, 3000);
+}
+
+function refreshFeatures() {
+    const container = document.getElementById('features-container');
+    const loading = document.getElementById('features-loading');
+    
+    container.style.display = 'none';
+    loading.style.display = 'block';
+    loading.innerHTML = `
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="mt-2">Loading features...</p>
+    `;
+    
+    loadFeatures();
+}
+
+// Load features on page load
+document.addEventListener('DOMContentLoaded', loadFeatures);
+</script>
+
+<style>
+.category-header {
+    border-bottom: 2px solid;
+    padding-bottom: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.feature-card {
+    transition: all 0.3s ease;
+    border: 1px solid var(--border-color);
+}
+
+.feature-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px var(--card-shadow);
+}
+
+.feature-enabled {
+    border-left: 3px solid var(--success);
+}
+
+.feature-disabled {
+    border-left: 3px solid var(--text-muted);
+    opacity: 0.8;
+}
+
+.form-check-input:checked {
+    background-color: var(--lofi-green);
+    border-color: var(--lofi-green);
+}
+
+.form-check-input {
+    width: 3em;
+    height: 1.5em;
+    cursor: pointer;
+}
+
+.form-check-input:disabled {
+    opacity: 0.5;
+}
+</style>
+{% endblock %}

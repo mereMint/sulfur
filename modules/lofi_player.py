@@ -27,11 +27,11 @@ MUSIC_STATIONS = {
         },
         {
             "name": "🎧 Beats to Sleep/Chill",
-            "url": "https://www.youtube.com/watch?v=rUxyKA_-grg",
+            "url": "https://www.youtube.com/watch?v=4xDzrJKXOOY",
             "type": "lofi",
             "alternatives": [
-                "https://www.youtube.com/watch?v=DWcJFNfaw9c",  # relaxing music
-                "https://www.youtube.com/watch?v=7NOSDKb0HlU"   # chill beats
+                "https://www.youtube.com/watch?v=LlvNksKxbZo",  # soothing relaxation
+                "https://www.youtube.com/watch?v=1ZYbU82GVz4"   # relaxing music
             ]
         }
     ],
@@ -132,20 +132,20 @@ MUSIC_STATIONS = {
         },
         {
             "name": "🌊 Blue Noise",
-            "url": "https://www.youtube.com/watch?v=H0JcLOE-pXY",
+            "url": "https://www.youtube.com/watch?v=4yExhxdnPfQ",
             "type": "noise",
             "alternatives": [
-                "https://www.youtube.com/watch?v=x3SLP4b8H7c",
-                "https://www.youtube.com/watch?v=vAupipbJJ2M"
+                "https://www.youtube.com/watch?v=8SHf6wmX5MU",
+                "https://www.youtube.com/watch?v=ZPoqNeR3_UA"
             ]
         },
         {
             "name": "🔇 Grey Noise",
-            "url": "https://www.youtube.com/watch?v=_vb4nzF4VFA",
+            "url": "https://www.youtube.com/watch?v=1KxQ3u1Tv1w",
             "type": "noise",
             "alternatives": [
-                "https://www.youtube.com/watch?v=1KaOrSuWZeM",
-                "https://www.youtube.com/watch?v=9sHfAfbmfiM"
+                "https://www.youtube.com/watch?v=4yExhxdnPfQ",
+                "https://www.youtube.com/watch?v=8SHf6wmX5MU"
             ]
         }
     ]
@@ -3319,3 +3319,331 @@ async def get_podcast_episodes(channel_url: str, count: int = 10) -> List[dict]:
     except Exception as e:
         logger.error(f"Error getting podcast episodes: {e}")
         return []
+
+
+# --- Hörbücher (Audiobook) Support ---
+# Audiobook categories for German and English audiobooks
+
+AUDIOBOOK_STATIONS = {
+    "german": {
+        "krimi": [
+            {
+                "name": "🔍 Krimi Hörbuch",
+                "url": "ytsearch:krimi hörbuch deutsch komplett",
+                "type": "audiobook",
+                "language": "de",
+                "description": "Deutsche Krimi Hörbücher"
+            },
+            {
+                "name": "🕵️ Detektiv Hörbuch",
+                "url": "ytsearch:detektiv hörbuch deutsch",
+                "type": "audiobook",
+                "language": "de",
+                "description": "Detektivgeschichten auf Deutsch"
+            }
+        ],
+        "fantasy": [
+            {
+                "name": "🐉 Fantasy Hörbuch",
+                "url": "ytsearch:fantasy hörbuch deutsch komplett",
+                "type": "audiobook",
+                "language": "de",
+                "description": "Deutsche Fantasy Hörbücher"
+            },
+            {
+                "name": "⚔️ Abenteuer Hörbuch",
+                "url": "ytsearch:abenteuer hörbuch deutsch",
+                "type": "audiobook",
+                "language": "de",
+                "description": "Abenteuergeschichten auf Deutsch"
+            }
+        ],
+        "scifi": [
+            {
+                "name": "🚀 Science Fiction Hörbuch",
+                "url": "ytsearch:science fiction hörbuch deutsch komplett",
+                "type": "audiobook",
+                "language": "de",
+                "description": "Deutsche Science Fiction Hörbücher"
+            }
+        ],
+        "klassiker": [
+            {
+                "name": "📖 Klassiker Hörbuch",
+                "url": "ytsearch:klassiker hörbuch deutsch komplett",
+                "type": "audiobook",
+                "language": "de",
+                "description": "Deutsche Literatur Klassiker"
+            },
+            {
+                "name": "📚 Märchen Hörbuch",
+                "url": "ytsearch:märchen hörbuch deutsch komplett",
+                "type": "audiobook",
+                "language": "de",
+                "description": "Deutsche Märchen und Sagen"
+            }
+        ],
+        "thriller": [
+            {
+                "name": "😱 Thriller Hörbuch",
+                "url": "ytsearch:thriller hörbuch deutsch komplett",
+                "type": "audiobook",
+                "language": "de",
+                "description": "Deutsche Thriller Hörbücher"
+            },
+            {
+                "name": "👻 Horror Hörbuch",
+                "url": "ytsearch:horror hörbuch deutsch komplett",
+                "type": "audiobook",
+                "language": "de",
+                "description": "Deutsche Horror Hörbücher"
+            }
+        ],
+        "kinder": [
+            {
+                "name": "🧸 Kinder Hörbuch",
+                "url": "ytsearch:kinder hörbuch deutsch komplett",
+                "type": "audiobook",
+                "language": "de",
+                "description": "Hörbücher für Kinder"
+            }
+        ]
+    },
+    "english": {
+        "mystery": [
+            {
+                "name": "🔍 Mystery Audiobook",
+                "url": "ytsearch:mystery audiobook full english",
+                "type": "audiobook",
+                "language": "en",
+                "description": "English mystery audiobooks"
+            },
+            {
+                "name": "🕵️ Detective Audiobook",
+                "url": "ytsearch:detective audiobook english full",
+                "type": "audiobook",
+                "language": "en",
+                "description": "Detective stories in English"
+            }
+        ],
+        "fantasy": [
+            {
+                "name": "🐉 Fantasy Audiobook",
+                "url": "ytsearch:fantasy audiobook full english",
+                "type": "audiobook",
+                "language": "en",
+                "description": "English fantasy audiobooks"
+            },
+            {
+                "name": "⚔️ Adventure Audiobook",
+                "url": "ytsearch:adventure audiobook english full",
+                "type": "audiobook",
+                "language": "en",
+                "description": "Adventure stories in English"
+            }
+        ],
+        "scifi": [
+            {
+                "name": "🚀 Science Fiction Audiobook",
+                "url": "ytsearch:science fiction audiobook full english",
+                "type": "audiobook",
+                "language": "en",
+                "description": "English science fiction audiobooks"
+            }
+        ],
+        "classics": [
+            {
+                "name": "📖 Classic Audiobook",
+                "url": "ytsearch:classic literature audiobook full english",
+                "type": "audiobook",
+                "language": "en",
+                "description": "English literature classics"
+            },
+            {
+                "name": "📚 Shakespeare Audiobook",
+                "url": "ytsearch:shakespeare audiobook full",
+                "type": "audiobook",
+                "language": "en",
+                "description": "Shakespeare works"
+            }
+        ],
+        "thriller": [
+            {
+                "name": "😱 Thriller Audiobook",
+                "url": "ytsearch:thriller audiobook full english",
+                "type": "audiobook",
+                "language": "en",
+                "description": "English thriller audiobooks"
+            },
+            {
+                "name": "👻 Horror Audiobook",
+                "url": "ytsearch:horror audiobook full english",
+                "type": "audiobook",
+                "language": "en",
+                "description": "English horror audiobooks"
+            }
+        ],
+        "children": [
+            {
+                "name": "🧸 Children's Audiobook",
+                "url": "ytsearch:children audiobook full english",
+                "type": "audiobook",
+                "language": "en",
+                "description": "Audiobooks for children"
+            }
+        ]
+    }
+}
+
+
+def get_audiobook_languages() -> List[str]:
+    """Get list of available audiobook languages."""
+    return list(AUDIOBOOK_STATIONS.keys())
+
+
+def get_audiobook_categories(language: str = "german") -> List[str]:
+    """Get list of available audiobook categories for a language."""
+    lang_lower = language.lower()
+    if lang_lower in ["de", "german", "deutsch"]:
+        return list(AUDIOBOOK_STATIONS.get("german", {}).keys())
+    elif lang_lower in ["en", "english", "englisch"]:
+        return list(AUDIOBOOK_STATIONS.get("english", {}).keys())
+    return []
+
+
+def get_audiobooks_by_category(category: str, language: str = "german") -> List[dict]:
+    """Get audiobooks in a specific category and language."""
+    lang_lower = language.lower()
+    lang_key = "german" if lang_lower in ["de", "german", "deutsch"] else "english"
+    return AUDIOBOOK_STATIONS.get(lang_key, {}).get(category.lower(), [])
+
+
+def get_all_audiobook_stations(language: str = None) -> List[dict]:
+    """Get a flattened list of all available audiobook stations."""
+    audiobooks = []
+    
+    if language:
+        lang_lower = language.lower()
+        lang_key = "german" if lang_lower in ["de", "german", "deutsch"] else "english"
+        for category, audiobook_list in AUDIOBOOK_STATIONS.get(lang_key, {}).items():
+            audiobooks.extend(audiobook_list)
+    else:
+        # Return all audiobooks from all languages
+        for lang_key, categories in AUDIOBOOK_STATIONS.items():
+            for category, audiobook_list in categories.items():
+                audiobooks.extend(audiobook_list)
+    
+    return audiobooks
+
+
+async def search_audiobook(query: str, language: str = "german", count: int = 5) -> List[dict]:
+    """
+    Search for audiobooks on YouTube.
+    
+    Args:
+        query: Search query for audiobook
+        language: Language to search in ('german', 'english')
+        count: Maximum number of results
+    
+    Returns:
+        List of audiobook dictionaries with title, url, channel, duration
+    """
+    try:
+        import yt_dlp
+        
+        # Add audiobook keywords based on language
+        lang_lower = language.lower()
+        if lang_lower in ["de", "german", "deutsch"]:
+            search_query = f"{query} hörbuch komplett deutsch"
+        else:
+            search_query = f"{query} audiobook full english"
+        
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': True,
+            'default_search': f'ytsearch{count}',
+        }
+        
+        audiobooks = []
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            results = ydl.extract_info(search_query, download=False)
+            
+            if results and 'entries' in results:
+                for entry in results['entries']:
+                    if entry:
+                        duration = entry.get('duration', 0) or 0
+                        
+                        # Prefer longer content for audiobooks (at least 30 minutes)
+                        if duration >= 1800 or duration == 0:  # 0 means duration unknown
+                            audiobooks.append({
+                                'title': entry.get('title', 'Unknown Audiobook'),
+                                'url': f"https://www.youtube.com/watch?v={entry.get('id', '')}",
+                                'channel': entry.get('channel', entry.get('uploader', 'Unknown')),
+                                'duration': duration,
+                                'duration_str': f"{duration // 3600}h {(duration % 3600) // 60}m" if duration else "Unknown",
+                                'thumbnail': entry.get('thumbnail'),
+                                'type': 'audiobook',
+                                'language': 'de' if lang_lower in ["de", "german", "deutsch"] else 'en'
+                            })
+        
+        logger.info(f"Found {len(audiobooks)} audiobooks for query: {query}")
+        return audiobooks
+        
+    except Exception as e:
+        logger.error(f"Error searching for audiobook: {e}")
+        return []
+
+
+async def play_audiobook(
+    voice_client,
+    audiobook: dict,
+    guild_id: int,
+    volume: float = 0.5,
+    user_id: int = None
+) -> bool:
+    """
+    Play an audiobook in a voice channel.
+    
+    Args:
+        voice_client: Discord voice client
+        audiobook: Audiobook dictionary with 'url' or 'title'
+        guild_id: Discord guild ID
+        volume: Volume level (0.0 to 1.0)
+        user_id: User who requested the audiobook
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Mark as audiobook for display purposes
+        audiobook['type'] = 'audiobook'
+        audiobook['source'] = 'audiobook'
+        
+        # Use the standard song playback
+        success = await play_song_with_queue(voice_client, audiobook, guild_id, volume, user_id)
+        
+        if success:
+            logger.info(f"Started audiobook playback: {audiobook.get('title', 'Unknown')}")
+        
+        return success
+        
+    except Exception as e:
+        logger.error(f"Error playing audiobook: {e}", exc_info=True)
+        return False
+
+
+async def add_audiobook_to_queue(guild_id: int, audiobook: dict) -> int:
+    """
+    Add an audiobook to the queue.
+    
+    Args:
+        guild_id: Discord guild ID
+        audiobook: Audiobook dictionary
+    
+    Returns:
+        Queue position of the added audiobook
+    """
+    audiobook['type'] = 'audiobook'
+    audiobook['source'] = 'audiobook'
+    return add_to_queue(guild_id, audiobook, check_duplicates=True)
