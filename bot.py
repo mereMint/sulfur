@@ -812,15 +812,8 @@ async def replace_emoji_tags(text, client, guild=None):
     # This allows us to get the full emoji format with ID
     emoji_map = {}
     
-    # Only add server emojis if a guild context is provided
-    if guild:
-        for emoji in guild.emojis:
-            # Store with exact name and lowercase for case-insensitive matching
-            if emoji.name not in emoji_map:
-                emoji_map[emoji.name] = emoji
-            emoji_map[emoji.name.lower()] = emoji
-    
-    # Always prioritize application emojis (they work everywhere - DMs and all servers)
+    # Only use application emojis (bot's own emojis) - no server emojis
+    # This ensures consistent emoji display across all servers and DMs
     try:
         app_emojis = await client.fetch_application_emojis()
         for emoji in app_emojis:
@@ -831,27 +824,14 @@ async def replace_emoji_tags(text, client, guild=None):
 
     # Convert :emoji_name: to full format <:emoji_name:emoji_id>
     replaced_count = 0
-    auto_downloaded_count = 0
     for tag in set(emoji_tags):  # Use set to avoid processing duplicates
         emoji_obj = None
         
-        # Try exact match first, then lowercase
+        # Try exact match first, then lowercase (only application emojis in map)
         if tag in emoji_map:
             emoji_obj = emoji_map[tag]
         elif tag.lower() in emoji_map:
             emoji_obj = emoji_map[tag.lower()]
-        
-        # If emoji not found and we have a guild context, try to auto-download
-        if not emoji_obj and guild:
-            try:
-                emoji_obj = await auto_download_emoji(tag, guild, client)
-                if emoji_obj:
-                    auto_downloaded_count += 1
-                    # Add to map for future use in this same text
-                    emoji_map[emoji_obj.name] = emoji_obj
-                    emoji_map[emoji_obj.name.lower()] = emoji_obj
-            except Exception as e:
-                logger.debug(f"Auto-download failed for emoji '{tag}': {e}")
         
         if emoji_obj:
             # Replace :emoji_name: with full format <:emoji_name:emoji_id> or <a:emoji_name:emoji_id>
@@ -864,13 +844,11 @@ async def replace_emoji_tags(text, client, guild=None):
             text = text.replace(old_format, new_format)
             replaced_count += 1
         else:
-            # Log emojis that couldn't be found
-            logger.debug(f"Emoji not found: :{tag}:")
+            # Emoji not found in application emojis - leave as shortcode format
+            logger.debug(f"Emoji not in application emojis: :{tag}:")
     
     if replaced_count > 0:
-        logger.debug(f"Converted {replaced_count} emoji tags to full format")
-    if auto_downloaded_count > 0:
-        logger.info(f"Auto-downloaded {auto_downloaded_count} missing emojis")
+        logger.debug(f"Converted {replaced_count} emoji tags to application emoji format")
     
     return text
 
@@ -1206,6 +1184,11 @@ async def on_ready():
     if not periodic_cleanup.is_running():
         periodic_cleanup.start()
     
+    # --- NEW: Start boredom update and autonomous messaging task ---
+    if not boredom_update_task.is_running():
+        boredom_update_task.start()
+        print("  -> Boredom update task started")
+    
     # --- NEW: Start periodic application emoji check ---
     if not check_application_emojis.is_running():
         check_application_emojis.start()
@@ -1309,6 +1292,120 @@ async def before_update_presence_task():
 # NOTE: Using module-level variable for simplicity. This state is intentionally NOT persisted
 # across bot restarts - it's acceptable to potentially DM the same user after a restart.
 last_autonomous_dm_user_id = None
+last_autonomous_channel_id = None  # Track last used text channel for autonomous messaging
+
+# --- NEW: Boredom and Autonomous Messaging Task ---
+@_tasks.loop(minutes=1)
+async def boredom_update_task():
+    """Update bot's boredom level and potentially trigger autonomous messaging when very bored."""
+    global last_autonomous_dm_user_id, last_autonomous_channel_id
+    
+    try:
+        # Update boredom over time
+        bot_mind.bot_mind.update_boredom_over_time()
+        
+        boredom = bot_mind.bot_mind.boredom_level
+        logger.debug(f"[Boredom] Current boredom level: {boredom:.2f}")
+        
+        # If very bored (> 0.8), consider autonomous action
+        if boredom > 0.8:
+            # Only trigger autonomous message randomly (10% chance per minute when very bored)
+            if random.random() < 0.10:
+                await trigger_autonomous_message()
+    except Exception as e:
+        logger.error(f"Error in boredom update task: {e}", exc_info=True)
+
+
+async def trigger_autonomous_message():
+    """Trigger an autonomous message when the bot is bored."""
+    global last_autonomous_dm_user_id, last_autonomous_channel_id
+    
+    try:
+        # Generate a bored thought
+        bored_thoughts = [
+            "Mir ist langweilig... :yawning_face:",
+            "Ist hier jemand? Ich fühl mich einsam :pensive:",
+            "Digga, hier ist nichts los... was macht ihr so?",
+            "Langweile mich hier zu Tode :skull:",
+            "Hey, will jemand was machen? Mir ist mega langweilig",
+            "Alter, warum redet keiner mit mir? :cry:",
+            "*gähnt* Es ist so still hier...",
+            "Ich könnte ein Spiel gebrauchen. Jemand Lust auf Detective oder Wordfind?",
+        ]
+        
+        message_content = random.choice(bored_thoughts)
+        
+        # Decide whether to DM someone or post in last used channel
+        action = random.choice(['dm', 'channel'])
+        
+        if action == 'dm':
+            # Try to DM a random online user (who allows it)
+            eligible_users = []
+            for guild in client.guilds:
+                for member in guild.members:
+                    if member.bot or member.id == last_autonomous_dm_user_id:
+                        continue
+                    if member.status != discord.Status.offline:
+                        # Check if user allows autonomous messages
+                        settings = await autonomous_behavior.get_user_autonomous_settings(member.id)
+                        if settings.get('allow_messages', True):
+                            eligible_users.append(member)
+            
+            if eligible_users:
+                chosen_user = random.choice(eligible_users)
+                try:
+                    # Grant temporary DM access
+                    await autonomous_behavior.grant_temp_dm_access(chosen_user.id, 30)
+                    
+                    dm_channel = await chosen_user.create_dm()
+                    await dm_channel.send(message_content)
+                    
+                    last_autonomous_dm_user_id = chosen_user.id
+                    await autonomous_behavior.record_contact(chosen_user.id)
+                    
+                    # Reset boredom after sending a message
+                    bot_mind.bot_mind.boredom_level = max(0, bot_mind.bot_mind.boredom_level - 0.5)
+                    bot_mind.bot_mind.think(f"Hab {chosen_user.display_name} angeschrieben weil mir langweilig war.")
+                    
+                    logger.info(f"[Autonomous] Sent bored DM to {chosen_user.display_name}")
+                except Exception as e:
+                    logger.warning(f"[Autonomous] Could not DM user: {e}")
+        else:
+            # Post in last used channel
+            if last_autonomous_channel_id:
+                channel = client.get_channel(last_autonomous_channel_id)
+                if channel and hasattr(channel, 'send'):
+                    try:
+                        await channel.send(message_content)
+                        
+                        # Reset boredom after sending a message
+                        bot_mind.bot_mind.boredom_level = max(0, bot_mind.bot_mind.boredom_level - 0.5)
+                        bot_mind.bot_mind.think(f"Hab in den Chat geschrieben weil mir langweilig war.")
+                        
+                        logger.info(f"[Autonomous] Sent bored message to channel {channel.name}")
+                    except Exception as e:
+                        logger.warning(f"[Autonomous] Could not send to channel: {e}")
+            else:
+                # No channel to send to, try finding a general channel
+                for guild in client.guilds:
+                    for channel in guild.text_channels:
+                        if 'general' in channel.name.lower() or 'chat' in channel.name.lower():
+                            try:
+                                await channel.send(message_content)
+                                last_autonomous_channel_id = channel.id
+                                
+                                bot_mind.bot_mind.boredom_level = max(0, bot_mind.bot_mind.boredom_level - 0.5)
+                                logger.info(f"[Autonomous] Sent bored message to {channel.name}")
+                                return
+                            except Exception:
+                                continue
+    except Exception as e:
+        logger.error(f"Error in autonomous message trigger: {e}", exc_info=True)
+
+
+@boredom_update_task.before_loop
+async def before_boredom_update_task():
+    await client.wait_until_ready()
 
 # --- NEW: Personality Evolution Maintenance Task ---
 @_tasks.loop(hours=6)
@@ -17942,8 +18039,11 @@ async def on_message(message):
         
         # --- NEW: Track ALL messages for server activity (not just bot interactions) ---
         if message.guild:
+            global last_autonomous_channel_id
             try:
                 bot_mind.bot_mind.update_server_activity(message.guild.id)
+                # Track last active channel for autonomous messaging
+                last_autonomous_channel_id = message.channel.id
                 logger.debug(f"[MIND] Tracked activity in server {message.guild.name}")
             except AttributeError as ae:
                 logger.debug(f"[MIND] Bot mind module not available: {ae}")

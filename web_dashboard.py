@@ -3025,6 +3025,64 @@ def api_word_of_day():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/games/popular', methods=['GET'])
+def api_popular_games():
+    """API endpoint to get popular games ranked by play count."""
+    try:
+        conn = get_db_connection()
+        if not conn:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        cursor = conn.cursor(dictionary=True)
+        
+        # Define games with their icons and query sources
+        games = [
+            {'name': 'Blackjack', 'icon': '🃏', 'table': 'casino_games', 'game_type': 'blackjack'},
+            {'name': 'Roulette', 'icon': '🎡', 'table': 'casino_games', 'game_type': 'roulette'},
+            {'name': 'Mines', 'icon': '💣', 'table': 'casino_games', 'game_type': 'mines'},
+            {'name': 'Tower', 'icon': '🏰', 'table': 'casino_games', 'game_type': 'tower'},
+            {'name': 'Russian Roulette', 'icon': '🔫', 'table': 'casino_games', 'game_type': 'rr'},
+            {'name': 'Wordle', 'icon': '📝', 'table': 'wordle_games', 'game_type': None},
+            {'name': 'Word Find', 'icon': '🔍', 'table': 'word_find_attempts', 'game_type': None},
+            {'name': 'Detective', 'icon': '🕵️', 'table': 'detective_games', 'game_type': None},
+            {'name': 'Werwolf', 'icon': '🐺', 'table': 'werwolf_game_history', 'game_type': None},
+        ]
+        
+        popular = []
+        for game in games:
+            try:
+                if game['game_type']:
+                    cursor.execute(f"SELECT COUNT(*) as count FROM {game['table']} WHERE game_type = %s", (game['game_type'],))
+                else:
+                    cursor.execute(f"SELECT COUNT(*) as count FROM {game['table']}")
+                result = cursor.fetchone()
+                count = result['count'] if result else 0
+                popular.append({
+                    'name': game['name'],
+                    'icon': game['icon'],
+                    'count': count
+                })
+            except Exception as e:
+                # Table might not exist
+                popular.append({
+                    'name': game['name'],
+                    'icon': game['icon'],
+                    'count': 0
+                })
+        
+        # Sort by count descending
+        popular.sort(key=lambda x: x['count'], reverse=True)
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({'popular': popular})
+        
+    except Exception as e:
+        logger.error(f"Error getting popular games: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 # ========== System Health APIs ==========
 
 @app.route('/system', methods=['GET'])

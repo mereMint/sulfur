@@ -5,103 +5,406 @@
 {% block extra_styles %}
 <style>
     .game-card {
-        background: linear-gradient(135deg, rgba(157, 132, 183, 0.2) 0%, rgba(244, 166, 215, 0.2) 100%);
+        background: linear-gradient(135deg, rgba(157, 132, 183, 0.15) 0%, rgba(244, 166, 215, 0.15) 100%);
         border: 2px solid var(--border-color);
-        border-radius: 16px;
+        border-radius: 20px;
         padding: 1.5rem;
         transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         text-align: center;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .game-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 4px;
+        background: linear-gradient(90deg, var(--lofi-purple), var(--lofi-pink), var(--lofi-purple));
+        background-size: 200% 100%;
+        animation: shimmer 3s linear infinite;
+    }
+    
+    @keyframes shimmer {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
     }
     
     .game-card:hover {
         border-color: var(--lofi-purple);
-        transform: translateY(-6px);
-        box-shadow: 0 12px 40px rgba(157, 132, 183, 0.3);
+        transform: translateY(-8px) scale(1.02);
+        box-shadow: 0 20px 50px rgba(157, 132, 183, 0.4);
     }
     
     .game-icon {
-        font-size: 3rem;
+        font-size: 3.5rem;
         margin-bottom: 1rem;
+        filter: drop-shadow(0 4px 8px rgba(0,0,0,0.3));
     }
     
     .game-stat {
-        font-size: 1.8rem;
-        font-weight: bold;
+        font-size: 2.2rem;
+        font-weight: 800;
         background: linear-gradient(135deg, var(--lofi-purple), var(--lofi-pink));
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
+    }
+    
+    .game-subtitle {
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        margin-top: 0.25rem;
     }
     
     .wordle-word {
         font-family: 'Courier New', monospace;
-        font-size: 1.5rem;
+        font-size: 1.6rem;
         font-weight: bold;
-        letter-spacing: 0.3rem;
-        padding: 0.5rem 1rem;
+        letter-spacing: 0.4rem;
+        padding: 0.75rem 1.25rem;
         background: linear-gradient(135deg, var(--lofi-purple), var(--lofi-pink));
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
     }
+    
+    .stats-overview {
+        background: linear-gradient(135deg, rgba(157, 132, 183, 0.1) 0%, rgba(244, 166, 215, 0.1) 100%);
+        border: 1px solid var(--border-color);
+        border-radius: 16px;
+        padding: 1.5rem;
+    }
+    
+    .stats-number {
+        font-size: 2.5rem;
+        font-weight: 800;
+        background: linear-gradient(135deg, #FFD700, #FFA500);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+    
+    .category-header {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-bottom: 1.5rem;
+        padding-bottom: 0.75rem;
+        border-bottom: 2px solid var(--border-color);
+    }
+    
+    .category-header h4 {
+        margin: 0;
+        font-weight: 600;
+    }
+    
+    .category-icon {
+        font-size: 1.5rem;
+    }
+    
+    .leaderboard-card {
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 12px;
+        overflow: hidden;
+    }
+    
+    .leaderboard-header {
+        background: linear-gradient(135deg, var(--lofi-purple), var(--lofi-pink));
+        padding: 1rem;
+        font-weight: 600;
+    }
+    
+    .recent-game {
+        display: flex;
+        align-items: center;
+        padding: 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+        transition: background 0.2s;
+    }
+    
+    .recent-game:hover {
+        background: rgba(157, 132, 183, 0.1);
+    }
+    
+    .recent-game:last-child {
+        border-bottom: none;
+    }
+    
+    .game-type-badge {
+        padding: 0.25rem 0.75rem;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        margin-right: 0.75rem;
+    }
+    
+    .badge-casino { background: linear-gradient(135deg, #FFD700, #FFA500); color: #000; }
+    .badge-puzzle { background: linear-gradient(135deg, #4CAF50, #8BC34A); color: #fff; }
+    .badge-social { background: linear-gradient(135deg, #2196F3, #03A9F4); color: #fff; }
+    .badge-strategy { background: linear-gradient(135deg, #9C27B0, #E91E63); color: #fff; }
+    
+    .win-badge { background: linear-gradient(135deg, #4CAF50, #8BC34A); }
+    .loss-badge { background: linear-gradient(135deg, #f44336, #e91e63); }
+    
+    .mini-chart {
+        height: 60px;
+        margin-top: 0.5rem;
+    }
+    
+    .popular-games-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+    
+    .popular-game-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.75rem 1rem;
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 10px;
+        transition: all 0.3s;
+    }
+    
+    .popular-game-item:hover {
+        background: rgba(157, 132, 183, 0.2);
+        transform: translateX(5px);
+    }
+    
+    .game-rank {
+        width: 30px;
+        height: 30px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        font-weight: bold;
+        margin-right: 0.75rem;
+    }
+    
+    .rank-1 { background: linear-gradient(135deg, #FFD700, #FFA500); color: #000; }
+    .rank-2 { background: linear-gradient(135deg, #C0C0C0, #A9A9A9); color: #000; }
+    .rank-3 { background: linear-gradient(135deg, #CD7F32, #8B4513); color: #fff; }
+    .rank-other { background: var(--border-color); }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="row mb-4 fade-in">
     <div class="col-12">
-        <h2 class="gradient-text mb-4">
+        <h2 class="gradient-text mb-2">
             <i class="bi bi-controller"></i> Games Dashboard
         </h2>
+        <p class="text-muted">Übersicht aller Spiele und Statistiken</p>
     </div>
 </div>
 
-<!-- Game Statistics -->
+<!-- Overview Stats -->
 <div class="row mb-4 fade-in">
-    <div class="col-md-3 col-sm-6 mb-3">
-        <div class="game-card">
-            <div class="game-icon">🐺</div>
-            <h5>Werwolf</h5>
-            <div class="game-stat" id="werwolf-games">0</div>
-            <small class="text-muted">Total Games</small>
-            <div class="mt-2">
-                <small class="text-muted" id="werwolf-players">0 Players</small>
+    <div class="col-12">
+        <div class="stats-overview">
+            <div class="row text-center">
+                <div class="col-md-3 col-6 mb-3 mb-md-0">
+                    <div class="stats-number" id="total-games">0</div>
+                    <div class="text-muted">Gesamt Spiele</div>
+                </div>
+                <div class="col-md-3 col-6 mb-3 mb-md-0">
+                    <div class="stats-number" id="total-players">0</div>
+                    <div class="text-muted">Aktive Spieler</div>
+                </div>
+                <div class="col-md-3 col-6">
+                    <div class="stats-number" id="games-today">0</div>
+                    <div class="text-muted">Spiele Heute</div>
+                </div>
+                <div class="col-md-3 col-6">
+                    <div class="stats-number" id="coins-wagered">0</div>
+                    <div class="text-muted">Coins Gewettet</div>
+                </div>
             </div>
         </div>
     </div>
-    
-    <div class="col-md-3 col-sm-6 mb-3">
-        <div class="game-card">
-            <div class="game-icon">🕵️</div>
-            <h5>Detective</h5>
-            <div class="game-stat" id="detective-games">0</div>
-            <small class="text-muted">Total Cases</small>
-            <div class="mt-2">
-                <small class="text-muted" id="detective-players">0 Players</small>
-            </div>
+</div>
+
+<!-- Puzzle Games Section -->
+<div class="row mb-4 fade-in">
+    <div class="col-12">
+        <div class="category-header">
+            <span class="category-icon">🧩</span>
+            <h4>Puzzle & Word Games</h4>
         </div>
     </div>
     
-    <div class="col-md-3 col-sm-6 mb-3">
+    <div class="col-lg-3 col-md-6 mb-4">
         <div class="game-card">
             <div class="game-icon">📝</div>
             <h5>Wordle</h5>
             <div class="game-stat" id="wordle-games">0</div>
-            <small class="text-muted">Total Games</small>
+            <div class="game-subtitle">Spiele gespielt</div>
             <div class="mt-2">
-                <small class="text-muted" id="wordle-players">0 Players</small>
+                <span class="badge bg-success" id="wordle-win-rate">0%</span>
+                <small class="text-muted">Win Rate</small>
             </div>
         </div>
     </div>
     
-    <div class="col-md-3 col-sm-6 mb-3">
+    <div class="col-lg-3 col-md-6 mb-4">
         <div class="game-card">
-            <div class="game-icon">🎰</div>
-            <h5>Casino</h5>
-            <div class="game-stat" id="casino-games">0</div>
-            <small class="text-muted">Total Games</small>
+            <div class="game-icon">🔍</div>
+            <h5>Word Find</h5>
+            <div class="game-stat" id="wordfind-games">0</div>
+            <div class="game-subtitle">Wörter gefunden</div>
             <div class="mt-2">
-                <small class="text-muted">All Games Combined</small>
+                <span class="badge bg-info" id="wordfind-avg">0</span>
+                <small class="text-muted">Ø Versuche</small>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-3 col-md-6 mb-4">
+        <div class="game-card">
+            <div class="game-icon">🕵️</div>
+            <h5>Detective</h5>
+            <div class="game-stat" id="detective-games">0</div>
+            <div class="game-subtitle">Fälle gelöst</div>
+            <div class="mt-2">
+                <span class="badge bg-warning text-dark" id="detective-solve-rate">0%</span>
+                <small class="text-muted">Aufklärungsrate</small>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-3 col-md-6 mb-4">
+        <div class="game-card">
+            <div class="game-icon">🚃</div>
+            <h5>Trolly Problem</h5>
+            <div class="game-stat" id="trolly-games">0</div>
+            <div class="game-subtitle">Dilemmas gelöst</div>
+            <div class="mt-2">
+                <span class="badge bg-secondary" id="trolly-choices">-</span>
+                <small class="text-muted">Beliebteste Wahl</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Casino Games Section -->
+<div class="row mb-4 fade-in">
+    <div class="col-12">
+        <div class="category-header">
+            <span class="category-icon">🎰</span>
+            <h4>Casino Games</h4>
+        </div>
+    </div>
+    
+    <div class="col-lg-2 col-md-4 col-6 mb-4">
+        <div class="game-card">
+            <div class="game-icon">🃏</div>
+            <h5>Blackjack</h5>
+            <div class="game-stat" id="blackjack-games">0</div>
+            <div class="game-subtitle">Spiele</div>
+        </div>
+    </div>
+    
+    <div class="col-lg-2 col-md-4 col-6 mb-4">
+        <div class="game-card">
+            <div class="game-icon">🎡</div>
+            <h5>Roulette</h5>
+            <div class="game-stat" id="roulette-games">0</div>
+            <div class="game-subtitle">Spiele</div>
+        </div>
+    </div>
+    
+    <div class="col-lg-2 col-md-4 col-6 mb-4">
+        <div class="game-card">
+            <div class="game-icon">💣</div>
+            <h5>Mines</h5>
+            <div class="game-stat" id="mines-games">0</div>
+            <div class="game-subtitle">Spiele</div>
+        </div>
+    </div>
+    
+    <div class="col-lg-2 col-md-4 col-6 mb-4">
+        <div class="game-card">
+            <div class="game-icon">🏰</div>
+            <h5>Tower</h5>
+            <div class="game-stat" id="tower-games">0</div>
+            <div class="game-subtitle">Spiele</div>
+        </div>
+    </div>
+    
+    <div class="col-lg-2 col-md-4 col-6 mb-4">
+        <div class="game-card">
+            <div class="game-icon">🔫</div>
+            <h5>Russian Roulette</h5>
+            <div class="game-stat" id="rr-games">0</div>
+            <div class="game-subtitle">Spiele</div>
+        </div>
+    </div>
+    
+    <div class="col-lg-2 col-md-4 col-6 mb-4">
+        <div class="game-card">
+            <div class="game-icon">🐎</div>
+            <h5>Horse Race</h5>
+            <div class="game-stat" id="horserace-games">0</div>
+            <div class="game-subtitle">Rennen</div>
+        </div>
+    </div>
+</div>
+
+<!-- Social Games Section -->
+<div class="row mb-4 fade-in">
+    <div class="col-12">
+        <div class="category-header">
+            <span class="category-icon">👥</span>
+            <h4>Social & Multiplayer Games</h4>
+        </div>
+    </div>
+    
+    <div class="col-lg-4 col-md-6 mb-4">
+        <div class="game-card">
+            <div class="game-icon">🐺</div>
+            <h5>Werwolf</h5>
+            <div class="game-stat" id="werwolf-games">0</div>
+            <div class="game-subtitle">Spiele gespielt</div>
+            <div class="mt-2 row">
+                <div class="col-6">
+                    <span class="badge bg-danger" id="werwolf-wolf-wins">0</span>
+                    <small class="d-block text-muted">Wölfe</small>
+                </div>
+                <div class="col-6">
+                    <span class="badge bg-primary" id="werwolf-village-wins">0</span>
+                    <small class="d-block text-muted">Dorf</small>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-4 col-md-6 mb-4">
+        <div class="game-card">
+            <div class="game-icon">🏆</div>
+            <h5>Sport Betting</h5>
+            <div class="game-stat" id="sportbet-games">0</div>
+            <div class="game-subtitle">Wetten platziert</div>
+            <div class="mt-2">
+                <span class="badge bg-success" id="sportbet-wins">0</span>
+                <small class="text-muted">gewonnen</small>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-lg-4 col-md-6 mb-4">
+        <div class="game-card">
+            <div class="game-icon">📈</div>
+            <h5>Stock Trading</h5>
+            <div class="game-stat" id="stock-trades">0</div>
+            <div class="game-subtitle">Trades ausgeführt</div>
+            <div class="mt-2">
+                <span class="badge bg-info" id="stock-volume">0</span>
+                <small class="text-muted">Volumen</small>
             </div>
         </div>
     </div>
@@ -111,9 +414,10 @@
 <div class="row mb-4 fade-in">
     <div class="col-12">
         <div class="card p-4">
-            <h4 class="section-title mb-4">
-                <i class="bi bi-calendar-day"></i> Word of the Day
-            </h4>
+            <div class="category-header">
+                <span class="category-icon">📅</span>
+                <h4>Wort des Tages</h4>
+            </div>
             <div class="row">
                 <div class="col-md-6 mb-3">
                     <div class="card bg-dark p-3">
@@ -121,14 +425,16 @@
                         <div class="row">
                             <div class="col-6">
                                 <div class="text-center">
-                                    <span class="badge bg-secondary mb-2">🇩🇪 German</span>
+                                    <span class="badge bg-secondary mb-2">🇩🇪 Deutsch</span>
                                     <div class="wordle-word" id="wordle-de">-----</div>
+                                    <small class="text-muted" id="wordle-de-attempts">0 Versuche heute</small>
                                 </div>
                             </div>
                             <div class="col-6">
                                 <div class="text-center">
                                     <span class="badge bg-primary mb-2">🇬🇧 English</span>
                                     <div class="wordle-word" id="wordle-en">-----</div>
+                                    <small class="text-muted" id="wordle-en-attempts">0 Versuche heute</small>
                                 </div>
                             </div>
                         </div>
@@ -140,7 +446,7 @@
                         <div class="row">
                             <div class="col-6">
                                 <div class="text-center">
-                                    <span class="badge bg-secondary mb-2">🇩🇪 German</span>
+                                    <span class="badge bg-secondary mb-2">🇩🇪 Deutsch</span>
                                     <div class="wordle-word" id="wordfind-de">---</div>
                                     <small class="text-muted" id="wordfind-de-theme"></small>
                                 </div>
@@ -160,13 +466,14 @@
     </div>
 </div>
 
-<!-- Game Leaderboards -->
+<!-- Leaderboards and Popular Games -->
 <div class="row fade-in">
-    <div class="col-12 mb-4">
+    <div class="col-lg-6 mb-4">
         <div class="card p-4">
-            <h4 class="section-title mb-4">
-                <i class="bi bi-trophy-fill"></i> Game Leaderboards
-            </h4>
+            <div class="category-header">
+                <span class="category-icon">🏆</span>
+                <h4>Top Spieler</h4>
+            </div>
             
             <ul class="nav nav-pills mb-3" role="tablist">
                 <li class="nav-item" role="presentation">
@@ -183,25 +490,30 @@
                         📝 Wordle
                     </button>
                 </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="werwolf-lb-tab" data-bs-toggle="pill" 
+                            data-bs-target="#werwolf-lb" type="button" role="tab"
+                            onclick="loadGameLeaderboard('werwolf')">
+                        🐺 Werwolf
+                    </button>
+                </li>
             </ul>
             
             <div class="tab-content">
                 <!-- Detective Leaderboard -->
                 <div class="tab-pane fade show active" id="detective-lb" role="tabpanel">
                     <div class="table-responsive">
-                        <table class="table table-dark table-hover">
+                        <table class="table table-dark table-hover mb-0">
                             <thead>
                                 <tr>
-                                    <th>Rank</th>
-                                    <th>Player</th>
-                                    <th>Cases Solved</th>
-                                    <th>Accuracy</th>
-                                    <th>Streak</th>
-                                    <th>Best Streak</th>
+                                    <th>#</th>
+                                    <th>Spieler</th>
+                                    <th>Gelöst</th>
+                                    <th>Rate</th>
                                 </tr>
                             </thead>
                             <tbody id="detective-leaderboard">
-                                <tr><td colspan="6" class="text-center">Loading...</td></tr>
+                                <tr><td colspan="4" class="text-center">Lade...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -210,17 +522,36 @@
                 <!-- Wordle Leaderboard -->
                 <div class="tab-pane fade" id="wordle-lb" role="tabpanel">
                     <div class="table-responsive">
-                        <table class="table table-dark table-hover">
+                        <table class="table table-dark table-hover mb-0">
                             <thead>
                                 <tr>
-                                    <th>Rank</th>
-                                    <th>Player</th>
-                                    <th>Games Won</th>
-                                    <th>Avg Attempts</th>
+                                    <th>#</th>
+                                    <th>Spieler</th>
+                                    <th>Gewonnen</th>
+                                    <th>Ø Versuche</th>
                                 </tr>
                             </thead>
                             <tbody id="wordle-leaderboard">
-                                <tr><td colspan="4" class="text-center">Loading...</td></tr>
+                                <tr><td colspan="4" class="text-center">Lade...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <!-- Werwolf Leaderboard -->
+                <div class="tab-pane fade" id="werwolf-lb" role="tabpanel">
+                    <div class="table-responsive">
+                        <table class="table table-dark table-hover mb-0">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Spieler</th>
+                                    <th>Siege</th>
+                                    <th>Spiele</th>
+                                </tr>
+                            </thead>
+                            <tbody id="werwolf-leaderboard">
+                                <tr><td colspan="4" class="text-center">Lade...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -228,41 +559,57 @@
             </div>
         </div>
     </div>
+    
+    <div class="col-lg-6 mb-4">
+        <div class="card p-4">
+            <div class="category-header">
+                <span class="category-icon">🔥</span>
+                <h4>Beliebteste Spiele</h4>
+            </div>
+            
+            <div class="popular-games-list" id="popular-games">
+                <div class="popular-game-item">
+                    <div class="d-flex align-items-center">
+                        <div class="game-rank rank-1">1</div>
+                        <span class="game-icon me-2" style="font-size: 1.5rem;">🃏</span>
+                        <span>Blackjack</span>
+                    </div>
+                    <span class="badge bg-secondary">0 Spiele</span>
+                </div>
+                <div class="popular-game-item">
+                    <div class="d-flex align-items-center">
+                        <div class="game-rank rank-2">2</div>
+                        <span class="game-icon me-2" style="font-size: 1.5rem;">📝</span>
+                        <span>Wordle</span>
+                    </div>
+                    <span class="badge bg-secondary">0 Spiele</span>
+                </div>
+                <div class="popular-game-item">
+                    <div class="d-flex align-items-center">
+                        <div class="game-rank rank-3">3</div>
+                        <span class="game-icon me-2" style="font-size: 1.5rem;">🕵️</span>
+                        <span>Detective</span>
+                    </div>
+                    <span class="badge bg-secondary">0 Spiele</span>
+                </div>
+            </div>
+            
+            <hr class="my-4">
+            
+            <div class="category-header">
+                <span class="category-icon">⏰</span>
+                <h4>Letzte Aktivität</h4>
+            </div>
+            
+            <div id="recent-activity">
+                <div class="recent-game">
+                    <span class="game-type-badge badge-casino">Casino</span>
+                    <span class="text-muted">Keine Aktivität verfügbar</span>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
-
-<!-- Casino Breakdown -->
-<div class="row fade-in">
-    <div class="col-md-4 mb-4">
-        <div class="card p-4 text-center">
-            <h5 class="mb-3">🃏 Blackjack</h5>
-            <div class="game-stat" id="blackjack-games">0</div>
-            <small class="text-muted">Games Played</small>
-        </div>
-    </div>
-    <div class="col-md-4 mb-4">
-        <div class="card p-4 text-center">
-            <h5 class="mb-3">🎡 Roulette</h5>
-            <div class="game-stat" id="roulette-games">0</div>
-            <small class="text-muted">Games Played</small>
-        </div>
-    </div>
-    <div class="col-md-4 mb-4">
-        <div class="card p-4 text-center">
-            <h5 class="mb-3">💣 Mines</h5>
-            <div class="game-stat" id="mines-games">0</div>
-            <small class="text-muted">Games Played</small>
-        </div>
-    </div>
-</div>
-
-<style>
-    .section-title {
-        color: var(--accent-primary);
-        border-bottom: 2px solid var(--border-color);
-        padding-bottom: 0.5rem;
-        font-weight: 600;
-    }
-</style>
 {% endblock %}
 
 {% block scripts %}
@@ -271,6 +618,7 @@
         loadGamesStats();
         loadWordOfDay();
         loadGameLeaderboard('detective');
+        loadPopularGames();
         
         // Refresh every minute
         setInterval(loadGamesStats, 60000);
@@ -301,7 +649,7 @@
                 if (data.wordfind.de && data.wordfind.de.word) {
                     document.getElementById('wordfind-de').textContent = data.wordfind.de.word.toUpperCase();
                     if (data.wordfind.de.theme) {
-                        document.getElementById('wordfind-de-theme').textContent = `Theme: ${data.wordfind.de.theme}`;
+                        document.getElementById('wordfind-de-theme').textContent = `Thema: ${data.wordfind.de.theme}`;
                     }
                 }
                 if (data.wordfind.en && data.wordfind.en.word) {
@@ -328,63 +676,99 @@
                 throw new Error(data.error);
             }
             
+            // Calculate totals
+            let totalGames = 0;
+            let totalPlayers = new Set();
+            
             // Update Werwolf stats
             if (data.werwolf) {
                 document.getElementById('werwolf-games').textContent = 
                     data.werwolf.total_games.toLocaleString();
-                document.getElementById('werwolf-players').textContent = 
-                    `${data.werwolf.total_players.toLocaleString()} Players`;
+                totalGames += data.werwolf.total_games || 0;
+                
+                // Wolf vs Village wins (if available)
+                if (data.werwolf.wolf_wins !== undefined) {
+                    document.getElementById('werwolf-wolf-wins').textContent = data.werwolf.wolf_wins;
+                }
+                if (data.werwolf.village_wins !== undefined) {
+                    document.getElementById('werwolf-village-wins').textContent = data.werwolf.village_wins;
+                }
             }
             
             // Update Detective stats
             if (data.detective) {
                 document.getElementById('detective-games').textContent = 
                     data.detective.total_games.toLocaleString();
-                document.getElementById('detective-players').textContent = 
-                    `${data.detective.total_players.toLocaleString()} Players`;
+                totalGames += data.detective.total_games || 0;
+                
+                if (data.detective.solve_rate) {
+                    document.getElementById('detective-solve-rate').textContent = 
+                        data.detective.solve_rate + '%';
+                }
             }
             
             // Update Wordle stats
             if (data.wordle) {
                 document.getElementById('wordle-games').textContent = 
                     data.wordle.total_games.toLocaleString();
-                document.getElementById('wordle-players').textContent = 
-                    `${data.wordle.total_players.toLocaleString()} Players`;
+                totalGames += data.wordle.total_games || 0;
+                
+                if (data.wordle.win_rate) {
+                    document.getElementById('wordle-win-rate').textContent = 
+                        data.wordle.win_rate + '%';
+                }
             }
             
             // Update Casino stats
             if (data.casino) {
-                const totalCasino = data.casino.total_games || 0;
-                document.getElementById('casino-games').textContent = 
-                    totalCasino.toLocaleString();
+                totalGames += data.casino.total_games || 0;
                 
-                // Update individual game stats
                 if (data.casino.blackjack) {
                     document.getElementById('blackjack-games').textContent = 
-                        data.casino.blackjack.total_games.toLocaleString();
+                        (data.casino.blackjack.total_games || 0).toLocaleString();
                 }
                 if (data.casino.roulette) {
                     document.getElementById('roulette-games').textContent = 
-                        data.casino.roulette.total_games.toLocaleString();
+                        (data.casino.roulette.total_games || 0).toLocaleString();
                 }
                 if (data.casino.mines) {
                     document.getElementById('mines-games').textContent = 
-                        data.casino.mines.total_games.toLocaleString();
+                        (data.casino.mines.total_games || 0).toLocaleString();
+                }
+                if (data.casino.tower) {
+                    document.getElementById('tower-games').textContent = 
+                        (data.casino.tower.total_games || 0).toLocaleString();
+                }
+                if (data.casino.rr) {
+                    document.getElementById('rr-games').textContent = 
+                        (data.casino.rr.total_games || 0).toLocaleString();
+                }
+                if (data.casino.horserace) {
+                    document.getElementById('horserace-games').textContent = 
+                        (data.casino.horserace.total_games || 0).toLocaleString();
                 }
             }
+            
+            // Update overview stats
+            document.getElementById('total-games').textContent = totalGames.toLocaleString();
+            
+            if (data.total_players) {
+                document.getElementById('total-players').textContent = 
+                    data.total_players.toLocaleString();
+            }
+            
+            if (data.games_today) {
+                document.getElementById('games-today').textContent = 
+                    data.games_today.toLocaleString();
+            }
+            
+            if (data.coins_wagered) {
+                document.getElementById('coins-wagered').textContent = 
+                    formatNumber(data.coins_wagered);
+            }
+            
         } catch (error) {
             console.error('Error loading games stats:', error);
-            // Show error message in UI
-            const errorMsg = `
-                <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                    <strong>Error loading games stats:</strong> ${error.message || 'Connection failed'}
-                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                </div>
-            `;
-            // Insert error at top of page if not already shown
-            if (!document.querySelector('.alert-danger')) {
-                document.querySelector('.container').insertAdjacentHTML('afterbegin', errorMsg);
-            }
         }
     }
     
@@ -398,42 +782,85 @@
             
             if (data.leaderboard && data.leaderboard.length > 0) {
                 let html = '';
-                data.leaderboard.forEach((player, index) => {
+                data.leaderboard.slice(0, 10).forEach((player, index) => {
                     const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '';
+                    const name = player.display_name || player.username || 'Unknown';
                     
                     if (gameType === 'detective') {
                         const winRate = player.total_cases > 0 
-                            ? ((player.cases_solved / player.total_cases) * 100).toFixed(1) 
-                            : '0.0';
+                            ? ((player.cases_solved / player.total_cases) * 100).toFixed(0) 
+                            : '0';
                         html += `
                             <tr>
-                                <td>${medal} #${index + 1}</td>
-                                <td>${player.display_name || player.username || 'Unknown'}</td>
-                                <td><strong>${player.cases_solved}</strong> / ${player.total_cases}</td>
+                                <td>${medal} ${index + 1}</td>
+                                <td>${name}</td>
+                                <td><strong>${player.cases_solved}</strong></td>
                                 <td><span class="badge bg-success">${winRate}%</span></td>
-                                <td>${player.streak || 0}</td>
-                                <td>${player.best_streak || 0}</td>
                             </tr>
                         `;
                     } else if (gameType === 'wordle') {
                         html += `
                             <tr>
-                                <td>${medal} #${index + 1}</td>
-                                <td>${player.display_name || player.username || `User ${player.user_id}`}</td>
+                                <td>${medal} ${index + 1}</td>
+                                <td>${name}</td>
                                 <td><strong>${player.games_won}</strong></td>
-                                <td><span class="badge bg-info">${parseFloat(player.avg_attempts).toFixed(1)}</span></td>
+                                <td><span class="badge bg-info">${parseFloat(player.avg_attempts || 0).toFixed(1)}</span></td>
+                            </tr>
+                        `;
+                    } else if (gameType === 'werwolf') {
+                        html += `
+                            <tr>
+                                <td>${medal} ${index + 1}</td>
+                                <td>${name}</td>
+                                <td><strong>${player.wins || 0}</strong></td>
+                                <td>${player.games_played || 0}</td>
                             </tr>
                         `;
                     }
                 });
                 table.innerHTML = html;
             } else {
-                const colspan = gameType === 'detective' ? 6 : 4;
-                table.innerHTML = `<tr><td colspan="${colspan}" class="text-center">No data available</td></tr>`;
+                const colspan = 4;
+                table.innerHTML = `<tr><td colspan="${colspan}" class="text-center text-muted">Keine Daten verfügbar</td></tr>`;
             }
         } catch (error) {
             console.error(`Error loading ${gameType} leaderboard:`, error);
         }
+    }
+    
+    async function loadPopularGames() {
+        try {
+            const response = await fetch('/api/games/popular');
+            const data = await response.json();
+            
+            if (data.popular && data.popular.length > 0) {
+                const container = document.getElementById('popular-games');
+                container.innerHTML = data.popular.slice(0, 5).map((game, index) => {
+                    const rankClass = index === 0 ? 'rank-1' : index === 1 ? 'rank-2' : index === 2 ? 'rank-3' : 'rank-other';
+                    return `
+                        <div class="popular-game-item">
+                            <div class="d-flex align-items-center">
+                                <div class="game-rank ${rankClass}">${index + 1}</div>
+                                <span class="game-icon me-2" style="font-size: 1.5rem;">${game.icon || '🎮'}</span>
+                                <span>${game.name}</span>
+                            </div>
+                            <span class="badge bg-secondary">${game.count.toLocaleString()} Spiele</span>
+                        </div>
+                    `;
+                }).join('');
+            }
+        } catch (error) {
+            console.error('Error loading popular games:', error);
+        }
+    }
+    
+    function formatNumber(num) {
+        if (num >= 1000000) {
+            return (num / 1000000).toFixed(1) + 'M';
+        } else if (num >= 1000) {
+            return (num / 1000).toFixed(1) + 'K';
+        }
+        return num.toLocaleString();
     }
 </script>
 {% endblock %}
