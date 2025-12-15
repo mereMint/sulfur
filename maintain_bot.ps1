@@ -11,6 +11,13 @@ $logFile=Join-Path $logDir "maintenance_$ts.log"
 $botLogFile=Join-Path $logDir "bot_$ts.log"
 Start-Transcript -Path $logFile -Append | Out-Null
 
+# Update loop prevention
+$script:lastPulledCommit = ""
+$script:updateLoopCount = 0
+$script:maxUpdateLoopCount = 3
+$script:updateLoopResetSeconds = 300  # 5 minutes
+$script:lastUpdateTime = [datetime]::MinValue
+
 # Cleanup function
 function Invoke-Cleanup {
     Write-Host 'Cleaning up processes...' -ForegroundColor Yellow
@@ -901,6 +908,29 @@ function Test-ForUpdates {
         git remote update 2>&1 | Out-Null
         $status=git status -uno
         if($status -like '*Your branch is behind*'){
+            # Check for update loop prevention
+            $timeSinceUpdate = (Get-Date) - $script:lastUpdateTime
+            
+            # Reset loop counter if enough time has passed
+            if($timeSinceUpdate.TotalSeconds -gt $script:updateLoopResetSeconds){
+                $script:updateLoopCount = 0
+            }
+            
+            # Check if we're in an update loop
+            if($script:updateLoopCount -ge $script:maxUpdateLoopCount){
+                Write-ColorLog "Update loop detected! Skipping update to prevent infinite loop." 'Yellow' '[UPDATE] '
+                Write-ColorLog "Last $($script:maxUpdateLoopCount) updates happened within $($script:updateLoopResetSeconds) seconds." 'Yellow' '[UPDATE] '
+                return $false
+            }
+            
+            # Check if we've already pulled this commit
+            $remoteCommit = (git rev-parse '@{u}' 2>$null) | Out-String
+            $remoteCommit = $remoteCommit.Trim()
+            if($remoteCommit -eq $script:lastPulledCommit -and $script:lastPulledCommit -ne ""){
+                Write-ColorLog "Already pulled commit $remoteCommit, skipping to prevent loop" 'Yellow' '[UPDATE] '
+                return $false
+            }
+            
             Write-ColorLog 'Updates available!' 'Yellow' '[UPDATE] '
             return $true
         }
@@ -914,18 +944,38 @@ function Test-ForUpdates {
 function Invoke-Update {
     Write-ColorLog 'Applying updates...' 'Cyan' '[UPDATE] '
     Update-BotStatus 'Updating...'
+    
+    # Track update loop prevention
+    $script:updateLoopCount++
+    $script:lastUpdateTime = Get-Date
+    
     Invoke-GitCommit 'chore: Auto-commit before update'
     git fetch 2>&1 | Out-Null
-    $changedFiles=git diff --name-only HEAD...origin/main
+    $changedFiles=git diff --name-only HEAD...origin/main 2>$null
+    if(-not $changedFiles){ $changedFiles=git diff --name-only HEAD...origin/master 2>$null }
+    
+    # Track remote commit
+    $remoteCommit = (git rev-parse '@{u}' 2>$null) | Out-String
+    $remoteCommit = $remoteCommit.Trim()
+    
     if($changedFiles -like '*maintain_bot.ps1*' -or $changedFiles -like '*maintain_bot_fixed.ps1*'){
         Write-ColorLog 'Maintenance script updated; restarting...' 'Magenta' '[UPDATE] '
         # Use rebase to avoid merge conflicts when local commits exist
         git pull --rebase 2>&1 | Out-Null
         if($LASTEXITCODE -ne 0){
-            Write-ColorLog 'Rebase failed, trying merge...' 'Yellow' '[UPDATE] '
+            Write-ColorLog 'Rebase failed, trying merge with --no-ff...' 'Yellow' '[UPDATE] '
             git rebase --abort 2>&1 | Out-Null
             git pull --no-rebase 2>&1 | Out-Null
+            if($LASTEXITCODE -ne 0){
+                Write-ColorLog 'Standard merge failed, trying explicit --no-ff merge...' 'Yellow' '[UPDATE] '
+                git merge --no-ff origin/main 2>&1 | Out-Null
+                if($LASTEXITCODE -ne 0){
+                    git merge --no-ff origin/master 2>&1 | Out-Null
+                }
+            }
         }
+        $script:lastPulledCommit = (git rev-parse '@' 2>$null) | Out-String
+        $script:lastPulledCommit = $script:lastPulledCommit.Trim()
         Invoke-Cleanup
         Start-Process powershell.exe -ArgumentList "-File `"$PSScriptRoot\maintain_bot.ps1`""
         Stop-Transcript
@@ -934,14 +984,26 @@ function Invoke-Update {
     # Use rebase to avoid merge conflicts when local commits exist
     git pull --rebase 2>&1 | Out-Null
     if($LASTEXITCODE -ne 0){
-        Write-ColorLog 'Rebase failed, trying merge...' 'Yellow' '[UPDATE] '
+        Write-ColorLog 'Rebase failed, trying merge with --no-ff...' 'Yellow' '[UPDATE] '
         git rebase --abort 2>&1 | Out-Null
         git pull --no-rebase 2>&1 | Out-Null
         if($LASTEXITCODE -ne 0){
-            Write-ColorLog 'Pull failed - manual intervention may be required' 'Red' '[UPDATE] '
-            Write-ColorLog 'Continuing with current code...' 'Yellow' '[UPDATE] '
+            Write-ColorLog 'Standard merge failed, trying explicit --no-ff merge...' 'Yellow' '[UPDATE] '
+            git merge --no-ff origin/main 2>&1 | Out-Null
+            if($LASTEXITCODE -ne 0){
+                git merge --no-ff origin/master 2>&1 | Out-Null
+                if($LASTEXITCODE -ne 0){
+                    Write-ColorLog 'All merge strategies failed - manual intervention may be required' 'Red' '[UPDATE] '
+                    Write-ColorLog 'Continuing with current code...' 'Yellow' '[UPDATE] '
+                }
+            }
         }
     }
+    
+    # Track the pulled commit to prevent update loops
+    $script:lastPulledCommit = (git rev-parse '@' 2>$null) | Out-String
+    $script:lastPulledCommit = $script:lastPulledCommit.Trim()
+    Write-ColorLog "Updated to commit: $($script:lastPulledCommit.Substring(0, [Math]::Min(8, $script:lastPulledCommit.Length)))" 'Green' '[UPDATE] '
     
     # Initialize/update database tables after pulling updates with retry logic
     Write-ColorLog 'Updating database tables and applying migrations...' 'Cyan' '[UPDATE] '

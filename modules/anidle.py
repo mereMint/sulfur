@@ -9,6 +9,7 @@ import random
 import aiohttp
 import asyncio
 import json
+import time
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Any
 from modules.logger_utils import bot_logger as logger
@@ -16,15 +17,91 @@ from modules.logger_utils import bot_logger as logger
 # Jikan API (MyAnimeList unofficial API) - free, no auth required
 JIKAN_API_BASE = "https://api.jikan.moe/v4"
 
+# Rate limiting for Jikan API (3 requests per second, but we use 1 per second for safety)
+_api_rate_limiter = asyncio.Lock()
+_last_api_call: float = 0.0
+API_RATE_LIMIT_SECONDS = 1.0  # Minimum seconds between API calls
+
+# Retry configuration
+MAX_API_RETRIES = 3
+RETRY_BACKOFF_BASE = 2.0  # Exponential backoff base in seconds
+
 # Cache for daily anime
 _daily_anime_cache: Dict[str, dict] = {}
 _last_cache_date: Optional[str] = None
+
+# Cache for anime lookups (to reduce API calls)
+_anime_cache: Dict[int, dict] = {}  # {mal_id: anime_data}
+_anime_cache_ttl: Dict[int, float] = {}  # {mal_id: timestamp}
+ANIME_CACHE_TTL = 3600  # Cache anime data for 1 hour
 
 # Active games per user
 active_anidle_games: Dict[int, 'AnidleGame'] = {}
 
 # Daily play tracking
 daily_plays: Dict[str, Dict[int, int]] = {}  # {date_str: {user_id: play_count}}
+
+
+async def _rate_limited_api_call(url: str, params: dict = None, timeout: int = 15) -> Optional[dict]:
+    """
+    Make a rate-limited API call to Jikan with retry logic.
+    
+    Args:
+        url: API endpoint URL
+        params: Query parameters
+        timeout: Request timeout in seconds
+    
+    Returns:
+        API response data or None on failure
+    """
+    global _last_api_call
+    
+    for attempt in range(MAX_API_RETRIES):
+        try:
+            async with _api_rate_limiter:
+                # Ensure minimum time between API calls
+                now = time.time()
+                time_since_last = now - _last_api_call
+                if time_since_last < API_RATE_LIMIT_SECONDS:
+                    await asyncio.sleep(API_RATE_LIMIT_SECONDS - time_since_last)
+                
+                _last_api_call = time.time()
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params, timeout=timeout) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        return data
+                    elif response.status == 429:
+                        # Rate limited - wait longer before retry
+                        retry_after = int(response.headers.get('Retry-After', 5))
+                        logger.warning(f"Jikan API rate limited, waiting {retry_after}s (attempt {attempt + 1}/{MAX_API_RETRIES})")
+                        await asyncio.sleep(retry_after)
+                        continue
+                    elif response.status >= 500:
+                        # Server error - retry with backoff
+                        wait_time = RETRY_BACKOFF_BASE ** attempt
+                        logger.warning(f"Jikan API server error {response.status}, retrying in {wait_time}s (attempt {attempt + 1}/{MAX_API_RETRIES})")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    else:
+                        logger.warning(f"Jikan API returned status {response.status} for {url}")
+                        return None
+                        
+        except asyncio.TimeoutError:
+            wait_time = RETRY_BACKOFF_BASE ** attempt
+            logger.warning(f"Jikan API timeout, retrying in {wait_time}s (attempt {attempt + 1}/{MAX_API_RETRIES})")
+            await asyncio.sleep(wait_time)
+        except aiohttp.ClientError as e:
+            wait_time = RETRY_BACKOFF_BASE ** attempt
+            logger.warning(f"Jikan API client error: {e}, retrying in {wait_time}s (attempt {attempt + 1}/{MAX_API_RETRIES})")
+            await asyncio.sleep(wait_time)
+        except Exception as e:
+            logger.error(f"Unexpected error calling Jikan API: {e}")
+            return None
+    
+    logger.error(f"Jikan API call failed after {MAX_API_RETRIES} attempts: {url}")
+    return None
 
 
 async def initialize_anidle_tables(db_helpers):
@@ -408,56 +485,58 @@ class AnidleGame:
 
 
 async def search_anime(query: str) -> Optional[List[dict]]:
-    """Search for anime by name using Jikan API."""
+    """Search for anime by name using Jikan API with rate limiting."""
     try:
-        async with aiohttp.ClientSession() as session:
-            url = f"{JIKAN_API_BASE}/anime"
-            params = {'q': query, 'limit': 5, 'sfw': 'true'}
-            async with session.get(url, params=params, timeout=10) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return data.get('data', [])
-                else:
-                    logger.warning(f"Jikan API returned status {response.status}")
-                    return None
+        url = f"{JIKAN_API_BASE}/anime"
+        params = {'q': query, 'limit': 5, 'sfw': 'true'}
+        data = await _rate_limited_api_call(url, params)
+        if data:
+            return data.get('data', [])
+        return None
     except Exception as e:
         logger.error(f"Error searching anime: {e}")
         return None
 
 
 async def get_anime_by_id(mal_id: int) -> Optional[dict]:
-    """Get full anime details by MAL ID."""
+    """Get full anime details by MAL ID with caching and rate limiting."""
     try:
-        async with aiohttp.ClientSession() as session:
-            url = f"{JIKAN_API_BASE}/anime/{mal_id}/full"
-            async with session.get(url, timeout=10) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return data.get('data')
-                else:
-                    logger.warning(f"Jikan API returned status {response.status} for anime {mal_id}")
-                    return None
+        # Check cache first
+        if mal_id in _anime_cache:
+            cache_time = _anime_cache_ttl.get(mal_id, 0)
+            if time.time() - cache_time < ANIME_CACHE_TTL:
+                logger.debug(f"Returning cached anime data for MAL ID {mal_id}")
+                return _anime_cache[mal_id]
+        
+        url = f"{JIKAN_API_BASE}/anime/{mal_id}/full"
+        data = await _rate_limited_api_call(url)
+        if data:
+            anime = data.get('data')
+            if anime:
+                # Cache the result
+                _anime_cache[mal_id] = anime
+                _anime_cache_ttl[mal_id] = time.time()
+            return anime
+        return None
     except Exception as e:
         logger.error(f"Error getting anime {mal_id}: {e}")
         return None
 
 
 async def get_random_anime() -> Optional[dict]:
-    """Get a random popular anime for the daily game."""
+    """Get a random popular anime for the daily game with rate limiting."""
     try:
-        async with aiohttp.ClientSession() as session:
-            # Get top anime to ensure we pick something recognizable
-            url = f"{JIKAN_API_BASE}/top/anime"
-            params = {'limit': 100, 'filter': 'bypopularity'}
-            async with session.get(url, params=params, timeout=10) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    anime_list = data.get('data', [])
-                    if anime_list:
-                        chosen = random.choice(anime_list)
-                        # Get full details
-                        return await get_anime_by_id(chosen['mal_id'])
-                return None
+        # Get top anime to ensure we pick something recognizable
+        url = f"{JIKAN_API_BASE}/top/anime"
+        params = {'limit': 100, 'filter': 'bypopularity'}
+        data = await _rate_limited_api_call(url, params)
+        if data:
+            anime_list = data.get('data', [])
+            if anime_list:
+                chosen = random.choice(anime_list)
+                # Get full details (also rate limited)
+                return await get_anime_by_id(chosen['mal_id'])
+        return None
     except Exception as e:
         logger.error(f"Error getting random anime: {e}")
         return None

@@ -734,9 +734,25 @@ def api_change_model():
         with open('config/config.json', 'w', encoding='utf-8') as f:
             json.dump(config, f, indent=2)
         
+        # Signal the bot to reload config by touching a flag file
+        reload_flag_path = 'config/reload_config.flag'
+        with open(reload_flag_path, 'w') as f:
+            f.write(f'{provider}/{model}')
+        
+        # Also try to update the api_helpers module directly if it has the config cached
+        try:
+            from modules import api_helpers
+            if hasattr(api_helpers, '_cached_config'):
+                api_helpers._cached_config = None  # Clear cached config
+            logger.info(f"Model changed to {provider}/{model} - config cache cleared")
+        except Exception as e:
+            logger.debug(f"Could not clear api_helpers cache: {e}")
+        
         return jsonify({
             'status': 'success',
-            'message': f'Model changed to {provider}/{model}. Restart bot to apply changes.'
+            'message': f'Model changed to {provider}/{model}. Changes will take effect on next API call.',
+            'provider': provider,
+            'model': model
         })
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
@@ -916,9 +932,14 @@ def api_toggle_feature(feature_key):
         status_text = 'enabled' if enabled else 'disabled'
         logger.info(f"Feature '{feature_key}' {status_text} via dashboard")
         
+        # Signal the bot to reload config by touching a flag file
+        reload_flag_path = 'config/reload_config.flag'
+        with open(reload_flag_path, 'w') as f:
+            f.write(f'feature:{feature_key}={enabled}')
+        
         return jsonify({
             'status': 'success',
-            'message': f'Feature {feature_key} {status_text} successfully.',
+            'message': f'Feature {feature_key} {status_text} successfully. Changes will take effect on next interaction or bot restart.',
             'feature': feature_key,
             'enabled': bool(enabled)
         })
@@ -4076,12 +4097,13 @@ def api_users_profiles():
                 })
             
             # Get user profiles with stats - use latest stats for each user
+            # Check for premium status from feature_unlocks table
             # Note: user_stats uses 'messages_sent' not 'message_count'
             users = safe_db_query(cursor, """
                 SELECT 
                     p.discord_id as user_id,
                     p.display_name,
-                    0 as is_premium,
+                    (SELECT COUNT(*) FROM feature_unlocks fu WHERE fu.user_id = p.discord_id AND fu.feature_name LIKE '%premium%') > 0 as is_premium,
                     COALESCE(p.level, 0) as level,
                     COALESCE(p.xp, 0) as xp,
                     COALESCE(p.balance, 0) as coins,

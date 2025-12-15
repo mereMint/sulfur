@@ -68,6 +68,13 @@ done
 CHECK_COUNTER=0
 CRASH_COUNT=0
 QUICK_CRASH_SECONDS=10
+
+# Update loop prevention
+LAST_PULLED_COMMIT=""
+UPDATE_LOOP_COUNT=0
+MAX_UPDATE_LOOP_COUNT=3  # Prevent more than 3 updates in quick succession
+UPDATE_LOOP_RESET_SECONDS=300  # Reset loop counter after 5 minutes
+LAST_UPDATE_TIME=0
 CRASH_THRESHOLD=5
 
 # Web dashboard restart tracking
@@ -729,6 +736,30 @@ check_for_updates() {
     REMOTE=$(git rev-parse @{u})
     
     if [ "$LOCAL" != "$REMOTE" ]; then
+        # Check for update loop prevention
+        local current_time
+        current_time=$(date +%s)
+        local time_since_update=$((current_time - LAST_UPDATE_TIME))
+        
+        # Reset loop counter if enough time has passed
+        if [ "$time_since_update" -gt "$UPDATE_LOOP_RESET_SECONDS" ]; then
+            UPDATE_LOOP_COUNT=0
+        fi
+        
+        # Check if we're in an update loop
+        if [ "$UPDATE_LOOP_COUNT" -ge "$MAX_UPDATE_LOOP_COUNT" ]; then
+            log_warning "Update loop detected! Skipping update to prevent infinite loop."
+            log_warning "Last $MAX_UPDATE_LOOP_COUNT updates happened within $UPDATE_LOOP_RESET_SECONDS seconds."
+            log_warning "Waiting for loop reset period to pass..."
+            return 1
+        fi
+        
+        # Check if we've already pulled this commit
+        if [ "$REMOTE" = "$LAST_PULLED_COMMIT" ]; then
+            log_warning "Already pulled commit $REMOTE, skipping to prevent loop"
+            return 1
+        fi
+        
         log_warning "Updates available!"
         return 0
     else
@@ -741,22 +772,36 @@ apply_updates() {
     
     update_status "Updating..."
     
+    # Track update loop prevention
+    UPDATE_LOOP_COUNT=$((UPDATE_LOOP_COUNT + 1))
+    LAST_UPDATE_TIME=$(date +%s)
+    
     # Commit any pending changes first
     git_commit "chore: Auto-commit before update"
     
     # Check if this script is being updated
     git fetch &>>"$MAIN_LOG"
-    CHANGED_FILES=$(git diff --name-only HEAD...origin/main)
+    CHANGED_FILES=$(git diff --name-only HEAD...origin/main 2>/dev/null || git diff --name-only HEAD...origin/master 2>/dev/null || echo "")
+    
+    # Track the commit we're about to pull
+    local REMOTE_COMMIT
+    REMOTE_COMMIT=$(git rev-parse @{u} 2>/dev/null)
     
     if echo "$CHANGED_FILES" | grep -q "maintain_bot.sh"; then
         log_update "Maintenance script will be updated - restarting..."
         
         # Use rebase to avoid merge conflicts when local commits exist
         if ! git pull --rebase >>"$MAIN_LOG" 2>&1; then
-            log_warning "Rebase failed, trying merge..."
-            git rebase --abort >>"$MAIN_LOG" 2>&1
-            git pull --no-rebase >>"$MAIN_LOG" 2>&1
+            log_warning "Rebase failed, trying merge with --no-ff..."
+            git rebase --abort >>"$MAIN_LOG" 2>&1 || true
+            if ! git pull --no-rebase >>"$MAIN_LOG" 2>&1; then
+                log_warning "Standard merge failed, trying --no-ff merge..."
+                git merge --no-ff origin/main >>"$MAIN_LOG" 2>&1 || git merge --no-ff origin/master >>"$MAIN_LOG" 2>&1 || true
+            fi
         fi
+        
+        # Track the pulled commit
+        LAST_PULLED_COMMIT="$REMOTE_COMMIT"
         
         # Restart this script
         exec "$0" "$@"
@@ -764,13 +809,22 @@ apply_updates() {
     
     # Normal update - use rebase to avoid merge conflicts when local commits exist
     if ! git pull --rebase >>"$MAIN_LOG" 2>&1; then
-        log_warning "Rebase failed, trying merge..."
-        git rebase --abort >>"$MAIN_LOG" 2>&1
+        log_warning "Rebase failed, trying merge with --no-ff..."
+        git rebase --abort >>"$MAIN_LOG" 2>&1 || true
         if ! git pull --no-rebase >>"$MAIN_LOG" 2>&1; then
-            log_error "Pull failed - manual intervention may be required"
-            log_warning "Continuing with current code..."
+            log_warning "Standard merge failed, trying explicit --no-ff merge..."
+            if ! git merge --no-ff origin/main >>"$MAIN_LOG" 2>&1; then
+                if ! git merge --no-ff origin/master >>"$MAIN_LOG" 2>&1; then
+                    log_error "All merge strategies failed - manual intervention may be required"
+                    log_warning "Continuing with current code..."
+                fi
+            fi
         fi
     fi
+    
+    # Track the pulled commit to prevent update loops
+    LAST_PULLED_COMMIT=$(git rev-parse @ 2>/dev/null)
+    log_update "Updated to commit: ${LAST_PULLED_COMMIT:0:8}"
     
     # Update Python dependencies after code update
     log_update "Updating Python dependencies..."

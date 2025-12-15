@@ -13909,7 +13909,7 @@ class SongleGuessModal(discord.ui.Modal, title="Guess the Song"):
 
 
 class SongleGameView(discord.ui.View):
-    """Interactive view for Songle game with Guess and Skip buttons."""
+    """Interactive view for Songle game with Guess, Listen, and Skip buttons."""
     
     def __init__(self, game):
         super().__init__(timeout=300)  # 5 minute timeout
@@ -13920,6 +13920,40 @@ class SongleGameView(discord.ui.View):
             await interaction.response.send_message("This is not your game!", ephemeral=True)
             return False
         return True
+    
+    @discord.ui.button(label="🎧 Listen", style=discord.ButtonStyle.success)
+    async def listen_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Play a clip of the song in voice channel."""
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            # Get clip duration based on current attempt
+            clip_duration = self.game.current_clip_duration
+            
+            # Try to play the clip
+            success, message = await songle.join_and_play_clip(
+                interaction,
+                self.game.target_song,
+                clip_duration
+            )
+            
+            if success:
+                await interaction.followup.send(
+                    f"🔊 {message} Listen carefully and guess the song!",
+                    ephemeral=True
+                )
+            else:
+                await interaction.followup.send(
+                    f"❌ {message}",
+                    ephemeral=True
+                )
+                
+        except Exception as e:
+            logger.error(f"Error in songle listen button: {e}", exc_info=True)
+            await interaction.followup.send(
+                "An error occurred while playing the clip. Make sure you're in a voice channel!",
+                ephemeral=True
+            )
     
     @discord.ui.button(label="Guess", style=discord.ButtonStyle.primary)
     async def guess_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -13954,6 +13988,11 @@ class SongleGameView(discord.ui.View):
         embed.add_field(
             name="Hints",
             value="Each wrong guess reveals more hints (year, genre, album, artist initial)",
+            inline=False
+        )
+        embed.add_field(
+            name="How to Listen",
+            value="Join a voice channel and click the **🎧 Listen** button to hear the clip!",
             inline=False
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
