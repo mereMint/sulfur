@@ -8934,13 +8934,16 @@ class HelpView(discord.ui.View):
                 ("mines", "Spiele Mines - vermeide die Bomben"),
                 ("tower", "Spiele Tower of Treasure - klettere den Turm hinauf"),
                 ("rr", "Spiele Russian Roulette - hohes Risiko, hohe Belohnung"),
+                ("horserace", "Starte ein Pferderennen mit anderen Spielern"),
                 ("detective", "Löse einen KI-generierten Mordfall"),
                 ("trolly", "Stelle dich einem moralischen Dilemma"),
+                ("wordle", "Spiele Wordle - errate das 5-Buchstaben Wort"),
                 ("wordfind", "Errate das tägliche Wort mit Nähehinweisen"),
             ],
             "💰 Economy": [
                 ("daily", "Hole deine tägliche Belohnung ab"),
                 ("shop", "Öffne den Shop - kaufe Farbrollen und mehr"),
+                ("send", "Sende Geld an einen anderen Benutzer"),
                 ("transactions", "Zeige deine letzten Transaktionen an"),
                 ("quests", "Zeige deine täglichen Quests und Fortschritt"),
                 ("stock", "Öffne den Aktienmarkt - kaufe und verkaufe Aktien"),
@@ -8950,6 +8953,19 @@ class HelpView(discord.ui.View):
                 ("leaderboard", "Zeige globale Leaderboards (Level, Money, Werwolf, Games)"),
                 ("summary", "Zeige Sulfurs Meinung über einen Benutzer"),
                 ("spotify", "Zeige deine Spotify-Statistiken"),
+                ("wrapped", "📊 Zeige deinen Wrapped-Status"),
+                ("listening", "📊 Zeige deine Musik-Hörstatistiken"),
+            ],
+            "🎵 Music & Media": [
+                ("music", "🎵 Spiele Musik oder Ambient-Sounds im Voice-Channel"),
+                ("musicadd", "➕ Füge einen Song zur Warteschlange hinzu"),
+                ("musicqueue", "📋 Zeige die aktuelle Musik-Warteschlange"),
+                ("podcast", "🎙️ Suche und höre Podcasts"),
+                ("audiobook", "📚 Suche und höre Hörbücher"),
+            ],
+            "⏱️ Productivity": [
+                ("focus", "Starte einen Focus-Timer (Pomodoro oder Custom)"),
+                ("focusstats", "Zeige deine Focus-Timer Statistiken"),
             ],
             "🎭 Werwolf": [
                 ("ww start", "Starte ein neues Werwolf-Spiel"),
@@ -8964,10 +8980,15 @@ class HelpView(discord.ui.View):
                 ("voice config permit", "Erlaube einem Benutzer Zugriff auf deinen Channel"),
                 ("voice config unpermit", "Entferne Zugriff für einen Benutzer"),
             ],
-            "⚙️ Other": [
+            "📰 News & Sports": [
                 ("news", "Zeige die neuesten Server-Nachrichten"),
+                ("sportnews", "📰 Sport News - Fußball, F1 & MotoGP"),
+                ("sportbets", "🏆 Sport Betting - wette auf Spiele"),
+            ],
+            "⚙️ Settings": [
                 ("privacy", "Verwalte deine Datenschutz-Einstellungen"),
-                ("wrapped", "📊 Zeige deinen Wrapped-Status und verwalte deine Registrierung"),
+                ("settings", "Verwalte deine Bot-Einstellungen"),
+                ("language", "Ändere deine Spielsprache"),
             ],
         }
         
@@ -8979,6 +9000,7 @@ class HelpView(discord.ui.View):
                 ("admin status", "Zeige den Bot-Status"),
                 ("admin dashboard", "Zeige das Admin-Dashboard"),
                 ("admin emojis", "Verwalte Server-Emojis"),
+                ("setjoinrole", "Setze eine automatische Rolle für neue Mitglieder"),
             ]
             self.categories["🤖 Admin AI"] = [
                 ("adminai mind", "Zeige den mentalen Zustand des Bots"),
@@ -18036,6 +18058,27 @@ async def on_message(message):
                 logger.debug(f"[CHATBOT] Recorded learning from interaction with {message.author.name}")
             except Exception as e:
                 logger.warning(f"[CHATBOT] Could not record learning: {e}")
+
+            # --- NEW: Track conversation topic and update bot thoughts ---
+            try:
+                # Extract simple topic from message (first few words or key phrases)
+                words = message.content.split()[:5]
+                topic = " ".join(words) if words else "general chat"
+                bot_mind.bot_mind.track_topic(topic)
+                bot_mind.bot_mind.update_server_activity(message.guild.id if message.guild else 0)
+                
+                # Periodically generate a thought based on the conversation
+                if bot_mind.bot_mind.increment_conversation():
+                    # Simple thought generation based on context
+                    if bot_mind.bot_mind.should_express_boredom():
+                        bot_mind.bot_mind.think(f"Schon wieder das gleiche Thema... langweilig.")
+                    elif bot_mind.bot_mind.should_express_interest(topic):
+                        bot_mind.bot_mind.think(f"Interessant, was {message.author.display_name} über {topic} sagt.")
+                        bot_mind.bot_mind.add_interest(topic)
+                    else:
+                        bot_mind.bot_mind.think(f"Gespräch mit {message.author.display_name} läuft.")
+            except Exception as e:
+                logger.debug(f"[CHATBOT] Could not track topic/thought: {e}")
 
             # --- NEW: Track AI usage (model + feature) ---
             try:
