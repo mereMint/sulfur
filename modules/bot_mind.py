@@ -46,6 +46,7 @@ class BotMind:
         self.energy_level = 1.0  # 0.0 to 1.0
         self.boredom_level = 0.0  # 0.0 to 1.0
         self.interests: List[str] = []
+        self._interests_lower: set = set()  # Case-insensitive lookup set for performance
         self.thoughts: List[str] = []
         self.recent_thoughts: List[Dict[str, Any]] = []  # Detailed thought history with timestamps
         self.recent_observations: List[Dict[str, Any]] = []  # Observation history for personality development
@@ -84,10 +85,13 @@ class BotMind:
     
     def add_interest(self, interest: str):
         """Add a new interest to the bot."""
-        if interest and interest.lower() not in [i.lower() for i in self.interests]:
+        if interest and interest.lower() not in self._interests_lower:
             self.interests.append(interest)
+            self._interests_lower.add(interest.lower())
             # Keep only last 15 interests
-            self.interests = self.interests[-15:]
+            if len(self.interests) > 15:
+                removed = self.interests.pop(0)
+                self._interests_lower.discard(removed.lower())
             logger.debug(f"Bot added new interest: {interest}")
     
     def track_topic(self, topic: str):
@@ -112,7 +116,7 @@ class BotMind:
         else:
             # New topic - slightly reduce boredom and possibly become curious
             self.boredom_level = max(0.0, self.boredom_level - 0.03)
-            if topic_lower not in [i.lower() for i in self.interests]:
+            if topic_lower not in self._interests_lower:
                 # Chance to become curious about new topic
                 if random.random() < self.personality_traits['curiosity']:
                     self.update_mood(Mood.CURIOUS, f"New topic: {topic}")
@@ -135,7 +139,7 @@ class BotMind:
     
     def should_express_interest(self, topic: str = None) -> bool:
         """Check if bot should express interest based on current state and topic."""
-        if topic and topic.lower() in [i.lower() for i in self.interests]:
+        if topic and topic.lower() in self._interests_lower:
             return True
         return self.current_mood == Mood.CURIOUS and random.random() < 0.5
     

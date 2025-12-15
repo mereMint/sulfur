@@ -1666,11 +1666,11 @@ async def get_album_info(album_name: str, artist: str = None) -> Optional[dict]:
                     f"{album_name} songs"
                 ]
             
-            # Search for up to 20 individual songs (increased from 15 for better album coverage)
+            # Search for up to 50 individual songs (increased to 40 track limit)
             ydl_options_flat = {**YDL_OPTIONS, 'extract_flat': True}
             
             with yt_dlp.YoutubeDL(ydl_options_flat) as ydl:
-                search_url = f"ytsearch20:{search_queries[0]}"
+                search_url = f"ytsearch50:{search_queries[0]}"
                 info = await asyncio.to_thread(ydl.extract_info, search_url, download=False)
                 
                 if info and 'entries' in info and info['entries']:
@@ -1745,8 +1745,8 @@ async def get_album_info(album_name: str, artist: str = None) -> Optional[dict]:
                             'url': f"https://www.youtube.com/watch?v={video_id}"
                         })
                         
-                        # Limit to 18 tracks for individual song searches (increased for better album coverage)
-                        if len(tracks) >= 18:
+                        # Limit to 40 tracks for individual song searches
+                        if len(tracks) >= 40:
                             break
                     
                     logger.info(f"Found {len(tracks)} individual song results for album: {album_name}")
