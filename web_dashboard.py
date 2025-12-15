@@ -1728,7 +1728,8 @@ def api_log_content_filtered(filename):
     """API endpoint to get filtered log content (errors and warnings only)."""
     try:
         # Validate filename to prevent directory traversal attacks
-        if not re.match(r'^[a-zA-Z0-9_.\-]+\.log$', filename):
+        # Only allow alphanumeric, underscore, hyphen followed by .log extension
+        if not re.match(r'^[a-zA-Z0-9_\-]+\.log$', filename):
             return jsonify({'status': 'error', 'message': 'Invalid filename'}), 400
         
         file_path = os.path.join(LOG_DIR, filename)

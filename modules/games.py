@@ -663,13 +663,13 @@ class SlotsGame:
     def _weighted_random_symbol(self):
         """Selects a random symbol based on weights."""
         total_weight = sum(s['weight'] for s in self.SYMBOLS)
-        r = random.randint(1, total_weight)
+        r = random.randint(0, total_weight - 1)
         cumulative = 0
         for symbol in self.SYMBOLS:
             cumulative += symbol['weight']
-            if r <= cumulative:
+            if r < cumulative:
                 return symbol
-        return self.SYMBOLS[0]  # Fallback
+        return self.SYMBOLS[-1]  # Fallback to last symbol
     
     def spin(self):
         """Spins the slot machine and determines outcome."""
