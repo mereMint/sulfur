@@ -235,6 +235,27 @@ async def initialize_wordle_table(db_helpers):
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
+            # Table for individual games (for dashboard tracking)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS wordle_games (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    word_id INT NOT NULL,
+                    word VARCHAR(5) NOT NULL,
+                    language VARCHAR(2) DEFAULT 'de',
+                    game_type ENUM('daily', 'premium') DEFAULT 'daily',
+                    attempts INT DEFAULT 0,
+                    won BOOLEAN DEFAULT FALSE,
+                    completed BOOLEAN DEFAULT FALSE,
+                    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP NULL,
+                    INDEX idx_user_id (user_id),
+                    INDEX idx_word_id (word_id),
+                    INDEX idx_completed (completed),
+                    INDEX idx_completed_at (completed_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """)
+            
             # Table for premium games (separate from daily)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS wordle_premium_games (
@@ -558,6 +579,36 @@ async def update_user_stats(db_helpers, user_id: int, won: bool, attempts: int):
             conn.close()
     except Exception as e:
         logger.error(f"Error updating Wordle stats: {e}", exc_info=True)
+
+
+async def record_wordle_game(db_helpers, user_id: int, word_id: int, word: str, language: str, 
+                              game_type: str, attempts: int, won: bool):
+    """Record a completed Wordle game to the wordle_games table for dashboard tracking."""
+    try:
+        if not db_helpers.db_pool:
+            logger.warning("Database pool not available for recording Wordle game")
+            return False
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return False
+        
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO wordle_games (user_id, word_id, word, language, game_type, attempts, won, completed, completed_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, TRUE, NOW())
+            """, (user_id, word_id, word, language, game_type, attempts, won))
+            
+            conn.commit()
+            logger.info(f"Recorded Wordle game for user {user_id}: {'won' if won else 'lost'} in {attempts} attempts")
+            return True
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error recording Wordle game: {e}", exc_info=True)
+        return False
 
 
 async def get_user_stats(db_helpers, user_id: int):

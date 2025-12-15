@@ -623,18 +623,21 @@
                 .then(response => response.json())
                 .then(data => {
                     let totalGames = 0;
-                    if (data.werwolf) totalGames += data.werwolf.total_games;
-                    if (data.detective) totalGames += data.detective.total_games;
-                    if (data.wordle) totalGames += data.wordle.total_games;
+                    if (data.werwolf && data.werwolf.total_games) totalGames += parseInt(data.werwolf.total_games) || 0;
+                    if (data.detective && data.detective.total_games) totalGames += parseInt(data.detective.total_games) || 0;
+                    if (data.wordle && data.wordle.total_games) totalGames += parseInt(data.wordle.total_games) || 0;
                     if (data.casino) {
-                        totalGames += data.casino.blackjack_games;
-                        totalGames += data.casino.roulette_games;
-                        totalGames += data.casino.mines_games;
+                        totalGames += parseInt(data.casino.blackjack_games) || 0;
+                        totalGames += parseInt(data.casino.roulette_games) || 0;
+                        totalGames += parseInt(data.casino.mines_games) || 0;
                     }
                     document.getElementById('quick-games').textContent = 
                         totalGames.toLocaleString();
                 })
-                .catch(error => console.error('Error loading games stats:', error));
+                .catch(error => {
+                    console.error('Error loading games stats:', error);
+                    document.getElementById('quick-games').textContent = '0';
+                });
         }
 
         // Load current config

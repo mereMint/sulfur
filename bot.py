@@ -15679,6 +15679,10 @@ class WordleGuessModal(discord.ui.Modal, title="Rate das Wort"):
             # Update stats
             await wordle.update_user_stats(db_helpers, self.user_id, True, attempt_num)
             
+            # Record game for dashboard tracking
+            word_language = self.word_data.get('language', 'de')
+            await wordle.record_wordle_game(db_helpers, self.user_id, word_id, correct_word, word_language, self.game_type, attempt_num, True)
+            
             # Update quest progress for daily games only
             if self.game_type == 'daily':
                 await quests.update_quest_progress(db_helpers, self.user_id, 'daily_wordle', 1, config)
@@ -15721,6 +15725,10 @@ class WordleGuessModal(discord.ui.Modal, title="Rate das Wort"):
                 
                 # Update stats (loss)
                 await wordle.update_user_stats(db_helpers, self.user_id, False, attempt_num)
+                
+                # Record game for dashboard tracking
+                word_language = self.word_data.get('language', 'de')
+                await wordle.record_wordle_game(db_helpers, self.user_id, word_id, correct_word, word_language, self.game_type, attempt_num, False)
                 
                 # Mark premium game as completed if applicable
                 if self.game_type == 'premium':

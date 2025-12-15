@@ -1195,6 +1195,23 @@ def api_recent_activity():
                 """, params=(limit,), default=[], fetch_all=True)
                 activities.extend(blackjack_activity or [])
             
+            # Get recent casino games - Roulette
+            if activity_type in ['all', 'games']:
+                roulette_activity = safe_db_query(cursor, """
+                    SELECT 
+                        'game_roulette' as activity_type,
+                        user_id,
+                        NULL as channel_id,
+                        CONCAT('Bet: ', bet_amount, ' on ', bet_type, ' | ', IF(won, CONCAT('Won ', payout), 'Lost')) as preview,
+                        played_at as activity_time,
+                        'Roulette' as category
+                    FROM roulette_games
+                    WHERE played_at IS NOT NULL
+                    ORDER BY played_at DESC
+                    LIMIT %s
+                """, params=(limit,), default=[], fetch_all=True)
+                activities.extend(roulette_activity or [])
+            
             # Get recent user level ups and XP gains from players table (not user_stats)
             # Note: This query filters by level >= 5 to reduce load on large datasets
             # Consider adding index on (level, updated_at) for better performance
