@@ -1,0 +1,216 @@
+{% extends "layout.html" %}
+{% block title %}Voice Calls - Sulfur Bot{% endblock %}
+
+{% block extra_styles %}
+<style>
+    .voice-card {
+        background: linear-gradient(135deg, rgba(67, 206, 162, 0.2) 0%, rgba(24, 90, 157, 0.2) 100%);
+        border: 2px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1.5rem;
+        transition: all 0.3s ease;
+    }
+    
+    .voice-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 12px 40px rgba(67, 206, 162, 0.3);
+    }
+    
+    .voice-card.active {
+        border-color: var(--success);
+        animation: pulse-border 2s ease-in-out infinite;
+    }
+    
+    @keyframes pulse-border {
+        0%, 100% {
+            box-shadow: 0 8px 32px rgba(67, 206, 162, 0.3);
+        }
+        50% {
+            box-shadow: 0 12px 48px rgba(67, 206, 162, 0.5);
+        }
+    }
+    
+    .metric-value {
+        font-size: 2rem;
+        font-weight: bold;
+    }
+    
+    .call-item {
+        background: rgba(26, 26, 46, 0.7);
+        border-left: 3px solid var(--info);
+        padding: 0.75rem;
+        margin-bottom: 0.5rem;
+        border-radius: 8px;
+        transition: all 0.3s ease;
+    }
+    
+    .call-item:hover {
+        background: rgba(26, 26, 46, 0.9);
+        border-left-color: var(--success);
+        transform: translateX(8px);
+    }
+    
+    .no-calls-message {
+        text-align: center;
+        padding: 3rem;
+        color: var(--text-muted);
+    }
+    
+    .no-calls-message i {
+        font-size: 4rem;
+        margin-bottom: 1rem;
+        opacity: 0.5;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4 fade-in">
+    <div class="col-12">
+        <h2 class="gradient-text mb-4">
+            <i class="bi bi-telephone"></i> Voice Calls Dashboard
+        </h2>
+    </div>
+</div>
+
+<!-- Stats Overview -->
+<div class="row mb-4 fade-in">
+    <div class="col-md-3 mb-3">
+        <div class="voice-card">
+            <h5><i class="bi bi-telephone-fill"></i> Active Calls</h5>
+            <h3 class="metric-value" id="active-calls">0</h3>
+            <small class="text-muted">currently in progress</small>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="voice-card">
+            <h5><i class="bi bi-clock-history"></i> Total Duration</h5>
+            <h3 class="metric-value" id="total-duration">0h</h3>
+            <small class="text-muted">all time</small>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="voice-card">
+            <h5><i class="bi bi-chat-dots"></i> Total Messages</h5>
+            <h3 class="metric-value" id="total-messages">0</h3>
+            <small class="text-muted">voice interactions</small>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="voice-card">
+            <h5><i class="bi bi-people"></i> Unique Users</h5>
+            <h3 class="metric-value" id="unique-users">0</h3>
+            <small class="text-muted">have used voice</small>
+        </div>
+    </div>
+</div>
+
+<!-- Active Calls -->
+<div class="row mb-4 fade-in">
+    <div class="col-12">
+        <div class="voice-card">
+            <h4><i class="bi bi-broadcast"></i> Active Voice Calls</h4>
+            <div id="active-calls-container" class="mt-3">
+                <div class="no-calls-message">
+                    <i class="bi bi-telephone-x"></i>
+                    <p>No active voice calls</p>
+                    <small>Voice calls will appear here when users start them</small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Feature Notice -->
+<div class="row mb-4 fade-in">
+    <div class="col-12">
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i>
+            <strong>Note:</strong> Voice call features require the voice_conversation module to be enabled and configured.
+            If you don't see any data, ensure PyNaCl is installed and the voice features are properly set up.
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    async function loadVoiceStats() {
+        try {
+            const response = await fetch('/api/voice_calls/stats');
+            if (!response.ok) {
+                throw new Error('Failed to fetch voice stats');
+            }
+            const data = await response.json();
+            
+            if (data.status === 'error') {
+                // Module not available or error
+                document.getElementById('active-calls').textContent = 'N/A';
+                document.getElementById('total-duration').textContent = 'N/A';
+                document.getElementById('total-messages').textContent = 'N/A';
+                document.getElementById('unique-users').textContent = 'N/A';
+                return;
+            }
+            
+            // Update stats
+            document.getElementById('active-calls').textContent = data.active_calls || 0;
+            
+            // Update total stats if available
+            if (data.total_stats) {
+                const hours = Math.floor((data.total_stats.total_duration_seconds || 0) / 3600);
+                document.getElementById('total-duration').textContent = hours + 'h';
+                document.getElementById('total-messages').textContent = data.total_stats.total_messages || 0;
+                document.getElementById('unique-users').textContent = data.total_stats.unique_users || 0;
+            }
+            
+            // Update active calls list
+            const container = document.getElementById('active-calls-container');
+            if (data.active_call_details && data.active_call_details.length > 0) {
+                container.innerHTML = data.active_call_details.map(call => `
+                    <div class="call-item">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong><i class="bi bi-person-circle"></i> ${escapeHtml(call.user_name)}</strong>
+                                <span class="text-muted ms-2">in #${escapeHtml(call.channel_name)}</span>
+                            </div>
+                            <div>
+                                <span class="badge bg-success"><i class="bi bi-clock"></i> ${formatDuration(call.duration)}</span>
+                                <span class="badge bg-info ms-2"><i class="bi bi-chat"></i> ${call.messages} msgs</span>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            } else {
+                container.innerHTML = `
+                    <div class="no-calls-message">
+                        <i class="bi bi-telephone-x"></i>
+                        <p>No active voice calls</p>
+                        <small>Voice calls will appear here when users start them</small>
+                    </div>
+                `;
+            }
+            
+        } catch (error) {
+            console.error('Error loading voice stats:', error);
+            document.getElementById('active-calls').textContent = 'Error';
+        }
+    }
+    
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text || '';
+        return div.innerHTML;
+    }
+    
+    function formatDuration(seconds) {
+        if (!seconds) return '0:00';
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+    
+    // Load data on page load and refresh every 10 seconds
+    loadVoiceStats();
+    setInterval(loadVoiceStats, 10000);
+</script>
+{% endblock %}

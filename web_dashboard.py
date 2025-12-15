@@ -3709,6 +3709,21 @@ def api_voice_call_stats():
         
         voice_stats = run_async(get_voice_stats())
         return jsonify(voice_stats)
+    
+    except ImportError:
+        # voice_conversation module not available - return empty stats gracefully
+        logger.info("Voice conversation module not available - returning empty stats")
+        return jsonify({
+            'active_calls': 0,
+            'active_call_details': [],
+            'total_stats': {
+                'total_duration_seconds': 0,
+                'total_messages': 0,
+                'unique_users': 0
+            },
+            'status': 'unavailable',
+            'message': 'Voice conversation module is not installed or configured'
+        })
         
     except Exception as e:
         logger.error(f"Error getting voice call stats: {e}")
