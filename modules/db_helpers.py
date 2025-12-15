@@ -1308,8 +1308,15 @@ def apply_pending_migrations(migrations_dir="scripts/db_migrations"):
 # --- NEW: API Usage Tracking Functions ---
 
 @db_operation("log_api_usage")
-async def log_api_usage(model_name, input_tokens, output_tokens):
-    """Logs the usage of an AI model, including token counts."""
+async def log_api_usage(model_name, input_tokens, output_tokens, feature="chat"):
+    """Logs the usage of an AI model, including token counts.
+    
+    Args:
+        model_name: Name of the AI model (e.g., 'gemini-2.0-flash-exp', 'gpt-4o')
+        input_tokens: Number of input tokens used
+        output_tokens: Number of output tokens generated
+        feature: Feature that made the API call (e.g., 'chat', 'werwolf', 'wrapped')
+    """
     if not db_pool:
         logger.warning("Database pool not available, skipping API usage logging")
         return
@@ -1321,6 +1328,7 @@ async def log_api_usage(model_name, input_tokens, output_tokens):
         return
     cursor = cnx.cursor()
     try:
+        # Log to api_usage table (legacy/summary)
         query = """
             INSERT INTO api_usage (usage_date, model_name, call_count, input_tokens, output_tokens)
             VALUES (CURDATE(), %s, 1, %s, %s)
@@ -1330,8 +1338,30 @@ async def log_api_usage(model_name, input_tokens, output_tokens):
                 output_tokens = output_tokens + VALUES(output_tokens);
         """
         cursor.execute(query, (model_name, input_tokens, output_tokens))
+        
+        # Also log to ai_model_usage table (detailed tracking for dashboard)
+        # Calculate approximate cost
+        cost = 0.0
+        if "gemini" in model_name.lower():
+            cost = ((input_tokens + output_tokens) / 1000) * 0.001
+        elif "gpt-4" in model_name.lower():
+            cost = (input_tokens / 1000) * 0.03 + (output_tokens / 1000) * 0.06
+        elif "gpt-3.5" in model_name.lower():
+            cost = ((input_tokens + output_tokens) / 1000) * 0.001
+        
+        query2 = """
+            INSERT INTO ai_model_usage (model_name, feature, call_count, input_tokens, output_tokens, total_cost, usage_date)
+            VALUES (%s, %s, 1, %s, %s, %s, CURDATE())
+            ON DUPLICATE KEY UPDATE
+                call_count = call_count + 1,
+                input_tokens = input_tokens + VALUES(input_tokens),
+                output_tokens = output_tokens + VALUES(output_tokens),
+                total_cost = total_cost + VALUES(total_cost)
+        """
+        cursor.execute(query2, (model_name, feature, input_tokens, output_tokens, cost))
+        
         cnx.commit()
-        logger.debug(f"Logged API usage: {model_name} - IN:{input_tokens} OUT:{output_tokens}")
+        logger.debug(f"Logged API usage: {model_name}/{feature} - IN:{input_tokens} OUT:{output_tokens}")
     finally:
         cursor.close()
         cnx.close()
