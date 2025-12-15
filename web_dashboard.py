@@ -4097,21 +4097,27 @@ def api_users_profiles():
                 })
             
             # Get user profiles with stats - use latest stats for each user
-            # Check for premium status from feature_unlocks table
+            # Check for premium status from feature_unlocks table using LEFT JOIN for better performance
             # Note: user_stats uses 'messages_sent' not 'message_count'
             users = safe_db_query(cursor, """
                 SELECT 
                     p.discord_id as user_id,
                     p.display_name,
-                    (SELECT COUNT(*) FROM feature_unlocks fu WHERE fu.user_id = p.discord_id AND fu.feature_name LIKE '%premium%') > 0 as is_premium,
+                    CASE WHEN COUNT(fu.id) > 0 THEN 1 ELSE 0 END as is_premium,
                     COALESCE(p.level, 0) as level,
                     COALESCE(p.xp, 0) as xp,
                     COALESCE(p.balance, 0) as coins,
                     COALESCE(MAX(us.messages_sent), 0) as message_count,
-                    (SELECT COUNT(*) FROM music_history mh WHERE mh.user_id = p.discord_id) as songs_played
+                    COALESCE(mh_count.song_count, 0) as songs_played
                 FROM players p
                 LEFT JOIN user_stats us ON p.discord_id = us.user_id
-                GROUP BY p.discord_id, p.display_name, p.level, p.xp, p.balance
+                LEFT JOIN feature_unlocks fu ON p.discord_id = fu.user_id AND fu.feature_name LIKE '%premium%'
+                LEFT JOIN (
+                    SELECT user_id, COUNT(*) as song_count
+                    FROM music_history
+                    GROUP BY user_id
+                ) mh_count ON p.discord_id = mh_count.user_id
+                GROUP BY p.discord_id, p.display_name, p.level, p.xp, p.balance, mh_count.song_count
                 ORDER BY 
                     level DESC, 
                     xp DESC,

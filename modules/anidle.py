@@ -4,14 +4,19 @@ An anime guessing game similar to Wordle.
 Players guess an anime and receive feedback on how their guess compares to the target.
 """
 
-import discord
-import random
-import aiohttp
+# Standard library imports
 import asyncio
 import json
+import random
 import time
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Any
+
+# Third-party imports
+import aiohttp
+import discord
+
+# Local imports
 from modules.logger_utils import bot_logger as logger
 
 # Jikan API (MyAnimeList unofficial API) - free, no auth required

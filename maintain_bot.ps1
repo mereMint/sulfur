@@ -1003,7 +1003,12 @@ function Invoke-Update {
     # Track the pulled commit to prevent update loops
     $script:lastPulledCommit = (git rev-parse '@' 2>$null) | Out-String
     $script:lastPulledCommit = $script:lastPulledCommit.Trim()
-    Write-ColorLog "Updated to commit: $($script:lastPulledCommit.Substring(0, [Math]::Min(8, $script:lastPulledCommit.Length)))" 'Green' '[UPDATE] '
+    if($script:lastPulledCommit -and $script:lastPulledCommit.Length -gt 0){
+        $shortCommit = $script:lastPulledCommit.Substring(0, [Math]::Min(8, $script:lastPulledCommit.Length))
+        Write-ColorLog "Updated to commit: $shortCommit" 'Green' '[UPDATE] '
+    } else {
+        Write-ColorLog "Updated to latest commit" 'Green' '[UPDATE] '
+    }
     
     # Initialize/update database tables after pulling updates with retry logic
     Write-ColorLog 'Updating database tables and applying migrations...' 'Cyan' '[UPDATE] '

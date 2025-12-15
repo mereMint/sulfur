@@ -3,12 +3,24 @@ Sulfur Bot - Songle (Guess the Song) Game Module
 A daily song guessing game where players listen to audio clips and guess the song.
 """
 
-import discord
-import random
+# Standard library imports
 import asyncio
 import json
+import random
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Any
+
+# Third-party imports
+import discord
+
+# Optional: yt_dlp for audio playback
+try:
+    import yt_dlp
+    YT_DLP_AVAILABLE = True
+except ImportError:
+    YT_DLP_AVAILABLE = False
+
+# Local imports
 from modules.logger_utils import bot_logger as logger
 
 # Active games per user
@@ -610,6 +622,11 @@ async def play_song_clip(
     try:
         from modules import lofi_player
         
+        # Check for required dependency
+        if not YT_DLP_AVAILABLE:
+            logger.error("yt-dlp not installed - cannot play Songle clips")
+            return False
+        
         if not voice_client or not voice_client.is_connected():
             logger.warning("Voice client not connected for Songle clip")
             return False
@@ -634,8 +651,6 @@ async def play_song_clip(
             await asyncio.sleep(0.2)
         
         # Play the song clip (will be stopped after duration_seconds)
-        import yt_dlp
-        
         with yt_dlp.YoutubeDL(lofi_player.YDL_OPTIONS) as ydl:
             info = await asyncio.to_thread(ydl.extract_info, url, download=False)
             audio_url = lofi_player.extract_audio_url(info)
@@ -659,9 +674,6 @@ async def play_song_clip(
         logger.info(f"Played {duration_seconds}s clip of: {song.get('title')}")
         return True
         
-    except ImportError as e:
-        logger.error(f"yt-dlp not installed for Songle clips: {e}")
-        return False
     except Exception as e:
         logger.error(f"Error playing Songle clip: {e}", exc_info=True)
         return False

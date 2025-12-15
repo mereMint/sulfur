@@ -2584,16 +2584,31 @@ async def check_config_reload_task():
                 # Remove the flag file
                 os.remove(reload_flag_path)
                 
-                # Reload the config
-                new_config = load_config()
-                config = new_config
-                
-                logger.info(f"Config hot-reloaded via web dashboard: {change_info}")
-                print(f"[Config Reload] Applied changes: {change_info}")
-                
-                # Restart presence task to apply new settings immediately
-                if update_presence_task.is_running():
-                    update_presence_task.restart()
+                # Validate and reload the config
+                try:
+                    new_config = load_config()
+                    
+                    # Basic validation - ensure critical sections exist
+                    if not new_config:
+                        raise ValueError("Config loaded as empty")
+                    if 'api' not in new_config:
+                        raise ValueError("Missing 'api' section in config")
+                    if 'bot' not in new_config:
+                        raise ValueError("Missing 'bot' section in config")
+                    
+                    # Config is valid, apply it
+                    config = new_config
+                    
+                    logger.info(f"Config hot-reloaded via web dashboard: {change_info}")
+                    print(f"[Config Reload] Applied changes: {change_info}")
+                    
+                    # Restart presence task to apply new settings immediately
+                    if update_presence_task.is_running():
+                        update_presence_task.restart()
+                        
+                except ValueError as ve:
+                    logger.error(f"Config validation failed: {ve} - keeping old config")
+                    print(f"[Config Reload] FAILED - Invalid config: {ve}")
                     
             except Exception as e:
                 logger.error(f"Error during config hot-reload: {e}")
