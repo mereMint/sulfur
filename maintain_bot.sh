@@ -824,7 +824,11 @@ apply_updates() {
     
     # Track the pulled commit to prevent update loops
     LAST_PULLED_COMMIT=$(git rev-parse @ 2>/dev/null)
-    log_update "Updated to commit: ${LAST_PULLED_COMMIT:0:8}"
+    if [ -n "$LAST_PULLED_COMMIT" ]; then
+        log_update "Updated to commit: ${LAST_PULLED_COMMIT:0:8}"
+    else
+        log_update "Updated to latest commit"
+    fi
     
     # Update Python dependencies after code update
     log_update "Updating Python dependencies..."

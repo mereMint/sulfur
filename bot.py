@@ -2604,8 +2604,8 @@ async def check_config_reload_task():
                     new_config = load_config()
                     
                     # Basic validation - ensure critical sections exist
-                    if not new_config:
-                        raise ValueError("Config loaded as empty")
+                    if new_config is None:
+                        raise ValueError("Config loaded as None")
                     if 'api' not in new_config:
                         raise ValueError("Missing 'api' section in config")
                     if 'bot' not in new_config:

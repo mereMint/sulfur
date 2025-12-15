@@ -624,7 +624,7 @@ async def play_song_clip(
         
         # Check for required dependency
         if not YT_DLP_AVAILABLE:
-            logger.error("yt-dlp not installed - cannot play Songle clips")
+            logger.error("yt-dlp not installed - run `pip install yt-dlp` to enable audio clips")
             return False
         
         if not voice_client or not voice_client.is_connected():

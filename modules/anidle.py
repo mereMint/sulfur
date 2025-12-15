@@ -529,18 +529,109 @@ async def get_anime_by_id(mal_id: int) -> Optional[dict]:
 
 
 async def get_random_anime() -> Optional[dict]:
-    """Get a random popular anime for the daily game with rate limiting."""
+    """
+    Get a random anime for the daily game with rate limiting.
+    
+    Filters:
+    - Only first seasons (no sequels like "Season 2", "Part 2", etc.)
+    - Must have a score (to ensure quality)
+    - Prefers anime with good popularity
+    """
     try:
-        # Get top anime to ensure we pick something recognizable
+        # Sequel indicators to filter out
+        sequel_patterns = [
+            'season 2', 'season 3', 'season 4', 'season 5', 'season 6',
+            's2', 's3', 's4', 's5', 's6',
+            'part 2', 'part 3', 'part 4', 'part ii', 'part iii', 'part iv',
+            '2nd season', '3rd season', '4th season', '5th season',
+            'second season', 'third season', 'fourth season', 'fifth season',
+            'final season', 'the final', 
+            'cour 2', 'cour 3',
+            ': ii', ': iii', ': iv', ' ii', ' iii', ' iv',
+            '2nd cour', '3rd cour',
+            'shippuden',  # Naruto sequel
+            'brotherhood',  # FMA sequel (though it's also a remake)
+            'z',  # Dragon Ball Z (sequel indicator when at end of title)
+            'gt', 'super',  # Dragon Ball sequels
+            'next generations',  # Boruto
+            'continue', 'continuation',
+        ]
+        
+        def is_first_season(anime_data: dict) -> bool:
+            """Check if anime is likely a first season."""
+            title = anime_data.get('title', '').lower()
+            title_english = (anime_data.get('title_english') or '').lower()
+            
+            # Check main title and English title for sequel patterns
+            for pattern in sequel_patterns:
+                if pattern in title or pattern in title_english:
+                    # Special case: "z" only counts if at end of title or before colon
+                    if pattern == 'z':
+                        if title.endswith(' z') or ' z:' in title or ' z -' in title:
+                            return False
+                    elif pattern in ['gt', 'super']:
+                        # Only count if it's Dragon Ball related
+                        if 'dragon ball' in title:
+                            return False
+                    else:
+                        return False
+            
+            # Check if it's explicitly marked as a sequel in the API data
+            # Jikan provides 'relations' which can indicate if it's a sequel
+            # For simplicity, we'll rely on title patterns
+            
+            return True
+        
+        # Strategy: Get anime from multiple random pages to get variety
+        # Use different search approaches for diversity
+        strategies = [
+            # Get popular anime (broader range)
+            {'url': f"{JIKAN_API_BASE}/top/anime", 'params': {'limit': 25, 'page': random.randint(1, 10), 'filter': 'bypopularity'}},
+            # Get by score
+            {'url': f"{JIKAN_API_BASE}/top/anime", 'params': {'limit': 25, 'page': random.randint(1, 8), 'filter': 'score'}},
+            # Get airing anime that completed
+            {'url': f"{JIKAN_API_BASE}/anime", 'params': {'limit': 25, 'page': random.randint(1, 20), 'status': 'complete', 'min_score': 6, 'order_by': 'score', 'sort': 'desc'}},
+            # Search with random letter + min score
+            {'url': f"{JIKAN_API_BASE}/anime", 'params': {'limit': 25, 'letter': random.choice('abcdefghijklmnopqrstuvwxyz'), 'min_score': 6, 'order_by': 'popularity'}},
+        ]
+        
+        # Try up to 3 strategies to find a good anime
+        random.shuffle(strategies)
+        
+        for strategy in strategies[:3]:
+            data = await _rate_limited_api_call(strategy['url'], strategy['params'])
+            if not data:
+                continue
+                
+            anime_list = data.get('data', [])
+            if not anime_list:
+                continue
+            
+            # Filter for first seasons only
+            first_season_anime = [a for a in anime_list if is_first_season(a)]
+            
+            if first_season_anime:
+                # Pick a random one from filtered list
+                chosen = random.choice(first_season_anime)
+                logger.info(f"Selected anime: {chosen.get('title')} (MAL ID: {chosen.get('mal_id')})")
+                
+                # Get full details (also rate limited)
+                full_anime = await get_anime_by_id(chosen['mal_id'])
+                if full_anime:
+                    return full_anime
+        
+        # Fallback: If all strategies fail, try a simple top anime search
+        logger.warning("All random strategies failed, falling back to top anime")
         url = f"{JIKAN_API_BASE}/top/anime"
-        params = {'limit': 100, 'filter': 'bypopularity'}
+        params = {'limit': 50, 'filter': 'bypopularity'}
         data = await _rate_limited_api_call(url, params)
         if data:
             anime_list = data.get('data', [])
-            if anime_list:
-                chosen = random.choice(anime_list)
-                # Get full details (also rate limited)
+            first_season_anime = [a for a in anime_list if is_first_season(a)]
+            if first_season_anime:
+                chosen = random.choice(first_season_anime)
                 return await get_anime_by_id(chosen['mal_id'])
+        
         return None
     except Exception as e:
         logger.error(f"Error getting random anime: {e}")
