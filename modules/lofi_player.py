@@ -3006,3 +3006,244 @@ async def update_persistent_now_playing(guild_id: int, channel, bot_user):
     except Exception as e:
         logger.error(f"Error updating persistent now playing: {e}", exc_info=True)
         return None
+
+
+# --- Podcast Support ---
+# Podcast stations and search functionality
+
+# Popular podcast categories/channels
+PODCAST_STATIONS = {
+    "tech": [
+        {
+            "name": "🎙️ Tech News",
+            "url": "ytsearch:tech news podcast episode",
+            "type": "podcast",
+            "description": "Latest technology news and updates"
+        },
+        {
+            "name": "💻 Programming Podcasts",
+            "url": "ytsearch:programming podcast developer",
+            "type": "podcast",
+            "description": "Coding and software development discussions"
+        }
+    ],
+    "gaming": [
+        {
+            "name": "🎮 Gaming Podcasts",
+            "url": "ytsearch:gaming podcast video games",
+            "type": "podcast",
+            "description": "Video game discussions and reviews"
+        }
+    ],
+    "science": [
+        {
+            "name": "🔬 Science Podcasts",
+            "url": "ytsearch:science podcast educational",
+            "type": "podcast",
+            "description": "Scientific discoveries and explanations"
+        }
+    ],
+    "comedy": [
+        {
+            "name": "😂 Comedy Podcasts",
+            "url": "ytsearch:comedy podcast funny",
+            "type": "podcast",
+            "description": "Comedy and entertainment"
+        }
+    ],
+    "news": [
+        {
+            "name": "📰 News Podcasts",
+            "url": "ytsearch:daily news podcast",
+            "type": "podcast",
+            "description": "Daily news updates"
+        }
+    ],
+    "education": [
+        {
+            "name": "📚 Educational Podcasts",
+            "url": "ytsearch:educational podcast learning",
+            "type": "podcast",
+            "description": "Learning and self-improvement"
+        }
+    ]
+}
+
+
+def get_podcast_categories() -> List[str]:
+    """Get list of available podcast categories."""
+    return list(PODCAST_STATIONS.keys())
+
+
+def get_podcasts_by_category(category: str) -> List[dict]:
+    """Get podcasts in a specific category."""
+    return PODCAST_STATIONS.get(category.lower(), [])
+
+
+def get_all_podcast_stations() -> List[dict]:
+    """Get a flattened list of all available podcast stations."""
+    podcasts = []
+    for category, podcast_list in PODCAST_STATIONS.items():
+        podcasts.extend(podcast_list)
+    return podcasts
+
+
+async def search_podcast(query: str, count: int = 5) -> List[dict]:
+    """
+    Search for podcasts on YouTube.
+    
+    Args:
+        query: Search query for podcast
+        count: Number of results to return
+    
+    Returns:
+        List of podcast dictionaries with title, url, channel, duration
+    """
+    try:
+        import yt_dlp
+        
+        # Add podcast keywords to improve results
+        search_query = f"{query} podcast episode full"
+        search_url = f"ytsearch{count}:{search_query}"
+        
+        podcasts = []
+        
+        with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
+            info = await asyncio.to_thread(ydl.extract_info, search_url, download=False)
+            
+            if info and 'entries' in info and info['entries']:
+                for entry in info['entries']:
+                    if not entry:
+                        continue
+                    
+                    video_id = entry.get('id')
+                    title = entry.get('title', 'Unknown')
+                    channel = entry.get('channel', entry.get('uploader', 'Unknown'))
+                    duration = entry.get('duration', 0)
+                    thumbnail = entry.get('thumbnail', '')
+                    
+                    if not video_id:
+                        continue
+                    
+                    # Prefer longer videos for podcasts (at least 10 minutes)
+                    if duration and duration < 600:
+                        continue
+                    
+                    podcasts.append({
+                        'title': title,
+                        'artist': channel,
+                        'url': f"https://www.youtube.com/watch?v={video_id}",
+                        'duration': duration,
+                        'thumbnail': thumbnail,
+                        'type': 'podcast'
+                    })
+        
+        logger.info(f"Found {len(podcasts)} podcasts for query: {query}")
+        return podcasts
+        
+    except Exception as e:
+        logger.error(f"Error searching for podcast: {e}")
+        return []
+
+
+async def play_podcast(
+    voice_client: discord.VoiceClient,
+    podcast: dict,
+    guild_id: int,
+    volume: float = 1.0,
+    user_id: int = None
+) -> bool:
+    """
+    Play a podcast in a voice channel.
+    
+    Args:
+        voice_client: Connected Discord voice client
+        podcast: Podcast dictionary with 'url' or 'title'
+        guild_id: Guild ID for session tracking
+        volume: Volume level (0.0-1.0)
+        user_id: Optional Discord user ID for history tracking
+    
+    Returns:
+        True if playback started successfully, False otherwise
+    """
+    try:
+        # Mark as podcast for display purposes
+        podcast['type'] = 'podcast'
+        podcast['source'] = 'podcast'
+        
+        # Use the regular play_song_with_queue for actual playback
+        success = await play_song_with_queue(voice_client, podcast, guild_id, volume, user_id)
+        
+        if success:
+            logger.info(f"Started podcast playback: {podcast.get('title', 'Unknown')}")
+        
+        return success
+        
+    except Exception as e:
+        logger.error(f"Error playing podcast: {e}", exc_info=True)
+        return False
+
+
+async def add_podcast_to_queue(guild_id: int, podcast: dict) -> int:
+    """
+    Add a podcast to the queue.
+    
+    Args:
+        guild_id: Guild ID
+        podcast: Podcast dictionary
+    
+    Returns:
+        Position in queue, or 0 if failed
+    """
+    podcast['type'] = 'podcast'
+    podcast['source'] = 'podcast'
+    return add_to_queue(guild_id, podcast, check_duplicates=True)
+
+
+async def get_podcast_episodes(channel_url: str, count: int = 10) -> List[dict]:
+    """
+    Get recent episodes from a podcast channel/playlist.
+    
+    Args:
+        channel_url: YouTube channel or playlist URL
+        count: Number of episodes to fetch
+    
+    Returns:
+        List of episode dictionaries
+    """
+    try:
+        import yt_dlp
+        
+        episodes = []
+        
+        # Modify options for playlist/channel extraction
+        ydl_options = {**YDL_OPTIONS, 'extract_flat': True, 'playlistend': count}
+        
+        with yt_dlp.YoutubeDL(ydl_options) as ydl:
+            info = await asyncio.to_thread(ydl.extract_info, channel_url, download=False)
+            
+            if info:
+                entries = info.get('entries', [])
+                
+                for entry in entries[:count]:
+                    if not entry:
+                        continue
+                    
+                    video_id = entry.get('id', entry.get('url', ''))
+                    if 'youtube' not in video_id and video_id:
+                        video_id = f"https://www.youtube.com/watch?v={video_id}"
+                    
+                    episodes.append({
+                        'title': entry.get('title', 'Unknown Episode'),
+                        'artist': info.get('channel', info.get('uploader', 'Unknown')),
+                        'url': video_id if video_id.startswith('http') else f"https://www.youtube.com/watch?v={video_id}",
+                        'duration': entry.get('duration', 0),
+                        'type': 'podcast'
+                    })
+        
+        logger.info(f"Found {len(episodes)} podcast episodes")
+        return episodes
+        
+    except Exception as e:
+        logger.error(f"Error getting podcast episodes: {e}")
+        return []

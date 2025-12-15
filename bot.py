@@ -17028,7 +17028,185 @@ async def listening_stats(interaction: discord.Interaction):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-# NOTE: Album functionality is now integrated into the Add Music modal via the music player interface
+@tree.command(name="podcast", description="🎙️ Suche und höre Podcasts")
+@app_commands.describe(
+    query="Name des Podcasts oder Thema",
+    category="Podcast-Kategorie (optional)"
+)
+@app_commands.choices(category=[
+    app_commands.Choice(name="🖥️ Tech & Technologie", value="tech"),
+    app_commands.Choice(name="🎮 Gaming", value="gaming"),
+    app_commands.Choice(name="🔬 Science & Wissenschaft", value="science"),
+    app_commands.Choice(name="😂 Comedy", value="comedy"),
+    app_commands.Choice(name="📰 News & Nachrichten", value="news"),
+    app_commands.Choice(name="📚 Education & Bildung", value="education")
+])
+async def podcast_command(
+    interaction: discord.Interaction,
+    query: str = None,
+    category: app_commands.Choice[str] = None
+):
+    """Search and play podcasts."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        # Check if user is in voice channel
+        if not interaction.user.voice or not interaction.user.voice.channel:
+            embed = discord.Embed(
+                title="❌ Nicht in Voice-Channel",
+                description="Du musst in einem Voice-Channel sein, um Podcasts zu hören!",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        voice_channel = interaction.user.voice.channel
+        guild_id = interaction.guild.id
+        
+        # Get or create voice client
+        voice_client = interaction.guild.voice_client
+        if not voice_client or not voice_client.is_connected():
+            voice_client = await lofi_player.join_voice_channel(voice_channel)
+            if not voice_client:
+                embed = discord.Embed(
+                    title="❌ Verbindungsfehler",
+                    description="Konnte dem Voice-Channel nicht beitreten!",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+        
+        # If category is provided but no query, show podcasts from that category
+        if category and not query:
+            category_podcasts = lofi_player.get_podcasts_by_category(category.value)
+            
+            if not category_podcasts:
+                embed = discord.Embed(
+                    title="🎙️ Podcast-Kategorie",
+                    description=f"Keine Podcasts in der Kategorie **{category.name}** gefunden.",
+                    color=discord.Color.orange()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+            
+            # Show podcasts in this category
+            embed = discord.Embed(
+                title=f"🎙️ Podcasts: {category.name}",
+                description="Wähle einen Podcast zum Anhören:",
+                color=discord.Color.blue()
+            )
+            
+            for podcast in category_podcasts:
+                embed.add_field(
+                    name=podcast['name'],
+                    value=podcast.get('description', 'Podcast'),
+                    inline=False
+                )
+            
+            embed.set_footer(text="Nutze /podcast <name> zum Abspielen")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        # Search for podcasts
+        if not query:
+            # Show all categories
+            embed = discord.Embed(
+                title="🎙️ Podcast-Kategorien",
+                description="Wähle eine Kategorie oder suche nach einem Podcast:\n\n"
+                           "📌 **Nutze:** `/podcast query:<suchbegriff>`\n"
+                           "📌 **Oder:** `/podcast category:<kategorie>`",
+                color=discord.Color.blue()
+            )
+            
+            for cat_key in lofi_player.get_podcast_categories():
+                cat_podcasts = lofi_player.get_podcasts_by_category(cat_key)
+                cat_names = ", ".join([p['name'] for p in cat_podcasts[:2]])
+                embed.add_field(
+                    name=cat_key.title(),
+                    value=cat_names + "...",
+                    inline=True
+                )
+            
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        # Search for podcasts matching query
+        loading_embed = discord.Embed(
+            title="🔍 Suche Podcasts...",
+            description=f"Suche nach: **{query}**",
+            color=discord.Color.blue()
+        )
+        await interaction.followup.send(embed=loading_embed, ephemeral=True)
+        
+        podcasts = await lofi_player.search_podcast(query, count=5)
+        
+        if not podcasts:
+            embed = discord.Embed(
+                title="❌ Keine Podcasts gefunden",
+                description=f"Konnte keine Podcasts für '{query}' finden!",
+                color=discord.Color.red()
+            )
+            await interaction.edit_original_response(embed=embed)
+            return
+        
+        # Play the first result
+        first_podcast = podcasts[0]
+        success = await lofi_player.play_podcast(
+            voice_client,
+            first_podcast,
+            guild_id,
+            volume=1.0,
+            user_id=interaction.user.id
+        )
+        
+        if success:
+            current_podcast = lofi_player.get_current_song(guild_id)
+            
+            embed = discord.Embed(
+                title="🎙️ Podcast wird abgespielt!",
+                color=discord.Color.green()
+            )
+            
+            if current_podcast:
+                duration_min = current_podcast.get('duration', 0) // 60
+                embed.add_field(
+                    name="📺 Podcast",
+                    value=f"**{current_podcast.get('title', 'Unknown')}**\n*{current_podcast.get('artist', 'Unknown')}*",
+                    inline=False
+                )
+                if duration_min > 0:
+                    embed.add_field(
+                        name="⏱️ Dauer",
+                        value=f"~{duration_min} Minuten",
+                        inline=True
+                    )
+            
+            # Show other results as suggestions
+            if len(podcasts) > 1:
+                suggestions = "\n".join([f"• {p['title'][:50]}" for p in podcasts[1:4]])
+                embed.add_field(
+                    name="📋 Weitere Ergebnisse",
+                    value=suggestions,
+                    inline=False
+                )
+            
+            await interaction.edit_original_response(embed=embed)
+        else:
+            embed = discord.Embed(
+                title="❌ Fehler",
+                description="Podcast konnte nicht abgespielt werden!",
+                color=discord.Color.red()
+            )
+            await interaction.edit_original_response(embed=embed)
+        
+    except Exception as e:
+        logger.error(f"Error in podcast command: {e}", exc_info=True)
+        embed = discord.Embed(
+            title="❌ Fehler",
+            description=f"Es ist ein Fehler aufgetreten: {str(e)}",
+            color=discord.Color.red()
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
 # Users can add albums by using the "Add Song" button and selecting "album" as the type
 # @tree.command(name="album", description="📀 Füge ein Album zur Warteschlange hinzu")
 # @app_commands.describe(

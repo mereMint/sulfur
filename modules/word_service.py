@@ -381,3 +381,230 @@ async def get_random_words(count=1, language='en', min_length=5, max_length=5):
         return await fetch_random_words_german(count, min_length, max_length)
     else:
         return await fetch_random_words_english(count, min_length, max_length)
+
+
+# --- Dictionary API Integration ---
+# Free Dictionary API: https://dictionaryapi.dev/
+# DWDS API (German): https://www.dwds.de/d/api
+
+# Dictionary API endpoints
+DICTIONARY_API_EN = "https://api.dictionaryapi.dev/api/v2/entries/en/{word}"
+DICTIONARY_API_DE = "https://api.dictionaryapi.dev/api/v2/entries/de/{word}"
+DWDS_API = "https://www.dwds.de/api/wb/snippet/?q={word}"
+
+
+async def validate_word_in_dictionary(word: str, language: str = 'en') -> dict:
+    """
+    Validate if a word exists in an online dictionary.
+    Returns word definition and validity status.
+    
+    Args:
+        word: Word to validate
+        language: 'en' for English, 'de' for German
+    
+    Returns:
+        Dictionary with:
+        - 'valid': bool - whether word exists
+        - 'definition': str - definition if found
+        - 'part_of_speech': str - e.g. 'noun', 'verb'
+        - 'phonetic': str - pronunciation if available
+    """
+    result = {
+        'valid': False,
+        'definition': None,
+        'part_of_speech': None,
+        'phonetic': None
+    }
+    
+    word = word.lower().strip()
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            if language == 'de':
+                # Try German dictionary API
+                url = DICTIONARY_API_DE.format(word=word)
+            else:
+                # Try English dictionary API
+                url = DICTIONARY_API_EN.format(word=word)
+            
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    
+                    if isinstance(data, list) and len(data) > 0:
+                        entry = data[0]
+                        result['valid'] = True
+                        result['phonetic'] = entry.get('phonetic', '')
+                        
+                        # Get first meaning
+                        meanings = entry.get('meanings', [])
+                        if meanings:
+                            first_meaning = meanings[0]
+                            result['part_of_speech'] = first_meaning.get('partOfSpeech', '')
+                            
+                            definitions = first_meaning.get('definitions', [])
+                            if definitions:
+                                result['definition'] = definitions[0].get('definition', '')
+                        
+                        logger.debug(f"Word '{word}' validated in {language} dictionary")
+                        return result
+                    
+                elif response.status == 404:
+                    logger.debug(f"Word '{word}' not found in {language} dictionary")
+                    return result
+                else:
+                    logger.warning(f"Dictionary API returned status {response.status} for '{word}'")
+                    
+    except asyncio.TimeoutError:
+        logger.warning(f"Timeout validating word '{word}' in dictionary")
+    except Exception as e:
+        logger.error(f"Error validating word '{word}': {e}")
+    
+    return result
+
+
+async def get_word_with_definition(word: str, language: str = 'en') -> dict:
+    """
+    Get a word's full definition from the dictionary API.
+    
+    Args:
+        word: Word to look up
+        language: 'en' or 'de'
+    
+    Returns:
+        Dictionary with word details or None if not found
+    """
+    result = await validate_word_in_dictionary(word, language)
+    if result['valid']:
+        return {
+            'word': word,
+            'definition': result['definition'],
+            'part_of_speech': result['part_of_speech'],
+            'phonetic': result['phonetic'],
+            'language': language
+        }
+    return None
+
+
+async def is_valid_word(word: str, language: str = 'en') -> bool:
+    """
+    Quick check if a word is valid in the dictionary.
+    
+    Args:
+        word: Word to validate
+        language: 'en' or 'de'
+    
+    Returns:
+        True if word exists, False otherwise
+    """
+    result = await validate_word_in_dictionary(word, language)
+    return result['valid']
+
+
+async def get_related_words(word: str, language: str = 'en', limit: int = 5) -> list:
+    """
+    Get words related to a given word (synonyms, related terms).
+    Uses the Free Dictionary API to find synonyms.
+    
+    Args:
+        word: Base word
+        language: 'en' or 'de'
+        limit: Maximum number of related words to return
+    
+    Returns:
+        List of related words
+    """
+    related = []
+    word = word.lower().strip()
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            if language == 'de':
+                url = DICTIONARY_API_DE.format(word=word)
+            else:
+                url = DICTIONARY_API_EN.format(word=word)
+            
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    
+                    if isinstance(data, list) and len(data) > 0:
+                        for entry in data:
+                            meanings = entry.get('meanings', [])
+                            for meaning in meanings:
+                                # Get synonyms
+                                synonyms = meaning.get('synonyms', [])
+                                for syn in synonyms:
+                                    if syn not in related:
+                                        related.append(syn)
+                                        if len(related) >= limit:
+                                            return related
+                                
+                                # Get antonyms too for variety
+                                antonyms = meaning.get('antonyms', [])
+                                for ant in antonyms:
+                                    if ant not in related:
+                                        related.append(ant)
+                                        if len(related) >= limit:
+                                            return related
+                        
+    except Exception as e:
+        logger.error(f"Error getting related words for '{word}': {e}")
+    
+    return related
+
+
+async def calculate_word_similarity(word1: str, word2: str, language: str = 'en') -> float:
+    """
+    Calculate similarity between two words based on shared meanings/synonyms.
+    Used for the Word Find game's proximity hints.
+    
+    Args:
+        word1: First word
+        word2: Second word (typically the target)
+        language: 'en' or 'de'
+    
+    Returns:
+        Similarity score from 0.0 (unrelated) to 1.0 (identical/synonym)
+    """
+    word1 = word1.lower().strip()
+    word2 = word2.lower().strip()
+    
+    # Exact match
+    if word1 == word2:
+        return 1.0
+    
+    try:
+        # Get related words for word2 (the target)
+        target_related = await get_related_words(word2, language, limit=20)
+        
+        # Check if word1 is in target's related words
+        if word1 in target_related:
+            # Direct synonym/antonym - very related (9-10 corners)
+            return 0.9
+        
+        # Get related words for word1 (the guess)
+        guess_related = await get_related_words(word1, language, limit=20)
+        
+        # Check overlap between related words
+        if target_related and guess_related:
+            overlap = set(target_related) & set(guess_related)
+            if overlap:
+                # Shared synonyms - moderately related (7-8 corners)
+                overlap_ratio = len(overlap) / max(len(target_related), len(guess_related))
+                return 0.7 + (overlap_ratio * 0.2)
+        
+        # Check if they share first letters (weak similarity)
+        if word1[:3] == word2[:3]:
+            return 0.3
+        
+        # Check if they're in the same length range
+        length_diff = abs(len(word1) - len(word2))
+        if length_diff <= 2:
+            return 0.1
+        
+        return 0.0
+        
+    except Exception as e:
+        logger.error(f"Error calculating word similarity: {e}")
+        return 0.0

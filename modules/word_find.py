@@ -1180,7 +1180,15 @@ async def complete_premium_game(db_helpers, game_id: int, won: bool):
 
 def _get_proximity_indicator(score: float, strings: dict = None) -> tuple:
     """
-    Get visual indicators for proximity score.
+    Get visual indicators for proximity score using the "corners" system.
+    
+    The "corners" represent how many semantic steps away a word is:
+    - 1 corner (score >= 90): Steaming hot! Almost there/synonym
+    - 2-3 corners (score >= 70): Very hot! Very closely related
+    - 4-5 corners (score >= 50): Hot! Related
+    - 6-7 corners (score >= 30): Warm - somewhat related
+    - 8-9 corners (score >= 10): Cold - distantly related
+    - 10+ corners (score < 10): Very cold - unrelated
     
     Args:
         score: Similarity score (0-100)
@@ -1189,34 +1197,46 @@ def _get_proximity_indicator(score: float, strings: dict = None) -> tuple:
     Returns:
         tuple: (bar_string, temperature_string)
     """
-    # Visual bar for score
+    # Visual bar for score using corner-based display
+    # Each green square represents closeness (fewer corners)
     bar_length = int(score / 10)
     bar = "🟩" * bar_length + "⬜" * (10 - bar_length)
     
-    # Temperature indicator with localization
+    # Calculate corners (inverse of score - higher score = fewer corners)
+    # Score 100 = 0 corners (exact match)
+    # Score 90 = 1 corner
+    # Score 10 = 9 corners
+    # Score 0 = 10+ corners
+    corners = max(0, 10 - int(score / 10))
+    
+    # Temperature indicator based on corners with localization
     if strings:
-        if score >= 80:
-            temp = strings.get('very_hot', "🔥 Sehr heiß!")
-        elif score >= 60:
-            temp = strings.get('hot', "🌡️ Heiß!")
-        elif score >= 40:
-            temp = strings.get('warm', "🌤️ Warm")
-        elif score >= 20:
-            temp = strings.get('cold', "❄️ Kalt")
-        else:
-            temp = strings.get('very_cold', "🧊 Sehr kalt")
+        if corners <= 1:  # 1 corner or less = steaming hot
+            temp = strings.get('steaming_hot', "🔥🔥 Dampfend heiß! (1 Ecke)")
+        elif corners <= 3:  # 2-3 corners
+            temp = strings.get('very_hot', f"🔥 Sehr heiß! ({corners} Ecken)")
+        elif corners <= 5:  # 4-5 corners
+            temp = strings.get('hot', f"🌡️ Heiß! ({corners} Ecken)")
+        elif corners <= 7:  # 6-7 corners
+            temp = strings.get('warm', f"🌤️ Warm ({corners} Ecken)")
+        elif corners <= 9:  # 8-9 corners
+            temp = strings.get('cold', f"❄️ Kalt ({corners} Ecken)")
+        else:  # 10+ corners
+            temp = strings.get('very_cold', "🧊 Eiskalt (10+ Ecken)")
     else:
         # Default German for backward compatibility
-        if score >= 80:
-            temp = "🔥 Sehr heiß!"
-        elif score >= 60:
-            temp = "🌡️ Heiß!"
-        elif score >= 40:
-            temp = "🌤️ Warm"
-        elif score >= 20:
-            temp = "❄️ Kalt"
+        if corners <= 1:
+            temp = "🔥🔥 Dampfend heiß! (1 Ecke)"
+        elif corners <= 3:
+            temp = f"🔥 Sehr heiß! ({corners} Ecken)"
+        elif corners <= 5:
+            temp = f"🌡️ Heiß! ({corners} Ecken)"
+        elif corners <= 7:
+            temp = f"🌤️ Warm ({corners} Ecken)"
+        elif corners <= 9:
+            temp = f"❄️ Kalt ({corners} Ecken)"
         else:
-            temp = "🧊 Sehr kalt"
+            temp = "🧊 Eiskalt (10+ Ecken)"
     
     return bar, temp
 
@@ -1265,12 +1285,13 @@ def _get_localized_strings(language: str) -> dict:
             'streak': 'Streak',
             'best': 'Best',
             'avg_attempts': 'Ø Attempts per Win',
-            'tip': "💡 Tip: Get closer to the word through similar terms!",
+            'tip': "💡 Tip: Get closer to the word through similar terms! Fewer corners = hotter!",
+            'steaming_hot': '🔥🔥 Steaming hot! (1 corner)',
             'very_hot': '🔥 Very hot!',
             'hot': '🌡️ Hot!',
             'warm': '🌤️ Warm',
             'cold': '❄️ Cold',
-            'very_cold': '🧊 Very cold',
+            'very_cold': '🧊 Ice cold (10+ corners)',
         }
     else:
         return {
@@ -1290,12 +1311,13 @@ def _get_localized_strings(language: str) -> dict:
             'streak': 'Streak',
             'best': 'Best',
             'avg_attempts': 'Ø Versuche pro Sieg',
-            'tip': "💡 Tipp: Nähere dich dem Wort durch ähnliche Begriffe!",
+            'tip': "💡 Tipp: Nähere dich dem Wort durch ähnliche Begriffe! Weniger Ecken = heißer!",
+            'steaming_hot': '🔥🔥 Dampfend heiß! (1 Ecke)',
             'very_hot': '🔥 Sehr heiß!',
             'hot': '🌡️ Heiß!',
             'warm': '🌤️ Warm',
             'cold': '❄️ Kalt',
-            'very_cold': '🧊 Sehr kalt',
+            'very_cold': '🧊 Eiskalt (10+ Ecken)',
         }
 
 
