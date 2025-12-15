@@ -46,8 +46,19 @@ class BotMind:
         self.boredom_level = 0.0  # 0.0 to 1.0
         self.interests: List[str] = []
         self.thoughts: List[str] = []
+        self.recent_thoughts: List[Dict[str, Any]] = []  # Detailed thought history with timestamps
+        self.current_thought: str = "Nichts Besonderes..."
+        self.last_thought_time = datetime.now(timezone.utc)
         self.last_activity_time = datetime.now(timezone.utc)
         self._server_activity: Dict[int, datetime] = {}
+        # Personality traits (0.0 to 1.0 scale)
+        self.personality_traits: Dict[str, float] = {
+            'sarcasm': 0.6,
+            'humor': 0.7,
+            'curiosity': 0.8,
+            'helpfulness': 0.9,
+            'sass': 0.5
+        }
     
     def update_mood(self, mood: Mood, reason: str = None):
         """Update the bot's current mood."""
@@ -78,6 +89,17 @@ class BotMind:
         self.thoughts.append(thought)
         # Keep only last 20 thoughts
         self.thoughts = self.thoughts[-20:]
+        # Update current thought
+        self.current_thought = thought
+        self.last_thought_time = datetime.now(timezone.utc)
+        # Add to detailed recent thoughts with timestamp
+        self.recent_thoughts.append({
+            'thought': thought,
+            'mood': self.current_mood.value,
+            'time': self.last_thought_time.isoformat()
+        })
+        # Keep only last 50 detailed thoughts
+        self.recent_thoughts = self.recent_thoughts[-50:]
     
     def observe_user_activity(self, guild_id: int, user_id: int, activity_type: str):
         """Observe user activity for learning."""
@@ -102,7 +124,11 @@ def get_mind_state_api() -> Dict[str, Any]:
         'energy_level': bot_mind.energy_level,
         'boredom_level': bot_mind.boredom_level,
         'interests': bot_mind.interests.copy(),
-        'thoughts': bot_mind.thoughts[-5:] if bot_mind.thoughts else []
+        'thoughts': bot_mind.thoughts[-5:] if bot_mind.thoughts else [],
+        'current_thought': bot_mind.current_thought,
+        'last_thought_time': bot_mind.last_thought_time.isoformat() if bot_mind.last_thought_time else datetime.now(timezone.utc).isoformat(),
+        'recent_thoughts': bot_mind.recent_thoughts[-20:] if bot_mind.recent_thoughts else [],
+        'personality_traits': bot_mind.personality_traits.copy()
     }
 
 

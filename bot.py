@@ -3339,30 +3339,40 @@ async def on_voice_state_update(member, before, after):
                     # Get non-bot members in the channel the bot left
                     human_members = [m for m in before.channel.members if not m.bot]
                     
-                    # If there are still people in the channel, try to reconnect
-                    if human_members:
+                    # Check if stop lock is active (user explicitly stopped music)
+                    if lofi_player.is_stop_locked(guild_id):
+                        logger.info(f"Bot disconnected from voice but stop lock active - not reconnecting")
+                        # Clean up the session since user wanted to stop
+                        lofi_player.active_sessions.pop(guild_id, None)
+                    # If there are still people in the channel and no stop lock, try to reconnect
+                    elif human_members:
                         logger.info(f"Bot disconnected from voice with active session, attempting reconnect in 2 seconds...")
                         
                         # Wait a moment before reconnecting to avoid race conditions
                         await asyncio.sleep(2)
                         
-                        try:
-                            # Try to rejoin the channel
-                            voice_client = await before.channel.connect()
-                            logger.info(f"Reconnected to voice channel: {before.channel.name}")
-                            
-                            # Resume playback if there was a current song
-                            current_song = session.get('current_song')
-                            if current_song:
-                                # Try to resume from where we left off
-                                user_id = session.get('user_id')
-                                volume = session.get('volume', 1.0)
-                                await lofi_player.play_song_with_queue(voice_client, current_song, guild_id, volume, user_id)
-                                logger.info(f"Resumed music playback after reconnection")
-                        except Exception as e:
-                            logger.error(f"Failed to reconnect to voice: {e}")
-                            # Clean up session if reconnection failed
+                        # Check stop lock again after waiting (user might have stopped during wait)
+                        if lofi_player.is_stop_locked(guild_id):
+                            logger.info(f"Stop lock detected after wait - not reconnecting")
                             lofi_player.active_sessions.pop(guild_id, None)
+                        else:
+                            try:
+                                # Try to rejoin the channel
+                                voice_client = await before.channel.connect()
+                                logger.info(f"Reconnected to voice channel: {before.channel.name}")
+                                
+                                # Resume playback if there was a current song
+                                current_song = session.get('current_song')
+                                if current_song:
+                                    # Try to resume from where we left off
+                                    user_id = session.get('user_id')
+                                    volume = session.get('volume', 1.0)
+                                    await lofi_player.play_song_with_queue(voice_client, current_song, guild_id, volume, user_id)
+                                    logger.info(f"Resumed music playback after reconnection")
+                            except Exception as e:
+                                logger.error(f"Failed to reconnect to voice: {e}")
+                                # Clean up session if reconnection failed
+                                lofi_player.active_sessions.pop(guild_id, None)
 
     # --- NEW: Handle "Join to Create" logic first, passing config ---
     await voice_manager.handle_voice_state_update(member, before, after, config)
@@ -4228,7 +4238,7 @@ class AdminAIGroup(app_commands.Group):
         target_channel = channel or interaction.channel
         
         try:
-            context_messages = await db_helpers.get_conversation_context(target_channel.id)
+            context_messages = await db_helpers.get_channel_conversation_context(target_channel.id)
             
             if not context_messages:
                 await interaction.followup.send(f"No conversation context found for {target_channel.mention}.")

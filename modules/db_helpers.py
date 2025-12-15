@@ -3169,6 +3169,70 @@ async def clear_old_conversation_contexts():
         cnx.close()
 
 
+@db_operation("Get Channel Conversation Context")
+async def get_channel_conversation_context(channel_id):
+    """
+    Retrieves all recent conversation contexts for a channel (all users).
+    Used for debug/admin viewing of channel context.
+    
+    Args:
+        channel_id: Discord channel ID
+    
+    Returns:
+        List of message dictionaries with role and content, or empty list
+    """
+    if not db_pool:
+        return []
+    
+    cnx = db_pool.get_connection()
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        query = """
+            SELECT user_id, last_user_message, last_bot_response, 
+                   TIMESTAMPDIFF(SECOND, last_bot_message_at, NOW()) as seconds_ago
+            FROM conversation_context 
+            WHERE channel_id = %s
+            AND TIMESTAMPDIFF(MINUTE, last_bot_message_at, NOW()) <= 10
+            ORDER BY last_bot_message_at DESC
+            LIMIT 20
+        """
+        cursor.execute(query, (channel_id,))
+        rows = cursor.fetchall()
+        
+        if not rows:
+            return []
+        
+        # Convert to message format expected by the context command
+        messages = []
+        for row in rows:
+            # Sanitize emojis in messages
+            user_msg = _convert_emojis_to_shortcode(row['last_user_message']) if row['last_user_message'] else ""
+            bot_msg = _convert_emojis_to_shortcode(row['last_bot_response']) if row['last_bot_response'] else ""
+            
+            if user_msg:
+                messages.append({
+                    'role': 'user',
+                    'content': user_msg,
+                    'user_id': row['user_id'],
+                    'seconds_ago': row['seconds_ago']
+                })
+            if bot_msg:
+                messages.append({
+                    'role': 'model',
+                    'content': bot_msg,
+                    'user_id': row['user_id'],
+                    'seconds_ago': row['seconds_ago']
+                })
+        
+        return messages
+    except mysql.connector.Error as err:
+        print(f"Error in get_channel_conversation_context: {err}")
+        return []
+    finally:
+        cursor.close()
+        cnx.close()
+
+
 # --- AI Model Usage Tracking ---
 
 @db_operation("Track AI Model Usage")
