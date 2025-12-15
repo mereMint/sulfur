@@ -1,0 +1,302 @@
+{% extends "layout.html" %}
+{% block title %}Leaderboard - Sulfur Bot{% endblock %}
+
+{% block content %}
+<div class="row mb-4 fade-in">
+    <div class="col-md-12">
+        <h3 class="gradient-text"><i class="bi bi-trophy"></i> LEADERBOARDS</h3>
+        <p class="text-muted">Top performers across all categories</p>
+    </div>
+</div>
+
+<!-- Leaderboard Category Tabs -->
+<div class="card mb-4 fade-in">
+    <div class="card-header">
+        <ul class="nav nav-pills" id="leaderboardTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="levels-tab" data-bs-toggle="pill" data-bs-target="#levels-pane" type="button" role="tab">
+                    <i class="bi bi-arrow-up-circle"></i> Levels
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="economy-tab" data-bs-toggle="pill" data-bs-target="#economy-pane" type="button" role="tab">
+                    <i class="bi bi-coin"></i> Economy
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="wordle-tab" data-bs-toggle="pill" data-bs-target="#wordle-pane" type="button" role="tab">
+                    <i class="bi bi-grid-3x3"></i> Wordle
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="casino-tab" data-bs-toggle="pill" data-bs-target="#casino-pane" type="button" role="tab">
+                    <i class="bi bi-suit-spade"></i> Casino
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="werwolf-tab" data-bs-toggle="pill" data-bs-target="#werwolf-pane" type="button" role="tab">
+                    <i class="bi bi-moon"></i> Werwolf
+                </button>
+            </li>
+        </ul>
+    </div>
+    <div class="card-body">
+        <div id="loading-spinner" class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="text-muted mt-2">Loading leaderboards...</p>
+        </div>
+        
+        <div class="tab-content" id="leaderboardContent" style="display: none;">
+            <!-- Levels Leaderboard -->
+            <div class="tab-pane fade show active" id="levels-pane" role="tabpanel">
+                <h5 class="mb-3"><i class="bi bi-arrow-up-circle"></i> Level Leaderboard</h5>
+                <div class="table-responsive">
+                    <table class="table table-dark table-striped table-hover">
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Player</th>
+                                <th>Level</th>
+                                <th>XP</th>
+                            </tr>
+                        </thead>
+                        <tbody id="levels-table">
+                            <tr><td colspan="4" class="text-center text-muted">No data available</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Economy Leaderboard -->
+            <div class="tab-pane fade" id="economy-pane" role="tabpanel">
+                <h5 class="mb-3"><i class="bi bi-coin"></i> Richest Players</h5>
+                <div class="table-responsive">
+                    <table class="table table-dark table-striped table-hover">
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Player</th>
+                                <th>Coins</th>
+                            </tr>
+                        </thead>
+                        <tbody id="economy-table">
+                            <tr><td colspan="3" class="text-center text-muted">No data available</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Wordle Leaderboard -->
+            <div class="tab-pane fade" id="wordle-pane" role="tabpanel">
+                <h5 class="mb-3"><i class="bi bi-grid-3x3"></i> Wordle Champions</h5>
+                <div class="table-responsive">
+                    <table class="table table-dark table-striped table-hover">
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Player</th>
+                                <th>Games Won</th>
+                                <th>Games Played</th>
+                                <th>Avg Attempts</th>
+                            </tr>
+                        </thead>
+                        <tbody id="wordle-table">
+                            <tr><td colspan="5" class="text-center text-muted">No data available</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Casino Leaderboard -->
+            <div class="tab-pane fade" id="casino-pane" role="tabpanel">
+                <h5 class="mb-3"><i class="bi bi-suit-spade"></i> Casino High Rollers</h5>
+                <div class="table-responsive">
+                    <table class="table table-dark table-striped table-hover">
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Player</th>
+                                <th>Total Won</th>
+                                <th>Games Played</th>
+                            </tr>
+                        </thead>
+                        <tbody id="casino-table">
+                            <tr><td colspan="4" class="text-center text-muted">No data available</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Werwolf Leaderboard -->
+            <div class="tab-pane fade" id="werwolf-pane" role="tabpanel">
+                <h5 class="mb-3"><i class="bi bi-moon"></i> Werwolf Masters</h5>
+                <div class="table-responsive">
+                    <table class="table table-dark table-striped table-hover">
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Player</th>
+                                <th>Wins</th>
+                                <th>Losses</th>
+                                <th>Win Rate</th>
+                            </tr>
+                        </thead>
+                        <tbody id="werwolf-table">
+                            <tr><td colspan="5" class="text-center text-muted">No data available</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function getMedal(rank) {
+        if (rank === 1) return '🥇';
+        if (rank === 2) return '🥈';
+        if (rank === 3) return '🥉';
+        return '';
+    }
+    
+    function formatNumber(num) {
+        if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+        if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+        return num.toLocaleString();
+    }
+    
+    function renderLevelsTable(data) {
+        const tbody = document.getElementById('levels-table');
+        if (!data || data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No data available</td></tr>';
+            return;
+        }
+        
+        let html = '';
+        data.forEach((player, index) => {
+            const rank = index + 1;
+            html += `<tr>
+                <td>${getMedal(rank)} #${rank}</td>
+                <td>${player.display_name || player.username || 'Unknown'}</td>
+                <td><span class="badge bg-primary">${player.level || 1}</span></td>
+                <td>${formatNumber(player.xp || 0)}</td>
+            </tr>`;
+        });
+        tbody.innerHTML = html;
+    }
+    
+    function renderEconomyTable(data) {
+        const tbody = document.getElementById('economy-table');
+        if (!data || data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted">No data available</td></tr>';
+            return;
+        }
+        
+        let html = '';
+        data.forEach((player, index) => {
+            const rank = index + 1;
+            html += `<tr>
+                <td>${getMedal(rank)} #${rank}</td>
+                <td>${player.display_name || 'Unknown'}</td>
+                <td><span class="badge bg-warning text-dark">${formatNumber(player.coins || 0)} 🪙</span></td>
+            </tr>`;
+        });
+        tbody.innerHTML = html;
+    }
+    
+    function renderWordleTable(data) {
+        const tbody = document.getElementById('wordle-table');
+        if (!data || data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No data available</td></tr>';
+            return;
+        }
+        
+        let html = '';
+        data.forEach((player, index) => {
+            const rank = index + 1;
+            const winRate = player.games_played > 0 
+                ? ((player.games_won / player.games_played) * 100).toFixed(1) 
+                : '0.0';
+            html += `<tr>
+                <td>${getMedal(rank)} #${rank}</td>
+                <td>${player.display_name || 'Unknown'}</td>
+                <td><span class="badge bg-success">${player.games_won || 0}</span></td>
+                <td>${player.games_played || 0}</td>
+                <td>${player.avg_attempts || '-'}</td>
+            </tr>`;
+        });
+        tbody.innerHTML = html;
+    }
+    
+    function renderCasinoTable(data) {
+        const tbody = document.getElementById('casino-table');
+        if (!data || data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No data available</td></tr>';
+            return;
+        }
+        
+        let html = '';
+        data.forEach((player, index) => {
+            const rank = index + 1;
+            html += `<tr>
+                <td>${getMedal(rank)} #${rank}</td>
+                <td>${player.display_name || 'Unknown'}</td>
+                <td><span class="badge bg-info">${formatNumber(player.total_won || 0)} 🪙</span></td>
+                <td>${player.total_games || 0}</td>
+            </tr>`;
+        });
+        tbody.innerHTML = html;
+    }
+    
+    function renderWerwolfTable(data) {
+        const tbody = document.getElementById('werwolf-table');
+        if (!data || data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No data available</td></tr>';
+            return;
+        }
+        
+        let html = '';
+        data.forEach((player, index) => {
+            const rank = index + 1;
+            const wins = player.wins || 0;
+            const losses = player.losses || 0;
+            const total = wins + losses;
+            const winRate = total > 0 ? ((wins / total) * 100).toFixed(1) : '0.0';
+            html += `<tr>
+                <td>${getMedal(rank)} #${rank}</td>
+                <td>${player.display_name || player.username || 'Unknown'}</td>
+                <td><span class="badge bg-success">${wins}</span></td>
+                <td><span class="badge bg-danger">${losses}</span></td>
+                <td>${winRate}%</td>
+            </tr>`;
+        });
+        tbody.innerHTML = html;
+    }
+    
+    function loadLeaderboards() {
+        fetch('/api/leaderboard/all')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('loading-spinner').style.display = 'none';
+                document.getElementById('leaderboardContent').style.display = 'block';
+                
+                renderLevelsTable(data.levels);
+                renderEconomyTable(data.economy);
+                renderWordleTable(data.wordle);
+                renderCasinoTable(data.casino);
+                renderWerwolfTable(data.werwolf);
+            })
+            .catch(error => {
+                console.error('Error loading leaderboards:', error);
+                document.getElementById('loading-spinner').innerHTML = 
+                    '<div class="alert alert-danger">Error loading leaderboards. Please try again.</div>';
+            });
+    }
+    
+    document.addEventListener('DOMContentLoaded', loadLeaderboards);
+</script>
+{% endblock %}

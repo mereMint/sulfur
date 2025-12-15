@@ -118,6 +118,7 @@ from modules import wordle  # NEW: Wordle game
 from modules import themes  # NEW: Theme system
 from modules import horse_racing  # NEW: Horse racing game
 from modules import rpg_system  # NEW: RPG system
+from modules import word_service  # Dictionary API for word validation
 from modules import sport_betting  # NEW: Sport betting system
 from modules import sport_betting_ui_v2 as sport_betting_ui  # NEW: Sport betting UI components (v2)
 from modules import focus_timer  # NEW: Focus timer with activity monitoring
@@ -15618,12 +15619,20 @@ class WordleGuessModal(discord.ui.Modal, title="Rate das Wort"):
             await interaction.followup.send("❌ Dein Wort muss genau 5 Buchstaben enthalten (nur Buchstaben erlaubt)!", ephemeral=True)
             return
         
-        # Validate that the guess is a valid word from the appropriate language word list
+        # Validate that the guess is a valid word using dictionary API
+        # First check local cache/list for performance, then fall back to API
         valid_words = wordle.get_wordle_words(word_language)
-        if guess not in valid_words:
-            error_msg = "❌ This word is not in the word list! Try another English word." if word_language == 'en' else "❌ Dieses Wort ist nicht in der Wortliste! Versuche ein anderes deutsches Wort."
-            await interaction.followup.send(error_msg, ephemeral=True)
-            return
+        is_valid_local = guess in valid_words
+        
+        if not is_valid_local:
+            # Check against dictionary API for words not in local list
+            is_valid_api = await word_service.is_valid_word(guess, word_language)
+            if not is_valid_api:
+                error_msg = "❌ This word is not in the dictionary! Try another English word." if word_language == 'en' else "❌ Dieses Wort existiert nicht im Wörterbuch! Versuche ein anderes deutsches Wort."
+                await interaction.followup.send(error_msg, ephemeral=True)
+                return
+            else:
+                logger.info(f"Word '{guess}' validated via API (not in local list)")
         
         # Get current attempts based on game type
         attempts = await wordle.get_user_attempts(db_helpers, self.user_id, word_id, self.game_type)

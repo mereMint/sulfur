@@ -834,36 +834,37 @@
         modelSelect.innerHTML = '';
         
         if (provider === 'gemini') {
-            // Include all Gemini models
+            // Include all Gemini models with pricing info
             const models = [
-                'gemini-2.5-flash',
-                'gemini-2.0-flash-exp',
-                'gemini-1.5-pro',
-                'gemini-1.5-flash',
-                'gemini-pro'
+                {name: 'gemini-2.5-flash', price: '$0.075/1M'},
+                {name: 'gemini-2.5-flash-lite', price: '$0.02/1M'},
+                {name: 'gemini-2.5-pro', price: '$1.25/1M'},
+                {name: 'gemini-2.0-flash-exp', price: '$0.075/1M'},
+                {name: 'gemini-1.5-pro', price: '$1.25/1M'},
+                {name: 'gemini-1.5-flash', price: '$0.075/1M'}
             ];
             models.forEach(model => {
                 const option = document.createElement('option');
-                option.value = model;
-                option.textContent = model;
+                option.value = model.name;
+                option.textContent = `${model.name} (${model.price})`;
                 modelSelect.appendChild(option);
             });
         } else if (provider === 'openai') {
-            // Include all OpenAI models from config
+            // Include all OpenAI models with pricing info
             const models = [
-                'gpt-4o',
-                'gpt-4o-mini',
-                'gpt-4-turbo',
-                'o1',
-                'o1-mini',
-                'o3-mini',
-                'gpt-5',
-                'gpt-5-turbo'
+                {name: 'gpt-4.1-nano', price: '$0.10/1M'},
+                {name: 'gpt-4.1-mini', price: '$0.40/1M'},
+                {name: 'gpt-4o-mini', price: '$0.15/1M'},
+                {name: 'gpt-4o', price: '$2.50/1M'},
+                {name: 'gpt-4-turbo', price: '$10.00/1M'},
+                {name: 'o1-mini', price: '$1.10/1M'},
+                {name: 'o3-mini', price: '$1.10/1M'},
+                {name: 'o1', price: '$15.00/1M'}
             ];
             models.forEach(model => {
                 const option = document.createElement('option');
-                option.value = model;
-                option.textContent = model;
+                option.value = model.name;
+                option.textContent = `${model.name} (${model.price})`;
                 modelSelect.appendChild(option);
             });
         }
