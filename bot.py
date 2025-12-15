@@ -1204,6 +1204,11 @@ async def on_ready():
         sport_betting_sync_and_settle_task.start()
         print("  -> Sport betting sync and settle task started")
     
+    # --- NEW: Start config hot-reload task for web dashboard changes ---
+    if not check_config_reload_task.is_running():
+        check_config_reload_task.start()
+        print("  -> Config hot-reload task started")
+    
 
 @tasks.loop(minutes=15)
 async def update_presence_task():
@@ -2556,6 +2561,49 @@ async def _calculate_server_averages(all_stats):
 
 @manage_wrapped_event.before_loop
 async def before_manage_wrapped_event():
+    await client.wait_until_ready()
+
+
+# --- Config Hot Reload Task ---
+# Monitors for config reload flag created by web dashboard
+@tasks.loop(seconds=30)
+async def check_config_reload_task():
+    """
+    Periodically check for config reload flag created by web dashboard.
+    This allows changes made via the web dashboard to take effect without restart.
+    """
+    global config
+    try:
+        reload_flag_path = 'config/reload_config.flag'
+        if os.path.exists(reload_flag_path):
+            try:
+                # Read the flag content (for logging purposes)
+                with open(reload_flag_path, 'r') as f:
+                    change_info = f.read().strip()
+                
+                # Remove the flag file
+                os.remove(reload_flag_path)
+                
+                # Reload the config
+                new_config = load_config()
+                config = new_config
+                
+                logger.info(f"Config hot-reloaded via web dashboard: {change_info}")
+                print(f"[Config Reload] Applied changes: {change_info}")
+                
+                # Restart presence task to apply new settings immediately
+                if update_presence_task.is_running():
+                    update_presence_task.restart()
+                    
+            except Exception as e:
+                logger.error(f"Error during config hot-reload: {e}")
+                
+    except Exception as e:
+        logger.debug(f"Config reload check error: {e}")
+
+
+@check_config_reload_task.before_loop
+async def before_check_config_reload():
     await client.wait_until_ready()
 
 # --- REFACTORED: Multi-step view for sharing the Wrapped summary ---
