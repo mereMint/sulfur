@@ -762,6 +762,13 @@ async def stop_lofi(voice_client: discord.VoiceClient, user_id: int = None) -> b
             set_stop_lock(guild_id, user_id)
             # Also clear the queue to prevent auto-resume
             clear_queue(guild_id)
+            # Clear now playing in database for dashboard
+            try:
+                from modules.db_helpers import clear_now_playing
+                import asyncio
+                asyncio.create_task(clear_now_playing(guild_id))
+            except Exception as e:
+                logger.debug(f"Could not clear now playing in DB: {e}")
             # Notify dashboard of stop
             notify_dashboard('stop', guild_id, {'stopped_by': user_id})
         
@@ -2100,6 +2107,26 @@ async def play_song_with_queue(
         
         # Start preloading next songs in queue (async, don't wait)
         asyncio.create_task(preload_next_songs(guild_id, count=2))
+        
+        # Update database for dashboard sync
+        try:
+            from modules.db_helpers import update_now_playing
+            queue = active_sessions.get(guild_id, {}).get('queue', [])
+            channel = voice_client.channel if voice_client else None
+            await update_now_playing(
+                guild_id=guild_id,
+                channel_id=channel.id if channel else None,
+                channel_name=channel.name if channel else None,
+                is_playing=True,
+                is_paused=False,
+                song_title=song.get('title'),
+                song_artist=song.get('artist'),
+                song_url=song.get('url'),
+                song_album=song.get('album'),
+                queue=queue
+            )
+        except Exception as e:
+            logger.debug(f"Could not update now playing in DB: {e}")
         
         # Notify dashboard of track start
         notify_dashboard('track_start', guild_id, {

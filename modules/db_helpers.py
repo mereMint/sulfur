@@ -704,6 +704,24 @@ def initialize_database(max_retries=3, retry_delay=2):
         if not cursor.fetchone():
             cursor.execute("ALTER TABLE music_history ADD COLUMN album VARCHAR(500) NULL AFTER artist")
         
+        # Create music_now_playing table for dashboard sync
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS music_now_playing (
+                guild_id BIGINT PRIMARY KEY,
+                channel_id BIGINT NULL,
+                channel_name VARCHAR(255) NULL,
+                is_playing BOOLEAN DEFAULT FALSE,
+                is_paused BOOLEAN DEFAULT FALSE,
+                song_title VARCHAR(500) NULL,
+                song_artist VARCHAR(500) NULL,
+                song_url VARCHAR(1000) NULL,
+                song_album VARCHAR(500) NULL,
+                queue_json JSON NULL,
+                started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        """)
+        
         # Create listening_time table for detailed tracking
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS listening_time (
@@ -2528,6 +2546,157 @@ async def get_unified_music_history(user_id: int, limit: int = 50):
     songs.sort(key=lambda x: x['play_count'], reverse=True)
     
     return songs[:limit]
+
+
+@db_operation("update_now_playing")
+async def update_now_playing(guild_id: int, channel_id: int = None, channel_name: str = None,
+                             is_playing: bool = False, is_paused: bool = False,
+                             song_title: str = None, song_artist: str = None, 
+                             song_url: str = None, song_album: str = None,
+                             queue: list = None):
+    """
+    Update the now playing state for a guild (for dashboard sync).
+    
+    Args:
+        guild_id: Discord guild ID
+        channel_id: Voice channel ID
+        channel_name: Voice channel name
+        is_playing: Whether music is currently playing
+        is_paused: Whether playback is paused
+        song_title: Current song title
+        song_artist: Current song artist
+        song_url: Current song URL
+        song_album: Current song album
+        queue: List of upcoming songs (will be JSON serialized)
+    """
+    if not db_pool:
+        return
+    
+    cnx = get_db_connection()
+    if not cnx:
+        return
+    
+    cursor = cnx.cursor()
+    try:
+        # Serialize queue to JSON, limiting to first 20 songs
+        queue_json = None
+        if queue:
+            queue_preview = [{
+                'title': s.get('title', 'Unknown'),
+                'artist': s.get('artist', 'Unknown')
+            } for s in queue[:20]]
+            queue_json = json.dumps(queue_preview)
+        
+        query = """
+            INSERT INTO music_now_playing 
+                (guild_id, channel_id, channel_name, is_playing, is_paused, 
+                 song_title, song_artist, song_url, song_album, queue_json)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                channel_id = VALUES(channel_id),
+                channel_name = VALUES(channel_name),
+                is_playing = VALUES(is_playing),
+                is_paused = VALUES(is_paused),
+                song_title = VALUES(song_title),
+                song_artist = VALUES(song_artist),
+                song_url = VALUES(song_url),
+                song_album = VALUES(song_album),
+                queue_json = VALUES(queue_json)
+        """
+        cursor.execute(query, (guild_id, channel_id, channel_name, is_playing, is_paused,
+                               song_title, song_artist, song_url, song_album, queue_json))
+        cnx.commit()
+        logger.debug(f"Updated now playing for guild {guild_id}: {song_title} by {song_artist}")
+    except mysql.connector.Error as err:
+        logger.error(f"Error updating now playing: {err}")
+    finally:
+        cursor.close()
+        cnx.close()
+
+
+@db_operation("clear_now_playing")
+async def clear_now_playing(guild_id: int):
+    """Clear the now playing state for a guild."""
+    if not db_pool:
+        return
+    
+    cnx = get_db_connection()
+    if not cnx:
+        return
+    
+    cursor = cnx.cursor()
+    try:
+        cursor.execute("""
+            UPDATE music_now_playing 
+            SET is_playing = FALSE, is_paused = FALSE, 
+                song_title = NULL, song_artist = NULL, song_url = NULL, queue_json = NULL
+            WHERE guild_id = %s
+        """, (guild_id,))
+        cnx.commit()
+    except mysql.connector.Error as err:
+        logger.error(f"Error clearing now playing: {err}")
+    finally:
+        cursor.close()
+        cnx.close()
+
+
+def get_now_playing_all():
+    """
+    Get now playing state for all guilds (sync function for dashboard).
+    Returns dict of guild_id -> playback state.
+    """
+    if not db_pool:
+        return {}
+    
+    cnx = get_db_connection()
+    if not cnx:
+        return {}
+    
+    cursor = cnx.cursor(dictionary=True)
+    try:
+        cursor.execute("""
+            SELECT guild_id, channel_id, channel_name, is_playing, is_paused,
+                   song_title, song_artist, song_url, song_album, queue_json,
+                   started_at, updated_at
+            FROM music_now_playing
+            WHERE is_playing = TRUE OR is_paused = TRUE
+        """)
+        results = cursor.fetchall()
+        
+        music_state = {}
+        for row in results:
+            guild_id = row['guild_id']
+            queue = []
+            if row.get('queue_json'):
+                try:
+                    queue = json.loads(row['queue_json'])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            
+            music_state[str(guild_id)] = {
+                'guild_id': guild_id,
+                'channel_id': row.get('channel_id'),
+                'channel_name': row.get('channel_name'),
+                'is_playing': bool(row.get('is_playing')),
+                'is_paused': bool(row.get('is_paused')),
+                'is_connected': bool(row.get('is_playing') or row.get('is_paused')),
+                'current_song': {
+                    'title': row.get('song_title'),
+                    'artist': row.get('song_artist'),
+                    'url': row.get('song_url'),
+                    'album': row.get('song_album')
+                } if row.get('song_title') else None,
+                'queue_length': len(queue),
+                'queue_preview': queue[:5]
+            }
+        
+        return music_state
+    except mysql.connector.Error as err:
+        logger.error(f"Error getting now playing: {err}")
+        return {}
+    finally:
+        cursor.close()
+        cnx.close()
 
 @db_operation("add_xp")
 async def add_xp(user_id, display_name, xp_to_add):

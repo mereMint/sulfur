@@ -631,50 +631,18 @@ def api_get_config():
 def api_music_state():
     """
     API endpoint to get current music playback state for all guilds.
-    Used by dashboard to display "Now Playing" and queue information.
+    Uses database-backed state for cross-process sync with the bot.
     """
     try:
-        from modules import lofi_player
+        # Use database-backed music state for reliable cross-process sync
+        from modules.db_helpers import get_now_playing_all
         
-        music_state = {}
-        
-        for guild_id, session in lofi_player.active_sessions.items():
-            current_song = session.get('current_song')
-            queue = session.get('queue', [])
-            voice_client = session.get('voice_client')
-            
-            guild_state = {
-                'guild_id': guild_id,
-                'is_playing': voice_client.is_playing() if voice_client else False,
-                'is_paused': voice_client.is_paused() if voice_client else False,
-                'is_connected': voice_client.is_connected() if voice_client else False,
-                'channel_name': voice_client.channel.name if voice_client and voice_client.channel else None,
-                'current_song': None,
-                'queue_length': len(queue),
-                'queue_preview': []
-            }
-            
-            if current_song:
-                guild_state['current_song'] = {
-                    'title': current_song.get('title', 'Unknown'),
-                    'artist': current_song.get('artist', 'Unknown'),
-                    'url': current_song.get('url'),
-                    'source': current_song.get('source', 'bot')
-                }
-            
-            # Add queue preview (first 5 songs)
-            for song in queue[:5]:
-                guild_state['queue_preview'].append({
-                    'title': song.get('title', 'Unknown'),
-                    'artist': song.get('artist', 'Unknown')
-                })
-            
-            music_state[str(guild_id)] = guild_state
+        music_state = get_now_playing_all()
         
         return jsonify({
             'status': 'success',
             'data': music_state,
-            'active_sessions': len(lofi_player.active_sessions)
+            'active_sessions': len(music_state)
         })
     except Exception as e:
         logger.error(f"Error getting music state: {e}")
