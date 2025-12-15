@@ -13623,7 +13623,7 @@ class AnidleGameView(discord.ui.View):
             return False
         return True
     
-    @discord.ui.button(label="Guess", style=discord.ButtonStyle.primary, emoji=None)
+    @discord.ui.button(label="Guess", style=discord.ButtonStyle.primary)
     async def guess_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Open modal to enter guess."""
         modal = AnidleGuessModal(self.game, self)
