@@ -427,29 +427,29 @@ class SongleGame:
                 inline=False
             )
         else:
-            embed.description = f"Listen to the clip and guess the song!\nAttempt {self.attempts + 1}/{self.MAX_GUESSES}"
+            embed.description = f"🎵 Guess the song using the hints below!\nAttempt {self.attempts + 1}/{self.MAX_GUESSES}"
             
-            # Show clip duration info
+            # Note about audio feature
             embed.add_field(
-                name="Current Clip",
-                value=f"{self.current_clip_duration} seconds",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="Remaining Guesses",
-                value=str(self.remaining_guesses),
-                inline=True
+                name="🔊 Audio Preview",
+                value=f"Audio clips coming soon! For now, use the hints to guess the song.",
+                inline=False
             )
             
             # Show hints
             hints = self.get_hints_for_attempt()
             if hints:
                 embed.add_field(
-                    name="Hints",
+                    name="💡 Hints",
                     value="\n".join(hints),
                     inline=False
                 )
+            
+            embed.add_field(
+                name="Remaining Guesses",
+                value=str(self.remaining_guesses),
+                inline=True
+            )
             
             # Show previous guesses
             if self.guesses:
