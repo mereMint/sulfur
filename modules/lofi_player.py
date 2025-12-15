@@ -182,6 +182,9 @@ HISTORY_REPEAT_COUNT = 8  # For history-only mode
 TOP_SONGS_POOL_SIZE = 5  # Number of top songs to randomly select from for first song
 MIN_REPEAT_SPACING = 10  # Minimum songs between playing same song again
 
+# Audiobook constants
+MIN_AUDIOBOOK_DURATION = 1800  # 30 minutes in seconds - minimum duration for audiobook search results
+
 # Dashboard update callback - set by web_dashboard for real-time updates
 _dashboard_update_callback = None
 
@@ -3575,7 +3578,7 @@ async def search_audiobook(query: str, language: str = "german", count: int = 5)
                         duration = entry.get('duration', 0) or 0
                         
                         # Prefer longer content for audiobooks (at least 30 minutes)
-                        if duration >= 1800 or duration == 0:  # 0 means duration unknown
+                        if duration >= MIN_AUDIOBOOK_DURATION or duration == 0:  # 0 means duration unknown
                             audiobooks.append({
                                 'title': entry.get('title', 'Unknown Audiobook'),
                                 'url': f"https://www.youtube.com/watch?v={entry.get('id', '')}",

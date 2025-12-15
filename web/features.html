@@ -54,6 +54,10 @@ const categoryColors = {
     'Other': 'var(--text-muted)'
 };
 
+// UI timing constants
+const ALERT_AUTO_DISMISS_MS = 3000;  // How long to show success/error alerts
+const ALERT_FADE_MS = 150;            // Fade out transition time
+
 async function loadFeatures() {
     const container = document.getElementById('features-container');
     const loading = document.getElementById('features-loading');
@@ -202,14 +206,14 @@ function showAlert(type, message) {
         </div>
     `;
     
-    // Auto-dismiss after 3 seconds
+    // Auto-dismiss after configured timeout
     setTimeout(() => {
         const alert = alertContainer.querySelector('.alert');
         if (alert) {
             alert.classList.remove('show');
-            setTimeout(() => alertContainer.innerHTML = '', 150);
+            setTimeout(() => alertContainer.innerHTML = '', ALERT_FADE_MS);
         }
-    }, 3000);
+    }, ALERT_AUTO_DISMISS_MS);
 }
 
 function refreshFeatures() {
