@@ -3029,11 +3029,17 @@ def api_word_of_day():
 def api_popular_games():
     """API endpoint to get popular games ranked by play count."""
     try:
-        conn = get_db_connection()
+        conn = db_helpers.get_db_connection()
         if not conn:
             return jsonify({'error': 'Database not available'}), 500
         
         cursor = conn.cursor(dictionary=True)
+        
+        # Whitelist of allowed tables to prevent SQL injection
+        ALLOWED_TABLES = {
+            'casino_games', 'wordle_games', 'word_find_attempts', 
+            'detective_games', 'werwolf_game_history'
+        }
         
         # Define games with their icons and query sources
         games = [
@@ -3051,6 +3057,10 @@ def api_popular_games():
         popular = []
         for game in games:
             try:
+                # Validate table name against whitelist to prevent SQL injection
+                if game['table'] not in ALLOWED_TABLES:
+                    continue
+                
                 if game['game_type']:
                     cursor.execute(f"SELECT COUNT(*) as count FROM {game['table']} WHERE game_type = %s", (game['game_type'],))
                 else:

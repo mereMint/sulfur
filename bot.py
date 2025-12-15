@@ -1294,6 +1294,10 @@ async def before_update_presence_task():
 last_autonomous_dm_user_id = None
 last_autonomous_channel_id = None  # Track last used text channel for autonomous messaging
 
+# Constants for autonomous messaging
+AUTONOMOUS_MESSAGE_CHANCE = 0.10  # 10% chance per minute when very bored
+BOREDOM_THRESHOLD = 0.8  # Boredom level that triggers autonomous messaging consideration
+
 # --- NEW: Boredom and Autonomous Messaging Task ---
 @_tasks.loop(minutes=1)
 async def boredom_update_task():
@@ -1307,10 +1311,10 @@ async def boredom_update_task():
         boredom = bot_mind.bot_mind.boredom_level
         logger.debug(f"[Boredom] Current boredom level: {boredom:.2f}")
         
-        # If very bored (> 0.8), consider autonomous action
-        if boredom > 0.8:
-            # Only trigger autonomous message randomly (10% chance per minute when very bored)
-            if random.random() < 0.10:
+        # If very bored, consider autonomous action
+        if boredom > BOREDOM_THRESHOLD:
+            # Only trigger autonomous message randomly
+            if random.random() < AUTONOMOUS_MESSAGE_CHANCE:
                 await trigger_autonomous_message()
     except Exception as e:
         logger.error(f"Error in boredom update task: {e}", exc_info=True)
@@ -1343,13 +1347,18 @@ async def trigger_autonomous_message():
             eligible_users = []
             for guild in client.guilds:
                 for member in guild.members:
-                    if member.bot or member.id == last_autonomous_dm_user_id:
+                    if member.bot:
                         continue
                     if member.status != discord.Status.offline:
                         # Check if user allows autonomous messages
                         settings = await autonomous_behavior.get_user_autonomous_settings(member.id)
                         if settings.get('allow_messages', True):
                             eligible_users.append(member)
+            
+            # Filter out last DMed user to avoid repetition, but if no others available, allow it
+            non_repeat_users = [u for u in eligible_users if u.id != last_autonomous_dm_user_id]
+            if non_repeat_users:
+                eligible_users = non_repeat_users
             
             if eligible_users:
                 chosen_user = random.choice(eligible_users)
