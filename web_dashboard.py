@@ -4035,7 +4035,9 @@ def api_user_profile(user_id):
                     COALESCE(p.level, 0) as level,
                     COALESCE(p.xp, 0) as xp,
                     COALESCE(p.balance, 0) as coins,
-                    p.last_seen
+                    p.last_seen,
+                    p.game_history,
+                    p.last_activity_name
                 FROM players p
                 WHERE p.discord_id = %s
             """, params=(user_id,))
@@ -4188,6 +4190,17 @@ def api_user_profile(user_id):
             """, params=(user_id,), fetch_all=True)
             
             # Format response
+            # Parse game_history JSON if available
+            activity_history = None
+            if user_info.get('game_history'):
+                try:
+                    if isinstance(user_info['game_history'], str):
+                        activity_history = json.loads(user_info['game_history'])
+                    else:
+                        activity_history = user_info['game_history']
+                except (json.JSONDecodeError, TypeError):
+                    activity_history = {}
+            
             user_profile = {
                 'user_id': user_info.get('user_id'),
                 'display_name': user_info.get('display_name', 'Unknown'),
@@ -4198,6 +4211,8 @@ def api_user_profile(user_id):
                 'xp': int(user_info.get('xp', 0) or 0),
                 'coins': int(user_info.get('coins', 0) or 0),
                 'last_seen': str(user_info.get('last_seen', '')) if user_info.get('last_seen') else None,
+                'last_activity_name': user_info.get('last_activity_name'),
+                'activity_history': activity_history,
                 'message_count': int(stats_info.get('message_count', 0) or 0) if stats_info else 0,
                 'vc_minutes': int(stats_info.get('vc_minutes', 0) or 0) if stats_info else 0,
                 'songs_played': int(songs_played.get('count', 0) or 0) if songs_played else 0,

@@ -1295,14 +1295,16 @@ last_autonomous_dm_user_id = None
 last_autonomous_channel_id = None  # Track last used text channel for autonomous messaging
 
 # Constants for autonomous messaging
-AUTONOMOUS_MESSAGE_CHANCE = 0.15  # 15% chance per minute when bored
-BOREDOM_THRESHOLD = 0.5  # Lower threshold for autonomous messaging (was 0.8)
+AUTONOMOUS_MESSAGE_CHANCE = 0.5  # 50% chance when triggered (but only triggered every 2 hours)
+BOREDOM_THRESHOLD = 0.8  # Higher threshold - only message when really bored
+AUTONOMOUS_COOLDOWN_HOURS = 2  # Only send autonomous messages every 2 hours minimum
+_last_autonomous_message_time = None  # Track when we last sent an autonomous message
 
 # --- NEW: Boredom and Autonomous Messaging Task ---
-@_tasks.loop(minutes=1)
+@_tasks.loop(minutes=30)  # Check every 30 minutes, but cooldown enforces 2 hour gap
 async def boredom_update_task():
     """Update bot's boredom level and potentially trigger autonomous messaging when very bored."""
-    global last_autonomous_dm_user_id, last_autonomous_channel_id
+    global last_autonomous_dm_user_id, last_autonomous_channel_id, _last_autonomous_message_time
     
     try:
         # Update boredom over time
@@ -1311,11 +1313,20 @@ async def boredom_update_task():
         boredom = bot_mind.bot_mind.boredom_level
         logger.debug(f"[Boredom] Current boredom level: {boredom:.2f}")
         
+        # Check cooldown - only send autonomous messages every 2 hours
+        now = datetime.now(timezone.utc)
+        if _last_autonomous_message_time:
+            time_since_last = (now - _last_autonomous_message_time).total_seconds() / 3600
+            if time_since_last < AUTONOMOUS_COOLDOWN_HOURS:
+                logger.debug(f"[Boredom] Cooldown active, {AUTONOMOUS_COOLDOWN_HOURS - time_since_last:.1f}h remaining")
+                return
+        
         # If very bored, consider autonomous action
         if boredom > BOREDOM_THRESHOLD:
             # Only trigger autonomous message randomly
             if random.random() < AUTONOMOUS_MESSAGE_CHANCE:
                 await trigger_autonomous_message()
+                _last_autonomous_message_time = now
     except Exception as e:
         logger.error(f"Error in boredom update task: {e}", exc_info=True)
 
@@ -1325,16 +1336,17 @@ async def trigger_autonomous_message():
     global last_autonomous_dm_user_id, last_autonomous_channel_id
     
     try:
-        # Generate a bored thought
+        # Generate a bored thought - using only text, no standard Discord emojis
+        # Application emojis will be added by the server if available
         bored_thoughts = [
-            "Mir ist langweilig... :yawning_face:",
-            "Ist hier jemand? Ich fühl mich einsam :pensive:",
+            "Mir ist langweilig...",
+            "Ist hier jemand?",
             "Digga, hier ist nichts los... was macht ihr so?",
-            "Langweile mich hier zu Tode :skull:",
-            "Hey, will jemand was machen? Mir ist mega langweilig",
-            "Alter, warum redet keiner mit mir? :cry:",
+            "Hey, will jemand was machen?",
             "*gähnt* Es ist so still hier...",
             "Ich könnte ein Spiel gebrauchen. Jemand Lust auf Detective oder Wordfind?",
+            "Langeweile...",
+            "Was geht so?",
         ]
         
         message_content = random.choice(bored_thoughts)

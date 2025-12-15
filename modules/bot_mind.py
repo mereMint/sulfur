@@ -398,7 +398,7 @@ async def generate_random_thought(
             "Ob ich einfach mal jemanden anschreibe?",
             "Langsam werde ich unruhig hier...",
             "Ich könnte ein Spiel gebrauchen!",
-            "Hat mich jemand vergessen? 😢",
+            "Hat mich jemand vergessen?",
         ])
     elif mood == Mood.CURIOUS:
         thoughts.extend([
