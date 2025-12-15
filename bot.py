@@ -125,6 +125,7 @@ from modules import lofi_player  # NEW: Lofi music player
 from modules import personality_evolution  # NEW: Personality evolution and learning system
 from modules import advanced_ai  # NEW: Advanced AI reasoning and intelligence
 from modules import bot_mind  # Bot consciousness and mood system
+from modules import autonomous_behavior  # Autonomous behavior features
 from modules.bot_enhancements import (
     handle_image_attachment,
     handle_unknown_emojis_in_message,
@@ -4126,7 +4127,7 @@ class AdminAIGroup(app_commands.Group):
             # Current Thought
             embed.add_field(
                 name="💭 Current Thought",
-                value=f"_{mind_state['current_thought']}_",
+                value=f"_{mind_state.get('current_thought', 'Nichts Besonderes...')}_",
                 inline=False
             )
             
@@ -15841,29 +15842,29 @@ class MusicStationSelect(discord.ui.Select):
 
 
 
-class AddMusicModal(discord.ui.Modal, title='🎵 Song oder Album hinzufügen'):
-    """Enhanced modal for adding songs or albums to the queue."""
+class AddMusicModal(discord.ui.Modal, title='🎵 Song/Album/Podcast/Hörbuch'):
+    """Enhanced modal for adding songs, albums, podcasts, or audiobooks to the queue."""
     
     music_type = discord.ui.TextInput(
-        label='Typ (song/album)',
-        placeholder='song oder album',
+        label='Typ (song/album/podcast/audiobook)',
+        placeholder='song, album, podcast, oder audiobook',
         style=discord.TextStyle.short,
         required=True,
-        max_length=10,
+        max_length=15,
         default='song'
     )
     
     query = discord.ui.TextInput(
         label='Name oder URL',
-        placeholder='z.B. "Artist - Song" oder "Album Name"',
+        placeholder='z.B. "Artist - Song" oder "Podcast Name"',
         style=discord.TextStyle.short,
         required=True,
         max_length=200
     )
     
     artist = discord.ui.TextInput(
-        label='Artist (optional, für Album empfohlen)',
-        placeholder='Künstlername',
+        label='Artist/Sprache (optional)',
+        placeholder='Künstlername / german oder english',
         style=discord.TextStyle.short,
         required=False,
         max_length=100
@@ -15971,6 +15972,120 @@ class AddMusicModal(discord.ui.Modal, title='🎵 Song oder Album hinzufügen'):
                         )
                         await interaction.edit_original_response(embed=embed)
             
+            # Handle podcast
+            elif music_type_input == 'podcast':
+                # Search for podcast
+                podcasts = await lofi_player.search_podcast(query_input, count=5)
+                
+                if not podcasts:
+                    embed = discord.Embed(
+                        title="❌ Podcast nicht gefunden",
+                        description=f"Konnte keinen Podcast für '{query_input}' finden!",
+                        color=discord.Color.red()
+                    )
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+                    return
+                
+                # Play first result
+                first_podcast = podcasts[0]
+                
+                # If no queue, start playing
+                if lofi_player.get_queue_length(guild_id) == 0:
+                    success = await lofi_player.play_podcast(
+                        voice_client,
+                        first_podcast,
+                        guild_id,
+                        volume=1.0,
+                        user_id=interaction.user.id
+                    )
+                    
+                    if success:
+                        embed = discord.Embed(
+                            title="🎙️ Podcast wird abgespielt!",
+                            description=f"**{first_podcast.get('title', 'Unknown')}**",
+                            color=discord.Color.green()
+                        )
+                        await interaction.followup.send(embed=embed, ephemeral=True)
+                    else:
+                        embed = discord.Embed(
+                            title="❌ Fehler",
+                            description="Podcast konnte nicht abgespielt werden!",
+                            color=discord.Color.red()
+                        )
+                        await interaction.followup.send(embed=embed, ephemeral=True)
+                else:
+                    # Add to queue
+                    queue_pos = await lofi_player.add_podcast_to_queue(guild_id, first_podcast)
+                    
+                    embed = discord.Embed(
+                        title="✅ Podcast zur Queue hinzugefügt",
+                        description=f"**{first_podcast.get('title', 'Unknown')}**\n*Position: {queue_pos}*",
+                        color=discord.Color.green()
+                    )
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+            
+            # Handle audiobook/hörbuch
+            elif music_type_input in ['audiobook', 'hörbuch', 'hoerbuch']:
+                # Determine language from artist field (default to german)
+                language = "german"
+                if artist_input and artist_input.lower() in ['en', 'english', 'englisch']:
+                    language = "english"
+                
+                # Search for audiobook
+                audiobooks = await lofi_player.search_audiobook(query_input, language, count=5)
+                
+                if not audiobooks:
+                    embed = discord.Embed(
+                        title="❌ Hörbuch nicht gefunden",
+                        description=f"Konnte kein Hörbuch für '{query_input}' finden!",
+                        color=discord.Color.red()
+                    )
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+                    return
+                
+                # Play first result
+                first_audiobook = audiobooks[0]
+                
+                # If no queue, start playing
+                if lofi_player.get_queue_length(guild_id) == 0:
+                    success = await lofi_player.play_audiobook(
+                        voice_client,
+                        first_audiobook,
+                        guild_id,
+                        volume=1.0,
+                        user_id=interaction.user.id
+                    )
+                    
+                    if success:
+                        embed = discord.Embed(
+                            title="📚 Hörbuch wird abgespielt!",
+                            description=f"**{first_audiobook.get('title', 'Unknown')}**",
+                            color=discord.Color.green()
+                        )
+                        embed.add_field(
+                            name="🌐 Sprache",
+                            value="🇩🇪 Deutsch" if language == "german" else "🇬🇧 English",
+                            inline=True
+                        )
+                        await interaction.followup.send(embed=embed, ephemeral=True)
+                    else:
+                        embed = discord.Embed(
+                            title="❌ Fehler",
+                            description="Hörbuch konnte nicht abgespielt werden!",
+                            color=discord.Color.red()
+                        )
+                        await interaction.followup.send(embed=embed, ephemeral=True)
+                else:
+                    # Add to queue
+                    queue_pos = await lofi_player.add_audiobook_to_queue(guild_id, first_audiobook)
+                    
+                    embed = discord.Embed(
+                        title="✅ Hörbuch zur Queue hinzugefügt",
+                        description=f"**{first_audiobook.get('title', 'Unknown')}**\n*Position: {queue_pos}*",
+                        color=discord.Color.green()
+                    )
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+            
             # Handle song (default)
             else:
                 # Parse song query
@@ -16062,25 +16177,25 @@ class PlayNowModal(discord.ui.Modal, title='⏯️ Jetzt abspielen'):
     """Modal for playing a song immediately, bypassing the queue."""
     
     music_type = discord.ui.TextInput(
-        label='Typ (song/album)',
-        placeholder='song oder album',
+        label='Typ (song/album/podcast/audiobook)',
+        placeholder='song, album, podcast, oder audiobook',
         style=discord.TextStyle.short,
         required=True,
-        max_length=10,
+        max_length=15,
         default='song'
     )
     
     query = discord.ui.TextInput(
         label='Name oder URL',
-        placeholder='z.B. "Artist - Song" oder "Album Name"',
+        placeholder='z.B. "Artist - Song" oder "Podcast Name"',
         style=discord.TextStyle.short,
         required=True,
         max_length=200
     )
     
     artist = discord.ui.TextInput(
-        label='Artist (optional, für Album empfohlen)',
-        placeholder='Künstlername',
+        label='Artist/Sprache (optional)',
+        placeholder='Künstlername / german oder english',
         style=discord.TextStyle.short,
         required=False,
         max_length=100
@@ -16160,6 +16275,94 @@ class PlayNowModal(discord.ui.Modal, title='⏯️ Jetzt abspielen'):
                         color=discord.Color.red()
                     )
                     await interaction.edit_original_response(embed=embed)
+            
+            # Handle podcast
+            elif music_type_input == 'podcast':
+                # Search for podcast
+                podcasts = await lofi_player.search_podcast(query_input, count=5)
+                
+                if not podcasts:
+                    embed = discord.Embed(
+                        title="❌ Podcast nicht gefunden",
+                        description=f"Konnte keinen Podcast für '{query_input}' finden!",
+                        color=discord.Color.red()
+                    )
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+                    return
+                
+                # Play first result immediately
+                first_podcast = podcasts[0]
+                success = await lofi_player.play_podcast(
+                    voice_client,
+                    first_podcast,
+                    guild_id,
+                    volume=1.0,
+                    user_id=interaction.user.id
+                )
+                
+                if success:
+                    embed = discord.Embed(
+                        title="🎙️ Podcast wird abgespielt!",
+                        description=f"**{first_podcast.get('title', 'Unknown')}**",
+                        color=discord.Color.green()
+                    )
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+                else:
+                    embed = discord.Embed(
+                        title="❌ Fehler",
+                        description="Podcast konnte nicht abgespielt werden!",
+                        color=discord.Color.red()
+                    )
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+            
+            # Handle audiobook/hörbuch
+            elif music_type_input in ['audiobook', 'hörbuch', 'hoerbuch']:
+                # Determine language from artist field (default to german)
+                language = "german"
+                if artist_input and artist_input.lower() in ['en', 'english', 'englisch']:
+                    language = "english"
+                
+                # Search for audiobook
+                audiobooks = await lofi_player.search_audiobook(query_input, language, count=5)
+                
+                if not audiobooks:
+                    embed = discord.Embed(
+                        title="❌ Hörbuch nicht gefunden",
+                        description=f"Konnte kein Hörbuch für '{query_input}' finden!",
+                        color=discord.Color.red()
+                    )
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+                    return
+                
+                # Play first result immediately
+                first_audiobook = audiobooks[0]
+                success = await lofi_player.play_audiobook(
+                    voice_client,
+                    first_audiobook,
+                    guild_id,
+                    volume=1.0,
+                    user_id=interaction.user.id
+                )
+                
+                if success:
+                    embed = discord.Embed(
+                        title="📚 Hörbuch wird abgespielt!",
+                        description=f"**{first_audiobook.get('title', 'Unknown')}**",
+                        color=discord.Color.green()
+                    )
+                    embed.add_field(
+                        name="🌐 Sprache",
+                        value="🇩🇪 Deutsch" if language == "german" else "🇬🇧 English",
+                        inline=True
+                    )
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+                else:
+                    embed = discord.Embed(
+                        title="❌ Fehler",
+                        description="Hörbuch konnte nicht abgespielt werden!",
+                        color=discord.Color.red()
+                    )
+                    await interaction.followup.send(embed=embed, ephemeral=True)
             
             # Handle song (default)
             else:
@@ -17233,6 +17436,198 @@ async def podcast_command(
             color=discord.Color.red()
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+@tree.command(name="audiobook", description="📚 Suche und höre Hörbücher (Deutsch/Englisch)")
+@app_commands.describe(
+    query="Name des Hörbuchs oder Thema",
+    language="Sprache des Hörbuchs",
+    category="Hörbuch-Kategorie (optional)"
+)
+@app_commands.choices(language=[
+    app_commands.Choice(name="🇩🇪 Deutsch", value="german"),
+    app_commands.Choice(name="🇬🇧 Englisch", value="english")
+])
+@app_commands.choices(category=[
+    app_commands.Choice(name="🔍 Krimi / Mystery", value="krimi"),
+    app_commands.Choice(name="🐉 Fantasy", value="fantasy"),
+    app_commands.Choice(name="🚀 Science Fiction", value="scifi"),
+    app_commands.Choice(name="📖 Klassiker", value="klassiker"),
+    app_commands.Choice(name="😱 Thriller / Horror", value="thriller"),
+    app_commands.Choice(name="🧸 Kinder", value="kinder")
+])
+async def audiobook_command(
+    interaction: discord.Interaction,
+    query: str = None,
+    language: app_commands.Choice[str] = None,
+    category: app_commands.Choice[str] = None
+):
+    """Search and play audiobooks."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        # Check if user is in voice channel
+        if not interaction.user.voice or not interaction.user.voice.channel:
+            embed = discord.Embed(
+                title="❌ Nicht im Sprachkanal",
+                description="Du musst in einem Sprachkanal sein, um Hörbücher zu hören!",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        voice_channel = interaction.user.voice.channel
+        guild_id = interaction.guild.id
+        
+        # Get language setting
+        lang = language.value if language else "german"
+        
+        # Connect to voice if not already
+        voice_client = interaction.guild.voice_client
+        if not voice_client:
+            voice_client = await lofi_player.join_voice_channel(voice_channel)
+            if not voice_client:
+                embed = discord.Embed(
+                    title="❌ Verbindungsfehler",
+                    description="Konnte dem Sprachkanal nicht beitreten!",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+        
+        # If category is specified without query, show category audiobooks
+        if category and not query:
+            # Map category to correct language-specific key
+            category_map = {
+                "krimi": {"german": "krimi", "english": "mystery"},
+                "fantasy": {"german": "fantasy", "english": "fantasy"},
+                "scifi": {"german": "scifi", "english": "scifi"},
+                "klassiker": {"german": "klassiker", "english": "classics"},
+                "thriller": {"german": "thriller", "english": "thriller"},
+                "kinder": {"german": "kinder", "english": "children"}
+            }
+            
+            cat_key = category_map.get(category.value, {}).get(lang, category.value)
+            category_audiobooks = lofi_player.get_audiobooks_by_category(cat_key, lang)
+            
+            if not category_audiobooks:
+                embed = discord.Embed(
+                    title=f"📚 Hörbuch-Kategorie: {category.name}",
+                    description="Keine Hörbücher in dieser Kategorie gefunden.",
+                    color=discord.Color.orange()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+            
+            # Search for an audiobook in this category
+            search_audiobook = category_audiobooks[0]
+            audiobooks = await lofi_player.search_audiobook(
+                search_audiobook['url'].replace('ytsearch:', ''),
+                lang,
+                count=5
+            )
+        elif query:
+            # Search for audiobook
+            audiobooks = await lofi_player.search_audiobook(query, lang, count=5)
+        else:
+            # Show category list
+            embed = discord.Embed(
+                title="📚 Hörbuch-Kategorien",
+                description="Wähle eine Kategorie oder suche nach einem bestimmten Hörbuch!",
+                color=discord.Color.blue()
+            )
+            
+            categories_de = lofi_player.get_audiobook_categories("german")
+            categories_en = lofi_player.get_audiobook_categories("english")
+            
+            embed.add_field(
+                name="🇩🇪 Deutsche Kategorien",
+                value=", ".join(categories_de) if categories_de else "Keine",
+                inline=False
+            )
+            embed.add_field(
+                name="🇬🇧 English Categories",
+                value=", ".join(categories_en) if categories_en else "None",
+                inline=False
+            )
+            
+            embed.set_footer(text="Nutze /audiobook <suche> oder /audiobook category:<kategorie>")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        if not audiobooks:
+            embed = discord.Embed(
+                title="❌ Keine Hörbücher gefunden",
+                description=f"Keine Hörbücher für '{query}' gefunden. Versuche einen anderen Suchbegriff!",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        # Play first result
+        first_audiobook = audiobooks[0]
+        success = await lofi_player.play_audiobook(
+            voice_client,
+            first_audiobook,
+            guild_id,
+            volume=1.0,
+            user_id=interaction.user.id
+        )
+        
+        if success:
+            current_audiobook = lofi_player.get_current_song(guild_id)
+            
+            embed = discord.Embed(
+                title="📚 Hörbuch wird abgespielt!",
+                color=discord.Color.green()
+            )
+            
+            if current_audiobook:
+                duration_str = current_audiobook.get('duration_str', 'Unbekannt')
+                embed.add_field(
+                    name="📖 Hörbuch",
+                    value=f"**{current_audiobook.get('title', 'Unbekannt')}**\n*{current_audiobook.get('artist', current_audiobook.get('channel', 'Unbekannt'))}*",
+                    inline=False
+                )
+                embed.add_field(
+                    name="⏱️ Dauer",
+                    value=duration_str,
+                    inline=True
+                )
+                embed.add_field(
+                    name="🌐 Sprache",
+                    value="🇩🇪 Deutsch" if lang == "german" else "🇬🇧 English",
+                    inline=True
+                )
+            
+            # Show other results as suggestions
+            if len(audiobooks) > 1:
+                suggestions = "\n".join([f"• {ab['title'][:50]}" for ab in audiobooks[1:4]])
+                embed.add_field(
+                    name="📋 Weitere Ergebnisse",
+                    value=suggestions,
+                    inline=False
+                )
+            
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        else:
+            embed = discord.Embed(
+                title="❌ Fehler",
+                description="Hörbuch konnte nicht abgespielt werden!",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error in audiobook command: {e}", exc_info=True)
+        embed = discord.Embed(
+            title="❌ Fehler",
+            description=f"Es ist ein Fehler aufgetreten: {str(e)}",
+            color=discord.Color.red()
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+
 # Users can add albums by using the "Add Song" button and selecting "album" as the type
 # @tree.command(name="album", description="📀 Füge ein Album zur Warteschlange hinzu")
 # @app_commands.describe(
