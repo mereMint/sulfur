@@ -125,6 +125,19 @@
                 <p class="mb-0"><small class="text-muted">Lines:</small> <span id="total-lines" class="matrix-text">0</span></p>
             </div>
         </div>
+        
+        <!-- Cleanup Controls -->
+        <div class="card mt-3">
+            <div class="card-header">
+                <span><i class="bi bi-trash"></i> CLEANUP</span>
+            </div>
+            <div class="card-body">
+                <p class="small text-muted mb-2">Delete logs older than 72 hours</p>
+                <button class="btn btn-sm btn-danger w-100" onclick="cleanupOldLogs()">
+                    <i class="bi bi-trash"></i> Cleanup Old Logs
+                </button>
+            </div>
+        </div>
     </div>
     
     <!-- Log Content -->
@@ -132,11 +145,17 @@
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span><i class="bi bi-terminal"></i> LOG_CONTENT</span>
-                <div class="d-flex gap-2">
+                <div class="d-flex gap-2 flex-wrap">
+                    <select class="form-select form-select-sm" id="filter-select" style="width: auto;" onchange="loadSelectedFile()">
+                        <option value="all">All Logs</option>
+                        <option value="errors_warnings">⚠️ Errors & Warnings</option>
+                        <option value="errors">❌ Errors Only</option>
+                        <option value="warnings">⚡ Warnings Only</option>
+                    </select>
                     <select class="form-select form-select-sm" id="lines-select" style="width: auto;" onchange="loadSelectedFile()">
                         <option value="100">Last 100 lines</option>
-                        <option value="500">Last 500 lines</option>
-                        <option value="1000" selected>Last 1000 lines</option>
+                        <option value="500" selected>Last 500 lines</option>
+                        <option value="1000">Last 1000 lines</option>
                         <option value="2000">Last 2000 lines</option>
                         <option value="5000">All (max 5000)</option>
                     </select>
@@ -146,6 +165,9 @@
                 </div>
             </div>
             <div class="card-body p-0">
+                <div id="filter-info" class="p-2 bg-dark text-muted small" style="display: none;">
+                    <i class="bi bi-filter"></i> Showing <span id="filtered-count">0</span> filtered lines
+                </div>
                 <div class="log-content" id="log-content">
                     <span class="text-muted">Select a log file from the list to view its contents...</span>
                 </div>
@@ -233,12 +255,23 @@
         if (!currentFile) return;
         
         const lines = document.getElementById('lines-select').value;
+        const filterLevel = document.getElementById('filter-select').value;
         const content = document.getElementById('log-content');
+        const filterInfo = document.getElementById('filter-info');
         
         content.innerHTML = '<span class="text-muted">Loading...</span>';
         
         try {
-            const response = await fetch(`/api/logs/content/${currentFile}?lines=${lines}`);
+            // Use filtered endpoint if filter is not 'all'
+            let url;
+            if (filterLevel === 'all') {
+                url = `/api/logs/content/${currentFile}?lines=${lines}`;
+                filterInfo.style.display = 'none';
+            } else {
+                url = `/api/logs/filtered/${currentFile}?lines=${lines}&level=${filterLevel}`;
+            }
+            
+            const response = await fetch(url);
             const data = await response.json();
             
             if (data.status === 'success') {
@@ -258,6 +291,14 @@
                 content.innerHTML = logContent || '<span class="text-muted">Log file is empty</span>';
                 document.getElementById('total-lines').textContent = data.total_lines;
                 
+                // Show filter info if filtering
+                if (filterLevel !== 'all' && data.filtered_lines !== undefined) {
+                    filterInfo.style.display = 'block';
+                    document.getElementById('filtered-count').textContent = data.filtered_lines;
+                } else {
+                    filterInfo.style.display = 'none';
+                }
+                
                 // Scroll to bottom
                 content.scrollTop = content.scrollHeight;
             } else {
@@ -266,6 +307,32 @@
         } catch (error) {
             console.error('Error loading log content:', error);
             content.innerHTML = '<span class="text-danger">Error loading log content</span>';
+        }
+    }
+    
+    async function cleanupOldLogs() {
+        if (!confirm('Are you sure you want to delete log files older than 72 hours?')) {
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/logs/cleanup', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({hours: 72})
+            });
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                showToast(data.message, 'info');
+                // Refresh file list
+                loadFileList();
+            } else {
+                showToast('Error: ' + data.message, 'error');
+            }
+        } catch (error) {
+            console.error('Error cleaning up logs:', error);
+            showToast('Error cleaning up logs', 'error');
         }
     }
     

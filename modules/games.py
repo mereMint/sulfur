@@ -623,3 +623,206 @@ class TowerOfTreasureGame:
             embed.set_footer(text=f"Wähle eine Säule (1-4) • {safe_count} sichere Säule(n)")
         
         return embed
+
+
+# --- Slots Game ---
+
+class SlotsGame:
+    """Handles a Slots game instance with animated visuals."""
+    
+    # Slot symbols with their weights (lower = rarer) and multipliers
+    SYMBOLS = [
+        {'emoji': '🍒', 'name': 'cherry', 'weight': 30, 'value': 1},
+        {'emoji': '🍋', 'name': 'lemon', 'weight': 25, 'value': 1.5},
+        {'emoji': '🍊', 'name': 'orange', 'weight': 20, 'value': 2},
+        {'emoji': '🍇', 'name': 'grapes', 'weight': 15, 'value': 2.5},
+        {'emoji': '🍉', 'name': 'watermelon', 'weight': 10, 'value': 3},
+        {'emoji': '⭐', 'name': 'star', 'weight': 7, 'value': 5},
+        {'emoji': '💎', 'name': 'diamond', 'weight': 4, 'value': 10},
+        {'emoji': '7️⃣', 'name': 'seven', 'weight': 2, 'value': 25},
+        {'emoji': '👑', 'name': 'crown', 'weight': 1, 'value': 50},
+    ]
+    
+    # Special combinations
+    SPECIAL_COMBOS = {
+        'BAR': {'pattern': ['🍒', '🍒', '🍒'], 'multiplier': 3, 'name': 'Cherry Triple'},
+        'LUCKY': {'pattern': ['7️⃣', '7️⃣', '7️⃣'], 'multiplier': 77, 'name': 'Lucky Sevens'},
+        'JACKPOT': {'pattern': ['👑', '👑', '👑'], 'multiplier': 150, 'name': 'JACKPOT!'},
+    }
+    
+    def __init__(self, player_id: int, bet: int):
+        self.player_id = player_id
+        self.bet = bet
+        self.reels = [None, None, None]
+        self.is_active = True
+        self.result = None
+        self.winnings = 0
+        self.spin_count = 0
+        self.animation_frames = []
+    
+    def _weighted_random_symbol(self):
+        """Selects a random symbol based on weights."""
+        total_weight = sum(s['weight'] for s in self.SYMBOLS)
+        r = random.randint(0, total_weight - 1)
+        cumulative = 0
+        for symbol in self.SYMBOLS:
+            cumulative += symbol['weight']
+            if r < cumulative:
+                return symbol
+        return self.SYMBOLS[-1]  # Fallback to last symbol
+    
+    def spin(self):
+        """Spins the slot machine and determines outcome."""
+        if not self.is_active:
+            return False
+        
+        # Generate animation frames (for visual effect)
+        self.animation_frames = []
+        for frame in range(5):  # 5 animation frames
+            frame_reels = [
+                self._weighted_random_symbol()['emoji'] for _ in range(3)
+            ]
+            self.animation_frames.append(frame_reels)
+        
+        # Final result
+        self.reels = [self._weighted_random_symbol() for _ in range(3)]
+        self.spin_count += 1
+        self.is_active = False
+        
+        # Calculate winnings
+        self.winnings = self._calculate_winnings()
+        return True
+    
+    def _calculate_winnings(self):
+        """Calculate winnings based on the final reel positions."""
+        if not self.reels or any(r is None for r in self.reels):
+            return 0
+        
+        emojis = [r['emoji'] for r in self.reels]
+        
+        # Check for special combos first
+        for combo_name, combo_data in self.SPECIAL_COMBOS.items():
+            if emojis == combo_data['pattern']:
+                self.result = combo_data['name']
+                return int(self.bet * combo_data['multiplier'])
+        
+        # Check for three of a kind
+        if emojis[0] == emojis[1] == emojis[2]:
+            symbol = self.reels[0]
+            self.result = f"Three {symbol['name'].title()}s!"
+            return int(self.bet * symbol['value'] * 10)
+        
+        # Check for two of a kind
+        if emojis[0] == emojis[1]:
+            symbol = self.reels[0]
+            self.result = f"Two {symbol['name'].title()}s!"
+            return int(self.bet * symbol['value'] * 2)
+        elif emojis[1] == emojis[2]:
+            symbol = self.reels[1]
+            self.result = f"Two {symbol['name'].title()}s!"
+            return int(self.bet * symbol['value'] * 2)
+        elif emojis[0] == emojis[2]:
+            symbol = self.reels[0]
+            self.result = f"Two {symbol['name'].title()}s!"
+            return int(self.bet * symbol['value'] * 1.5)
+        
+        # Check for any valuable symbol
+        for symbol in self.reels:
+            if symbol['value'] >= 5:
+                self.result = f"One {symbol['name'].title()}!"
+                return int(self.bet * 0.5)
+        
+        # No win
+        self.result = "No win"
+        return 0
+    
+    def get_display_reels(self, frame: int = -1) -> str:
+        """Get the visual display of the reels."""
+        if frame >= 0 and frame < len(self.animation_frames):
+            # Animation frame
+            symbols = self.animation_frames[frame]
+        elif self.reels and all(r is not None for r in self.reels):
+            # Final result
+            symbols = [r['emoji'] for r in self.reels]
+        else:
+            # Default spinning state
+            symbols = ['❓', '❓', '❓']
+        
+        # Build the slot machine display
+        top_border = "╔═══════════════╗"
+        bottom_border = "╚═══════════════╝"
+        separator = "║───────────────║"
+        
+        # Create reel display with decorative borders
+        reel_display = f"║  {symbols[0]}  │  {symbols[1]}  │  {symbols[2]}  ║"
+        
+        return f"```\n{top_border}\n{separator}\n{reel_display}\n{separator}\n{bottom_border}\n```"
+    
+    def get_embed(self, embed_color=0x00ff41):
+        """Creates an embed for the current game state."""
+        embed = discord.Embed(
+            title="🎰 SLOT MACHINE",
+            description=self.get_display_reels(),
+            color=embed_color
+        )
+        
+        # Add bet info
+        embed.add_field(name="💰 Einsatz", value=f"{self.bet} 🪙", inline=True)
+        
+        if not self.is_active and self.reels:
+            # Game finished
+            if self.winnings > 0:
+                embed.add_field(name="🏆 Gewinn", value=f"{self.winnings} 🪙", inline=True)
+                profit = self.winnings - self.bet
+                embed.add_field(name="📈 Profit", value=f"+{profit} 🪙" if profit > 0 else f"{profit} 🪙", inline=True)
+                embed.color = 0x00ff00  # Green for win
+            else:
+                embed.add_field(name="❌ Verlust", value=f"-{self.bet} 🪙", inline=True)
+                embed.color = 0xff0000  # Red for loss
+            
+            if self.result:
+                embed.add_field(name="Ergebnis", value=self.result, inline=False)
+        else:
+            embed.add_field(name="Status", value="🎲 Bereit zum Drehen!", inline=True)
+        
+        embed.set_footer(text="Drücke 🎰 zum Drehen | Viel Glück!")
+        
+        return embed
+    
+    @staticmethod
+    def get_paytable_embed(embed_color=0x00ff41):
+        """Creates an embed showing the paytable."""
+        embed = discord.Embed(
+            title="🎰 Slot Machine - Auszahlungstabelle",
+            description="Gewinne basieren auf dem Einsatz:",
+            color=embed_color
+        )
+        
+        # Three of a kind
+        three_of_kind = "\n".join([
+            f"{s['emoji']}{s['emoji']}{s['emoji']} = **{s['value'] * 10}x**"
+            for s in SlotsGame.SYMBOLS[::-1]  # Reverse to show best first
+        ])
+        embed.add_field(name="🎯 Drei Gleiche", value=three_of_kind, inline=True)
+        
+        # Two of a kind  
+        two_of_kind = "\n".join([
+            f"{s['emoji']}{s['emoji']}⬜ = **{s['value'] * 2}x**"
+            for s in SlotsGame.SYMBOLS[-4:][::-1]  # Only show top 4
+        ])
+        embed.add_field(name="✌️ Zwei Gleiche", value=two_of_kind, inline=True)
+        
+        # Special combos
+        specials = "\n".join([
+            f"**{data['name']}**: {data['multiplier']}x"
+            for name, data in SlotsGame.SPECIAL_COMBOS.items()
+        ])
+        embed.add_field(name="⭐ Spezial", value=specials, inline=False)
+        
+        embed.set_footer(text="Alle Auszahlungen multipliziert mit deinem Einsatz!")
+        
+        return embed
+
+
+# Active games storage
+active_slots_games = {}

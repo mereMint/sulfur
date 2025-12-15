@@ -631,50 +631,18 @@ def api_get_config():
 def api_music_state():
     """
     API endpoint to get current music playback state for all guilds.
-    Used by dashboard to display "Now Playing" and queue information.
+    Uses database-backed state for cross-process sync with the bot.
     """
     try:
-        from modules import lofi_player
+        # Use database-backed music state for reliable cross-process sync
+        from modules.db_helpers import get_now_playing_all
         
-        music_state = {}
-        
-        for guild_id, session in lofi_player.active_sessions.items():
-            current_song = session.get('current_song')
-            queue = session.get('queue', [])
-            voice_client = session.get('voice_client')
-            
-            guild_state = {
-                'guild_id': guild_id,
-                'is_playing': voice_client.is_playing() if voice_client else False,
-                'is_paused': voice_client.is_paused() if voice_client else False,
-                'is_connected': voice_client.is_connected() if voice_client else False,
-                'channel_name': voice_client.channel.name if voice_client and voice_client.channel else None,
-                'current_song': None,
-                'queue_length': len(queue),
-                'queue_preview': []
-            }
-            
-            if current_song:
-                guild_state['current_song'] = {
-                    'title': current_song.get('title', 'Unknown'),
-                    'artist': current_song.get('artist', 'Unknown'),
-                    'url': current_song.get('url'),
-                    'source': current_song.get('source', 'bot')
-                }
-            
-            # Add queue preview (first 5 songs)
-            for song in queue[:5]:
-                guild_state['queue_preview'].append({
-                    'title': song.get('title', 'Unknown'),
-                    'artist': song.get('artist', 'Unknown')
-                })
-            
-            music_state[str(guild_id)] = guild_state
+        music_state = get_now_playing_all()
         
         return jsonify({
             'status': 'success',
             'data': music_state,
-            'active_sessions': len(lofi_player.active_sessions)
+            'active_sessions': len(music_state)
         })
     except Exception as e:
         logger.error(f"Error getting music state: {e}")
@@ -1715,6 +1683,108 @@ def api_log_content(filename):
         })
     except Exception as e:
         logger.error(f"Error reading log file {filename}: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/logs/cleanup', methods=['POST'])
+def api_logs_cleanup():
+    """API endpoint to delete log files older than specified hours."""
+    try:
+        hours = request.json.get('hours', 72) if request.json else 72
+        
+        if not os.path.exists(LOG_DIR):
+            return jsonify({'status': 'success', 'deleted': 0, 'message': 'No logs directory found'})
+        
+        cutoff_time = time.time() - (hours * 3600)
+        deleted_count = 0
+        deleted_files = []
+        
+        for f in os.listdir(LOG_DIR):
+            if f.endswith('.log'):
+                file_path = os.path.join(LOG_DIR, f)
+                try:
+                    stat = os.stat(file_path)
+                    if stat.st_mtime < cutoff_time:
+                        os.remove(file_path)
+                        deleted_count += 1
+                        deleted_files.append(f)
+                        logger.info(f"Deleted old log file: {f}")
+                except OSError as e:
+                    logger.warning(f"Could not delete log file {f}: {e}")
+        
+        return jsonify({
+            'status': 'success',
+            'deleted': deleted_count,
+            'deleted_files': deleted_files[:20],  # Only show first 20 for brevity
+            'message': f'Deleted {deleted_count} log files older than {hours} hours'
+        })
+    except Exception as e:
+        logger.error(f"Error cleaning up log files: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/logs/filtered/<filename>', methods=['GET'])
+def api_log_content_filtered(filename):
+    """API endpoint to get filtered log content (errors and warnings only)."""
+    try:
+        # Validate filename to prevent directory traversal attacks
+        # Only allow alphanumeric, underscore, hyphen followed by .log extension
+        if not re.match(r'^[a-zA-Z0-9_\-]+\.log$', filename):
+            return jsonify({'status': 'error', 'message': 'Invalid filename'}), 400
+        
+        file_path = os.path.join(LOG_DIR, filename)
+        
+        # Ensure the resolved path is still within LOG_DIR
+        real_path = os.path.realpath(file_path)
+        real_log_dir = os.path.realpath(LOG_DIR)
+        if not real_path.startswith(real_log_dir):
+            return jsonify({'status': 'error', 'message': 'Invalid file path'}), 400
+        
+        if not os.path.exists(file_path):
+            return jsonify({'status': 'error', 'message': 'File not found'}), 404
+        
+        # Get filter level (default: errors and warnings)
+        level = request.args.get('level', 'errors_warnings')  # Options: errors, warnings, errors_warnings, all
+        lines = request.args.get('lines', type=int, default=500)
+        lines = min(lines, 2000)
+        
+        # Define filter patterns based on level
+        if level == 'errors':
+            patterns = [r'\[ERROR\]', r'ERROR:', r'Error:', r'error:', r'Exception', r'Traceback']
+        elif level == 'warnings':
+            patterns = [r'\[WARNING\]', r'WARNING:', r'Warning:', r'warning:']
+        elif level == 'errors_warnings':
+            patterns = [r'\[ERROR\]', r'ERROR:', r'Error:', r'error:', r'Exception', r'Traceback',
+                       r'\[WARNING\]', r'WARNING:', r'Warning:', r'warning:']
+        else:
+            patterns = None  # No filter
+        
+        filtered_lines = []
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            all_lines = f.readlines()
+            
+            if patterns:
+                combined_pattern = '|'.join(patterns)
+                for line in all_lines:
+                    if re.search(combined_pattern, line, re.IGNORECASE):
+                        filtered_lines.append(line)
+            else:
+                filtered_lines = all_lines
+        
+        # Get last N lines
+        content = filtered_lines[-lines:] if len(filtered_lines) > lines else filtered_lines
+        
+        return jsonify({
+            'status': 'success',
+            'filename': filename,
+            'content': ''.join(content),
+            'total_lines': len(all_lines),
+            'filtered_lines': len(filtered_lines),
+            'lines_returned': len(content),
+            'filter_level': level
+        })
+    except Exception as e:
+        logger.error(f"Error reading filtered log file {filename}: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
@@ -3965,7 +4035,9 @@ def api_user_profile(user_id):
                     COALESCE(p.level, 0) as level,
                     COALESCE(p.xp, 0) as xp,
                     COALESCE(p.balance, 0) as coins,
-                    p.last_seen
+                    p.last_seen,
+                    p.game_history,
+                    p.last_activity_name
                 FROM players p
                 WHERE p.discord_id = %s
             """, params=(user_id,))
@@ -4118,6 +4190,17 @@ def api_user_profile(user_id):
             """, params=(user_id,), fetch_all=True)
             
             # Format response
+            # Parse game_history JSON if available
+            activity_history = None
+            if user_info.get('game_history'):
+                try:
+                    if isinstance(user_info['game_history'], str):
+                        activity_history = json.loads(user_info['game_history'])
+                    else:
+                        activity_history = user_info['game_history']
+                except (json.JSONDecodeError, TypeError):
+                    activity_history = {}
+            
             user_profile = {
                 'user_id': user_info.get('user_id'),
                 'display_name': user_info.get('display_name', 'Unknown'),
@@ -4128,6 +4211,8 @@ def api_user_profile(user_id):
                 'xp': int(user_info.get('xp', 0) or 0),
                 'coins': int(user_info.get('coins', 0) or 0),
                 'last_seen': str(user_info.get('last_seen', '')) if user_info.get('last_seen') else None,
+                'last_activity_name': user_info.get('last_activity_name'),
+                'activity_history': activity_history,
                 'message_count': int(stats_info.get('message_count', 0) or 0) if stats_info else 0,
                 'vc_minutes': int(stats_info.get('vc_minutes', 0) or 0) if stats_info else 0,
                 'songs_played': int(songs_played.get('count', 0) or 0) if songs_played else 0,
