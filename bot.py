@@ -13737,6 +13737,184 @@ async def anidle_info(interaction: discord.Interaction):
 tree.add_command(anidle_group)
 
 
+# --- Songle (Guess the Song) Game Commands ---
+
+from modules import songle
+
+songle_group = app_commands.Group(name="songle", description="Songle - Guess the Song Game")
+
+
+@songle_group.command(name="play", description="Start a new Songle game")
+async def songle_play(interaction: discord.Interaction):
+    """Start a new Songle game."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        user_id = interaction.user.id
+        
+        # Check if user already has an active game
+        if user_id in songle.active_songle_games:
+            game = songle.active_songle_games[user_id]
+            if game.is_active:
+                embed = game.create_embed()
+                await interaction.followup.send(
+                    "You have an active game! Use `/songle guess <song>` to continue.",
+                    embed=embed,
+                    ephemeral=True
+                )
+                return
+        
+        # Check if user can play daily
+        is_premium = await db_helpers.has_feature_unlock(user_id, 'songle_premium')
+        can_play, message = songle.can_play_daily(user_id, is_premium)
+        
+        if not can_play:
+            await interaction.followup.send(message, ephemeral=True)
+            return
+        
+        # Get daily song
+        target_song = songle.get_daily_song()
+        
+        # Create game
+        game = songle.SongleGame(user_id, target_song, is_premium)
+        songle.active_songle_games[user_id] = game
+        songle.record_daily_play(user_id)
+        
+        embed = game.create_embed()
+        embed.add_field(
+            name="How to Play",
+            value=(
+                "Listen to the audio clip and guess the song!\n"
+                "Each wrong guess reveals more hints.\n"
+                "Use `/songle guess <song name>` to make a guess."
+            ),
+            inline=False
+        )
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error in songle play command: {e}", exc_info=True)
+        await interaction.followup.send("An error occurred. Please try again.", ephemeral=True)
+
+
+@songle_group.command(name="guess", description="Make a guess in your Songle game")
+@app_commands.describe(song_name="The name of the song you want to guess")
+async def songle_guess(interaction: discord.Interaction, song_name: str):
+    """Make a guess in the Songle game."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        user_id = interaction.user.id
+        
+        # Check if user has an active game
+        if user_id not in songle.active_songle_games:
+            await interaction.followup.send(
+                "You don't have an active game. Use `/songle play` to start one!",
+                ephemeral=True
+            )
+            return
+        
+        game = songle.active_songle_games[user_id]
+        
+        if not game.is_active:
+            embed = game.create_embed()
+            await interaction.followup.send(
+                "Your game has ended. Use `/songle play` to start a new one!",
+                embed=embed,
+                ephemeral=True
+            )
+            del songle.active_songle_games[user_id]
+            return
+        
+        # Make the guess
+        result = game.check_guess(song_name)
+        
+        if 'error' in result:
+            await interaction.followup.send(result['error'], ephemeral=True)
+            return
+        
+        embed = game.create_embed(last_result=result)
+        
+        # Clean up if game ended
+        if not game.is_active:
+            del songle.active_songle_games[user_id]
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error in songle guess command: {e}", exc_info=True)
+        await interaction.followup.send("An error occurred. Please try again.", ephemeral=True)
+
+
+@songle_group.command(name="skip", description="Skip your current Songle game")
+async def songle_skip(interaction: discord.Interaction):
+    """Skip the current game."""
+    await interaction.response.defer(ephemeral=True)
+    
+    user_id = interaction.user.id
+    
+    if user_id not in songle.active_songle_games:
+        await interaction.followup.send(
+            "You don't have an active game.",
+            ephemeral=True
+        )
+        return
+    
+    game = songle.active_songle_games[user_id]
+    game.is_active = False
+    
+    embed = game.create_embed()
+    del songle.active_songle_games[user_id]
+    
+    await interaction.followup.send("Game skipped!", embed=embed, ephemeral=True)
+
+
+@songle_group.command(name="info", description="Learn how to play Songle")
+async def songle_info(interaction: discord.Interaction):
+    """Show game info."""
+    embed = discord.Embed(
+        title="Songle - How to Play",
+        description="Guess the daily song in 5 tries or less!",
+        color=0x00ff41
+    )
+    
+    embed.add_field(
+        name="How It Works",
+        value=(
+            "1. Start a game with `/songle play`\n"
+            "2. Listen to the audio clip (starts at 3 seconds)\n"
+            "3. Guess the song with `/songle guess <name>`\n"
+            "4. Wrong guesses give longer clips and more hints\n"
+            "5. Clip lengths: 3s, 5s, 10s, 20s, 40s"
+        ),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="Hints",
+        value=(
+            "Attempt 2: Year revealed\n"
+            "Attempt 3: Genre revealed\n"
+            "Attempt 4: Album revealed\n"
+            "Attempt 5: Artist initial revealed"
+        ),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="Daily Challenge",
+        value="Free users get 1 play per day. Premium users get unlimited plays!",
+        inline=False
+    )
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+# Register the songle command group
+tree.add_command(songle_group)
+
+
 class RussianRouletteView(discord.ui.View):
     """UI view for Russian Roulette game with Shoot and Cash Out buttons."""
     
