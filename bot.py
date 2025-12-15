@@ -1375,8 +1375,8 @@ async def trigger_autonomous_message():
             if eligible_users:
                 chosen_user = random.choice(eligible_users)
                 try:
-                    # Grant temporary DM access
-                    await autonomous_behavior.grant_temp_dm_access(chosen_user.id, 30)
+                    # Grant temporary DM access for 2 hours so user can respond
+                    await autonomous_behavior.grant_temp_dm_access(chosen_user.id, 120)
                     
                     dm_channel = await chosen_user.create_dm()
                     await dm_channel.send(message_content)
@@ -13544,6 +13544,123 @@ async def slots_command(interaction: discord.Interaction, bet: int):
 
 from modules import anidle
 
+
+class AnidleGuessModal(discord.ui.Modal, title="Guess the Anime"):
+    """Modal for entering anime guess."""
+    
+    anime_name = discord.ui.TextInput(
+        label="Anime Name",
+        placeholder="Enter the anime name...",
+        required=True,
+        max_length=200
+    )
+    
+    def __init__(self, game, view):
+        super().__init__()
+        self.game = game
+        self.parent_view = view
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            # Search for the anime
+            results = await anidle.search_anime(str(self.anime_name))
+            if not results:
+                await interaction.followup.send(
+                    f"Could not find anime matching '{self.anime_name}'. Try a different name!",
+                    ephemeral=True
+                )
+                return
+            
+            # Get full details for first result
+            guessed_anime = await anidle.get_anime_by_id(results[0]['mal_id'])
+            if not guessed_anime:
+                await interaction.followup.send(
+                    "Error fetching anime details. Please try again.",
+                    ephemeral=True
+                )
+                return
+            
+            # Check for hints
+            self.game.should_show_hint('cover')
+            self.game.should_show_hint('synopsis')
+            self.game.should_show_hint('character')
+            
+            # Make the guess
+            result = self.game.make_guess(guessed_anime)
+            
+            if 'error' in result:
+                await interaction.followup.send(result['error'], ephemeral=True)
+                return
+            
+            embed = self.game.create_embed(last_guess=result)
+            
+            # Clean up if game ended
+            if not self.game.is_active:
+                del anidle.active_anidle_games[self.game.player_id]
+                view = None
+            else:
+                view = AnidleGameView(self.game)
+            
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            
+        except Exception as e:
+            logger.error(f"Error in anidle guess modal: {e}", exc_info=True)
+            await interaction.followup.send("An error occurred. Please try again.", ephemeral=True)
+
+
+class AnidleGameView(discord.ui.View):
+    """Interactive view for Anidle game with Guess and Skip buttons."""
+    
+    def __init__(self, game):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.game = game
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.game.player_id:
+            await interaction.response.send_message("This is not your game!", ephemeral=True)
+            return False
+        return True
+    
+    @discord.ui.button(label="Guess", style=discord.ButtonStyle.primary, emoji=None)
+    async def guess_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Open modal to enter guess."""
+        modal = AnidleGuessModal(self.game, self)
+        await interaction.response.send_modal(modal)
+    
+    @discord.ui.button(label="Skip", style=discord.ButtonStyle.secondary)
+    async def skip_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Skip the current game."""
+        self.game.is_active = False
+        embed = self.game.create_embed()
+        
+        if self.game.player_id in anidle.active_anidle_games:
+            del anidle.active_anidle_games[self.game.player_id]
+        
+        await interaction.response.edit_message(content="Game skipped!", embed=embed, view=None)
+    
+    @discord.ui.button(label="Info", style=discord.ButtonStyle.secondary)
+    async def info_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Show game info."""
+        embed = discord.Embed(
+            title="Anidle - How to Play",
+            description="Guess the daily anime!",
+            color=0x00ff41
+        )
+        embed.add_field(
+            name="Feedback",
+            value="[OK] = Correct | [~] = Partial | [UP/DN] = Higher/Lower | [X] = Wrong",
+            inline=False
+        )
+        embed.add_field(
+            name="Hints",
+            value=f"At 10 guesses: Blurred cover\nAt 15 guesses: Synopsis\nAt 20 guesses: Main character",
+            inline=False
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
 anidle_group = app_commands.Group(name="anidle", description="Anidle - Anime Guessing Game")
 
 
@@ -13560,9 +13677,11 @@ async def anidle_play(interaction: discord.Interaction):
             game = anidle.active_anidle_games[user_id]
             if game.is_active:
                 embed = game.create_embed()
+                view = AnidleGameView(game)
                 await interaction.followup.send(
-                    "You have an active game! Use `/anidle guess <anime>` to continue.",
+                    "You have an active game! Use the buttons below to play.",
                     embed=embed,
+                    view=view,
                     ephemeral=True
                 )
                 return
@@ -13590,7 +13709,8 @@ async def anidle_play(interaction: discord.Interaction):
         anidle.record_daily_play(user_id)
         
         embed = game.create_embed()
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        view = AnidleGameView(game)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         
     except Exception as e:
         logger.error(f"Error in anidle play command: {e}", exc_info=True)
@@ -13741,6 +13861,100 @@ tree.add_command(anidle_group)
 
 from modules import songle
 
+
+class SongleGuessModal(discord.ui.Modal, title="Guess the Song"):
+    """Modal for entering song guess."""
+    
+    song_name = discord.ui.TextInput(
+        label="Song Name",
+        placeholder="Enter the song name or 'Artist - Title'...",
+        required=True,
+        max_length=200
+    )
+    
+    def __init__(self, game, view):
+        super().__init__()
+        self.game = game
+        self.parent_view = view
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            # Make the guess
+            result = self.game.check_guess(str(self.song_name))
+            
+            if 'error' in result:
+                await interaction.followup.send(result['error'], ephemeral=True)
+                return
+            
+            embed = self.game.create_embed(last_result=result)
+            
+            # Clean up if game ended
+            if not self.game.is_active:
+                del songle.active_songle_games[self.game.player_id]
+                view = None
+            else:
+                view = SongleGameView(self.game)
+            
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            
+        except Exception as e:
+            logger.error(f"Error in songle guess modal: {e}", exc_info=True)
+            await interaction.followup.send("An error occurred. Please try again.", ephemeral=True)
+
+
+class SongleGameView(discord.ui.View):
+    """Interactive view for Songle game with Guess and Skip buttons."""
+    
+    def __init__(self, game):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.game = game
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.game.player_id:
+            await interaction.response.send_message("This is not your game!", ephemeral=True)
+            return False
+        return True
+    
+    @discord.ui.button(label="Guess", style=discord.ButtonStyle.primary)
+    async def guess_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Open modal to enter guess."""
+        modal = SongleGuessModal(self.game, self)
+        await interaction.response.send_modal(modal)
+    
+    @discord.ui.button(label="Skip", style=discord.ButtonStyle.secondary)
+    async def skip_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Skip the current game."""
+        self.game.is_active = False
+        embed = self.game.create_embed()
+        
+        if self.game.player_id in songle.active_songle_games:
+            del songle.active_songle_games[self.game.player_id]
+        
+        await interaction.response.edit_message(content="Game skipped!", embed=embed, view=None)
+    
+    @discord.ui.button(label="Info", style=discord.ButtonStyle.secondary)
+    async def info_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Show game info."""
+        embed = discord.Embed(
+            title="Songle - How to Play",
+            description="Guess the daily song in 5 tries!",
+            color=0x00ff41
+        )
+        embed.add_field(
+            name="Clip Lengths",
+            value="Try 1: 3s | Try 2: 5s | Try 3: 10s | Try 4: 20s | Try 5: 40s",
+            inline=False
+        )
+        embed.add_field(
+            name="Hints",
+            value="Each wrong guess reveals more hints (year, genre, album, artist initial)",
+            inline=False
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
 songle_group = app_commands.Group(name="songle", description="Songle - Guess the Song Game")
 
 
@@ -13757,9 +13971,11 @@ async def songle_play(interaction: discord.Interaction):
             game = songle.active_songle_games[user_id]
             if game.is_active:
                 embed = game.create_embed()
+                view = SongleGameView(game)
                 await interaction.followup.send(
-                    "You have an active game! Use `/songle guess <song>` to continue.",
+                    "You have an active game! Use the buttons below to play.",
                     embed=embed,
+                    view=view,
                     ephemeral=True
                 )
                 return
@@ -13781,17 +13997,9 @@ async def songle_play(interaction: discord.Interaction):
         songle.record_daily_play(user_id)
         
         embed = game.create_embed()
-        embed.add_field(
-            name="How to Play",
-            value=(
-                "Listen to the audio clip and guess the song!\n"
-                "Each wrong guess reveals more hints.\n"
-                "Use `/songle guess <song name>` to make a guess."
-            ),
-            inline=False
-        )
+        view = SongleGameView(game)
         
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         
     except Exception as e:
         logger.error(f"Error in songle play command: {e}", exc_info=True)
