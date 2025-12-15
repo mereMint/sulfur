@@ -229,6 +229,130 @@ THEMES = {
             'roulette_wheel': '🎧',
             'profile_accent': '📼'
         }
+    },
+    'anime': {
+        'name': 'Anime',
+        'emoji': '🎌',
+        'description': 'Japanese anime-inspired theme with vibrant colors',
+        'price': 2200,
+        'colors': {
+            'primary': discord.Color.from_rgb(255, 105, 180),
+            'success': discord.Color.from_rgb(0, 191, 255),
+            'danger': discord.Color.from_rgb(255, 69, 0),
+            'warning': discord.Color.from_rgb(255, 215, 0)
+        },
+        'game_assets': {
+            'tower_name': '🗾 Anime Tower',
+            'mines_safe': '⭐',
+            'mines_bomb': '💥',
+            'mines_revealed': '🌟',
+            'roulette_wheel': '🎌',
+            'profile_accent': '🎌',
+            'anidle_accent': '📺',
+            'songle_accent': '🎵'
+        }
+    },
+    'galaxy': {
+        'name': 'Galaxy',
+        'emoji': '🌌',
+        'description': 'Deep space theme with cosmic colors and stars',
+        'price': 2300,
+        'colors': {
+            'primary': discord.Color.from_rgb(25, 25, 112),
+            'success': discord.Color.from_rgb(138, 43, 226),
+            'danger': discord.Color.from_rgb(75, 0, 130),
+            'warning': discord.Color.from_rgb(255, 215, 0)
+        },
+        'game_assets': {
+            'tower_name': '🌌 Galaxie-Turm',
+            'mines_safe': '⭐',
+            'mines_bomb': '☄️',
+            'mines_revealed': '🌟',
+            'roulette_wheel': '🪐',
+            'profile_accent': '🌌',
+            'slots_accent': '💫'
+        }
+    },
+    'music': {
+        'name': 'Music',
+        'emoji': '🎵',
+        'description': 'Musical theme for music lovers',
+        'price': 1800,
+        'colors': {
+            'primary': discord.Color.from_rgb(148, 0, 211),
+            'success': discord.Color.from_rgb(255, 20, 147),
+            'danger': discord.Color.from_rgb(220, 20, 60),
+            'warning': discord.Color.from_rgb(255, 165, 0)
+        },
+        'game_assets': {
+            'tower_name': '🎵 Musik-Turm',
+            'mines_safe': '🎶',
+            'mines_bomb': '🔇',
+            'mines_revealed': '🎤',
+            'roulette_wheel': '🎹',
+            'profile_accent': '🎵',
+            'songle_accent': '🎧'
+        }
+    },
+    'royal': {
+        'name': 'Royal',
+        'emoji': '👑',
+        'description': 'Regal purple and gold theme fit for royalty',
+        'price': 2500,
+        'colors': {
+            'primary': discord.Color.from_rgb(128, 0, 128),
+            'success': discord.Color.from_rgb(255, 215, 0),
+            'danger': discord.Color.from_rgb(139, 0, 0),
+            'warning': discord.Color.from_rgb(218, 165, 32)
+        },
+        'game_assets': {
+            'tower_name': '👑 Königsturm',
+            'mines_safe': '💎',
+            'mines_bomb': '⚔️',
+            'mines_revealed': '👑',
+            'roulette_wheel': '🏰',
+            'profile_accent': '👑'
+        }
+    },
+    'nature': {
+        'name': 'Nature',
+        'emoji': '🌿',
+        'description': 'Fresh nature theme with earthy greens and browns',
+        'price': 1600,
+        'colors': {
+            'primary': discord.Color.from_rgb(34, 139, 34),
+            'success': discord.Color.from_rgb(50, 205, 50),
+            'danger': discord.Color.from_rgb(139, 69, 19),
+            'warning': discord.Color.from_rgb(255, 215, 0)
+        },
+        'game_assets': {
+            'tower_name': '🌿 Natur-Turm',
+            'mines_safe': '🌱',
+            'mines_bomb': '🪨',
+            'mines_revealed': '🌻',
+            'roulette_wheel': '🌈',
+            'profile_accent': '🌿'
+        }
+    },
+    'fire': {
+        'name': 'Fire',
+        'emoji': '🔥',
+        'description': 'Hot flame theme with blazing reds and oranges',
+        'price': 2000,
+        'colors': {
+            'primary': discord.Color.from_rgb(255, 69, 0),
+            'success': discord.Color.from_rgb(255, 140, 0),
+            'danger': discord.Color.from_rgb(178, 34, 34),
+            'warning': discord.Color.from_rgb(255, 215, 0)
+        },
+        'game_assets': {
+            'tower_name': '🔥 Feuer-Turm',
+            'mines_safe': '🔥',
+            'mines_bomb': '💣',
+            'mines_revealed': '✨',
+            'roulette_wheel': '🌋',
+            'profile_accent': '🔥'
+        }
     }
 }
 
