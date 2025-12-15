@@ -11840,6 +11840,7 @@ async def blackjack(interaction: discord.Interaction, bet: int):
     await interaction.response.defer(ephemeral=True)
     
     user_id = interaction.user.id
+    logger.info(f"[Blackjack] User {user_id} ({interaction.user.display_name}) starting game with bet {bet}")
     
     # Check if user has casino access
     has_casino = await db_helpers.has_feature_unlock(user_id, 'casino')
@@ -12513,6 +12514,7 @@ async def roulette(interaction: discord.Interaction, bet: int):
     await interaction.response.defer(ephemeral=True)
     
     user_id = interaction.user.id
+    logger.info(f"[Roulette] User {user_id} ({interaction.user.display_name}) starting game with bet {bet}")
     
     # Check if user has casino access
     has_casino = await db_helpers.has_feature_unlock(user_id, 'casino')
@@ -13672,6 +13674,7 @@ async def anidle_play(interaction: discord.Interaction):
     
     try:
         user_id = interaction.user.id
+        logger.info(f"[Anidle] User {user_id} ({interaction.user.display_name}) starting game")
         
         # Check if user already has an active game
         if user_id in anidle.active_anidle_games:
@@ -13695,8 +13698,8 @@ async def anidle_play(interaction: discord.Interaction):
             await interaction.followup.send(message, ephemeral=True)
             return
         
-        # Get daily anime
-        target_anime = await anidle.get_daily_anime()
+        # Get daily anime (pass db_helpers for database persistence)
+        target_anime = await anidle.get_daily_anime(db_helpers)
         if not target_anime:
             await interaction.followup.send(
                 "Could not fetch today's anime. Please try again later.",
@@ -13966,6 +13969,7 @@ async def songle_play(interaction: discord.Interaction):
     
     try:
         user_id = interaction.user.id
+        logger.info(f"[Songle] User {user_id} ({interaction.user.display_name}) starting game")
         
         # Check if user already has an active game
         if user_id in songle.active_songle_games:
@@ -13989,8 +13993,8 @@ async def songle_play(interaction: discord.Interaction):
             await interaction.followup.send(message, ephemeral=True)
             return
         
-        # Get daily song
-        target_song = songle.get_daily_song()
+        # Get daily song (pass db_helpers for database persistence)
+        target_song = await songle.get_daily_song(db_helpers)
         
         # Create game
         game = songle.SongleGame(user_id, target_song, is_premium)
@@ -15365,6 +15369,7 @@ async def wordle_command(interaction: discord.Interaction):
     
     try:
         user_id = interaction.user.id
+        logger.info(f"[Wordle] User {user_id} ({interaction.user.display_name}) starting game")
         
         # Check if user has premium access
         has_premium = await db_helpers.has_feature_unlock(user_id, 'unlimited_wordle')
