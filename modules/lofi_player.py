@@ -226,8 +226,31 @@ def notify_dashboard(event_type: str, guild_id: int, data: dict = None):
 
 # Album search constants
 MAX_INDIVIDUAL_SONG_DURATION = 1800  # 30 minutes - songs longer than this are likely full albums
-SKIP_KEYWORDS = ['compilation', 'reaction', 'cover', 'tutorial', 'review', 
-                 'karaoke', 'instrumental', 'remix', 'mashup', 'live at']
+
+# Keywords to skip when searching for songs/albums
+# These indicate covers, remixes, non-official content, or movie versions
+SKIP_KEYWORDS = [
+    'compilation', 'reaction', 'cover', 'tutorial', 'review',
+    'karaoke', 'instrumental', 'remix', 'mashup', 'live at',
+    'movie version', 'movie clip', 'film version', 'soundtrack',
+    'radio edit', 'radio version', 'extended mix', 'extended version',
+    'slowed', 'sped up', 'reverb', 'nightcore', 'daycore', '8d audio',
+    '#shorts', 'tiktok', 'piano cover', 'guitar cover', 'drum cover',
+    'acoustic version', 'acoustic cover', 'unplugged', 'stripped',
+    'behind the scenes', 'making of', 'music video reaction'
+]
+
+# Keywords that indicate official content (boost in search)
+OFFICIAL_KEYWORDS = [
+    'official', 'official audio', 'official video', 'official music video',
+    'audio', 'lyrics', 'vevo', 'topic'
+]
+
+# Keywords to skip for album tracks specifically
+ALBUM_SKIP_KEYWORDS = SKIP_KEYWORDS + [
+    'from the motion picture', 'from the film', 'from the movie',
+    'motion picture soundtrack', 'ost', 'credits'
+]
 
 
 def set_stop_lock(guild_id: int, user_id: int = None):
@@ -1633,15 +1656,40 @@ async def get_album_info(album_name: str, artist: str = None) -> Optional[dict]:
                         
                         # Filter out videos that don't seem related
                         video_title_lower = video_title.lower()
+                        uploader_lower = video_uploader.lower() if video_uploader else ''
                         
                         # Skip if it looks like a full album video (too long or has "full album" in title)
                         if duration and duration > MAX_INDIVIDUAL_SONG_DURATION:
                             if 'full album' in video_title_lower or 'full ep' in video_title_lower:
                                 continue
                         
-                        # Skip compilations, reactions, covers, etc.
-                        if any(keyword in video_title_lower for keyword in SKIP_KEYWORDS):
+                        # Skip compilations, reactions, covers, movie versions, etc.
+                        if any(keyword in video_title_lower for keyword in ALBUM_SKIP_KEYWORDS):
                             continue
+                        
+                        # Artist verification: If we have an artist name, prefer videos from that artist
+                        # Skip videos that are clearly from a different artist/channel
+                        if artist:
+                            artist_lower = artist.lower().strip()
+                            # Check if artist name appears in video title or uploader
+                            artist_match = (
+                                artist_lower in video_title_lower or 
+                                artist_lower in uploader_lower or
+                                # Also check for "Topic" channels which are auto-generated
+                                f"{artist_lower} - topic" in uploader_lower
+                            )
+                            # If artist doesn't match and video is from a different known artist, skip
+                            if not artist_match:
+                                # Look for common patterns indicating a different artist
+                                # e.g., "Artist - Song" format where Artist is different
+                                if ' - ' in video_title:
+                                    detected_artist = video_title.split(' - ')[0].lower().strip()
+                                    # If detected artist is very different, skip this result
+                                    if detected_artist and detected_artist != artist_lower:
+                                        # Allow if detected artist contains our artist name or vice versa
+                                        if artist_lower not in detected_artist and detected_artist not in artist_lower:
+                                            logger.debug(f"Skipping video with different artist: {video_title}")
+                                            continue
                         
                         # Create a normalized title for deduplication
                         normalized_title = sanitize_song_title(video_title).lower()

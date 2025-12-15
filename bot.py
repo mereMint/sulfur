@@ -2949,7 +2949,11 @@ async def _generate_and_send_wrapped_for_user(
 
     # --- Page 7: Enhanced Spotify Wrapped Page ---
     if user_stats.get('spotify_minutes'):
-        spotify_minutes_data = json.loads(user_stats['spotify_minutes'])
+        try:
+            spotify_minutes_data = json.loads(user_stats['spotify_minutes']) if isinstance(user_stats['spotify_minutes'], str) else user_stats['spotify_minutes']
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.warning(f"Error parsing spotify_minutes JSON: {e}")
+            spotify_minutes_data = {}
         if spotify_minutes_data:
             total_minutes = sum(spotify_minutes_data.values())
             total_hours = total_minutes / 60
@@ -8484,9 +8488,13 @@ async def spotify_stats(interaction: discord.Interaction, user: discord.Member =
 
     # --- NEW: Add total listening time ---
     if user_stats and user_stats.get('spotify_minutes'):
-        spotify_minutes_data = json.loads(user_stats['spotify_minutes'])
-        total_minutes = sum(spotify_minutes_data.values())
-        embed.add_field(name="Hörzeit diesen Monat", value=f"Du hast diesen Monat insgesamt **{total_minutes:.0f} Minuten** Musik gehört.", inline=False)
+        try:
+            spotify_minutes_data = json.loads(user_stats['spotify_minutes']) if isinstance(user_stats['spotify_minutes'], str) else user_stats['spotify_minutes']
+            if spotify_minutes_data:
+                total_minutes = sum(spotify_minutes_data.values())
+                embed.add_field(name="Hörzeit diesen Monat", value=f"Du hast diesen Monat insgesamt **{total_minutes:.0f} Minuten** Musik gehört.", inline=False)
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.warning(f"Error parsing spotify_minutes JSON: {e}")
 
 
     # Footer

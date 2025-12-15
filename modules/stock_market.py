@@ -234,8 +234,8 @@ async def update_stock_prices(db_helpers):
                 # Update trend (with mean reversion)
                 new_trend = (trend * 0.7) + (price_change_pct * 0.3)
                 
-                # Clamp trend to reasonable bounds to prevent DECIMAL(5,4) overflow
-                # DECIMAL(5,4) allows values from -9.9999 to 9.9999
+                # Clamp trend to reasonable bounds to prevent DECIMAL(6,5) overflow
+                # DECIMAL(6,5) allows values from -9.99999 to 9.99999
                 # Normal trends are around ±0.5, so ±1.0 provides safety margin
                 new_trend = max(-1.0, min(1.0, new_trend))
                 
