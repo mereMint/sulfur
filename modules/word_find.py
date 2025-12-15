@@ -401,6 +401,36 @@ async def initialize_word_find_table(db_helpers):
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
+            # Fix old schemas that might have just 'date' as unique key instead of '(date, language)'
+            # Check if old 'date' unique key exists (without language)
+            cursor.execute("""
+                SELECT INDEX_NAME, GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) as columns
+                FROM INFORMATION_SCHEMA.STATISTICS 
+                WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = 'word_find_daily'
+                AND NON_UNIQUE = 0
+                GROUP BY INDEX_NAME
+            """)
+            indexes = cursor.fetchall()
+            has_old_date_unique = False
+            has_new_date_lang_unique = False
+            for idx in indexes:
+                idx_name = idx[0] if isinstance(idx, tuple) else idx.get('INDEX_NAME', '')
+                columns = idx[1] if isinstance(idx, tuple) else idx.get('columns', '')
+                if idx_name == 'date':
+                    has_old_date_unique = True
+                if 'date,language' in columns or 'language,date' in columns:
+                    has_new_date_lang_unique = True
+            
+            if has_old_date_unique and not has_new_date_lang_unique:
+                logger.warning("Found old 'date' unique key, migrating to 'date,language' composite unique key...")
+                try:
+                    cursor.execute("ALTER TABLE word_find_daily DROP INDEX `date`")
+                    cursor.execute("ALTER TABLE word_find_daily ADD UNIQUE KEY unique_date_lang (date, language)")
+                    logger.info("Successfully migrated word_find_daily unique key to (date, language)")
+                except Exception as migrate_err:
+                    logger.warning(f"Could not migrate unique key (may already exist): {migrate_err}")
+            
             # Add theme_id column to existing tables if it doesn't exist
             cursor.execute("""
                 SELECT COUNT(*) as count

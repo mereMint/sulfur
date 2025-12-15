@@ -2160,7 +2160,11 @@ async def update_spotify_history(client, user_id: int, display_name: str, song_t
 
     logger.debug(f"[DB] Updating spotify_history for {display_name} ({user_id}) with song: '{song_title}' by '{song_artist}'")
     cursor = cnx.cursor()
-    song_key = f"{song_title} by {song_artist}"
+    # Sanitize song key to prevent JSON path syntax errors
+    # Remove/escape characters that break JSON paths: quotes, backslashes, and control characters
+    safe_song_title = song_title.replace('\\', '').replace('"', "'").replace('\n', ' ').replace('\r', ' ')
+    safe_song_artist = song_artist.replace('\\', '').replace('"', "'").replace('\n', ' ').replace('\r', ' ')
+    song_key = f"{safe_song_title} by {safe_song_artist}"
     try:
         # --- REFACTORED: Use a more robust transaction to handle all cases. ---
         # Step 1: Ensure the player exists.

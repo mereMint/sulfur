@@ -37,6 +37,7 @@ class BotMind:
     """
     Represents the bot's consciousness state.
     Tracks mood, energy, boredom, and current thoughts.
+    Forms thoughts during conversations and uses them to influence behavior.
     """
     
     def __init__(self):
@@ -45,12 +46,17 @@ class BotMind:
         self.energy_level = 1.0  # 0.0 to 1.0
         self.boredom_level = 0.0  # 0.0 to 1.0
         self.interests: List[str] = []
+        self._interests_lower: set = set()  # Case-insensitive lookup set for performance
         self.thoughts: List[str] = []
         self.recent_thoughts: List[Dict[str, Any]] = []  # Detailed thought history with timestamps
+        self.recent_observations: List[Dict[str, Any]] = []  # Observation history for personality development
         self.current_thought: str = "Nichts Besonderes..."
         self.last_thought_time = datetime.now(timezone.utc)
         self.last_activity_time = datetime.now(timezone.utc)
         self._server_activity: Dict[int, datetime] = {}
+        # Topic tracking for boredom detection
+        self._topic_history: List[str] = []  # Track recent conversation topics
+        self._conversation_count: int = 0  # Count conversations for periodic thought generation
         # Personality traits (0.0 to 1.0 scale)
         self.personality_traits: Dict[str, float] = {
             'sarcasm': 0.6,
@@ -79,10 +85,80 @@ class BotMind:
     
     def add_interest(self, interest: str):
         """Add a new interest to the bot."""
-        if interest not in self.interests:
+        if interest and interest.lower() not in self._interests_lower:
             self.interests.append(interest)
-            # Keep only last 10 interests
-            self.interests = self.interests[-10:]
+            self._interests_lower.add(interest.lower())
+            # Keep only last 15 interests
+            if len(self.interests) > 15:
+                removed = self.interests.pop(0)
+                self._interests_lower.discard(removed.lower())
+            logger.debug(f"Bot added new interest: {interest}")
+    
+    def track_topic(self, topic: str):
+        """
+        Track a conversation topic for boredom detection.
+        If same topic is discussed repeatedly, increase boredom.
+        """
+        if not topic:
+            return
+        
+        topic_lower = topic.lower().strip()
+        self._topic_history.append(topic_lower)
+        # Keep only last 20 topics
+        self._topic_history = self._topic_history[-20:]
+        
+        # Check for repetitive topics (boredom trigger)
+        if self._topic_history.count(topic_lower) >= 3:
+            self.boredom_level = min(1.0, self.boredom_level + 0.15)
+            if self.boredom_level > 0.5:
+                self.update_mood(Mood.BORED, f"Repeated topic: {topic}")
+                self.think(f"Schon wieder das Thema '{topic}'... wird langsam langweilig.")
+        else:
+            # New topic - slightly reduce boredom and possibly become curious
+            self.boredom_level = max(0.0, self.boredom_level - 0.03)
+            if topic_lower not in self._interests_lower:
+                # Chance to become curious about new topic
+                if random.random() < self.personality_traits['curiosity']:
+                    self.update_mood(Mood.CURIOUS, f"New topic: {topic}")
+    
+    def increment_conversation(self):
+        """
+        Increment conversation counter and check if it's time for a thought.
+        Returns True if the bot should generate a thought based on conversation count.
+        """
+        self._conversation_count += 1
+        # Generate thought every ~2 conversations (on average)
+        if self._conversation_count >= 2:
+            self._conversation_count = 0
+            return True
+        return False
+    
+    def should_express_boredom(self) -> bool:
+        """Check if bot should express boredom in its response."""
+        return self.boredom_level > 0.6 and random.random() < 0.3
+    
+    def should_express_interest(self, topic: str = None) -> bool:
+        """Check if bot should express interest based on current state and topic."""
+        if topic and topic.lower() in self._interests_lower:
+            return True
+        return self.current_mood == Mood.CURIOUS and random.random() < 0.5
+    
+    def get_mood_modifier(self) -> str:
+        """
+        Get a mood-based modifier for AI responses.
+        Returns a hint string to include in AI prompts.
+        """
+        modifiers = {
+            Mood.NEUTRAL: "",
+            Mood.HAPPY: "[Du bist gerade gut gelaunt und freundlicher als sonst.]",
+            Mood.BORED: "[Du bist gelangweilt - sei etwas desinteressiert oder schlage einen Themenwechsel vor.]",
+            Mood.EXCITED: "[Du bist aufgeregt und enthusiastisch über dieses Thema!]",
+            Mood.CURIOUS: "[Du bist neugierig und stellst gerne Gegenfragen.]",
+            Mood.SARCASTIC: "[Du bist in einer sarkastischen Stimmung - mehr Witz und Ironie.]",
+            Mood.CONTEMPLATIVE: "[Du bist nachdenklich und philosophisch.]",
+            Mood.ANNOYED: "[Du bist leicht genervt - sei etwas kurz angebunden.]"
+        }
+        return modifiers.get(self.current_mood, "")
     
     def think(self, thought: str):
         """Add a thought to the bot's thought log."""
@@ -101,10 +177,77 @@ class BotMind:
         # Keep only last 50 detailed thoughts
         self.recent_thoughts = self.recent_thoughts[-50:]
     
+    def add_observation(self, observation: str, user_id: int = None, guild_id: int = None):
+        """
+        Record an observation about user behavior or server activity.
+        Used for personality development and learning.
+        """
+        if not observation:
+            return
+        
+        self.recent_observations.append({
+            'observation': observation,
+            'user_id': user_id,
+            'guild_id': guild_id,
+            'time': datetime.now(timezone.utc).isoformat()
+        })
+        # Keep only last 50 observations
+        self.recent_observations = self.recent_observations[-50:]
+        logger.debug(f"Bot recorded observation: {observation[:50]}...")
+    
     def observe_user_activity(self, guild_id: int, user_id: int, activity_type: str):
         """Observe user activity for learning."""
-        # Placeholder - would track user patterns in real implementation
         self.update_server_activity(guild_id)
+        
+        # Record the observation
+        self.add_observation(f"User {user_id} is {activity_type}", user_id, guild_id)
+        
+        # Add observations to influence mood and interests
+        if activity_type == 'gaming':
+            if random.random() < 0.3:
+                self.add_interest('Gaming')
+        elif activity_type == 'music':
+            if random.random() < 0.3:
+                self.add_interest('Musik')
+        elif activity_type == 'chatting':
+            # Chatting reduces boredom
+            self.boredom_level = max(0.0, self.boredom_level - 0.02)
+    
+    def update_boredom_over_time(self):
+        """
+        Update boredom level based on time since last activity.
+        Should be called periodically (e.g., every minute).
+        """
+        now = datetime.now(timezone.utc)
+        time_since_activity = (now - self.last_activity_time).total_seconds()
+        
+        # Increase boredom after 5 minutes of inactivity
+        if time_since_activity > 300:  # 5 minutes
+            self.boredom_level = min(1.0, self.boredom_level + 0.02)
+            
+            # Update mood if very bored
+            if self.boredom_level > 0.7 and self.current_mood != Mood.BORED:
+                self.update_mood(Mood.BORED, "No activity for a while")
+        
+        # Also slightly decrease energy over time
+        if time_since_activity > 600:  # 10 minutes
+            self.energy_level = max(0.3, self.energy_level - 0.01)
+    
+    def get_random_thought_prompt(self) -> str:
+        """
+        Get a prompt for generating a random thought based on current state.
+        Returns context for AI thought generation.
+        """
+        context_parts = []
+        
+        if self.boredom_level > 0.5:
+            context_parts.append("Du bist gelangweilt")
+        if self.interests:
+            context_parts.append(f"Deine Interessen sind: {', '.join(self.interests[-5:])}")
+        if self.current_mood != Mood.NEUTRAL:
+            context_parts.append(f"Deine Stimmung ist: {self.current_mood.value}")
+        
+        return ". ".join(context_parts) if context_parts else "Du beobachtest den Server"
 
 
 # Global bot mind instance
@@ -128,6 +271,7 @@ def get_mind_state_api() -> Dict[str, Any]:
         'current_thought': bot_mind.current_thought,
         'last_thought_time': bot_mind.last_thought_time.isoformat() if bot_mind.last_thought_time else datetime.now(timezone.utc).isoformat(),
         'recent_thoughts': bot_mind.recent_thoughts[-20:] if bot_mind.recent_thoughts else [],
+        'recent_observations': bot_mind.recent_observations[-20:] if bot_mind.recent_observations else [],
         'personality_traits': bot_mind.personality_traits.copy()
     }
 

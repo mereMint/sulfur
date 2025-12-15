@@ -2642,8 +2642,8 @@ def api_update_stock(symbol):
             
             if 'trend' in data:
                 updates.append("trend = %s")
-                # Clamp trend to ±1.0 to prevent DECIMAL(5,4) overflow
-                # DECIMAL(5,4) allows values from -9.9999 to 9.9999
+                # Clamp trend to ±1.0 to prevent DECIMAL(6,5) overflow
+                # DECIMAL(6,5) allows values from -9.99999 to 9.99999
                 trend_value = max(-1.0, min(1.0, float(data['trend'])))
                 params.append(trend_value)
             
@@ -3022,6 +3022,74 @@ def api_word_of_day():
         
     except Exception as e:
         logger.error(f"Error getting word of day: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/games/popular', methods=['GET'])
+def api_popular_games():
+    """API endpoint to get popular games ranked by play count."""
+    try:
+        conn = db_helpers.get_db_connection()
+        if not conn:
+            return jsonify({'error': 'Database not available'}), 500
+        
+        cursor = conn.cursor(dictionary=True)
+        
+        # Whitelist of allowed tables to prevent SQL injection
+        ALLOWED_TABLES = {
+            'casino_games', 'wordle_games', 'word_find_attempts', 
+            'detective_games', 'werwolf_game_history'
+        }
+        
+        # Define games with their icons and query sources
+        games = [
+            {'name': 'Blackjack', 'icon': '🃏', 'table': 'casino_games', 'game_type': 'blackjack'},
+            {'name': 'Roulette', 'icon': '🎡', 'table': 'casino_games', 'game_type': 'roulette'},
+            {'name': 'Mines', 'icon': '💣', 'table': 'casino_games', 'game_type': 'mines'},
+            {'name': 'Tower', 'icon': '🏰', 'table': 'casino_games', 'game_type': 'tower'},
+            {'name': 'Russian Roulette', 'icon': '🔫', 'table': 'casino_games', 'game_type': 'rr'},
+            {'name': 'Wordle', 'icon': '📝', 'table': 'wordle_games', 'game_type': None},
+            {'name': 'Word Find', 'icon': '🔍', 'table': 'word_find_attempts', 'game_type': None},
+            {'name': 'Detective', 'icon': '🕵️', 'table': 'detective_games', 'game_type': None},
+            {'name': 'Werwolf', 'icon': '🐺', 'table': 'werwolf_game_history', 'game_type': None},
+        ]
+        
+        popular = []
+        for game in games:
+            try:
+                # Validate table name against whitelist to prevent SQL injection
+                if game['table'] not in ALLOWED_TABLES:
+                    continue
+                
+                if game['game_type']:
+                    cursor.execute(f"SELECT COUNT(*) as count FROM {game['table']} WHERE game_type = %s", (game['game_type'],))
+                else:
+                    cursor.execute(f"SELECT COUNT(*) as count FROM {game['table']}")
+                result = cursor.fetchone()
+                count = result['count'] if result else 0
+                popular.append({
+                    'name': game['name'],
+                    'icon': game['icon'],
+                    'count': count
+                })
+            except Exception as e:
+                # Table might not exist
+                popular.append({
+                    'name': game['name'],
+                    'icon': game['icon'],
+                    'count': 0
+                })
+        
+        # Sort by count descending
+        popular.sort(key=lambda x: x['count'], reverse=True)
+        
+        cursor.close()
+        conn.close()
+        
+        return jsonify({'popular': popular})
+        
+    except Exception as e:
+        logger.error(f"Error getting popular games: {e}")
         return jsonify({'error': str(e)}), 500
 
 

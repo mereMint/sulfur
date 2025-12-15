@@ -610,6 +610,77 @@ async def split_message(text, limit=2000):
     chunks.append(current_chunk.strip()) # Add the last chunk
     return chunks
 
+# Common Unicode emoji to Discord shortcode mapping
+# This helps convert AI-generated Unicode emojis to Discord shortcode format
+UNICODE_TO_SHORTCODE = {
+    '😀': ':grinning:', '😃': ':smiley:', '😄': ':smile:', '😁': ':grin:', '😅': ':sweat_smile:',
+    '😂': ':joy:', '🤣': ':rofl:', '😊': ':blush:', '😇': ':innocent:', '🙂': ':slight_smile:',
+    '😉': ':wink:', '😌': ':relieved:', '😍': ':heart_eyes:', '🥰': ':smiling_face_with_hearts:',
+    '😘': ':kissing_heart:', '😗': ':kissing:', '😙': ':kissing_smiling_eyes:', '😚': ':kissing_closed_eyes:',
+    '😋': ':yum:', '😛': ':stuck_out_tongue:', '😜': ':stuck_out_tongue_winking_eye:', '🤪': ':zany_face:',
+    '😝': ':stuck_out_tongue_closed_eyes:', '🤑': ':money_mouth:', '🤗': ':hugging:', '🤭': ':hand_over_mouth:',
+    '🤫': ':shushing_face:', '🤔': ':thinking:', '🤐': ':zipper_mouth:', '🤨': ':raised_eyebrow:',
+    '😐': ':neutral_face:', '😑': ':expressionless:', '😶': ':no_mouth:', '😏': ':smirk:',
+    '😒': ':unamused:', '🙄': ':rolling_eyes:', '😬': ':grimacing:', '🤥': ':lying_face:',
+    '😌': ':relieved:', '😔': ':pensive:', '😪': ':sleepy:', '🤤': ':drooling_face:',
+    '😴': ':sleeping:', '😷': ':mask:', '🤒': ':face_with_thermometer:', '🤕': ':head_bandage:',
+    '🤢': ':nauseated_face:', '🤮': ':face_vomiting:', '🤧': ':sneezing_face:', '🥵': ':hot_face:',
+    '🥶': ':cold_face:', '🥴': ':woozy_face:', '😵': ':dizzy_face:', '🤯': ':exploding_head:',
+    '😎': ':sunglasses:', '🤓': ':nerd:', '🧐': ':face_with_monocle:', '😕': ':confused:',
+    '😟': ':worried:', '🙁': ':slight_frown:', '☹️': ':frowning2:', '😮': ':open_mouth:',
+    '😯': ':hushed:', '😲': ':astonished:', '😳': ':flushed:', '🥺': ':pleading_face:',
+    '😦': ':frowning:', '😧': ':anguished:', '😨': ':fearful:', '😰': ':cold_sweat:',
+    '😥': ':sad_but_relieved_face:', '😢': ':cry:', '😭': ':sob:', '😱': ':scream:',
+    '😖': ':confounded:', '😣': ':persevere:', '😞': ':disappointed:', '😓': ':sweat:',
+    '😩': ':weary:', '😫': ':tired_face:', '🥱': ':yawning_face:', '😤': ':triumph:',
+    '😡': ':rage:', '😠': ':angry:', '🤬': ':face_with_symbols_on_mouth:', '😈': ':smiling_imp:',
+    '👿': ':imp:', '💀': ':skull:', '☠️': ':skull_crossbones:', '💩': ':poop:',
+    '🤡': ':clown:', '👹': ':japanese_ogre:', '👺': ':japanese_goblin:', '👻': ':ghost:',
+    '👽': ':alien:', '👾': ':space_invader:', '🤖': ':robot:', '😺': ':smiley_cat:',
+    '❤️': ':heart:', '💔': ':broken_heart:', '💕': ':two_hearts:', '💖': ':sparkling_heart:',
+    '💗': ':heartpulse:', '💙': ':blue_heart:', '💚': ':green_heart:', '💛': ':yellow_heart:',
+    '🧡': ':orange_heart:', '💜': ':purple_heart:', '🖤': ':black_heart:', '🤍': ':white_heart:',
+    '💯': ':100:', '💢': ':anger:', '💥': ':boom:', '💫': ':dizzy:', '💦': ':sweat_drops:',
+    '💨': ':dash:', '🕳️': ':hole:', '💣': ':bomb:', '💬': ':speech_balloon:', '💤': ':zzz:',
+    '👋': ':wave:', '🤚': ':raised_back_of_hand:', '🖐️': ':hand_splayed:', '✋': ':raised_hand:',
+    '🖖': ':vulcan:', '👌': ':ok_hand:', '🤌': ':pinched_fingers:', '🤏': ':pinching_hand:',
+    '✌️': ':v:', '🤞': ':crossed_fingers:', '🤟': ':love_you_gesture:', '🤘': ':metal:',
+    '🤙': ':call_me:', '👈': ':point_left:', '👉': ':point_right:', '👆': ':point_up_2:',
+    '🖕': ':middle_finger:', '👇': ':point_down:', '☝️': ':point_up:', '👍': ':thumbsup:',
+    '👎': ':thumbsdown:', '✊': ':fist:', '👊': ':punch:', '🤛': ':left_fist:', '🤜': ':right_fist:',
+    '👏': ':clap:', '🙌': ':raised_hands:', '👐': ':open_hands:', '🤲': ':palms_up_together:',
+    '🤝': ':handshake:', '🙏': ':pray:', '✍️': ':writing_hand:', '💪': ':muscle:',
+    '👀': ':eyes:', '👁️': ':eye:', '👅': ':tongue:', '👄': ':lips:', '🧠': ':brain:',
+    '🔥': ':fire:', '⭐': ':star:', '🌟': ':star2:', '✨': ':sparkles:', '⚡': ':zap:',
+    '☀️': ':sunny:', '🌙': ':crescent_moon:', '🌈': ':rainbow:', '☁️': ':cloud:',
+    '🎉': ':tada:', '🎊': ':confetti_ball:', '🎁': ':gift:', '🎂': ':birthday:',
+    '🏆': ':trophy:', '🥇': ':first_place:', '🥈': ':second_place:', '🥉': ':third_place:',
+    '⚽': ':soccer:', '🏀': ':basketball:', '🏈': ':football:', '⚾': ':baseball:',
+    '🎮': ':video_game:', '🎲': ':game_die:', '🎯': ':dart:', '🎵': ':musical_note:',
+    '🎶': ':notes:', '🎤': ':microphone:', '🎧': ':headphones:', '📱': ':iphone:',
+    '💻': ':computer:', '🖥️': ':desktop:', '⌨️': ':keyboard:', '🖱️': ':mouse_three_button:',
+    '📧': ':e_mail:', '📝': ':pencil:', '📚': ':books:', '📖': ':book:',
+    '✅': ':white_check_mark:', '❌': ':x:', '❓': ':question:', '❗': ':exclamation:',
+    '⚠️': ':warning:', '🚫': ':no_entry_sign:', '⛔': ':no_entry:', '💡': ':bulb:',
+    '🔔': ':bell:', '🔕': ':no_bell:', '📢': ':loudspeaker:', '🔊': ':loud_sound:',
+    '🔇': ':mute:', '🎙️': ':microphone2:', '🔒': ':lock:', '🔓': ':unlock:',
+    '🏠': ':house:', '🏢': ':office:', '🚗': ':car:', '✈️': ':airplane:',
+    '🚀': ':rocket:', '⏰': ':alarm_clock:', '⏳': ':hourglass_flowing_sand:', '⏱️': ':stopwatch:',
+}
+
+def convert_unicode_emojis_to_shortcode(text):
+    """
+    Converts Unicode emojis to Discord shortcode format.
+    This helps ensure AI responses use Discord-compatible emoji format.
+    """
+    if text is None:
+        return ""
+    
+    for unicode_emoji, shortcode in UNICODE_TO_SHORTCODE.items():
+        text = text.replace(unicode_emoji, shortcode)
+    
+    return text
+
 def sanitize_malformed_emojis(text):
     """
     Fixes malformed emoji patterns that the AI might generate.
@@ -707,6 +778,7 @@ async def replace_emoji_tags(text, client, guild=None):
     Replaces :emoji_name: tags with full Discord emoji format <:emoji_name:emoji_id>.
     Keeps existing full format emojis unchanged.
     Prioritizes application emojis (bot's own emojis) over server emojis.
+    Also converts Unicode emojis to shortcode format first.
     
     Args:
         text: The text containing emoji tags to replace
@@ -720,7 +792,10 @@ async def replace_emoji_tags(text, client, guild=None):
     if text is None:
         return ""
     
-    # First, sanitize any malformed emoji patterns
+    # First, convert any Unicode emojis to shortcode format
+    text = convert_unicode_emojis_to_shortcode(text)
+    
+    # Then, sanitize any malformed emoji patterns
     text = sanitize_malformed_emojis(text)
     
     # Full format emojis are already correct - don't modify them
@@ -737,15 +812,8 @@ async def replace_emoji_tags(text, client, guild=None):
     # This allows us to get the full emoji format with ID
     emoji_map = {}
     
-    # Only add server emojis if a guild context is provided
-    if guild:
-        for emoji in guild.emojis:
-            # Store with exact name and lowercase for case-insensitive matching
-            if emoji.name not in emoji_map:
-                emoji_map[emoji.name] = emoji
-            emoji_map[emoji.name.lower()] = emoji
-    
-    # Always prioritize application emojis (they work everywhere - DMs and all servers)
+    # Only use application emojis (bot's own emojis) - no server emojis
+    # This ensures consistent emoji display across all servers and DMs
     try:
         app_emojis = await client.fetch_application_emojis()
         for emoji in app_emojis:
@@ -756,27 +824,14 @@ async def replace_emoji_tags(text, client, guild=None):
 
     # Convert :emoji_name: to full format <:emoji_name:emoji_id>
     replaced_count = 0
-    auto_downloaded_count = 0
     for tag in set(emoji_tags):  # Use set to avoid processing duplicates
         emoji_obj = None
         
-        # Try exact match first, then lowercase
+        # Try exact match first, then lowercase (only application emojis in map)
         if tag in emoji_map:
             emoji_obj = emoji_map[tag]
         elif tag.lower() in emoji_map:
             emoji_obj = emoji_map[tag.lower()]
-        
-        # If emoji not found and we have a guild context, try to auto-download
-        if not emoji_obj and guild:
-            try:
-                emoji_obj = await auto_download_emoji(tag, guild, client)
-                if emoji_obj:
-                    auto_downloaded_count += 1
-                    # Add to map for future use in this same text
-                    emoji_map[emoji_obj.name] = emoji_obj
-                    emoji_map[emoji_obj.name.lower()] = emoji_obj
-            except Exception as e:
-                logger.debug(f"Auto-download failed for emoji '{tag}': {e}")
         
         if emoji_obj:
             # Replace :emoji_name: with full format <:emoji_name:emoji_id> or <a:emoji_name:emoji_id>
@@ -789,13 +844,11 @@ async def replace_emoji_tags(text, client, guild=None):
             text = text.replace(old_format, new_format)
             replaced_count += 1
         else:
-            # Log emojis that couldn't be found
-            logger.debug(f"Emoji not found: :{tag}:")
+            # Emoji not found in application emojis - leave as shortcode format
+            logger.debug(f"Emoji not in application emojis: :{tag}:")
     
     if replaced_count > 0:
-        logger.debug(f"Converted {replaced_count} emoji tags to full format")
-    if auto_downloaded_count > 0:
-        logger.info(f"Auto-downloaded {auto_downloaded_count} missing emojis")
+        logger.debug(f"Converted {replaced_count} emoji tags to application emoji format")
     
     return text
 
@@ -1131,6 +1184,11 @@ async def on_ready():
     if not periodic_cleanup.is_running():
         periodic_cleanup.start()
     
+    # --- NEW: Start boredom update and autonomous messaging task ---
+    if not boredom_update_task.is_running():
+        boredom_update_task.start()
+        print("  -> Boredom update task started")
+    
     # --- NEW: Start periodic application emoji check ---
     if not check_application_emojis.is_running():
         check_application_emojis.start()
@@ -1234,6 +1292,129 @@ async def before_update_presence_task():
 # NOTE: Using module-level variable for simplicity. This state is intentionally NOT persisted
 # across bot restarts - it's acceptable to potentially DM the same user after a restart.
 last_autonomous_dm_user_id = None
+last_autonomous_channel_id = None  # Track last used text channel for autonomous messaging
+
+# Constants for autonomous messaging
+AUTONOMOUS_MESSAGE_CHANCE = 0.10  # 10% chance per minute when very bored
+BOREDOM_THRESHOLD = 0.8  # Boredom level that triggers autonomous messaging consideration
+
+# --- NEW: Boredom and Autonomous Messaging Task ---
+@_tasks.loop(minutes=1)
+async def boredom_update_task():
+    """Update bot's boredom level and potentially trigger autonomous messaging when very bored."""
+    global last_autonomous_dm_user_id, last_autonomous_channel_id
+    
+    try:
+        # Update boredom over time
+        bot_mind.bot_mind.update_boredom_over_time()
+        
+        boredom = bot_mind.bot_mind.boredom_level
+        logger.debug(f"[Boredom] Current boredom level: {boredom:.2f}")
+        
+        # If very bored, consider autonomous action
+        if boredom > BOREDOM_THRESHOLD:
+            # Only trigger autonomous message randomly
+            if random.random() < AUTONOMOUS_MESSAGE_CHANCE:
+                await trigger_autonomous_message()
+    except Exception as e:
+        logger.error(f"Error in boredom update task: {e}", exc_info=True)
+
+
+async def trigger_autonomous_message():
+    """Trigger an autonomous message when the bot is bored."""
+    global last_autonomous_dm_user_id, last_autonomous_channel_id
+    
+    try:
+        # Generate a bored thought
+        bored_thoughts = [
+            "Mir ist langweilig... :yawning_face:",
+            "Ist hier jemand? Ich fühl mich einsam :pensive:",
+            "Digga, hier ist nichts los... was macht ihr so?",
+            "Langweile mich hier zu Tode :skull:",
+            "Hey, will jemand was machen? Mir ist mega langweilig",
+            "Alter, warum redet keiner mit mir? :cry:",
+            "*gähnt* Es ist so still hier...",
+            "Ich könnte ein Spiel gebrauchen. Jemand Lust auf Detective oder Wordfind?",
+        ]
+        
+        message_content = random.choice(bored_thoughts)
+        
+        # Decide whether to DM someone or post in last used channel
+        action = random.choice(['dm', 'channel'])
+        
+        if action == 'dm':
+            # Try to DM a random online user (who allows it)
+            eligible_users = []
+            for guild in client.guilds:
+                for member in guild.members:
+                    if member.bot:
+                        continue
+                    if member.status != discord.Status.offline:
+                        # Check if user allows autonomous messages
+                        settings = await autonomous_behavior.get_user_autonomous_settings(member.id)
+                        if settings.get('allow_messages', True):
+                            eligible_users.append(member)
+            
+            # Filter out last DMed user to avoid repetition, but if no others available, allow it
+            non_repeat_users = [u for u in eligible_users if u.id != last_autonomous_dm_user_id]
+            if non_repeat_users:
+                eligible_users = non_repeat_users
+            
+            if eligible_users:
+                chosen_user = random.choice(eligible_users)
+                try:
+                    # Grant temporary DM access
+                    await autonomous_behavior.grant_temp_dm_access(chosen_user.id, 30)
+                    
+                    dm_channel = await chosen_user.create_dm()
+                    await dm_channel.send(message_content)
+                    
+                    last_autonomous_dm_user_id = chosen_user.id
+                    await autonomous_behavior.record_contact(chosen_user.id)
+                    
+                    # Reset boredom after sending a message
+                    bot_mind.bot_mind.boredom_level = max(0, bot_mind.bot_mind.boredom_level - 0.5)
+                    bot_mind.bot_mind.think(f"Hab {chosen_user.display_name} angeschrieben weil mir langweilig war.")
+                    
+                    logger.info(f"[Autonomous] Sent bored DM to {chosen_user.display_name}")
+                except Exception as e:
+                    logger.warning(f"[Autonomous] Could not DM user: {e}")
+        else:
+            # Post in last used channel
+            if last_autonomous_channel_id:
+                channel = client.get_channel(last_autonomous_channel_id)
+                if channel and hasattr(channel, 'send'):
+                    try:
+                        await channel.send(message_content)
+                        
+                        # Reset boredom after sending a message
+                        bot_mind.bot_mind.boredom_level = max(0, bot_mind.bot_mind.boredom_level - 0.5)
+                        bot_mind.bot_mind.think(f"Hab in den Chat geschrieben weil mir langweilig war.")
+                        
+                        logger.info(f"[Autonomous] Sent bored message to channel {channel.name}")
+                    except Exception as e:
+                        logger.warning(f"[Autonomous] Could not send to channel: {e}")
+            else:
+                # No channel to send to, try finding a general channel
+                for guild in client.guilds:
+                    for channel in guild.text_channels:
+                        if 'general' in channel.name.lower() or 'chat' in channel.name.lower():
+                            try:
+                                await channel.send(message_content)
+                                last_autonomous_channel_id = channel.id
+                                
+                                bot_mind.bot_mind.boredom_level = max(0, bot_mind.bot_mind.boredom_level - 0.5)
+                                logger.info(f"[Autonomous] Sent bored message to {channel.name}")
+                                return
+                            except Exception:
+                                continue
+    except Exception as e:
+        logger.error(f"Error in autonomous message trigger: {e}", exc_info=True)
+
+
+@boredom_update_task.before_loop
+async def before_boredom_update_task():
+    await client.wait_until_ready()
 
 # --- NEW: Personality Evolution Maintenance Task ---
 @_tasks.loop(hours=6)
@@ -8934,13 +9115,16 @@ class HelpView(discord.ui.View):
                 ("mines", "Spiele Mines - vermeide die Bomben"),
                 ("tower", "Spiele Tower of Treasure - klettere den Turm hinauf"),
                 ("rr", "Spiele Russian Roulette - hohes Risiko, hohe Belohnung"),
+                ("horserace", "Starte ein Pferderennen mit anderen Spielern"),
                 ("detective", "Löse einen KI-generierten Mordfall"),
                 ("trolly", "Stelle dich einem moralischen Dilemma"),
+                ("wordle", "Spiele Wordle - errate das 5-Buchstaben Wort"),
                 ("wordfind", "Errate das tägliche Wort mit Nähehinweisen"),
             ],
             "💰 Economy": [
                 ("daily", "Hole deine tägliche Belohnung ab"),
                 ("shop", "Öffne den Shop - kaufe Farbrollen und mehr"),
+                ("send", "Sende Geld an einen anderen Benutzer"),
                 ("transactions", "Zeige deine letzten Transaktionen an"),
                 ("quests", "Zeige deine täglichen Quests und Fortschritt"),
                 ("stock", "Öffne den Aktienmarkt - kaufe und verkaufe Aktien"),
@@ -8950,6 +9134,19 @@ class HelpView(discord.ui.View):
                 ("leaderboard", "Zeige globale Leaderboards (Level, Money, Werwolf, Games)"),
                 ("summary", "Zeige Sulfurs Meinung über einen Benutzer"),
                 ("spotify", "Zeige deine Spotify-Statistiken"),
+                ("wrapped", "📊 Zeige deinen Wrapped-Status"),
+                ("listening", "📊 Zeige deine Musik-Hörstatistiken"),
+            ],
+            "🎵 Music & Media": [
+                ("music", "🎵 Spiele Musik oder Ambient-Sounds im Voice-Channel"),
+                ("musicadd", "➕ Füge einen Song zur Warteschlange hinzu"),
+                ("musicqueue", "📋 Zeige die aktuelle Musik-Warteschlange"),
+                ("podcast", "🎙️ Suche und höre Podcasts"),
+                ("audiobook", "📚 Suche und höre Hörbücher"),
+            ],
+            "⏱️ Productivity": [
+                ("focus", "Starte einen Focus-Timer (Pomodoro oder Custom)"),
+                ("focusstats", "Zeige deine Focus-Timer Statistiken"),
             ],
             "🎭 Werwolf": [
                 ("ww start", "Starte ein neues Werwolf-Spiel"),
@@ -8964,10 +9161,15 @@ class HelpView(discord.ui.View):
                 ("voice config permit", "Erlaube einem Benutzer Zugriff auf deinen Channel"),
                 ("voice config unpermit", "Entferne Zugriff für einen Benutzer"),
             ],
-            "⚙️ Other": [
+            "📰 News & Sports": [
                 ("news", "Zeige die neuesten Server-Nachrichten"),
+                ("sportnews", "📰 Sport News - Fußball, F1 & MotoGP"),
+                ("sportbets", "🏆 Sport Betting - wette auf Spiele"),
+            ],
+            "⚙️ Settings": [
                 ("privacy", "Verwalte deine Datenschutz-Einstellungen"),
-                ("wrapped", "📊 Zeige deinen Wrapped-Status und verwalte deine Registrierung"),
+                ("settings", "Verwalte deine Bot-Einstellungen"),
+                ("language", "Ändere deine Spielsprache"),
             ],
         }
         
@@ -8979,6 +9181,7 @@ class HelpView(discord.ui.View):
                 ("admin status", "Zeige den Bot-Status"),
                 ("admin dashboard", "Zeige das Admin-Dashboard"),
                 ("admin emojis", "Verwalte Server-Emojis"),
+                ("setjoinrole", "Setze eine automatische Rolle für neue Mitglieder"),
             ]
             self.categories["🤖 Admin AI"] = [
                 ("adminai mind", "Zeige den mentalen Zustand des Bots"),
@@ -17845,8 +18048,11 @@ async def on_message(message):
         
         # --- NEW: Track ALL messages for server activity (not just bot interactions) ---
         if message.guild:
+            global last_autonomous_channel_id
             try:
                 bot_mind.bot_mind.update_server_activity(message.guild.id)
+                # Track last active channel for autonomous messaging
+                last_autonomous_channel_id = message.channel.id
                 logger.debug(f"[MIND] Tracked activity in server {message.guild.name}")
             except AttributeError as ae:
                 logger.debug(f"[MIND] Bot mind module not available: {ae}")
@@ -18036,6 +18242,27 @@ async def on_message(message):
                 logger.debug(f"[CHATBOT] Recorded learning from interaction with {message.author.name}")
             except Exception as e:
                 logger.warning(f"[CHATBOT] Could not record learning: {e}")
+
+            # --- NEW: Track conversation topic and update bot thoughts ---
+            try:
+                # Extract simple topic from message (first few words or key phrases)
+                words = message.content.split()[:5]
+                topic = " ".join(words) if words else "general chat"
+                bot_mind.bot_mind.track_topic(topic)
+                bot_mind.bot_mind.update_server_activity(message.guild.id if message.guild else 0)
+                
+                # Periodically generate a thought based on the conversation
+                if bot_mind.bot_mind.increment_conversation():
+                    # Simple thought generation based on context
+                    if bot_mind.bot_mind.should_express_boredom():
+                        bot_mind.bot_mind.think(f"Schon wieder das gleiche Thema... langweilig.")
+                    elif bot_mind.bot_mind.should_express_interest(topic):
+                        bot_mind.bot_mind.think(f"Interessant, was {message.author.display_name} über {topic} sagt.")
+                        bot_mind.bot_mind.add_interest(topic)
+                    else:
+                        bot_mind.bot_mind.think(f"Gespräch mit {message.author.display_name} läuft.")
+            except Exception as e:
+                logger.debug(f"[CHATBOT] Could not track topic/thought: {e}")
 
             # --- NEW: Track AI usage (model + feature) ---
             try:
