@@ -290,6 +290,42 @@ FFMPEG_OPTIONS = {
     'options': '-vn -bufsize 512k'
 }
 
+# FFmpeg audio normalization filter (loudnorm for EBU R128 normalization)
+# This ensures consistent volume across different tracks
+# I=-16 is the target integrated loudness, LRA=11 is target loudness range, TP=-1.5 is true peak
+AUDIO_NORMALIZE_FILTER = 'loudnorm=I=-16:LRA=11:TP=-1.5'
+
+# Enable/disable audio normalization (can be toggled via config)
+ENABLE_AUDIO_NORMALIZATION = True
+
+def get_audio_filter(volume: float = 1.0, normalize: bool = None) -> str:
+    """
+    Generate FFmpeg audio filter string with optional normalization.
+    
+    Args:
+        volume: Volume level (0.0-1.0)
+        normalize: Whether to apply loudness normalization (uses global setting if None)
+    
+    Returns:
+        FFmpeg filter string for -af option
+    """
+    if normalize is None:
+        normalize = ENABLE_AUDIO_NORMALIZATION
+    
+    filters = []
+    
+    # Add volume control
+    if volume != 1.0:
+        filters.append(f'volume={volume}')
+    
+    # Add loudness normalization for consistent volume across tracks
+    if normalize:
+        filters.append(AUDIO_NORMALIZE_FILTER)
+    
+    if filters:
+        return ','.join(filters)
+    return 'anull'  # No-op filter if no processing needed
+
 # yt-dlp options with improved resilience for network issues
 YDL_OPTIONS = {
     'format': 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best',  # Prefer m4a/webm for better quality
@@ -1132,15 +1168,17 @@ Double-check that titles and artist names are spelled correctly for YouTube sear
 
 
 
-async def search_youtube_song(song_title: str, artist: str, filter_shorts: bool = True) -> Optional[str]:
+async def search_youtube_song(song_title: str, artist: str, filter_shorts: bool = True, skip_remixes: bool = True) -> Optional[str]:
     """
     Search for a song on YouTube and return the video URL.
-    Filters out shorts and non-music content by default.
+    Filters out shorts, non-music content, and optionally remixes/edits.
+    Prioritizes exact matches with artist and song title verification.
     
     Args:
         song_title: Song title
         artist: Artist name
         filter_shorts: If True, excludes videos under 2 minutes (likely shorts)
+        skip_remixes: If True, skips radio edits, remixes, covers, and other versions
     
     Returns:
         YouTube video URL or None
@@ -1148,6 +1186,7 @@ async def search_youtube_song(song_title: str, artist: str, filter_shorts: bool 
     try:
         import yt_dlp
         from urllib.parse import quote
+        import re
         
         # Use URL encoding instead of regex to preserve more characters
         # This handles special characters safely while keeping apostrophes, etc.
@@ -1158,16 +1197,33 @@ async def search_youtube_song(song_title: str, artist: str, filter_shorts: bool 
         safe_artist = safe_artist[:100]
         safe_title = safe_title[:100]
         
+        # Normalize for matching
+        normalized_artist = safe_artist.lower().strip()
+        normalized_title = safe_title.lower().strip()
+        
         # Add music-specific keywords to improve search quality
         # Prioritize official audio, lyrics videos, and music over random content
-        search_query = f"{safe_artist} {safe_title} official audio lyrics music"
-        search_url = f"ytsearch5:{search_query}"  # Get top 5 results to filter
+        search_query = f"{safe_artist} {safe_title} official audio"
+        search_url = f"ytsearch10:{search_query}"  # Get top 10 results for better filtering
         
         with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
             info = await asyncio.to_thread(ydl.extract_info, search_url, download=False)
             
             # Extract URL from search result
             if info and 'entries' in info and info['entries']:
+                best_match = None
+                best_score = -1
+                
+                # Keywords to skip (radio edits, remixes, covers, etc.)
+                skip_keywords = [
+                    'radio edit', 'radio version', 'remix', 'cover', 'karaoke',
+                    'instrumental', 'acoustic', 'live at', 'live from', 'live version',
+                    'sped up', 'slowed', 'reverb', 'nightcore', 'daycore',
+                    'movie version', 'soundtrack', 'movie clip', 'film version',
+                    'reaction', 'tutorial', 'how to', 'compilation', '#shorts',
+                    'extended', 'extended version', 'extended mix'
+                ]
+                
                 # Filter and select best match
                 for video_info in info['entries']:
                     if not video_info:
@@ -1175,7 +1231,8 @@ async def search_youtube_song(song_title: str, artist: str, filter_shorts: bool 
                     
                     video_id = video_info.get('id')
                     duration = video_info.get('duration', 0)
-                    title = video_info.get('title', '').lower()
+                    video_title = video_info.get('title', '').lower()
+                    video_channel = video_info.get('channel', '').lower() or video_info.get('uploader', '').lower()
                     
                     # Skip if no video ID
                     if not video_id:
@@ -1183,30 +1240,86 @@ async def search_youtube_song(song_title: str, artist: str, filter_shorts: bool 
                     
                     # Filter out shorts (videos under 2 minutes = 120 seconds)
                     if filter_shorts and duration and duration < 120:
-                        logger.debug(f"Skipping short video: {title} ({duration}s)")
+                        logger.debug(f"Skipping short video: {video_title} ({duration}s)")
                         continue
                     
-                    # Prefer videos with music-related keywords
-                    music_keywords = ['official', 'audio', 'lyrics', 'music', 'video']
-                    has_music_keyword = any(keyword in title for keyword in music_keywords)
-                    
-                    # Skip videos that are clearly not music (compilations, shorts, etc.)
-                    bad_keywords = ['#shorts', 'compilation', 'reaction', 'tutorial', 'how to']
-                    has_bad_keyword = any(keyword in title for keyword in bad_keywords)
-                    
-                    if has_bad_keyword:
-                        logger.debug(f"Skipping non-music video: {title}")
+                    # Skip very long videos (likely full albums or compilations)
+                    if duration and duration > 1800:  # 30 minutes
+                        logger.debug(f"Skipping long video: {video_title} ({duration}s)")
                         continue
                     
-                    # Accept this video
-                    logger.info(f"Selected video: {title} ({duration}s)")
-                    return f"https://www.youtube.com/watch?v={video_id}"
+                    # Skip remixes, radio edits, and other versions if enabled
+                    if skip_remixes:
+                        has_skip_keyword = any(keyword in video_title for keyword in skip_keywords)
+                        if has_skip_keyword:
+                            logger.debug(f"Skipping remix/edit/cover: {video_title}")
+                            continue
+                    
+                    # Calculate match score
+                    score = 0
+                    
+                    # Check if artist name appears in title or channel
+                    if normalized_artist in video_title or normalized_artist in video_channel:
+                        score += 50
+                    
+                    # Check if song title appears in video title
+                    if normalized_title in video_title:
+                        score += 50
+                    
+                    # Bonus for official content
+                    if 'official' in video_title:
+                        score += 30
+                    if 'audio' in video_title:
+                        score += 20
+                    if 'lyrics' in video_title:
+                        score += 10
+                    if 'music video' in video_title:
+                        score += 15
+                    
+                    # Bonus for matching channel name (often the artist)
+                    if normalized_artist in video_channel:
+                        score += 25
+                    
+                    # Penalty for potentially wrong content
+                    if 'topic' in video_channel:  # YouTube auto-generated channels
+                        score += 5  # Slight bonus, these are usually correct
+                    
+                    # Keep track of best match
+                    if score > best_score:
+                        best_score = score
+                        best_match = video_info
+                        logger.debug(f"New best match (score={score}): {video_title}")
                 
-                # If no good match found after filtering, return first result
-                if info['entries']:
+                # Use best match if found and has reasonable score
+                if best_match and best_score >= 50:  # Require at least artist OR title match
+                    video_id = best_match.get('id')
+                    if video_id:
+                        logger.info(f"Selected best match (score={best_score}): {best_match.get('title', 'Unknown')}")
+                        return f"https://www.youtube.com/watch?v={video_id}"
+                
+                # If no good match found after filtering, return first non-skipped result
+                for video_info in info['entries']:
+                    if not video_info:
+                        continue
+                    video_id = video_info.get('id')
+                    video_title = video_info.get('title', '').lower()
+                    duration = video_info.get('duration', 0)
+                    
+                    # Apply basic filters
+                    if filter_shorts and duration and duration < 120:
+                        continue
+                    if skip_remixes and any(keyword in video_title for keyword in skip_keywords):
+                        continue
+                    
+                    if video_id:
+                        logger.warning(f"No ideal match found, using first valid result: {video_info.get('title', 'Unknown')}")
+                        return f"https://www.youtube.com/watch?v={video_id}"
+                
+                # Last resort: return first result
+                if info['entries'] and info['entries'][0]:
                     video_id = info['entries'][0].get('id')
                     if video_id:
-                        logger.warning(f"No ideal match found, using first result")
+                        logger.warning(f"No filtered match found, using first result")
                         return f"https://www.youtube.com/watch?v={video_id}"
         
         return None
@@ -1820,8 +1933,8 @@ async def play_song_with_queue(
                 album=song.get('album')
             )
         
-        # Create audio source with volume control and optional timestamp handling for album tracks
-        volume_filter = f'volume={volume}'
+        # Create audio source with volume control, normalization, and optional timestamp handling
+        audio_filter = get_audio_filter(volume, normalize=ENABLE_AUDIO_NORMALIZATION)
         
         # Handle album tracks with start/end timestamps (sanitize and validate inputs)
         before_options = '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5'
@@ -1835,7 +1948,7 @@ async def play_song_with_queue(
         
         ffmpeg_options_dict = {
             'before_options': before_options,
-            'options': f'-vn -af "{volume_filter}"'
+            'options': f'-vn -af "{audio_filter}"'
         }
         
         # Add duration limit if end_time is specified (for album tracks)
@@ -1844,7 +1957,7 @@ async def play_song_with_queue(
             song['end_time'] > song['start_time']):
             # Sanitize duration calculation with bounds checking
             duration = min(float(song['end_time']) - float(song['start_time']), MAX_TIMESTAMP)
-            ffmpeg_options_dict['options'] = f'-vn -t {duration} -af "{volume_filter}"'
+            ffmpeg_options_dict['options'] = f'-vn -t {duration} -af "{audio_filter}"'
             logger.info(f"Limiting playback duration to {duration}s for track: {song.get('title', 'Unknown')}")
         
         audio_source = discord.FFmpegPCMAudio(audio_url, **ffmpeg_options_dict)
@@ -2141,6 +2254,155 @@ def clear_queue(guild_id: int) -> int:
     except Exception as e:
         logger.error(f"Error clearing queue: {e}", exc_info=True)
         return 0
+
+
+def insert_at_queue_front(guild_id: int, song: dict) -> bool:
+    """
+    Insert a song at the front of the queue (to play next).
+    
+    Args:
+        guild_id: Guild ID
+        song: Song dictionary to insert
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        if guild_id not in active_sessions:
+            active_sessions[guild_id] = {}
+        
+        if 'queue' not in active_sessions[guild_id]:
+            active_sessions[guild_id]['queue'] = []
+        
+        # Insert at the beginning of the queue
+        active_sessions[guild_id]['queue'].insert(0, song)
+        logger.info(f"Inserted song at front of queue: {song.get('title', 'Unknown')}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error inserting at queue front: {e}", exc_info=True)
+        return False
+
+
+async def play_now(
+    voice_client: discord.VoiceClient,
+    song: dict,
+    guild_id: int,
+    volume: float = 1.0,
+    user_id: int = None,
+    preserve_queue: bool = True
+) -> bool:
+    """
+    Play a song immediately, bypassing the current queue.
+    Optionally preserves the existing queue to resume after.
+    
+    Args:
+        voice_client: Connected Discord voice client
+        song: Song dictionary with 'url' or 'title'/'artist'
+        guild_id: Guild ID for session tracking
+        volume: Volume level (0.0-1.0)
+        user_id: Optional Discord user ID for history tracking
+        preserve_queue: If True, current song goes back to queue front
+    
+    Returns:
+        True if playback started successfully, False otherwise
+    """
+    try:
+        # If preserving queue and there's a current song, insert it back at the front
+        if preserve_queue and guild_id in active_sessions:
+            current_song = active_sessions[guild_id].get('current_song')
+            if current_song:
+                insert_at_queue_front(guild_id, current_song)
+                logger.info(f"Preserved current song to queue: {current_song.get('title', 'Unknown')}")
+        
+        # Stop current playback
+        if voice_client.is_playing():
+            voice_client.stop()
+            # Wait a moment for stop to complete
+            await asyncio.sleep(0.2)
+        
+        # Play the new song
+        success = await play_song_with_queue(voice_client, song, guild_id, volume, user_id)
+        
+        if success:
+            logger.info(f"Play now started: {song.get('title', 'Unknown')}")
+        
+        return success
+        
+    except Exception as e:
+        logger.error(f"Error in play_now: {e}", exc_info=True)
+        return False
+
+
+async def play_album_now(
+    voice_client: discord.VoiceClient,
+    album_name: str,
+    artist: str,
+    guild_id: int,
+    volume: float = 1.0,
+    user_id: int = None,
+    preserve_queue: bool = True
+) -> tuple:
+    """
+    Play an album immediately, bypassing the current queue.
+    Optionally preserves the existing queue to resume after the album.
+    
+    Args:
+        voice_client: Connected Discord voice client
+        album_name: Name of the album
+        artist: Artist name
+        guild_id: Guild ID
+        volume: Volume level (0.0-1.0)
+        user_id: User ID for playback tracking
+        preserve_queue: If True, existing queue is preserved after album
+    
+    Returns:
+        Tuple of (tracks_added, tracks_failed, first_track_playing)
+    """
+    try:
+        # Get album info first
+        album_info = await get_album_info(album_name, artist)
+        
+        if not album_info or not album_info['tracks']:
+            logger.warning(f"No tracks found for album: {album_name}")
+            return (0, 0, False)
+        
+        tracks = album_info['tracks']
+        
+        # If preserving queue, save current queue
+        old_queue = []
+        current_song = None
+        if preserve_queue and guild_id in active_sessions:
+            old_queue = active_sessions[guild_id].get('queue', []).copy()
+            current_song = active_sessions[guild_id].get('current_song')
+        
+        # Clear the current queue
+        clear_queue(guild_id)
+        
+        # Add all album tracks to queue (except first, which we'll play directly)
+        for track in tracks[1:]:
+            add_to_queue(guild_id, track, check_duplicates=False)
+        
+        # Add preserved songs after album tracks
+        if preserve_queue:
+            if current_song:
+                add_to_queue(guild_id, current_song, check_duplicates=True)
+            for song in old_queue:
+                add_to_queue(guild_id, song, check_duplicates=True)
+        
+        # Play first track
+        first_track = tracks[0]
+        success = await play_now(voice_client, first_track, guild_id, volume, user_id, preserve_queue=False)
+        
+        if success:
+            logger.info(f"Playing album now: {album_name} with {len(tracks)} tracks")
+            return (len(tracks), 0, True)
+        else:
+            return (len(tracks) - 1, 1, False)
+        
+    except Exception as e:
+        logger.error(f"Error in play_album_now: {e}", exc_info=True)
+        return (0, 0, False)
 
 
 def sanitize_song_title(title: str) -> str:

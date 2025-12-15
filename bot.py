@@ -16032,6 +16032,186 @@ class AddMusicModal(discord.ui.Modal, title='🎵 Song oder Album hinzufügen'):
                 await interaction.followup.send(embed=embed, ephemeral=True)
 
 
+class PlayNowModal(discord.ui.Modal, title='⏯️ Jetzt abspielen'):
+    """Modal for playing a song immediately, bypassing the queue."""
+    
+    music_type = discord.ui.TextInput(
+        label='Typ (song/album)',
+        placeholder='song oder album',
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=10,
+        default='song'
+    )
+    
+    query = discord.ui.TextInput(
+        label='Name oder URL',
+        placeholder='z.B. "Artist - Song" oder "Album Name"',
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=200
+    )
+    
+    artist = discord.ui.TextInput(
+        label='Artist (optional, für Album empfohlen)',
+        placeholder='Künstlername',
+        style=discord.TextStyle.short,
+        required=False,
+        max_length=100
+    )
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        """Handle modal submission - plays immediately, bypassing queue."""
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            music_type_input = self.music_type.value.strip().lower()
+            query_input = self.query.value.strip()
+            artist_input = self.artist.value.strip() if self.artist.value else None
+            
+            # Check if user is in voice channel
+            if not interaction.user.voice or not interaction.user.voice.channel:
+                embed = discord.Embed(
+                    title="❌ Nicht in Voice-Channel",
+                    description="Du musst in einem Voice-Channel sein!",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+            
+            voice_channel = interaction.user.voice.channel
+            guild_id = interaction.guild.id
+            
+            # Get or create voice client
+            voice_client = interaction.guild.voice_client
+            if not voice_client or not voice_client.is_connected():
+                voice_client = await lofi_player.join_voice_channel(voice_channel)
+                if not voice_client:
+                    embed = discord.Embed(
+                        title="❌ Verbindungsfehler",
+                        description="Konnte dem Voice-Channel nicht beitreten!",
+                        color=discord.Color.red()
+                    )
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+                    return
+            
+            # Handle album
+            if music_type_input == 'album':
+                loading_embed = discord.Embed(
+                    title="🔍 Suche Album...",
+                    description=f"Suche nach: **{query_input}**" + (f" von *{artist_input}*" if artist_input else ""),
+                    color=discord.Color.blue()
+                )
+                await interaction.followup.send(embed=loading_embed, ephemeral=True)
+                
+                # Play album now (bypasses queue)
+                tracks_added, tracks_failed, playing = await lofi_player.play_album_now(
+                    voice_client,
+                    query_input,
+                    artist_input,
+                    guild_id,
+                    volume=1.0,
+                    user_id=interaction.user.id,
+                    preserve_queue=True
+                )
+                
+                if playing:
+                    embed = discord.Embed(
+                        title="📀 Album wird jetzt abgespielt!",
+                        description=f"## {query_input}\n*Spielt sofort, Queue wird danach fortgesetzt*",
+                        color=discord.Color.green()
+                    )
+                    embed.add_field(
+                        name="📊 Album Info",
+                        value=f"**{tracks_added} Tracks** werden abgespielt",
+                        inline=False
+                    )
+                    await interaction.edit_original_response(embed=embed)
+                else:
+                    embed = discord.Embed(
+                        title="❌ Album nicht gefunden",
+                        description=f"Konnte das Album '{query_input}' nicht finden oder abspielen!",
+                        color=discord.Color.red()
+                    )
+                    await interaction.edit_original_response(embed=embed)
+            
+            # Handle song (default)
+            else:
+                # Parse song query
+                song = {}
+                if query_input.startswith('http'):
+                    song['url'] = query_input
+                else:
+                    if ' - ' in query_input:
+                        parts = query_input.split(' - ', 1)
+                        song['artist'] = parts[0].strip()
+                        song['title'] = parts[1].strip()
+                    else:
+                        song['url'] = f"ytsearch:{query_input}"
+                    
+                    # Use provided artist if available
+                    if artist_input and 'artist' not in song:
+                        song['artist'] = artist_input
+                
+                # Sanitize title
+                if 'title' in song:
+                    song['title'] = lofi_player.sanitize_song_title(song['title'])
+                
+                # Play now (bypasses queue, preserves existing queue for later)
+                success = await lofi_player.play_now(
+                    voice_client,
+                    song,
+                    guild_id,
+                    volume=1.0,
+                    user_id=interaction.user.id,
+                    preserve_queue=True
+                )
+                
+                if success:
+                    current_song = lofi_player.get_current_song(guild_id)
+                    embed = discord.Embed(
+                        title="⏯️ Jetzt läuft!",
+                        description="*Song spielt sofort, Queue wird danach fortgesetzt*",
+                        color=discord.Color.green()
+                    )
+                    
+                    if current_song:
+                        embed.add_field(
+                            name="🎵 Song",
+                            value=f"**{current_song.get('title', 'Unknown')}**\n*{current_song.get('artist', 'Unknown')}*",
+                            inline=False
+                        )
+                    
+                    queue_length = lofi_player.get_queue_length(guild_id)
+                    if queue_length > 0:
+                        embed.add_field(
+                            name="📋 Queue",
+                            value=f"{queue_length} Songs warten danach",
+                            inline=True
+                        )
+                    
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+                else:
+                    embed = discord.Embed(
+                        title="❌ Fehler",
+                        description="Song konnte nicht abgespielt werden!",
+                        color=discord.Color.red()
+                    )
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+                
+        except Exception as e:
+            logger.error(f"Error in play now modal: {e}", exc_info=True)
+            embed = discord.Embed(
+                title="❌ Fehler",
+                description=f"Es ist ein Fehler aufgetreten: {str(e)}",
+                color=discord.Color.red()
+            )
+            try:
+                await interaction.edit_original_response(embed=embed)
+            except:
+                await interaction.followup.send(embed=embed, ephemeral=True)
+
+
 class MusicControlView(discord.ui.View):
     """View with buttons for music controls."""
     
@@ -16146,6 +16326,12 @@ class MusicControlView(discord.ui.View):
     async def add_song_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Show add music modal (supports songs and albums)."""
         modal = AddMusicModal()
+        await interaction.response.send_modal(modal)
+    
+    @discord.ui.button(label="Play Now", style=discord.ButtonStyle.success, emoji="⏯️")
+    async def play_now_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Play a song immediately, bypassing the queue."""
+        modal = PlayNowModal()
         await interaction.response.send_modal(modal)
     
     @discord.ui.button(label="Show Queue", style=discord.ButtonStyle.secondary, emoji="📋")
