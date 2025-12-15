@@ -22,6 +22,8 @@ MODEL_PRICING = {
     "gemini-1.5-flash": {"input": 0.075, "output": 0.30},
     "gemini-pro": {"input": 0.50, "output": 1.50},
     # OpenAI Models (per 1M tokens)
+    "gpt-5-nano": {"input": 0.05, "output": 0.20},
+    "gpt-5-mini": {"input": 0.15, "output": 0.60},
     "gpt-4.1-nano": {"input": 0.10, "output": 0.40},
     "gpt-4.1-mini": {"input": 0.40, "output": 1.60},
     "gpt-4o": {"input": 2.50, "output": 10.00},

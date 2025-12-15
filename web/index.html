@@ -852,6 +852,8 @@
         } else if (provider === 'openai') {
             // Include all OpenAI models with pricing info
             const models = [
+                {name: 'gpt-5-nano', price: '$0.05/1M'},
+                {name: 'gpt-5-mini', price: '$0.15/1M'},
                 {name: 'gpt-4.1-nano', price: '$0.10/1M'},
                 {name: 'gpt-4.1-mini', price: '$0.40/1M'},
                 {name: 'gpt-4o-mini', price: '$0.15/1M'},

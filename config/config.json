@@ -77,6 +77,8 @@
       "utility_temperature": 0.8,
       "utility_max_tokens": 800,
       "available_models": [
+        "gpt-5-nano",
+        "gpt-5-mini",
         "gpt-4.1-nano",
         "gpt-4.1-mini",
         "gpt-4o-mini",
