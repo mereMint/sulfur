@@ -48,12 +48,17 @@ BACKUP_INTERVAL=1800   # Backup every 30 minutes
 
 # Flags
 SKIP_BACKUP=${SKIP_BACKUP:-false}
+SKIP_COMMIT=${SKIP_COMMIT:-true}  # Default to true - bot should only pull, not commit/push
 
 # CLI flags
 for arg in "$@"; do
     case "$arg" in
         --no-backup|-n)
             SKIP_BACKUP=true
+            shift
+            ;;
+        --enable-commit)
+            SKIP_COMMIT=false
             shift
             ;;
     esac
@@ -629,6 +634,12 @@ install_optional_dependencies() {
 
 git_commit() {
     local message=${1:-"chore: Auto-commit from maintenance script"}
+    
+    # Skip commit if SKIP_COMMIT is enabled (default)
+    if [ "$SKIP_COMMIT" = true ]; then
+        log_git "Auto-commit disabled (SKIP_COMMIT=true). Bot should only pull from main."
+        return 1
+    fi
     
     log_git "Checking for changes to commit..."
     

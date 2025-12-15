@@ -1718,6 +1718,107 @@ def api_log_content(filename):
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
+@app.route('/api/logs/cleanup', methods=['POST'])
+def api_logs_cleanup():
+    """API endpoint to delete log files older than specified hours."""
+    try:
+        hours = request.json.get('hours', 72) if request.json else 72
+        
+        if not os.path.exists(LOG_DIR):
+            return jsonify({'status': 'success', 'deleted': 0, 'message': 'No logs directory found'})
+        
+        cutoff_time = time.time() - (hours * 3600)
+        deleted_count = 0
+        deleted_files = []
+        
+        for f in os.listdir(LOG_DIR):
+            if f.endswith('.log'):
+                file_path = os.path.join(LOG_DIR, f)
+                try:
+                    stat = os.stat(file_path)
+                    if stat.st_mtime < cutoff_time:
+                        os.remove(file_path)
+                        deleted_count += 1
+                        deleted_files.append(f)
+                        logger.info(f"Deleted old log file: {f}")
+                except OSError as e:
+                    logger.warning(f"Could not delete log file {f}: {e}")
+        
+        return jsonify({
+            'status': 'success',
+            'deleted': deleted_count,
+            'deleted_files': deleted_files[:20],  # Only show first 20 for brevity
+            'message': f'Deleted {deleted_count} log files older than {hours} hours'
+        })
+    except Exception as e:
+        logger.error(f"Error cleaning up log files: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/logs/filtered/<filename>', methods=['GET'])
+def api_log_content_filtered(filename):
+    """API endpoint to get filtered log content (errors and warnings only)."""
+    try:
+        # Validate filename to prevent directory traversal attacks
+        if not re.match(r'^[a-zA-Z0-9_.\-]+\.log$', filename):
+            return jsonify({'status': 'error', 'message': 'Invalid filename'}), 400
+        
+        file_path = os.path.join(LOG_DIR, filename)
+        
+        # Ensure the resolved path is still within LOG_DIR
+        real_path = os.path.realpath(file_path)
+        real_log_dir = os.path.realpath(LOG_DIR)
+        if not real_path.startswith(real_log_dir):
+            return jsonify({'status': 'error', 'message': 'Invalid file path'}), 400
+        
+        if not os.path.exists(file_path):
+            return jsonify({'status': 'error', 'message': 'File not found'}), 404
+        
+        # Get filter level (default: errors and warnings)
+        level = request.args.get('level', 'errors_warnings')  # Options: errors, warnings, errors_warnings, all
+        lines = request.args.get('lines', type=int, default=500)
+        lines = min(lines, 2000)
+        
+        # Define filter patterns based on level
+        if level == 'errors':
+            patterns = [r'\[ERROR\]', r'ERROR:', r'Error:', r'error:', r'Exception', r'Traceback']
+        elif level == 'warnings':
+            patterns = [r'\[WARNING\]', r'WARNING:', r'Warning:', r'warning:']
+        elif level == 'errors_warnings':
+            patterns = [r'\[ERROR\]', r'ERROR:', r'Error:', r'error:', r'Exception', r'Traceback',
+                       r'\[WARNING\]', r'WARNING:', r'Warning:', r'warning:']
+        else:
+            patterns = None  # No filter
+        
+        filtered_lines = []
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            all_lines = f.readlines()
+            
+            if patterns:
+                combined_pattern = '|'.join(patterns)
+                for line in all_lines:
+                    if re.search(combined_pattern, line, re.IGNORECASE):
+                        filtered_lines.append(line)
+            else:
+                filtered_lines = all_lines
+        
+        # Get last N lines
+        content = filtered_lines[-lines:] if len(filtered_lines) > lines else filtered_lines
+        
+        return jsonify({
+            'status': 'success',
+            'filename': filename,
+            'content': ''.join(content),
+            'total_lines': len(all_lines),
+            'filtered_lines': len(filtered_lines),
+            'lines_returned': len(content),
+            'filter_level': level
+        })
+    except Exception as e:
+        logger.error(f"Error reading filtered log file {filename}: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 # --- RPG Admin Routes ---
 
 @app.route('/rpg_admin', methods=['GET'])
