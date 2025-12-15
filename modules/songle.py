@@ -3,12 +3,24 @@ Sulfur Bot - Songle (Guess the Song) Game Module
 A daily song guessing game where players listen to audio clips and guess the song.
 """
 
-import discord
-import random
+# Standard library imports
 import asyncio
 import json
+import random
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Any
+
+# Third-party imports
+import discord
+
+# Optional: yt_dlp for audio playback
+try:
+    import yt_dlp
+    YT_DLP_AVAILABLE = True
+except ImportError:
+    YT_DLP_AVAILABLE = False
+
+# Local imports
 from modules.logger_utils import bot_logger as logger
 
 # Active games per user
@@ -16,6 +28,9 @@ active_songle_games: Dict[int, 'SongleGame'] = {}
 
 # Daily play tracking
 daily_plays: Dict[str, Dict[int, int]] = {}  # {date_str: {user_id: play_count}}
+
+# Audio URL cache
+_audio_url_cache: Dict[int, str] = {}  # {song_id: youtube_url}
 
 # Cache for daily song
 _daily_song_cache: Dict[str, dict] = {}
@@ -429,10 +444,11 @@ class SongleGame:
         else:
             embed.description = f"🎵 Guess the song using the hints below!\nAttempt {self.attempts + 1}/{self.MAX_GUESSES}"
             
-            # Note about audio feature
+            # Audio preview info
+            clip_duration = self.current_clip_duration
             embed.add_field(
                 name="🔊 Audio Preview",
-                value=f"Audio clips coming soon! For now, use the hints to guess the song.",
+                value=f"Click the **Listen** button to hear a {clip_duration}s clip!\nJoin a voice channel first.",
                 inline=False
             )
             
@@ -544,3 +560,168 @@ def search_songs(query: str) -> List[dict]:
             results.append(song)
     
     return results[:5]  # Limit results
+
+
+async def get_song_youtube_url(song: dict) -> Optional[str]:
+    """
+    Get a YouTube URL for a song to play as audio.
+    Uses lofi_player's YouTube search functionality.
+    
+    Args:
+        song: Song dictionary with 'title' and 'artist'
+    
+    Returns:
+        YouTube URL or None if not found
+    """
+    try:
+        from modules import lofi_player
+        
+        song_id = song.get('id')
+        
+        # Check cache first
+        if song_id and song_id in _audio_url_cache:
+            return _audio_url_cache[song_id]
+        
+        # Search YouTube for the song
+        url = await lofi_player.search_youtube_song(
+            song['title'], 
+            song['artist'],
+            filter_shorts=True,
+            skip_remixes=True
+        )
+        
+        # Cache the result
+        if url and song_id:
+            _audio_url_cache[song_id] = url
+        
+        return url
+        
+    except Exception as e:
+        logger.error(f"Error getting YouTube URL for song: {e}")
+        return None
+
+
+async def play_song_clip(
+    voice_client,
+    song: dict,
+    duration_seconds: int = 5,
+    guild_id: int = None
+) -> bool:
+    """
+    Play a short clip of a song in a voice channel.
+    
+    Args:
+        voice_client: Discord voice client (connected)
+        song: Song dictionary with 'title' and 'artist'
+        duration_seconds: How many seconds of the song to play
+        guild_id: Guild ID for session tracking
+    
+    Returns:
+        True if clip played successfully, False otherwise
+    """
+    try:
+        from modules import lofi_player
+        
+        # Check for required dependency
+        if not YT_DLP_AVAILABLE:
+            logger.error("yt-dlp not installed - run `pip install yt-dlp` to enable audio clips")
+            return False
+        
+        if not voice_client or not voice_client.is_connected():
+            logger.warning("Voice client not connected for Songle clip")
+            return False
+        
+        # Get YouTube URL for the song
+        url = await get_song_youtube_url(song)
+        if not url:
+            logger.warning(f"Could not find YouTube URL for: {song.get('title')} by {song.get('artist')}")
+            return False
+        
+        # Create song dict for lofi_player
+        song_data = {
+            'title': song.get('title', 'Unknown'),
+            'artist': song.get('artist', 'Unknown'),
+            'url': url,
+            'source': 'songle'
+        }
+        
+        # Stop any current playback
+        if voice_client.is_playing():
+            voice_client.stop()
+            await asyncio.sleep(0.2)
+        
+        # Play the song clip (will be stopped after duration_seconds)
+        with yt_dlp.YoutubeDL(lofi_player.YDL_OPTIONS) as ydl:
+            info = await asyncio.to_thread(ydl.extract_info, url, download=False)
+            audio_url = lofi_player.extract_audio_url(info)
+            
+            if not audio_url:
+                logger.error("Could not extract audio URL for Songle clip")
+                return False
+        
+        # Create audio source
+        audio_source = discord.FFmpegPCMAudio(audio_url, **lofi_player.FFMPEG_OPTIONS)
+        
+        # Play the clip
+        voice_client.play(audio_source)
+        
+        # Wait for the clip duration, then stop
+        await asyncio.sleep(duration_seconds)
+        
+        if voice_client.is_playing():
+            voice_client.stop()
+        
+        logger.info(f"Played {duration_seconds}s clip of: {song.get('title')}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error playing Songle clip: {e}", exc_info=True)
+        return False
+
+
+async def join_and_play_clip(
+    interaction,
+    song: dict,
+    duration_seconds: int = 5
+) -> tuple:
+    """
+    Join the user's voice channel and play a song clip.
+    
+    Args:
+        interaction: Discord interaction (for getting user's voice channel)
+        song: Song dictionary with 'title' and 'artist'
+        duration_seconds: How many seconds of the song to play
+    
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
+    try:
+        from modules import lofi_player
+        
+        # Check if user is in a voice channel
+        if not interaction.user.voice or not interaction.user.voice.channel:
+            return (False, "You need to be in a voice channel to hear the clip!")
+        
+        voice_channel = interaction.user.voice.channel
+        
+        # Join the voice channel
+        voice_client = await lofi_player.join_voice_channel(voice_channel)
+        if not voice_client:
+            return (False, "Could not join your voice channel. Check my permissions!")
+        
+        # Play the clip
+        success = await play_song_clip(
+            voice_client,
+            song,
+            duration_seconds,
+            interaction.guild.id
+        )
+        
+        if success:
+            return (True, f"Playing {duration_seconds}s clip...")
+        else:
+            return (False, "Could not play the audio clip. The song might not be available on YouTube.")
+        
+    except Exception as e:
+        logger.error(f"Error in join_and_play_clip: {e}", exc_info=True)
+        return (False, f"Error: {str(e)}")

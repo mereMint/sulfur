@@ -227,6 +227,21 @@ def save_config(new_config):
 
 config = load_config()
 
+# --- Feature Flag Helper ---
+def is_feature_enabled(feature_name: str) -> bool:
+    """
+    Check if a feature is enabled in the config.
+    
+    Args:
+        feature_name: The name of the feature (e.g., 'music_player', 'games')
+    
+    Returns:
+        True if feature is enabled or not defined (default to enabled)
+    """
+    features = config.get('features', {})
+    # Default to True if not specified
+    return features.get(feature_name, True)
+
 # --- REFACTORED: Validate API keys after loading config ---
 key_error = check_api_keys(config)
 if key_error:
@@ -1203,6 +1218,11 @@ async def on_ready():
     if not sport_betting_sync_and_settle_task.is_running():
         sport_betting_sync_and_settle_task.start()
         print("  -> Sport betting sync and settle task started")
+    
+    # --- NEW: Start config hot-reload task for web dashboard changes ---
+    if not check_config_reload_task.is_running():
+        check_config_reload_task.start()
+        print("  -> Config hot-reload task started")
     
 
 @tasks.loop(minutes=15)
@@ -2556,6 +2576,64 @@ async def _calculate_server_averages(all_stats):
 
 @manage_wrapped_event.before_loop
 async def before_manage_wrapped_event():
+    await client.wait_until_ready()
+
+
+# --- Config Hot Reload Task ---
+# Monitors for config reload flag created by web dashboard
+@tasks.loop(seconds=30)
+async def check_config_reload_task():
+    """
+    Periodically check for config reload flag created by web dashboard.
+    This allows changes made via the web dashboard to take effect without restart.
+    """
+    global config
+    try:
+        reload_flag_path = 'config/reload_config.flag'
+        if os.path.exists(reload_flag_path):
+            try:
+                # Read the flag content (for logging purposes)
+                with open(reload_flag_path, 'r') as f:
+                    change_info = f.read().strip()
+                
+                # Remove the flag file
+                os.remove(reload_flag_path)
+                
+                # Validate and reload the config
+                try:
+                    new_config = load_config()
+                    
+                    # Basic validation - ensure critical sections exist
+                    if new_config is None:
+                        raise ValueError("Config loaded as None")
+                    if 'api' not in new_config:
+                        raise ValueError("Missing 'api' section in config")
+                    if 'bot' not in new_config:
+                        raise ValueError("Missing 'bot' section in config")
+                    
+                    # Config is valid, apply it
+                    config = new_config
+                    
+                    logger.info(f"Config hot-reloaded via web dashboard: {change_info}")
+                    print(f"[Config Reload] Applied changes: {change_info}")
+                    
+                    # Restart presence task to apply new settings immediately
+                    if update_presence_task.is_running():
+                        update_presence_task.restart()
+                        
+                except ValueError as ve:
+                    logger.error(f"Config validation failed: {ve} - keeping old config")
+                    print(f"[Config Reload] FAILED - Invalid config: {ve}")
+                    
+            except Exception as e:
+                logger.error(f"Error during config hot-reload: {e}")
+                
+    except Exception as e:
+        logger.debug(f"Config reload check error: {e}")
+
+
+@check_config_reload_task.before_loop
+async def before_check_config_reload():
     await client.wait_until_ready()
 
 # --- REFACTORED: Multi-step view for sharing the Wrapped summary ---
@@ -10967,6 +11045,16 @@ class StockTradeView(discord.ui.View):
 @tree.command(name="stock", description="Öffne den Aktienmarkt.")
 async def stock_market_command(interaction: discord.Interaction):
     """Open the stock market interface."""
+    # Check if stock_market feature is enabled
+    if not is_feature_enabled('stock_market'):
+        embed = discord.Embed(
+            title="❌ Feature Deaktiviert",
+            description="Der Aktienmarkt ist derzeit deaktiviert.",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+    
     await interaction.response.defer(ephemeral=True)
     
     try:
@@ -11837,6 +11925,16 @@ class MinesView(discord.ui.View):
 @app_commands.describe(bet="Dein Einsatz")
 async def blackjack(interaction: discord.Interaction, bet: int):
     """Start a Blackjack game."""
+    # Check if games feature is enabled
+    if not is_feature_enabled('games'):
+        embed = discord.Embed(
+            title="❌ Feature Deaktiviert",
+            description="Mini-Games sind derzeit deaktiviert.",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+    
     await interaction.response.defer(ephemeral=True)
     
     user_id = interaction.user.id
@@ -12511,6 +12609,16 @@ class RouletteNumberModal(discord.ui.Modal, title="Wähle eine Zahl"):
 @app_commands.describe(bet="Dein Einsatz pro Wette")
 async def roulette(interaction: discord.Interaction, bet: int):
     """Play Roulette with interactive bet selection."""
+    # Check if games feature is enabled
+    if not is_feature_enabled('games'):
+        embed = discord.Embed(
+            title="❌ Feature Deaktiviert",
+            description="Mini-Games sind derzeit deaktiviert.",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+    
     await interaction.response.defer(ephemeral=True)
     
     user_id = interaction.user.id
@@ -13909,7 +14017,7 @@ class SongleGuessModal(discord.ui.Modal, title="Guess the Song"):
 
 
 class SongleGameView(discord.ui.View):
-    """Interactive view for Songle game with Guess and Skip buttons."""
+    """Interactive view for Songle game with Guess, Listen, and Skip buttons."""
     
     def __init__(self, game):
         super().__init__(timeout=300)  # 5 minute timeout
@@ -13920,6 +14028,40 @@ class SongleGameView(discord.ui.View):
             await interaction.response.send_message("This is not your game!", ephemeral=True)
             return False
         return True
+    
+    @discord.ui.button(label="🎧 Listen", style=discord.ButtonStyle.success)
+    async def listen_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Play a clip of the song in voice channel."""
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            # Get clip duration based on current attempt
+            clip_duration = self.game.current_clip_duration
+            
+            # Try to play the clip
+            success, message = await songle.join_and_play_clip(
+                interaction,
+                self.game.target_song,
+                clip_duration
+            )
+            
+            if success:
+                await interaction.followup.send(
+                    f"🔊 {message} Listen carefully and guess the song!",
+                    ephemeral=True
+                )
+            else:
+                await interaction.followup.send(
+                    f"❌ {message}",
+                    ephemeral=True
+                )
+                
+        except Exception as e:
+            logger.error(f"Error in songle listen button: {e}", exc_info=True)
+            await interaction.followup.send(
+                "An error occurred while playing the clip. Make sure you're in a voice channel!",
+                ephemeral=True
+            )
     
     @discord.ui.button(label="Guess", style=discord.ButtonStyle.primary)
     async def guess_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -13954,6 +14096,11 @@ class SongleGameView(discord.ui.View):
         embed.add_field(
             name="Hints",
             value="Each wrong guess reveals more hints (year, genre, album, artist initial)",
+            inline=False
+        )
+        embed.add_field(
+            name="How to Listen",
+            value="Join a voice channel and click the **🎧 Listen** button to hear the clip!",
             inline=False
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -17920,6 +18067,16 @@ class MusicStationView(discord.ui.View):
 async def music(interaction: discord.Interaction):
     """Play music with modern interactive UI."""
     try:
+        # Check if music_player feature is enabled
+        if not is_feature_enabled('music_player'):
+            embed = discord.Embed(
+                title="❌ Feature Deaktiviert",
+                description="Der Music Player ist derzeit deaktiviert.",
+                color=discord.Color.red()
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+        
         # Get user's custom embed color
         embed_color = await get_user_embed_color(interaction.user.id, config)
         
