@@ -143,7 +143,7 @@
             }
             const data = await response.json();
             
-            if (data.status === 'error') {
+            if (data.status === 'error' || data.status === 'unavailable') {
                 // Module not available or error
                 document.getElementById('active-calls').textContent = 'N/A';
                 document.getElementById('total-duration').textContent = 'N/A';
