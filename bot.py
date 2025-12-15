@@ -1295,8 +1295,8 @@ last_autonomous_dm_user_id = None
 last_autonomous_channel_id = None  # Track last used text channel for autonomous messaging
 
 # Constants for autonomous messaging
-AUTONOMOUS_MESSAGE_CHANCE = 0.10  # 10% chance per minute when very bored
-BOREDOM_THRESHOLD = 0.8  # Boredom level that triggers autonomous messaging consideration
+AUTONOMOUS_MESSAGE_CHANCE = 0.15  # 15% chance per minute when bored
+BOREDOM_THRESHOLD = 0.5  # Lower threshold for autonomous messaging (was 0.8)
 
 # --- NEW: Boredom and Autonomous Messaging Task ---
 @_tasks.loop(minutes=1)
@@ -1657,17 +1657,12 @@ async def on_presence_update(before, after):
                  
             # --- NEW: Track Spotify activity for bot mind ---
             try:
-                duration = (now - spotify_start_times.get(user_id, (None, now))[1]).total_seconds()
-                bot_mind.bot_mind.observe_user_activity(
-                    user_id,
-                    after.display_name,
-                    'spotify',
-                    {
-                        'song': after_spotify.title,
-                        'artist': after_spotify.artist,
-                        'duration': duration
-                    }
-                )
+                if after.guild:
+                    bot_mind.bot_mind.observe_user_activity(
+                        after.guild.id,
+                        user_id,
+                        'music'
+                    )
             except (AttributeError, Exception) as e:
                 logger.debug(f"Could not track Spotify for bot mind: {e}")
 

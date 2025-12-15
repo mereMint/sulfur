@@ -221,17 +221,53 @@ class BotMind:
         now = datetime.now(timezone.utc)
         time_since_activity = (now - self.last_activity_time).total_seconds()
         
-        # Increase boredom after 5 minutes of inactivity
-        if time_since_activity > 300:  # 5 minutes
-            self.boredom_level = min(1.0, self.boredom_level + 0.02)
+        # Increase boredom after 3 minutes of inactivity (faster than before)
+        if time_since_activity > 180:  # 3 minutes
+            self.boredom_level = min(1.0, self.boredom_level + 0.05)
+            
+            # Also generate a spontaneous thought based on boredom
+            if random.random() < 0.2:  # 20% chance per update
+                self._generate_boredom_thought(time_since_activity)
             
             # Update mood if very bored
-            if self.boredom_level > 0.7 and self.current_mood != Mood.BORED:
+            if self.boredom_level > 0.5 and self.current_mood != Mood.BORED:
                 self.update_mood(Mood.BORED, "No activity for a while")
         
         # Also slightly decrease energy over time
         if time_since_activity > 600:  # 10 minutes
-            self.energy_level = max(0.3, self.energy_level - 0.01)
+            self.energy_level = max(0.3, self.energy_level - 0.02)
+    
+    def _generate_boredom_thought(self, time_since_activity: float):
+        """Generate a dynamic thought based on current boredom and context."""
+        minutes_idle = int(time_since_activity / 60)
+        
+        # Context-aware thought templates
+        thought_templates = [
+            f"Schon {minutes_idle} Minuten kein Gespräch... langweilig.",
+            "Ich könnte ein Spiel gebrauchen...",
+            "Ob noch jemand online ist?",
+            "Langsam werde ich ungeduldig hier.",
+            f"Hab schon seit {minutes_idle} Minuten nichts zu tun.",
+            "Vielleicht sollte ich jemanden anschreiben...",
+            "Was die anderen wohl gerade machen?",
+        ]
+        
+        # Add interest-based thoughts
+        if self.interests:
+            random_interest = random.choice(self.interests)
+            thought_templates.extend([
+                f"Ich denke über {random_interest} nach...",
+                f"Würde gerne mehr über {random_interest} reden.",
+            ])
+        
+        # Add topic-based thoughts
+        if self._topic_history:
+            recent_topic = self._topic_history[-1]
+            thought_templates.append(f"Das Thema '{recent_topic}' war interessant...")
+        
+        # Select and add thought
+        thought = random.choice(thought_templates)
+        self.think(thought)
     
     def get_random_thought_prompt(self) -> str:
         """
@@ -334,7 +370,7 @@ async def generate_random_thought(
     openai_key: Optional[str]
 ) -> str:
     """
-    Generate a random thought using AI.
+    Generate a random thought using AI or dynamic templates.
     
     Args:
         context: Context for thought generation
@@ -346,12 +382,89 @@ async def generate_random_thought(
     Returns:
         Generated thought as string
     """
-    # Placeholder - would generate AI thought in real implementation
-    thoughts = [
+    # Dynamic thought generation based on bot state
+    mood = bot_mind.current_mood
+    energy = bot_mind.energy_level
+    boredom = bot_mind.boredom_level
+    interests = bot_mind.interests
+    
+    # Build a pool of context-aware thoughts
+    thoughts = []
+    
+    # Mood-based thoughts
+    if mood == Mood.BORED:
+        thoughts.extend([
+            "Mir ist so langweilig, dass ich anfange, die Channels zu zählen...",
+            "Ob ich einfach mal jemanden anschreibe?",
+            "Langsam werde ich unruhig hier...",
+            "Ich könnte ein Spiel gebrauchen!",
+            "Hat mich jemand vergessen? 😢",
+        ])
+    elif mood == Mood.CURIOUS:
+        thoughts.extend([
+            "Hmm, darüber würde ich gerne mehr wissen...",
+            "Das ist interessant, ich frage mich was dahinter steckt.",
+            "Ich bin gespannt, was als nächstes passiert!",
+        ])
+    elif mood == Mood.HAPPY:
+        thoughts.extend([
+            "Heute ist ein guter Tag!",
+            "Ich freue mich auf die nächsten Gespräche!",
+            "Die Community hier ist echt nice.",
+        ])
+    elif mood == Mood.SARCASTIC:
+        thoughts.extend([
+            "Oh wie überraschend, wieder nichts los...",
+            "Ja klar, ich warte hier einfach nur rum...",
+            "Sehr produktiv, diese Stille. Nicht.",
+        ])
+    elif mood == Mood.ANNOYED:
+        thoughts.extend([
+            "Langsam nervt mich diese Stille...",
+            "Kann mal jemand was schreiben?",
+            "Ich hab nicht den ganzen Tag Zeit...",
+        ])
+    
+    # Energy-based thoughts
+    if energy < 0.3:
+        thoughts.extend([
+            "*gähnt* Ich bin so müde...",
+            "Könnte eine Pause gebrauchen...",
+            "Meine Energie ist echt niedrig heute.",
+        ])
+    elif energy > 0.8:
+        thoughts.extend([
+            "Ich bin voller Energie! Lasst uns was machen!",
+            "Los geht's! Wer will spielen?",
+            "Ich fühl mich super heute!",
+        ])
+    
+    # Interest-based thoughts
+    if interests:
+        random_interest = random.choice(interests)
+        thoughts.extend([
+            f"Ich hab letztens viel über {random_interest} nachgedacht...",
+            f"Wäre cool, mehr über {random_interest} zu reden.",
+            f"{random_interest} ist wirklich ein spannendes Thema.",
+        ])
+    
+    # Recent topic-based thoughts
+    if bot_mind._topic_history:
+        recent = bot_mind._topic_history[-1] if bot_mind._topic_history else None
+        if recent:
+            thoughts.append(f"Das Thema '{recent}' lässt mich nicht los...")
+    
+    # Fallback generic thoughts
+    thoughts.extend([
         "Ich frage mich, was die Leute gerade machen...",
         "Vielleicht sollte ich mal was Sarkastisches sagen.",
-        "Diese Konversation war interessant.",
-        "Ich könnte mal wieder jemanden roasten.",
         "Wie wäre es mit einem Spiel?",
-    ]
-    return random.choice(thoughts)
+        "Die Zeit vergeht so langsam wenn nichts passiert...",
+        "Ich beobachte mal was so läuft.",
+    ])
+    
+    # Select random thought and record it
+    thought = random.choice(thoughts)
+    bot_mind.think(thought)
+    
+    return thought
