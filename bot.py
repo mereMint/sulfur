@@ -122,6 +122,8 @@ from modules import word_service  # Dictionary API for word validation
 from modules import sport_betting  # NEW: Sport betting system
 from modules import sport_betting_ui_v2 as sport_betting_ui  # NEW: Sport betting UI components (v2)
 from modules import focus_timer  # NEW: Focus timer with activity monitoring
+from modules import songle  # Songle - Guess the Song game
+from modules import anidle  # Anidle - Anime Guessing game
 from modules import lofi_player  # NEW: Lofi music player
 from modules import personality_evolution  # NEW: Personality evolution and learning system
 from modules import advanced_ai  # NEW: Advanced AI reasoning and intelligence
@@ -1049,6 +1051,24 @@ async def on_ready():
     except Exception as e:
         logger.warning(f"Could not sync sport betting matches on startup: {e}")
     print("Sport betting system ready!")
+    
+    # --- NEW: Initialize Songle game tables ---
+    print("Initializing Songle game system...")
+    try:
+        await songle.initialize_songle_tables(db_helpers)
+        print("Songle game system ready!")
+    except Exception as e:
+        logger.warning(f"Could not initialize Songle tables: {e}")
+        print(f"WARNING: Songle table initialization failed: {e}")
+    
+    # --- NEW: Initialize Anidle game tables ---
+    print("Initializing Anidle game system...")
+    try:
+        await anidle.initialize_anidle_tables(db_helpers)
+        print("Anidle game system ready!")
+    except Exception as e:
+        logger.warning(f"Could not initialize Anidle tables: {e}")
+        print(f"WARNING: Anidle table initialization failed: {e}")
 
     # --- NEW: Clean up leftover game channels on restart ---
     print("Checking for leftover game channels...")
@@ -13653,8 +13673,6 @@ async def slots_command(interaction: discord.Interaction, bet: int):
 
 # --- Anidle Game Commands ---
 
-from modules import anidle
-
 
 class AnidleGuessModal(discord.ui.Modal, title="Guess the Anime"):
     """Modal for entering anime guess."""
@@ -13971,8 +13989,6 @@ tree.add_command(anidle_group)
 
 # --- Songle (Guess the Song) Game Commands ---
 
-from modules import songle
-
 
 class SongleGuessModal(discord.ui.Modal, title="Guess the Song"):
     """Modal for entering song guess."""
@@ -14140,8 +14156,17 @@ async def songle_play(interaction: discord.Interaction):
             await interaction.followup.send(message, ephemeral=True)
             return
         
-        # Get daily song (pass db_helpers for database persistence)
-        target_song = await songle.get_daily_song(db_helpers)
+        # Get song - premium users get random songs, free users get daily song
+        if is_premium:
+            # Premium users get a random song each time
+            target_song = songle.get_random_song()
+        else:
+            # Free users get the daily song (pass db_helpers for database persistence)
+            target_song = await songle.get_daily_song(db_helpers)
+        
+        # Preload the song's YouTube URL in the background for faster playback
+        # This reduces wait time when user clicks "Listen"
+        asyncio.create_task(songle.get_song_youtube_url(target_song))
         
         # Create game
         game = songle.SongleGame(user_id, target_song, is_premium)

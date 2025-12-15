@@ -521,6 +521,13 @@ async def get_daily_song(db_helpers=None) -> dict:
     return song
 
 
+def get_random_song() -> dict:
+    """Get a random song from the database (for premium users)."""
+    song = random.choice(SONG_DATABASE)
+    logger.info(f"Selected random song for premium game: {song.get('title')} by {song.get('artist')}")
+    return song
+
+
 def can_play_daily(user_id: int, is_premium: bool = False) -> tuple[bool, str]:
     """Check if user can play today's daily challenge."""
     if is_premium:
