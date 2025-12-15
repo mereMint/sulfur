@@ -11265,13 +11265,14 @@ async def view_quests(interaction: discord.Interaction):
 # REMOVED: /monthly command - functionality exists as a button in /quests command
 
 # --- Game Commands & UI ---
-from modules.games import BlackjackGame, RouletteGame, MinesGame, RussianRouletteGame, TowerOfTreasureGame
+from modules.games import BlackjackGame, RouletteGame, MinesGame, RussianRouletteGame, TowerOfTreasureGame, SlotsGame
 
 # Active game states
 active_blackjack_games = {}
 active_mines_games = {}
 active_rr_games = {}
 active_tower_games = {}
+active_slots_games = {}
 active_horse_races = {}  # {channel_id: HorseRace instance}
 race_counter = 0  # Global race ID counter
 
@@ -13332,6 +13333,199 @@ async def tower(interaction: discord.Interaction, bet: int, difficulty: int = 1)
             )
         except discord.HTTPException:
             pass  # Interaction might have timed out or been deleted
+
+
+# --- Slots Game ---
+
+class SlotsView(discord.ui.View):
+    """UI view for Slots game with Spin button."""
+    
+    def __init__(self, game: SlotsGame, user_id: int, theme_id=None):
+        super().__init__(timeout=120)
+        self.game = game
+        self.user_id = user_id
+        self.theme_id = theme_id
+        self.is_spinning = False
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht dein Spiel!", ephemeral=True)
+            return False
+        return True
+    
+    @discord.ui.button(label="🎰 SPIN!", style=discord.ButtonStyle.success, emoji="🎰")
+    async def spin_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.is_spinning:
+            await interaction.response.send_message("Warte bis die Walzen stoppen!", ephemeral=True)
+            return
+        
+        await interaction.response.defer()
+        
+        self.is_spinning = True
+        button.disabled = True
+        
+        # Animation frames
+        embed_color = themes.get_theme_color(self.theme_id) if self.theme_id else 0x00ff41
+        
+        # Show spinning animation
+        for frame_idx in range(5):
+            # Generate random symbols for animation
+            animation_symbols = [random.choice(SlotsGame.SYMBOLS)['emoji'] for _ in range(3)]
+            
+            anim_embed = discord.Embed(
+                title="🎰 SLOT MACHINE",
+                description=f"```\n╔═══════════════╗\n║───────────────║\n║  {animation_symbols[0]}  │  {animation_symbols[1]}  │  {animation_symbols[2]}  ║\n║───────────────║\n╚═══════════════╝\n```",
+                color=embed_color
+            )
+            anim_embed.add_field(name="💰 Einsatz", value=f"{self.game.bet} 🪙", inline=True)
+            anim_embed.add_field(name="Status", value="🎲 Spinning...", inline=True)
+            
+            try:
+                await interaction.edit_original_response(embed=anim_embed, view=self)
+                await asyncio.sleep(0.3)
+            except:
+                pass
+        
+        # Perform the actual spin
+        self.game.spin()
+        
+        # Update embed with final result
+        final_embed = self.game.get_embed(embed_color=embed_color)
+        
+        # Process winnings
+        if self.game.winnings > 0:
+            await db_helpers.add_balance(self.user_id, self.game.winnings, "slots_win")
+            new_balance = await db_helpers.get_balance(self.user_id)
+            final_embed.add_field(name="💰 Guthaben", value=f"{new_balance} 🪙", inline=False)
+        else:
+            balance = await db_helpers.get_balance(self.user_id)
+            final_embed.add_field(name="💰 Guthaben", value=f"{balance} 🪙", inline=False)
+        
+        # Clean up
+        if self.user_id in active_slots_games:
+            del active_slots_games[self.user_id]
+        
+        # Disable buttons and update
+        for item in self.children:
+            item.disabled = True
+        
+        # Add play again button
+        play_again = discord.ui.Button(label="🔄 Nochmal", style=discord.ButtonStyle.primary)
+        play_again.callback = self._play_again_callback
+        self.add_item(play_again)
+        
+        await interaction.edit_original_response(embed=final_embed, view=self)
+    
+    async def _play_again_callback(self, interaction: discord.Interaction):
+        """Handle play again button click."""
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("Das ist nicht dein Spiel!", ephemeral=True)
+            return
+        
+        # Check balance
+        balance = await db_helpers.get_balance(self.user_id)
+        if balance < self.game.bet:
+            await interaction.response.send_message(
+                f"Nicht genug Guthaben! Du hast {balance} 🪙, brauchst aber {self.game.bet} 🪙.",
+                ephemeral=True
+            )
+            return
+        
+        # Deduct bet
+        await db_helpers.add_balance(self.user_id, -self.game.bet, "slots_bet")
+        
+        # Create new game
+        new_game = SlotsGame(self.user_id, self.game.bet)
+        active_slots_games[self.user_id] = new_game
+        
+        # Create new view
+        new_view = SlotsView(new_game, self.user_id, self.theme_id)
+        embed = new_game.get_embed()
+        
+        await interaction.response.edit_message(embed=embed, view=new_view)
+    
+    @discord.ui.button(label="📊 Auszahlung", style=discord.ButtonStyle.secondary)
+    async def paytable_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Show the paytable."""
+        paytable_embed = SlotsGame.get_paytable_embed()
+        await interaction.response.send_message(embed=paytable_embed, ephemeral=True)
+
+
+@tree.command(name="slots", description="Spiele am Spielautomaten!")
+@app_commands.describe(bet="Dein Einsatz (10-10000)")
+async def slots_command(interaction: discord.Interaction, bet: int):
+    """Start a Slots game."""
+    try:
+        await interaction.response.defer(ephemeral=True)
+        
+        user_id = interaction.user.id
+        
+        # Check if user has casino access
+        has_casino = await db_helpers.has_feature_unlock(user_id, 'casino')
+        if not has_casino:
+            currency = config['modules']['economy']['currency_symbol']
+            price = config['modules']['economy']['shop']['features'].get('casino', 500)
+            await interaction.followup.send(
+                f"🎰 Du benötigst **Casino Access**, um Slots zu spielen!\n"
+                f"Kaufe es im Shop für {price} {currency} mit `/shopbuy`",
+                ephemeral=True
+            )
+            return
+        
+        # Check for existing game
+        if user_id in active_slots_games:
+            await interaction.followup.send("Du hast bereits ein aktives Slots-Spiel!", ephemeral=True)
+            return
+        
+        # Validate bet
+        min_bet = 10
+        max_bet = 10000
+        currency = config['modules']['economy']['currency_symbol']
+        
+        if bet < min_bet or bet > max_bet:
+            await interaction.followup.send(
+                f"Ungültiger Einsatz! Minimum: {min_bet} {currency}, Maximum: {max_bet} {currency}",
+                ephemeral=True
+            )
+            return
+        
+        # Check balance
+        balance = await db_helpers.get_balance(user_id)
+        if balance < bet:
+            await interaction.followup.send(
+                f"Nicht genug Guthaben! Du hast {balance} {currency}, brauchst aber {bet} {currency}.",
+                ephemeral=True
+            )
+            return
+        
+        # Deduct bet
+        await db_helpers.add_balance(user_id, -bet, "slots_bet")
+        
+        # Create game
+        game = SlotsGame(user_id, bet)
+        active_slots_games[user_id] = game
+        
+        # Get user's theme
+        user_theme = await themes.get_user_theme(db_helpers, user_id)
+        
+        # Create view
+        view = SlotsView(game, user_id, user_theme)
+        embed = game.get_embed(embed_color=themes.get_theme_color(user_theme) if user_theme else 0x00ff41)
+        
+        new_balance = await db_helpers.get_balance(user_id)
+        embed.add_field(name="💰 Guthaben", value=f"{new_balance} {currency}", inline=False)
+        
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error in slots command: {e}", exc_info=True)
+        try:
+            await interaction.followup.send(
+                "❌ Ein Fehler ist aufgetreten. Bitte versuche es später erneut.",
+                ephemeral=True
+            )
+        except discord.HTTPException:
+            pass
 
 
 class RussianRouletteView(discord.ui.View):
