@@ -610,6 +610,77 @@ async def split_message(text, limit=2000):
     chunks.append(current_chunk.strip()) # Add the last chunk
     return chunks
 
+# Common Unicode emoji to Discord shortcode mapping
+# This helps convert AI-generated Unicode emojis to Discord shortcode format
+UNICODE_TO_SHORTCODE = {
+    '😀': ':grinning:', '😃': ':smiley:', '😄': ':smile:', '😁': ':grin:', '😅': ':sweat_smile:',
+    '😂': ':joy:', '🤣': ':rofl:', '😊': ':blush:', '😇': ':innocent:', '🙂': ':slight_smile:',
+    '😉': ':wink:', '😌': ':relieved:', '😍': ':heart_eyes:', '🥰': ':smiling_face_with_hearts:',
+    '😘': ':kissing_heart:', '😗': ':kissing:', '😙': ':kissing_smiling_eyes:', '😚': ':kissing_closed_eyes:',
+    '😋': ':yum:', '😛': ':stuck_out_tongue:', '😜': ':stuck_out_tongue_winking_eye:', '🤪': ':zany_face:',
+    '😝': ':stuck_out_tongue_closed_eyes:', '🤑': ':money_mouth:', '🤗': ':hugging:', '🤭': ':hand_over_mouth:',
+    '🤫': ':shushing_face:', '🤔': ':thinking:', '🤐': ':zipper_mouth:', '🤨': ':raised_eyebrow:',
+    '😐': ':neutral_face:', '😑': ':expressionless:', '😶': ':no_mouth:', '😏': ':smirk:',
+    '😒': ':unamused:', '🙄': ':rolling_eyes:', '😬': ':grimacing:', '🤥': ':lying_face:',
+    '😌': ':relieved:', '😔': ':pensive:', '😪': ':sleepy:', '🤤': ':drooling_face:',
+    '😴': ':sleeping:', '😷': ':mask:', '🤒': ':face_with_thermometer:', '🤕': ':head_bandage:',
+    '🤢': ':nauseated_face:', '🤮': ':face_vomiting:', '🤧': ':sneezing_face:', '🥵': ':hot_face:',
+    '🥶': ':cold_face:', '🥴': ':woozy_face:', '😵': ':dizzy_face:', '🤯': ':exploding_head:',
+    '😎': ':sunglasses:', '🤓': ':nerd:', '🧐': ':face_with_monocle:', '😕': ':confused:',
+    '😟': ':worried:', '🙁': ':slight_frown:', '☹️': ':frowning2:', '😮': ':open_mouth:',
+    '😯': ':hushed:', '😲': ':astonished:', '😳': ':flushed:', '🥺': ':pleading_face:',
+    '😦': ':frowning:', '😧': ':anguished:', '😨': ':fearful:', '😰': ':cold_sweat:',
+    '😥': ':sad_but_relieved_face:', '😢': ':cry:', '😭': ':sob:', '😱': ':scream:',
+    '😖': ':confounded:', '😣': ':persevere:', '😞': ':disappointed:', '😓': ':sweat:',
+    '😩': ':weary:', '😫': ':tired_face:', '🥱': ':yawning_face:', '😤': ':triumph:',
+    '😡': ':rage:', '😠': ':angry:', '🤬': ':face_with_symbols_on_mouth:', '😈': ':smiling_imp:',
+    '👿': ':imp:', '💀': ':skull:', '☠️': ':skull_crossbones:', '💩': ':poop:',
+    '🤡': ':clown:', '👹': ':japanese_ogre:', '👺': ':japanese_goblin:', '👻': ':ghost:',
+    '👽': ':alien:', '👾': ':space_invader:', '🤖': ':robot:', '😺': ':smiley_cat:',
+    '❤️': ':heart:', '💔': ':broken_heart:', '💕': ':two_hearts:', '💖': ':sparkling_heart:',
+    '💗': ':heartpulse:', '💙': ':blue_heart:', '💚': ':green_heart:', '💛': ':yellow_heart:',
+    '🧡': ':orange_heart:', '💜': ':purple_heart:', '🖤': ':black_heart:', '🤍': ':white_heart:',
+    '💯': ':100:', '💢': ':anger:', '💥': ':boom:', '💫': ':dizzy:', '💦': ':sweat_drops:',
+    '💨': ':dash:', '🕳️': ':hole:', '💣': ':bomb:', '💬': ':speech_balloon:', '💤': ':zzz:',
+    '👋': ':wave:', '🤚': ':raised_back_of_hand:', '🖐️': ':hand_splayed:', '✋': ':raised_hand:',
+    '🖖': ':vulcan:', '👌': ':ok_hand:', '🤌': ':pinched_fingers:', '🤏': ':pinching_hand:',
+    '✌️': ':v:', '🤞': ':crossed_fingers:', '🤟': ':love_you_gesture:', '🤘': ':metal:',
+    '🤙': ':call_me:', '👈': ':point_left:', '👉': ':point_right:', '👆': ':point_up_2:',
+    '🖕': ':middle_finger:', '👇': ':point_down:', '☝️': ':point_up:', '👍': ':thumbsup:',
+    '👎': ':thumbsdown:', '✊': ':fist:', '👊': ':punch:', '🤛': ':left_fist:', '🤜': ':right_fist:',
+    '👏': ':clap:', '🙌': ':raised_hands:', '👐': ':open_hands:', '🤲': ':palms_up_together:',
+    '🤝': ':handshake:', '🙏': ':pray:', '✍️': ':writing_hand:', '💪': ':muscle:',
+    '👀': ':eyes:', '👁️': ':eye:', '👅': ':tongue:', '👄': ':lips:', '🧠': ':brain:',
+    '🔥': ':fire:', '⭐': ':star:', '🌟': ':star2:', '✨': ':sparkles:', '⚡': ':zap:',
+    '☀️': ':sunny:', '🌙': ':crescent_moon:', '🌈': ':rainbow:', '☁️': ':cloud:',
+    '🎉': ':tada:', '🎊': ':confetti_ball:', '🎁': ':gift:', '🎂': ':birthday:',
+    '🏆': ':trophy:', '🥇': ':first_place:', '🥈': ':second_place:', '🥉': ':third_place:',
+    '⚽': ':soccer:', '🏀': ':basketball:', '🏈': ':football:', '⚾': ':baseball:',
+    '🎮': ':video_game:', '🎲': ':game_die:', '🎯': ':dart:', '🎵': ':musical_note:',
+    '🎶': ':notes:', '🎤': ':microphone:', '🎧': ':headphones:', '📱': ':iphone:',
+    '💻': ':computer:', '🖥️': ':desktop:', '⌨️': ':keyboard:', '🖱️': ':mouse_three_button:',
+    '📧': ':e_mail:', '📝': ':pencil:', '📚': ':books:', '📖': ':book:',
+    '✅': ':white_check_mark:', '❌': ':x:', '❓': ':question:', '❗': ':exclamation:',
+    '⚠️': ':warning:', '🚫': ':no_entry_sign:', '⛔': ':no_entry:', '💡': ':bulb:',
+    '🔔': ':bell:', '🔕': ':no_bell:', '📢': ':loudspeaker:', '🔊': ':loud_sound:',
+    '🔇': ':mute:', '🎙️': ':microphone2:', '🔒': ':lock:', '🔓': ':unlock:',
+    '🏠': ':house:', '🏢': ':office:', '🚗': ':car:', '✈️': ':airplane:',
+    '🚀': ':rocket:', '⏰': ':alarm_clock:', '⏳': ':hourglass_flowing_sand:', '⏱️': ':stopwatch:',
+}
+
+def convert_unicode_emojis_to_shortcode(text):
+    """
+    Converts Unicode emojis to Discord shortcode format.
+    This helps ensure AI responses use Discord-compatible emoji format.
+    """
+    if text is None:
+        return ""
+    
+    for unicode_emoji, shortcode in UNICODE_TO_SHORTCODE.items():
+        text = text.replace(unicode_emoji, shortcode)
+    
+    return text
+
 def sanitize_malformed_emojis(text):
     """
     Fixes malformed emoji patterns that the AI might generate.
@@ -707,6 +778,7 @@ async def replace_emoji_tags(text, client, guild=None):
     Replaces :emoji_name: tags with full Discord emoji format <:emoji_name:emoji_id>.
     Keeps existing full format emojis unchanged.
     Prioritizes application emojis (bot's own emojis) over server emojis.
+    Also converts Unicode emojis to shortcode format first.
     
     Args:
         text: The text containing emoji tags to replace
@@ -720,7 +792,10 @@ async def replace_emoji_tags(text, client, guild=None):
     if text is None:
         return ""
     
-    # First, sanitize any malformed emoji patterns
+    # First, convert any Unicode emojis to shortcode format
+    text = convert_unicode_emojis_to_shortcode(text)
+    
+    # Then, sanitize any malformed emoji patterns
     text = sanitize_malformed_emojis(text)
     
     # Full format emojis are already correct - don't modify them
