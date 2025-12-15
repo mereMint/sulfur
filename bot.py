@@ -227,6 +227,21 @@ def save_config(new_config):
 
 config = load_config()
 
+# --- Feature Flag Helper ---
+def is_feature_enabled(feature_name: str) -> bool:
+    """
+    Check if a feature is enabled in the config.
+    
+    Args:
+        feature_name: The name of the feature (e.g., 'music_player', 'games')
+    
+    Returns:
+        True if feature is enabled or not defined (default to enabled)
+    """
+    features = config.get('features', {})
+    # Default to True if not specified
+    return features.get(feature_name, True)
+
 # --- REFACTORED: Validate API keys after loading config ---
 key_error = check_api_keys(config)
 if key_error:
@@ -11030,6 +11045,16 @@ class StockTradeView(discord.ui.View):
 @tree.command(name="stock", description="Öffne den Aktienmarkt.")
 async def stock_market_command(interaction: discord.Interaction):
     """Open the stock market interface."""
+    # Check if stock_market feature is enabled
+    if not is_feature_enabled('stock_market'):
+        embed = discord.Embed(
+            title="❌ Feature Deaktiviert",
+            description="Der Aktienmarkt ist derzeit deaktiviert.",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+    
     await interaction.response.defer(ephemeral=True)
     
     try:
@@ -11900,6 +11925,16 @@ class MinesView(discord.ui.View):
 @app_commands.describe(bet="Dein Einsatz")
 async def blackjack(interaction: discord.Interaction, bet: int):
     """Start a Blackjack game."""
+    # Check if games feature is enabled
+    if not is_feature_enabled('games'):
+        embed = discord.Embed(
+            title="❌ Feature Deaktiviert",
+            description="Mini-Games sind derzeit deaktiviert.",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+    
     await interaction.response.defer(ephemeral=True)
     
     user_id = interaction.user.id
@@ -12574,6 +12609,16 @@ class RouletteNumberModal(discord.ui.Modal, title="Wähle eine Zahl"):
 @app_commands.describe(bet="Dein Einsatz pro Wette")
 async def roulette(interaction: discord.Interaction, bet: int):
     """Play Roulette with interactive bet selection."""
+    # Check if games feature is enabled
+    if not is_feature_enabled('games'):
+        embed = discord.Embed(
+            title="❌ Feature Deaktiviert",
+            description="Mini-Games sind derzeit deaktiviert.",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+    
     await interaction.response.defer(ephemeral=True)
     
     user_id = interaction.user.id
@@ -18022,6 +18067,16 @@ class MusicStationView(discord.ui.View):
 async def music(interaction: discord.Interaction):
     """Play music with modern interactive UI."""
     try:
+        # Check if music_player feature is enabled
+        if not is_feature_enabled('music_player'):
+            embed = discord.Embed(
+                title="❌ Feature Deaktiviert",
+                description="Der Music Player ist derzeit deaktiviert.",
+                color=discord.Color.red()
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+        
         # Get user's custom embed color
         embed_color = await get_user_embed_color(interaction.user.id, config)
         
