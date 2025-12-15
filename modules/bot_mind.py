@@ -48,6 +48,7 @@ class BotMind:
         self.interests: List[str] = []
         self.thoughts: List[str] = []
         self.recent_thoughts: List[Dict[str, Any]] = []  # Detailed thought history with timestamps
+        self.recent_observations: List[Dict[str, Any]] = []  # Observation history for personality development
         self.current_thought: str = "Nichts Besonderes..."
         self.last_thought_time = datetime.now(timezone.utc)
         self.last_activity_time = datetime.now(timezone.utc)
@@ -172,9 +173,30 @@ class BotMind:
         # Keep only last 50 detailed thoughts
         self.recent_thoughts = self.recent_thoughts[-50:]
     
+    def add_observation(self, observation: str, user_id: int = None, guild_id: int = None):
+        """
+        Record an observation about user behavior or server activity.
+        Used for personality development and learning.
+        """
+        if not observation:
+            return
+        
+        self.recent_observations.append({
+            'observation': observation,
+            'user_id': user_id,
+            'guild_id': guild_id,
+            'time': datetime.now(timezone.utc).isoformat()
+        })
+        # Keep only last 50 observations
+        self.recent_observations = self.recent_observations[-50:]
+        logger.debug(f"Bot recorded observation: {observation[:50]}...")
+    
     def observe_user_activity(self, guild_id: int, user_id: int, activity_type: str):
         """Observe user activity for learning."""
         self.update_server_activity(guild_id)
+        
+        # Record the observation
+        self.add_observation(f"User {user_id} is {activity_type}", user_id, guild_id)
         
         # Add observations to influence mood and interests
         if activity_type == 'gaming':
@@ -245,6 +267,7 @@ def get_mind_state_api() -> Dict[str, Any]:
         'current_thought': bot_mind.current_thought,
         'last_thought_time': bot_mind.last_thought_time.isoformat() if bot_mind.last_thought_time else datetime.now(timezone.utc).isoformat(),
         'recent_thoughts': bot_mind.recent_thoughts[-20:] if bot_mind.recent_thoughts else [],
+        'recent_observations': bot_mind.recent_observations[-20:] if bot_mind.recent_observations else [],
         'personality_traits': bot_mind.personality_traits.copy()
     }
 
