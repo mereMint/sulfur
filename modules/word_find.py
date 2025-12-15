@@ -10,8 +10,14 @@ import asyncio
 import json
 import os
 from datetime import datetime, timezone, timedelta
+from typing import Dict, Optional
 from modules.logger_utils import bot_logger as logger
 from modules import word_service
+
+
+# In-memory cache for daily words to prevent repeated DB/generation calls
+_daily_word_cache: Dict[str, dict] = {}  # {date_language: word_data}
+_daily_word_cache_date: Optional[str] = None
 
 
 # Load word lists from configuration files
@@ -813,23 +819,45 @@ async def get_or_create_daily_word(db_helpers, language='de'):
     """
     Get today's word or create a new one for the specified language.
     Uses themed word lists for context-based gameplay.
+    Uses memory cache to prevent repeated lookups/generation.
     """
+    global _daily_word_cache, _daily_word_cache_date
+    
+    today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    cache_key = f"{today}_{language}"
+    
+    # Check memory cache first to prevent repeated DB calls or generation
+    if _daily_word_cache_date == today and cache_key in _daily_word_cache:
+        logger.debug(f"Returning cached Word Find word for {today} ({language})")
+        return _daily_word_cache[cache_key]
+    
+    # Clear cache if it's a new day
+    if _daily_word_cache_date != today:
+        _daily_word_cache = {}
+        _daily_word_cache_date = today
+    
     # Fallback: if database is not available, generate word from list
     if not db_helpers or not hasattr(db_helpers, 'db_pool') or not db_helpers.db_pool:
         logger.warning("Database pool not available for Word Find - using fallback mode")
-        return _generate_fallback_word(language)
+        word_data = _generate_fallback_word(language)
+        if word_data:
+            _daily_word_cache[cache_key] = word_data
+        return word_data
     
     conn = db_helpers.db_pool.get_connection()
     if not conn:
         logger.warning("Could not get database connection for Word Find - using fallback mode")
-        return _generate_fallback_word(language)
+        word_data = _generate_fallback_word(language)
+        if word_data:
+            _daily_word_cache[cache_key] = word_data
+        return word_data
     
     cursor = conn.cursor(dictionary=True)
     try:
-        today = datetime.now(timezone.utc).date()
+        today_date = datetime.now(timezone.utc).date()
         
         # Choose difficulty based on day of week (harder on weekends)
-        weekday = today.weekday()
+        weekday = today_date.weekday()
         if weekday >= 5:  # Saturday, Sunday
             difficulty = 'hard'
         elif weekday >= 3:  # Thursday, Friday
@@ -841,7 +869,7 @@ async def get_or_create_daily_word(db_helpers, language='de'):
         cursor.execute("""
             SELECT id, word, difficulty, language, theme_id FROM word_find_daily
             WHERE date = %s AND language = %s
-        """, (today, language))
+        """, (today_date, language))
         result = cursor.fetchone()
         
         if result:
@@ -850,7 +878,8 @@ async def get_or_create_daily_word(db_helpers, language='de'):
                 theme = get_theme_by_id(result['theme_id'], language)
                 if theme:
                     result['theme_name'] = theme.get('name', '')
-            logger.debug(f"Found existing Word Find word for {today} ({language}): {result['word']}")
+            logger.debug(f"Found existing Word Find word for {today_date} ({language}): {result['word']}")
+            _daily_word_cache[cache_key] = result
             return result
         
         # Generate new daily word using themed lists
@@ -881,7 +910,7 @@ async def get_or_create_daily_word(db_helpers, language='de'):
                 INSERT INTO word_find_daily (word, difficulty, language, theme_id, date)
                 VALUES (%s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)
-            """, (word, difficulty, language, theme_id, today))
+            """, (word, difficulty, language, theme_id, today_date))
             
             conn.commit()
             affected_rows = cursor.rowcount
@@ -893,18 +922,19 @@ async def get_or_create_daily_word(db_helpers, language='de'):
                 cursor.execute("""
                     SELECT id, word, difficulty, language, theme_id FROM word_find_daily
                     WHERE date = %s AND language = %s
-                """, (today, language))
+                """, (today_date, language))
                 existing = cursor.fetchone()
                 if existing:
                     if existing.get('theme_id'):
                         theme = get_theme_by_id(existing['theme_id'], language)
                         if theme:
                             existing['theme_name'] = theme.get('name', '')
-                    logger.debug(f"Fetched existing Word Find word for {today} ({language}): {existing['word']}")
+                    logger.debug(f"Fetched existing Word Find word for {today_date} ({language}): {existing['word']}")
+                    _daily_word_cache[cache_key] = existing
                     return existing
             
-            logger.info(f"Created new Word Find word for {today} ({language}, {difficulty}, theme={theme_id}): {word}")
-            return {
+            logger.info(f"Created new Word Find word for {today_date} ({language}, {difficulty}, theme={theme_id}): {word}")
+            word_data = {
                 'id': word_id,
                 'word': word,
                 'difficulty': difficulty,
@@ -912,10 +942,12 @@ async def get_or_create_daily_word(db_helpers, language='de'):
                 'theme_id': theme_id,
                 'theme_name': theme_name
             }
+            _daily_word_cache[cache_key] = word_data
+            return word_data
         except Exception as insert_error:
             # Handle duplicate key error gracefully - fetch existing record
             if '1062' in str(insert_error) or 'Duplicate entry' in str(insert_error):
-                logger.debug(f"Duplicate entry detected, fetching existing word for {today} ({language})")
+                logger.debug(f"Duplicate entry detected, fetching existing word for {today_date} ({language})")
                 try:
                     conn.rollback()
                 except Exception:
@@ -923,13 +955,14 @@ async def get_or_create_daily_word(db_helpers, language='de'):
                 cursor.execute("""
                     SELECT id, word, difficulty, language, theme_id FROM word_find_daily
                     WHERE date = %s AND language = %s
-                """, (today, language))
+                """, (today_date, language))
                 existing = cursor.fetchone()
                 if existing:
                     if existing.get('theme_id'):
                         theme = get_theme_by_id(existing['theme_id'], language)
                         if theme:
                             existing['theme_name'] = theme.get('name', '')
+                    _daily_word_cache[cache_key] = existing
                     return existing
             raise  # Re-raise other errors
     except Exception as e:

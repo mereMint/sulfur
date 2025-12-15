@@ -995,6 +995,111 @@ def api_ww_leaderboard():
         return jsonify({'error': str(e), 'leaderboard': []}), 500
 
 
+# ========== Leaderboard Page Route ==========
+
+@app.route('/leaderboard', methods=['GET'])
+def leaderboard_page():
+    """Renders the dedicated leaderboard page with multiple categories."""
+    return render_template('leaderboard.html')
+
+
+@app.route('/api/leaderboard/all', methods=['GET'])
+def api_all_leaderboards():
+    """API endpoint to get all leaderboards in one call."""
+    try:
+        from modules.db_helpers import get_level_leaderboard, get_leaderboard
+        
+        result = {
+            'levels': [],
+            'werwolf': [],
+            'economy': [],
+            'wordle': [],
+            'casino': []
+        }
+        
+        # Level leaderboard
+        async def fetch_level():
+            lb, error = await get_level_leaderboard()
+            return lb if not error else []
+        result['levels'] = run_async(fetch_level())
+        
+        # Werwolf leaderboard
+        async def fetch_ww():
+            lb, error = await get_leaderboard()
+            return lb if not error else []
+        result['werwolf'] = run_async(fetch_ww())
+        
+        # Economy leaderboard (top balances)
+        if db_helpers.db_pool:
+            conn = None
+            cursor = None
+            try:
+                conn = db_helpers.get_db_connection()
+                if conn:
+                    cursor = conn.cursor(dictionary=True)
+                    
+                    # Economy leaderboard
+                    economy_lb = safe_db_query(cursor, """
+                        SELECT discord_id as user_id, display_name, balance as coins
+                        FROM players
+                        WHERE balance > 0
+                        ORDER BY balance DESC
+                        LIMIT 20
+                    """, fetch_all=True)
+                    result['economy'] = economy_lb or []
+                    
+                    # Wordle leaderboard
+                    wordle_lb = safe_db_query(cursor, """
+                        SELECT 
+                            wg.user_id,
+                            p.display_name,
+                            COUNT(*) as games_played,
+                            SUM(CASE WHEN wg.won = TRUE THEN 1 ELSE 0 END) as games_won,
+                            ROUND(AVG(CASE WHEN wg.won = TRUE THEN wg.attempts ELSE NULL END), 1) as avg_attempts
+                        FROM wordle_games wg
+                        LEFT JOIN players p ON wg.user_id = p.discord_id
+                        WHERE wg.completed = TRUE
+                        GROUP BY wg.user_id, p.display_name
+                        HAVING games_played >= 3
+                        ORDER BY games_won DESC, avg_attempts ASC
+                        LIMIT 20
+                    """, fetch_all=True)
+                    result['wordle'] = wordle_lb or []
+                    
+                    # Casino leaderboard (by total winnings)
+                    casino_lb = safe_db_query(cursor, """
+                        SELECT 
+                            user_id,
+                            p.display_name,
+                            SUM(won_amount) as total_won,
+                            COUNT(*) as total_games
+                        FROM (
+                            SELECT user_id, won_amount FROM blackjack_games WHERE result = 'win'
+                            UNION ALL
+                            SELECT user_id, payout as won_amount FROM roulette_games WHERE won = TRUE
+                        ) as casino_wins
+                        LEFT JOIN players p ON casino_wins.user_id = p.discord_id
+                        GROUP BY user_id, p.display_name
+                        ORDER BY total_won DESC
+                        LIMIT 20
+                    """, fetch_all=True)
+                    result['casino'] = casino_lb or []
+                    
+            except Exception as e:
+                logger.error(f"Error fetching leaderboard data: {e}")
+            finally:
+                if cursor:
+                    cursor.close()
+                if conn:
+                    conn.close()
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error fetching all leaderboards: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 # ========== Activity Feed Routes ==========
 
 @app.route('/activity', methods=['GET'])
@@ -1089,6 +1194,23 @@ def api_recent_activity():
                     LIMIT %s
                 """, params=(limit,), default=[], fetch_all=True)
                 activities.extend(blackjack_activity or [])
+            
+            # Get recent casino games - Roulette
+            if activity_type in ['all', 'games']:
+                roulette_activity = safe_db_query(cursor, """
+                    SELECT 
+                        'game_roulette' as activity_type,
+                        user_id,
+                        NULL as channel_id,
+                        CONCAT('Bet: ', bet_amount, ' on ', bet_type, ' | ', IF(won, CONCAT('Won ', payout), 'Lost')) as preview,
+                        played_at as activity_time,
+                        'Roulette' as category
+                    FROM roulette_games
+                    WHERE played_at IS NOT NULL
+                    ORDER BY played_at DESC
+                    LIMIT %s
+                """, params=(limit,), default=[], fetch_all=True)
+                activities.extend(roulette_activity or [])
             
             # Get recent user level ups and XP gains from players table (not user_stats)
             # Note: This query filters by level >= 5 to reduce load on large datasets
@@ -4024,26 +4146,35 @@ def api_user_profile(user_id):
             
             cursor = conn.cursor(dictionary=True)
             
-            # Get user info - use latest/max stats for the user
-            # Note: 'players' table does not have a 'username' column, only 'display_name'
+            # Get user info - use basic columns that should always exist
+            # Note: Some columns may not exist if migrations haven't run
             user_info = safe_db_query(cursor, """
                 SELECT 
                     p.discord_id as user_id,
                     p.display_name,
                     p.display_name as username,
                     0 as is_premium,
-                    COALESCE(p.level, 0) as level,
-                    COALESCE(p.xp, 0) as xp,
-                    COALESCE(p.balance, 0) as coins,
-                    p.last_seen,
-                    p.game_history,
-                    p.last_activity_name
+                    COALESCE(p.level, 1) as level,
+                    COALESCE(p.xp, 0) as xp
                 FROM players p
                 WHERE p.discord_id = %s
             """, params=(user_id,))
             
             if not user_info:
+                logger.info(f"User {user_id} not found in players table")
                 return jsonify({'error': 'User not found'}), 404
+            
+            # Get balance separately (column might not exist in old schemas)
+            balance_info = safe_db_query(cursor, """
+                SELECT COALESCE(balance, 0) as coins FROM players WHERE discord_id = %s
+            """, params=(user_id,))
+            coins = int(balance_info.get('coins', 0) or 0) if balance_info else 0
+            
+            # Get optional columns (may not exist)
+            extended_info = safe_db_query(cursor, """
+                SELECT last_seen, game_history, last_activity_name
+                FROM players WHERE discord_id = %s
+            """, params=(user_id,))
             
             # Get message and voice stats
             stats_info = safe_db_query(cursor, """
@@ -4192,12 +4323,13 @@ def api_user_profile(user_id):
             # Format response
             # Parse game_history JSON if available
             activity_history = None
-            if user_info.get('game_history'):
+            game_history_raw = extended_info.get('game_history') if extended_info else None
+            if game_history_raw:
                 try:
-                    if isinstance(user_info['game_history'], str):
-                        activity_history = json.loads(user_info['game_history'])
+                    if isinstance(game_history_raw, str):
+                        activity_history = json.loads(game_history_raw)
                     else:
-                        activity_history = user_info['game_history']
+                        activity_history = game_history_raw
                 except (json.JSONDecodeError, TypeError):
                     activity_history = {}
             
@@ -4207,11 +4339,11 @@ def api_user_profile(user_id):
                 'username': user_info.get('username', ''),
                 'avatar_url': None,
                 'is_premium': bool(user_info.get('is_premium')),
-                'level': int(user_info.get('level', 0) or 0),
+                'level': int(user_info.get('level', 1) or 1),
                 'xp': int(user_info.get('xp', 0) or 0),
-                'coins': int(user_info.get('coins', 0) or 0),
-                'last_seen': str(user_info.get('last_seen', '')) if user_info.get('last_seen') else None,
-                'last_activity_name': user_info.get('last_activity_name'),
+                'coins': coins,
+                'last_seen': str(extended_info.get('last_seen', '')) if extended_info and extended_info.get('last_seen') else None,
+                'last_activity_name': extended_info.get('last_activity_name') if extended_info else None,
                 'activity_history': activity_history,
                 'message_count': int(stats_info.get('message_count', 0) or 0) if stats_info else 0,
                 'vc_minutes': int(stats_info.get('vc_minutes', 0) or 0) if stats_info else 0,

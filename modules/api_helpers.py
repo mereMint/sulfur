@@ -10,6 +10,64 @@ from modules.logger_utils import api_logger as logger
 GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 OPENAI_API_BASE_URL = "https://api.openai.com/v1/chat/completions"
 
+# --- Model Pricing (USD per 1M tokens) ---
+# Used for calculating API usage costs
+MODEL_PRICING = {
+    # Gemini Models (per 1M tokens)
+    "gemini-2.5-pro": {"input": 1.25, "output": 10.00},
+    "gemini-2.5-flash": {"input": 0.075, "output": 0.30},
+    "gemini-2.5-flash-lite": {"input": 0.02, "output": 0.10},
+    "gemini-2.0-flash-exp": {"input": 0.075, "output": 0.30},
+    "gemini-1.5-pro": {"input": 1.25, "output": 5.00},
+    "gemini-1.5-flash": {"input": 0.075, "output": 0.30},
+    "gemini-pro": {"input": 0.50, "output": 1.50},
+    # OpenAI Models (per 1M tokens)
+    "gpt-5-nano": {"input": 0.05, "output": 0.20},
+    "gpt-5-mini": {"input": 0.15, "output": 0.60},
+    "gpt-4.1-nano": {"input": 0.10, "output": 0.40},
+    "gpt-4.1-mini": {"input": 0.40, "output": 1.60},
+    "gpt-4o": {"input": 2.50, "output": 10.00},
+    "gpt-4o-mini": {"input": 0.15, "output": 0.60},
+    "gpt-4-turbo": {"input": 10.00, "output": 30.00},
+    "o1": {"input": 15.00, "output": 60.00},
+    "o1-mini": {"input": 1.10, "output": 4.40},
+    "o3-mini": {"input": 1.10, "output": 4.40},
+    # Default fallback for unknown models
+    "default": {"input": 1.00, "output": 3.00}
+}
+
+
+def get_model_pricing(model_name: str) -> dict:
+    """
+    Get pricing information for a specific model.
+    
+    Args:
+        model_name: The name of the AI model
+        
+    Returns:
+        dict with 'input' and 'output' prices per 1M tokens
+    """
+    return MODEL_PRICING.get(model_name, MODEL_PRICING["default"])
+
+
+def calculate_cost(model_name: str, input_tokens: int, output_tokens: int) -> float:
+    """
+    Calculate the cost of an API call based on token usage.
+    
+    Args:
+        model_name: The name of the AI model used
+        input_tokens: Number of input tokens
+        output_tokens: Number of output tokens
+        
+    Returns:
+        Cost in USD
+    """
+    pricing = get_model_pricing(model_name)
+    # Convert from per-1M-tokens to actual cost
+    input_cost = (input_tokens / 1_000_000) * pricing["input"]
+    output_cost = (output_tokens / 1_000_000) * pricing["output"]
+    return input_cost + output_cost
+
 # --- REFACTORED: Centralized Gemini API call logic ---
 async def _call_gemini_api(payload, model_name, api_key, timeout):
     """

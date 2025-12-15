@@ -8,6 +8,7 @@ import discord
 import random
 import aiohttp
 import asyncio
+import json
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Any
 from modules.logger_utils import bot_logger as logger
@@ -24,6 +25,157 @@ active_anidle_games: Dict[int, 'AnidleGame'] = {}
 
 # Daily play tracking
 daily_plays: Dict[str, Dict[int, int]] = {}  # {date_str: {user_id: play_count}}
+
+
+async def initialize_anidle_tables(db_helpers):
+    """Initialize the Anidle game tables in the database."""
+    try:
+        if not db_helpers.db_pool:
+            logger.error("Database pool not available for Anidle initialization")
+            return
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            logger.error("Could not get database connection for Anidle")
+            return
+        
+        cursor = conn.cursor()
+        try:
+            # Table for daily anime
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS anidle_daily (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    mal_id INT NOT NULL,
+                    anime_data JSON NOT NULL,
+                    date DATE NOT NULL,
+                    UNIQUE KEY unique_date (date),
+                    INDEX idx_date (date),
+                    INDEX idx_mal_id (mal_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """)
+            
+            # Table for user games/stats
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS anidle_games (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    mal_id INT NOT NULL,
+                    game_type ENUM('daily', 'premium') DEFAULT 'daily',
+                    guesses INT DEFAULT 0,
+                    won BOOLEAN DEFAULT FALSE,
+                    completed BOOLEAN DEFAULT FALSE,
+                    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP NULL,
+                    INDEX idx_user_id (user_id),
+                    INDEX idx_date (started_at),
+                    INDEX idx_user_game (user_id, game_type, started_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """)
+            
+            conn.commit()
+            logger.info("Anidle tables initialized successfully")
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error initializing Anidle tables: {e}", exc_info=True)
+
+
+async def save_daily_anime_to_db(db_helpers, anime: dict) -> bool:
+    """Save today's daily anime to the database."""
+    try:
+        if not db_helpers.db_pool:
+            return False
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return False
+        
+        cursor = conn.cursor()
+        try:
+            today = datetime.now(timezone.utc).date()
+            mal_id = anime.get('mal_id')
+            anime_json = json.dumps(anime, ensure_ascii=False)
+            
+            cursor.execute("""
+                INSERT INTO anidle_daily (mal_id, anime_data, date)
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    mal_id = VALUES(mal_id),
+                    anime_data = VALUES(anime_data)
+            """, (mal_id, anime_json, today))
+            
+            conn.commit()
+            logger.info(f"Saved daily anime to database: {anime.get('title')} (MAL ID: {mal_id})")
+            return True
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error saving daily anime to database: {e}", exc_info=True)
+        return False
+
+
+async def get_daily_anime_from_db(db_helpers) -> Optional[dict]:
+    """Get today's daily anime from the database."""
+    try:
+        if not db_helpers.db_pool:
+            return None
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return None
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            today = datetime.now(timezone.utc).date()
+            
+            cursor.execute("""
+                SELECT anime_data FROM anidle_daily WHERE date = %s
+            """, (today,))
+            
+            row = cursor.fetchone()
+            if row and row.get('anime_data'):
+                anime_data = row['anime_data']
+                if isinstance(anime_data, str):
+                    return json.loads(anime_data)
+                return anime_data
+            
+            return None
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting daily anime from database: {e}", exc_info=True)
+        return None
+
+
+async def record_anidle_game(db_helpers, user_id: int, mal_id: int, guesses: int, won: bool, game_type: str = 'daily'):
+    """Record a completed Anidle game to the database."""
+    try:
+        if not db_helpers.db_pool:
+            return False
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return False
+        
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO anidle_games (user_id, mal_id, game_type, guesses, won, completed, completed_at)
+                VALUES (%s, %s, %s, %s, %s, TRUE, NOW())
+            """, (user_id, mal_id, game_type, guesses, won))
+            
+            conn.commit()
+            logger.info(f"Recorded Anidle game for user {user_id}: {'won' if won else 'lost'} in {guesses} guesses")
+            return True
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error recording Anidle game: {e}", exc_info=True)
+        return False
 
 
 class AnidleGame:
@@ -311,20 +463,37 @@ async def get_random_anime() -> Optional[dict]:
         return None
 
 
-async def get_daily_anime() -> Optional[dict]:
-    """Get today's daily anime challenge."""
+async def get_daily_anime(db_helpers=None) -> Optional[dict]:
+    """Get today's daily anime challenge. Uses database for persistence."""
     global _daily_anime_cache, _last_cache_date
     
     today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     
+    # Check memory cache first
     if _last_cache_date == today and today in _daily_anime_cache:
+        logger.debug(f"Returning cached daily anime for {today}")
         return _daily_anime_cache[today]
     
-    # Generate new daily anime
+    # Try to get from database
+    if db_helpers:
+        anime = await get_daily_anime_from_db(db_helpers)
+        if anime:
+            logger.info(f"Loaded daily anime from database: {anime.get('title')}")
+            _daily_anime_cache = {today: anime}
+            _last_cache_date = today
+            return anime
+    
+    # Generate new daily anime if not in database
     anime = await get_random_anime()
     if anime:
-        _daily_anime_cache = {today: anime}  # Only keep today's
+        _daily_anime_cache = {today: anime}
         _last_cache_date = today
+        
+        # Save to database for persistence
+        if db_helpers:
+            await save_daily_anime_to_db(db_helpers, anime)
+        
+        logger.info(f"Generated new daily anime: {anime.get('title')}")
         return anime
     
     return None

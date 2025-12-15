@@ -101,18 +101,8 @@
                         </button>
                     </li>
                     <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="maintenance-tab" data-bs-toggle="tab" data-bs-target="#maintenance-pane" type="button" role="tab">
-                            <i class="bi bi-tools"></i> Maintenance
-                        </button>
-                    </li>
-                    <li class="nav-item" role="presentation">
                         <button class="nav-link" id="wrapped-tab" data-bs-toggle="tab" data-bs-target="#wrapped-pane" type="button" role="tab">
                             <i class="bi bi-gift"></i> Wrapped
-                        </button>
-                    </li>
-                    <li class="nav-item" role="presentation">
-                        <button class="nav-link" id="leaderboard-tab" data-bs-toggle="tab" data-bs-target="#leaderboard-pane" type="button" role="tab">
-                            <i class="bi bi-trophy"></i> Leaderboard
                         </button>
                     </li>
                     <li class="nav-item" role="presentation">
@@ -209,29 +199,6 @@
                         </div>
                     </div>
                     
-                    <div class="tab-pane fade p-4" id="maintenance-pane" role="tabpanel">
-                        <h5 class="mb-3">Maintenance Script Activity</h5>
-                        <p class="text-muted">View recent maintenance operations, git updates, backups, and restart activities</p>
-                        
-                        <div id="maintenance-loading" class="text-center">
-                            <div class="spinner-border text-primary" role="status">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
-                        </div>
-                        
-                        <div id="maintenance-content" style="display: none;">
-                            <div class="mb-3">
-                                <button class="btn btn-sm btn-outline-primary" onclick="loadMaintenanceLogs()">
-                                    <i class="bi bi-arrow-clockwise"></i> Refresh
-                                </button>
-                            </div>
-                            
-                            <div id="maintenance-logs-container">
-                                <!-- Maintenance logs will be loaded here -->
-                            </div>
-                        </div>
-                    </div>
-                    
                     <div class="tab-pane fade p-4" id="wrapped-pane" role="tabpanel">
                         <h5 class="mb-3">Monthly Wrapped Statistics</h5>
                         <div id="wrapped-stats-loading" class="text-center">
@@ -280,66 +247,6 @@
                                         <tr><td colspan="4" class="text-center">No data available</td></tr>
                                     </tbody>
                                 </table>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="tab-pane fade p-4" id="leaderboard-pane" role="tabpanel">
-                        <h5 class="mb-3">Server Leaderboards</h5>
-                        <div id="leaderboard-loading" class="text-center">
-                            <div class="spinner-border text-primary" role="status">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
-                        </div>
-                        <div id="leaderboard-content" style="display: none;">
-                            <ul class="nav nav-pills mb-3" role="tablist">
-                                <li class="nav-item" role="presentation">
-                                    <button class="nav-link active" id="level-board-tab" data-bs-toggle="pill" data-bs-target="#level-board" type="button" role="tab">
-                                        Level Leaderboard
-                                    </button>
-                                </li>
-                                <li class="nav-item" role="presentation">
-                                    <button class="nav-link" id="ww-board-tab" data-bs-toggle="pill" data-bs-target="#ww-board" type="button" role="tab">
-                                        Werwolf Wins
-                                    </button>
-                                </li>
-                            </ul>
-                            <div class="tab-content">
-                                <div class="tab-pane fade show active" id="level-board" role="tabpanel">
-                                    <div class="table-responsive">
-                                        <table class="table table-dark table-striped">
-                                            <thead>
-                                                <tr>
-                                                    <th>Rank</th>
-                                                    <th>User</th>
-                                                    <th>Level</th>
-                                                    <th>XP</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody id="level-leaderboard-table">
-                                                <tr><td colspan="4" class="text-center">No data available</td></tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                                <div class="tab-pane fade" id="ww-board" role="tabpanel">
-                                    <div class="table-responsive">
-                                        <table class="table table-dark table-striped">
-                                            <thead>
-                                                <tr>
-                                                    <th>Rank</th>
-                                                    <th>User</th>
-                                                    <th>Wins</th>
-                                                    <th>Losses</th>
-                                                    <th>Win Rate</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody id="ww-leaderboard-table">
-                                                <tr><td colspan="5" class="text-center">No data available</td></tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
                             </div>
                         </div>
                     </div>
@@ -623,18 +530,21 @@
                 .then(response => response.json())
                 .then(data => {
                     let totalGames = 0;
-                    if (data.werwolf) totalGames += data.werwolf.total_games;
-                    if (data.detective) totalGames += data.detective.total_games;
-                    if (data.wordle) totalGames += data.wordle.total_games;
+                    if (data.werwolf && data.werwolf.total_games) totalGames += parseInt(data.werwolf.total_games) || 0;
+                    if (data.detective && data.detective.total_games) totalGames += parseInt(data.detective.total_games) || 0;
+                    if (data.wordle && data.wordle.total_games) totalGames += parseInt(data.wordle.total_games) || 0;
                     if (data.casino) {
-                        totalGames += data.casino.blackjack_games;
-                        totalGames += data.casino.roulette_games;
-                        totalGames += data.casino.mines_games;
+                        totalGames += parseInt(data.casino.blackjack_games) || 0;
+                        totalGames += parseInt(data.casino.roulette_games) || 0;
+                        totalGames += parseInt(data.casino.mines_games) || 0;
                     }
                     document.getElementById('quick-games').textContent = 
                         totalGames.toLocaleString();
                 })
-                .catch(error => console.error('Error loading games stats:', error));
+                .catch(error => {
+                    console.error('Error loading games stats:', error);
+                    document.getElementById('quick-games').textContent = '0';
+                });
         }
 
         // Load current config
@@ -834,36 +744,39 @@
         modelSelect.innerHTML = '';
         
         if (provider === 'gemini') {
-            // Include all Gemini models
+            // Include all Gemini models with pricing info
             const models = [
-                'gemini-2.5-flash',
-                'gemini-2.0-flash-exp',
-                'gemini-1.5-pro',
-                'gemini-1.5-flash',
-                'gemini-pro'
+                {name: 'gemini-2.5-flash', price: '$0.075/1M'},
+                {name: 'gemini-2.5-flash-lite', price: '$0.02/1M'},
+                {name: 'gemini-2.5-pro', price: '$1.25/1M'},
+                {name: 'gemini-2.0-flash-exp', price: '$0.075/1M'},
+                {name: 'gemini-1.5-pro', price: '$1.25/1M'},
+                {name: 'gemini-1.5-flash', price: '$0.075/1M'}
             ];
             models.forEach(model => {
                 const option = document.createElement('option');
-                option.value = model;
-                option.textContent = model;
+                option.value = model.name;
+                option.textContent = `${model.name} (${model.price})`;
                 modelSelect.appendChild(option);
             });
         } else if (provider === 'openai') {
-            // Include all OpenAI models from config
+            // Include all OpenAI models with pricing info
             const models = [
-                'gpt-4o',
-                'gpt-4o-mini',
-                'gpt-4-turbo',
-                'o1',
-                'o1-mini',
-                'o3-mini',
-                'gpt-5',
-                'gpt-5-turbo'
+                {name: 'gpt-5-nano', price: '$0.05/1M'},
+                {name: 'gpt-5-mini', price: '$0.15/1M'},
+                {name: 'gpt-4.1-nano', price: '$0.10/1M'},
+                {name: 'gpt-4.1-mini', price: '$0.40/1M'},
+                {name: 'gpt-4o-mini', price: '$0.15/1M'},
+                {name: 'gpt-4o', price: '$2.50/1M'},
+                {name: 'gpt-4-turbo', price: '$10.00/1M'},
+                {name: 'o1-mini', price: '$1.10/1M'},
+                {name: 'o3-mini', price: '$1.10/1M'},
+                {name: 'o1', price: '$15.00/1M'}
             ];
             models.forEach(model => {
                 const option = document.createElement('option');
-                option.value = model;
-                option.textContent = model;
+                option.value = model.name;
+                option.textContent = `${model.name} (${model.price})`;
                 modelSelect.appendChild(option);
             });
         }

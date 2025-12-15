@@ -6,6 +6,7 @@ A daily song guessing game where players listen to audio clips and guess the son
 import discord
 import random
 import asyncio
+import json
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Any
 from modules.logger_utils import bot_logger as logger
@@ -164,6 +165,155 @@ SONG_DATABASE = [
 CLIP_DURATIONS = [3, 5, 10, 20, 40]  # seconds
 
 
+async def initialize_songle_tables(db_helpers):
+    """Initialize the Songle game tables in the database."""
+    try:
+        if not db_helpers.db_pool:
+            logger.error("Database pool not available for Songle initialization")
+            return
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            logger.error("Could not get database connection for Songle")
+            return
+        
+        cursor = conn.cursor()
+        try:
+            # Table for daily song
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS songle_daily (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    song_id INT NOT NULL,
+                    song_data JSON NOT NULL,
+                    date DATE NOT NULL,
+                    UNIQUE KEY unique_date (date),
+                    INDEX idx_date (date)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """)
+            
+            # Table for user games/stats
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS songle_games (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    song_id INT NOT NULL,
+                    game_type ENUM('daily', 'premium') DEFAULT 'daily',
+                    guesses INT DEFAULT 0,
+                    won BOOLEAN DEFAULT FALSE,
+                    completed BOOLEAN DEFAULT FALSE,
+                    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP NULL,
+                    INDEX idx_user_id (user_id),
+                    INDEX idx_date (started_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """)
+            
+            conn.commit()
+            logger.info("Songle tables initialized successfully")
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error initializing Songle tables: {e}", exc_info=True)
+
+
+async def save_daily_song_to_db(db_helpers, song: dict) -> bool:
+    """Save today's daily song to the database."""
+    try:
+        if not db_helpers.db_pool:
+            return False
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return False
+        
+        cursor = conn.cursor()
+        try:
+            today = datetime.now(timezone.utc).date()
+            song_id = song.get('id')
+            song_json = json.dumps(song, ensure_ascii=False)
+            
+            cursor.execute("""
+                INSERT INTO songle_daily (song_id, song_data, date)
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE
+                    song_id = VALUES(song_id),
+                    song_data = VALUES(song_data)
+            """, (song_id, song_json, today))
+            
+            conn.commit()
+            logger.info(f"Saved daily song to database: {song.get('title')} by {song.get('artist')}")
+            return True
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error saving daily song to database: {e}", exc_info=True)
+        return False
+
+
+async def get_daily_song_from_db(db_helpers) -> Optional[dict]:
+    """Get today's daily song from the database."""
+    try:
+        if not db_helpers.db_pool:
+            return None
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return None
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            today = datetime.now(timezone.utc).date()
+            
+            cursor.execute("""
+                SELECT song_data FROM songle_daily WHERE date = %s
+            """, (today,))
+            
+            row = cursor.fetchone()
+            if row and row.get('song_data'):
+                song_data = row['song_data']
+                if isinstance(song_data, str):
+                    return json.loads(song_data)
+                return song_data
+            
+            return None
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting daily song from database: {e}", exc_info=True)
+        return None
+
+
+async def record_songle_game(db_helpers, user_id: int, song_id: int, guesses: int, won: bool, game_type: str = 'daily'):
+    """Record a completed Songle game to the database."""
+    try:
+        if not db_helpers.db_pool:
+            return False
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return False
+        
+        cursor = conn.cursor()
+        try:
+            cursor.execute("""
+                INSERT INTO songle_games (user_id, song_id, game_type, guesses, won, completed, completed_at)
+                VALUES (%s, %s, %s, %s, %s, TRUE, NOW())
+            """, (user_id, song_id, game_type, guesses, won))
+            
+            conn.commit()
+            logger.info(f"Recorded Songle game for user {user_id}: {'won' if won else 'lost'} in {guesses} guesses")
+            return True
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error recording Songle game: {e}", exc_info=True)
+        return False
+
+
 class SongleGame:
     """Handles a Songle game instance."""
     
@@ -277,29 +427,29 @@ class SongleGame:
                 inline=False
             )
         else:
-            embed.description = f"Listen to the clip and guess the song!\nAttempt {self.attempts + 1}/{self.MAX_GUESSES}"
+            embed.description = f"🎵 Guess the song using the hints below!\nAttempt {self.attempts + 1}/{self.MAX_GUESSES}"
             
-            # Show clip duration info
+            # Note about audio feature
             embed.add_field(
-                name="Current Clip",
-                value=f"{self.current_clip_duration} seconds",
-                inline=True
-            )
-            
-            embed.add_field(
-                name="Remaining Guesses",
-                value=str(self.remaining_guesses),
-                inline=True
+                name="🔊 Audio Preview",
+                value=f"Audio clips coming soon! For now, use the hints to guess the song.",
+                inline=False
             )
             
             # Show hints
             hints = self.get_hints_for_attempt()
             if hints:
                 embed.add_field(
-                    name="Hints",
+                    name="💡 Hints",
                     value="\n".join(hints),
                     inline=False
                 )
+            
+            embed.add_field(
+                name="Remaining Guesses",
+                value=str(self.remaining_guesses),
+                inline=True
+            )
             
             # Show previous guesses
             if self.guesses:
@@ -318,15 +468,27 @@ class SongleGame:
         return embed
 
 
-def get_daily_song() -> dict:
-    """Get today's daily song challenge."""
+async def get_daily_song(db_helpers=None) -> dict:
+    """Get today's daily song challenge. Uses database for persistence."""
     global _daily_song_cache, _last_cache_date
     
     today = datetime.now(timezone.utc).strftime('%Y-%m-%d')
     
+    # Check memory cache first
     if _last_cache_date == today and today in _daily_song_cache:
+        logger.debug(f"Returning cached daily song for {today}")
         return _daily_song_cache[today]
     
+    # Try to get from database
+    if db_helpers:
+        song = await get_daily_song_from_db(db_helpers)
+        if song:
+            logger.info(f"Loaded daily song from database: {song.get('title')}")
+            _daily_song_cache = {today: song}
+            _last_cache_date = today
+            return song
+    
+    # Generate new daily song if not in database
     # Use the day as seed for reproducible daily song
     random.seed(today)
     song = random.choice(SONG_DATABASE)
@@ -335,6 +497,11 @@ def get_daily_song() -> dict:
     _daily_song_cache = {today: song}
     _last_cache_date = today
     
+    # Save to database for persistence
+    if db_helpers:
+        await save_daily_song_to_db(db_helpers, song)
+    
+    logger.info(f"Generated new daily song: {song.get('title')} by {song.get('artist')}")
     return song
 
 

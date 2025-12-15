@@ -118,6 +118,7 @@ from modules import wordle  # NEW: Wordle game
 from modules import themes  # NEW: Theme system
 from modules import horse_racing  # NEW: Horse racing game
 from modules import rpg_system  # NEW: RPG system
+from modules import word_service  # Dictionary API for word validation
 from modules import sport_betting  # NEW: Sport betting system
 from modules import sport_betting_ui_v2 as sport_betting_ui  # NEW: Sport betting UI components (v2)
 from modules import focus_timer  # NEW: Focus timer with activity monitoring
@@ -11839,6 +11840,7 @@ async def blackjack(interaction: discord.Interaction, bet: int):
     await interaction.response.defer(ephemeral=True)
     
     user_id = interaction.user.id
+    logger.info(f"[Blackjack] User {user_id} ({interaction.user.display_name}) starting game with bet {bet}")
     
     # Check if user has casino access
     has_casino = await db_helpers.has_feature_unlock(user_id, 'casino')
@@ -12512,6 +12514,7 @@ async def roulette(interaction: discord.Interaction, bet: int):
     await interaction.response.defer(ephemeral=True)
     
     user_id = interaction.user.id
+    logger.info(f"[Roulette] User {user_id} ({interaction.user.display_name}) starting game with bet {bet}")
     
     # Check if user has casino access
     has_casino = await db_helpers.has_feature_unlock(user_id, 'casino')
@@ -13671,6 +13674,7 @@ async def anidle_play(interaction: discord.Interaction):
     
     try:
         user_id = interaction.user.id
+        logger.info(f"[Anidle] User {user_id} ({interaction.user.display_name}) starting game")
         
         # Check if user already has an active game
         if user_id in anidle.active_anidle_games:
@@ -13694,8 +13698,8 @@ async def anidle_play(interaction: discord.Interaction):
             await interaction.followup.send(message, ephemeral=True)
             return
         
-        # Get daily anime
-        target_anime = await anidle.get_daily_anime()
+        # Get daily anime (pass db_helpers for database persistence)
+        target_anime = await anidle.get_daily_anime(db_helpers)
         if not target_anime:
             await interaction.followup.send(
                 "Could not fetch today's anime. Please try again later.",
@@ -13965,6 +13969,7 @@ async def songle_play(interaction: discord.Interaction):
     
     try:
         user_id = interaction.user.id
+        logger.info(f"[Songle] User {user_id} ({interaction.user.display_name}) starting game")
         
         # Check if user already has an active game
         if user_id in songle.active_songle_games:
@@ -13988,8 +13993,8 @@ async def songle_play(interaction: discord.Interaction):
             await interaction.followup.send(message, ephemeral=True)
             return
         
-        # Get daily song
-        target_song = songle.get_daily_song()
+        # Get daily song (pass db_helpers for database persistence)
+        target_song = await songle.get_daily_song(db_helpers)
         
         # Create game
         game = songle.SongleGame(user_id, target_song, is_premium)
@@ -15364,6 +15369,7 @@ async def wordle_command(interaction: discord.Interaction):
     
     try:
         user_id = interaction.user.id
+        logger.info(f"[Wordle] User {user_id} ({interaction.user.display_name}) starting game")
         
         # Check if user has premium access
         has_premium = await db_helpers.has_feature_unlock(user_id, 'unlimited_wordle')
@@ -15618,12 +15624,20 @@ class WordleGuessModal(discord.ui.Modal, title="Rate das Wort"):
             await interaction.followup.send("❌ Dein Wort muss genau 5 Buchstaben enthalten (nur Buchstaben erlaubt)!", ephemeral=True)
             return
         
-        # Validate that the guess is a valid word from the appropriate language word list
+        # Validate that the guess is a valid word using dictionary API
+        # First check local cache/list for performance, then fall back to API
         valid_words = wordle.get_wordle_words(word_language)
-        if guess not in valid_words:
-            error_msg = "❌ This word is not in the word list! Try another English word." if word_language == 'en' else "❌ Dieses Wort ist nicht in der Wortliste! Versuche ein anderes deutsches Wort."
-            await interaction.followup.send(error_msg, ephemeral=True)
-            return
+        is_valid_local = guess in valid_words
+        
+        if not is_valid_local:
+            # Check against dictionary API for words not in local list
+            is_valid_api = await word_service.is_valid_word(guess, word_language)
+            if not is_valid_api:
+                error_msg = "❌ This word is not in the dictionary! Try another English word." if word_language == 'en' else "❌ Dieses Wort existiert nicht im Wörterbuch! Versuche ein anderes deutsches Wort."
+                await interaction.followup.send(error_msg, ephemeral=True)
+                return
+            else:
+                logger.info(f"Word '{guess}' validated via API (not in local list)")
         
         # Get current attempts based on game type
         attempts = await wordle.get_user_attempts(db_helpers, self.user_id, word_id, self.game_type)
@@ -15670,6 +15684,10 @@ class WordleGuessModal(discord.ui.Modal, title="Rate das Wort"):
             # Update stats
             await wordle.update_user_stats(db_helpers, self.user_id, True, attempt_num)
             
+            # Record game for dashboard tracking
+            word_language = self.word_data.get('language', 'de')
+            await wordle.record_wordle_game(db_helpers, self.user_id, word_id, correct_word, word_language, self.game_type, attempt_num, True)
+            
             # Update quest progress for daily games only
             if self.game_type == 'daily':
                 await quests.update_quest_progress(db_helpers, self.user_id, 'daily_wordle', 1, config)
@@ -15712,6 +15730,10 @@ class WordleGuessModal(discord.ui.Modal, title="Rate das Wort"):
                 
                 # Update stats (loss)
                 await wordle.update_user_stats(db_helpers, self.user_id, False, attempt_num)
+                
+                # Record game for dashboard tracking
+                word_language = self.word_data.get('language', 'de')
+                await wordle.record_wordle_game(db_helpers, self.user_id, word_id, correct_word, word_language, self.game_type, attempt_num, False)
                 
                 # Mark premium game as completed if applicable
                 if self.game_type == 'premium':
