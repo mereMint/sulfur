@@ -853,6 +853,31 @@ async def get_user_embed_color(user_id, config_obj):
     return get_embed_color(config_obj)
 
 
+def parse_spotify_minutes_json(spotify_minutes_data) -> dict:
+    """
+    Safely parse spotify_minutes JSON data.
+    
+    Args:
+        spotify_minutes_data: String or dict of spotify_minutes
+    
+    Returns:
+        Dictionary of song -> minutes mappings, or empty dict on error
+    """
+    if not spotify_minutes_data:
+        return {}
+    
+    try:
+        if isinstance(spotify_minutes_data, str):
+            return json.loads(spotify_minutes_data)
+        elif isinstance(spotify_minutes_data, dict):
+            return spotify_minutes_data
+        else:
+            return {}
+    except (json.JSONDecodeError, TypeError) as e:
+        logger.warning(f"Error parsing spotify_minutes JSON: {e}")
+        return {}
+
+
 @client.event
 async def on_ready():
     """Fires when the bot logs in."""
@@ -2949,7 +2974,7 @@ async def _generate_and_send_wrapped_for_user(
 
     # --- Page 7: Enhanced Spotify Wrapped Page ---
     if user_stats.get('spotify_minutes'):
-        spotify_minutes_data = json.loads(user_stats['spotify_minutes'])
+        spotify_minutes_data = parse_spotify_minutes_json(user_stats['spotify_minutes'])
         if spotify_minutes_data:
             total_minutes = sum(spotify_minutes_data.values())
             total_hours = total_minutes / 60
@@ -3339,30 +3364,40 @@ async def on_voice_state_update(member, before, after):
                     # Get non-bot members in the channel the bot left
                     human_members = [m for m in before.channel.members if not m.bot]
                     
-                    # If there are still people in the channel, try to reconnect
-                    if human_members:
+                    # Check if stop lock is active (user explicitly stopped music)
+                    if lofi_player.is_stop_locked(guild_id):
+                        logger.info(f"Bot disconnected from voice but stop lock active - not reconnecting")
+                        # Clean up the session since user wanted to stop
+                        lofi_player.active_sessions.pop(guild_id, None)
+                    # If there are still people in the channel and no stop lock, try to reconnect
+                    elif human_members:
                         logger.info(f"Bot disconnected from voice with active session, attempting reconnect in 2 seconds...")
                         
                         # Wait a moment before reconnecting to avoid race conditions
                         await asyncio.sleep(2)
                         
-                        try:
-                            # Try to rejoin the channel
-                            voice_client = await before.channel.connect()
-                            logger.info(f"Reconnected to voice channel: {before.channel.name}")
-                            
-                            # Resume playback if there was a current song
-                            current_song = session.get('current_song')
-                            if current_song:
-                                # Try to resume from where we left off
-                                user_id = session.get('user_id')
-                                volume = session.get('volume', 1.0)
-                                await lofi_player.play_song_with_queue(voice_client, current_song, guild_id, volume, user_id)
-                                logger.info(f"Resumed music playback after reconnection")
-                        except Exception as e:
-                            logger.error(f"Failed to reconnect to voice: {e}")
-                            # Clean up session if reconnection failed
+                        # Check stop lock again after waiting (user might have stopped during wait)
+                        if lofi_player.is_stop_locked(guild_id):
+                            logger.info(f"Stop lock detected after wait - not reconnecting")
                             lofi_player.active_sessions.pop(guild_id, None)
+                        else:
+                            try:
+                                # Try to rejoin the channel
+                                voice_client = await before.channel.connect()
+                                logger.info(f"Reconnected to voice channel: {before.channel.name}")
+                                
+                                # Resume playback if there was a current song
+                                current_song = session.get('current_song')
+                                if current_song:
+                                    # Try to resume from where we left off
+                                    user_id = session.get('user_id')
+                                    volume = session.get('volume', 1.0)
+                                    await lofi_player.play_song_with_queue(voice_client, current_song, guild_id, volume, user_id)
+                                    logger.info(f"Resumed music playback after reconnection")
+                            except Exception as e:
+                                logger.error(f"Failed to reconnect to voice: {e}")
+                                # Clean up session if reconnection failed
+                                lofi_player.active_sessions.pop(guild_id, None)
 
     # --- NEW: Handle "Join to Create" logic first, passing config ---
     await voice_manager.handle_voice_state_update(member, before, after, config)
@@ -4228,7 +4263,7 @@ class AdminAIGroup(app_commands.Group):
         target_channel = channel or interaction.channel
         
         try:
-            context_messages = await db_helpers.get_conversation_context(target_channel.id)
+            context_messages = await db_helpers.get_channel_conversation_context(target_channel.id)
             
             if not context_messages:
                 await interaction.followup.send(f"No conversation context found for {target_channel.mention}.")
@@ -8474,9 +8509,10 @@ async def spotify_stats(interaction: discord.Interaction, user: discord.Member =
 
     # --- NEW: Add total listening time ---
     if user_stats and user_stats.get('spotify_minutes'):
-        spotify_minutes_data = json.loads(user_stats['spotify_minutes'])
-        total_minutes = sum(spotify_minutes_data.values())
-        embed.add_field(name="Hörzeit diesen Monat", value=f"Du hast diesen Monat insgesamt **{total_minutes:.0f} Minuten** Musik gehört.", inline=False)
+        spotify_minutes_data = parse_spotify_minutes_json(user_stats['spotify_minutes'])
+        if spotify_minutes_data:
+            total_minutes = sum(spotify_minutes_data.values())
+            embed.add_field(name="Hörzeit diesen Monat", value=f"Du hast diesen Monat insgesamt **{total_minutes:.0f} Minuten** Musik gehört.", inline=False)
 
 
     # Footer
@@ -16022,6 +16058,186 @@ class AddMusicModal(discord.ui.Modal, title='🎵 Song oder Album hinzufügen'):
                 await interaction.followup.send(embed=embed, ephemeral=True)
 
 
+class PlayNowModal(discord.ui.Modal, title='⏯️ Jetzt abspielen'):
+    """Modal for playing a song immediately, bypassing the queue."""
+    
+    music_type = discord.ui.TextInput(
+        label='Typ (song/album)',
+        placeholder='song oder album',
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=10,
+        default='song'
+    )
+    
+    query = discord.ui.TextInput(
+        label='Name oder URL',
+        placeholder='z.B. "Artist - Song" oder "Album Name"',
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=200
+    )
+    
+    artist = discord.ui.TextInput(
+        label='Artist (optional, für Album empfohlen)',
+        placeholder='Künstlername',
+        style=discord.TextStyle.short,
+        required=False,
+        max_length=100
+    )
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        """Handle modal submission - plays immediately, bypassing queue."""
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            music_type_input = self.music_type.value.strip().lower()
+            query_input = self.query.value.strip()
+            artist_input = self.artist.value.strip() if self.artist.value else None
+            
+            # Check if user is in voice channel
+            if not interaction.user.voice or not interaction.user.voice.channel:
+                embed = discord.Embed(
+                    title="❌ Nicht in Voice-Channel",
+                    description="Du musst in einem Voice-Channel sein!",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+            
+            voice_channel = interaction.user.voice.channel
+            guild_id = interaction.guild.id
+            
+            # Get or create voice client
+            voice_client = interaction.guild.voice_client
+            if not voice_client or not voice_client.is_connected():
+                voice_client = await lofi_player.join_voice_channel(voice_channel)
+                if not voice_client:
+                    embed = discord.Embed(
+                        title="❌ Verbindungsfehler",
+                        description="Konnte dem Voice-Channel nicht beitreten!",
+                        color=discord.Color.red()
+                    )
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+                    return
+            
+            # Handle album
+            if music_type_input == 'album':
+                loading_embed = discord.Embed(
+                    title="🔍 Suche Album...",
+                    description=f"Suche nach: **{query_input}**" + (f" von *{artist_input}*" if artist_input else ""),
+                    color=discord.Color.blue()
+                )
+                await interaction.followup.send(embed=loading_embed, ephemeral=True)
+                
+                # Play album now (bypasses queue)
+                tracks_added, tracks_failed, playing = await lofi_player.play_album_now(
+                    voice_client,
+                    query_input,
+                    artist_input,
+                    guild_id,
+                    volume=1.0,
+                    user_id=interaction.user.id,
+                    preserve_queue=True
+                )
+                
+                if playing:
+                    embed = discord.Embed(
+                        title="📀 Album wird jetzt abgespielt!",
+                        description=f"## {query_input}\n*Spielt sofort, Queue wird danach fortgesetzt*",
+                        color=discord.Color.green()
+                    )
+                    embed.add_field(
+                        name="📊 Album Info",
+                        value=f"**{tracks_added} Tracks** werden abgespielt",
+                        inline=False
+                    )
+                    await interaction.edit_original_response(embed=embed)
+                else:
+                    embed = discord.Embed(
+                        title="❌ Album nicht gefunden",
+                        description=f"Konnte das Album '{query_input}' nicht finden oder abspielen!",
+                        color=discord.Color.red()
+                    )
+                    await interaction.edit_original_response(embed=embed)
+            
+            # Handle song (default)
+            else:
+                # Parse song query
+                song = {}
+                if query_input.startswith('http'):
+                    song['url'] = query_input
+                else:
+                    if ' - ' in query_input:
+                        parts = query_input.split(' - ', 1)
+                        song['artist'] = parts[0].strip()
+                        song['title'] = parts[1].strip()
+                    else:
+                        song['url'] = f"ytsearch:{query_input}"
+                    
+                    # Use provided artist if available
+                    if artist_input and 'artist' not in song:
+                        song['artist'] = artist_input
+                
+                # Sanitize title
+                if 'title' in song:
+                    song['title'] = lofi_player.sanitize_song_title(song['title'])
+                
+                # Play now (bypasses queue, preserves existing queue for later)
+                success = await lofi_player.play_now(
+                    voice_client,
+                    song,
+                    guild_id,
+                    volume=1.0,
+                    user_id=interaction.user.id,
+                    preserve_queue=True
+                )
+                
+                if success:
+                    current_song = lofi_player.get_current_song(guild_id)
+                    embed = discord.Embed(
+                        title="⏯️ Jetzt läuft!",
+                        description="*Song spielt sofort, Queue wird danach fortgesetzt*",
+                        color=discord.Color.green()
+                    )
+                    
+                    if current_song:
+                        embed.add_field(
+                            name="🎵 Song",
+                            value=f"**{current_song.get('title', 'Unknown')}**\n*{current_song.get('artist', 'Unknown')}*",
+                            inline=False
+                        )
+                    
+                    queue_length = lofi_player.get_queue_length(guild_id)
+                    if queue_length > 0:
+                        embed.add_field(
+                            name="📋 Queue",
+                            value=f"{queue_length} Songs warten danach",
+                            inline=True
+                        )
+                    
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+                else:
+                    embed = discord.Embed(
+                        title="❌ Fehler",
+                        description="Song konnte nicht abgespielt werden!",
+                        color=discord.Color.red()
+                    )
+                    await interaction.followup.send(embed=embed, ephemeral=True)
+                
+        except Exception as e:
+            logger.error(f"Error in play now modal: {e}", exc_info=True)
+            embed = discord.Embed(
+                title="❌ Fehler",
+                description=f"Es ist ein Fehler aufgetreten: {str(e)}",
+                color=discord.Color.red()
+            )
+            try:
+                await interaction.edit_original_response(embed=embed)
+            except:
+                await interaction.followup.send(embed=embed, ephemeral=True)
+
+
 class MusicControlView(discord.ui.View):
     """View with buttons for music controls."""
     
@@ -16136,6 +16352,12 @@ class MusicControlView(discord.ui.View):
     async def add_song_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Show add music modal (supports songs and albums)."""
         modal = AddMusicModal()
+        await interaction.response.send_modal(modal)
+    
+    @discord.ui.button(label="Play Now", style=discord.ButtonStyle.success, emoji="⏯️")
+    async def play_now_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Play a song immediately, bypassing the queue."""
+        modal = PlayNowModal()
         await interaction.response.send_modal(modal)
     
     @discord.ui.button(label="Show Queue", style=discord.ButtonStyle.secondary, emoji="📋")
@@ -16832,7 +17054,185 @@ async def listening_stats(interaction: discord.Interaction):
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-# NOTE: Album functionality is now integrated into the Add Music modal via the music player interface
+@tree.command(name="podcast", description="🎙️ Suche und höre Podcasts")
+@app_commands.describe(
+    query="Name des Podcasts oder Thema",
+    category="Podcast-Kategorie (optional)"
+)
+@app_commands.choices(category=[
+    app_commands.Choice(name="🖥️ Tech & Technologie", value="tech"),
+    app_commands.Choice(name="🎮 Gaming", value="gaming"),
+    app_commands.Choice(name="🔬 Science & Wissenschaft", value="science"),
+    app_commands.Choice(name="😂 Comedy", value="comedy"),
+    app_commands.Choice(name="📰 News & Nachrichten", value="news"),
+    app_commands.Choice(name="📚 Education & Bildung", value="education")
+])
+async def podcast_command(
+    interaction: discord.Interaction,
+    query: str = None,
+    category: app_commands.Choice[str] = None
+):
+    """Search and play podcasts."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        # Check if user is in voice channel
+        if not interaction.user.voice or not interaction.user.voice.channel:
+            embed = discord.Embed(
+                title="❌ Nicht in Voice-Channel",
+                description="Du musst in einem Voice-Channel sein, um Podcasts zu hören!",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        voice_channel = interaction.user.voice.channel
+        guild_id = interaction.guild.id
+        
+        # Get or create voice client
+        voice_client = interaction.guild.voice_client
+        if not voice_client or not voice_client.is_connected():
+            voice_client = await lofi_player.join_voice_channel(voice_channel)
+            if not voice_client:
+                embed = discord.Embed(
+                    title="❌ Verbindungsfehler",
+                    description="Konnte dem Voice-Channel nicht beitreten!",
+                    color=discord.Color.red()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+        
+        # If category is provided but no query, show podcasts from that category
+        if category and not query:
+            category_podcasts = lofi_player.get_podcasts_by_category(category.value)
+            
+            if not category_podcasts:
+                embed = discord.Embed(
+                    title="🎙️ Podcast-Kategorie",
+                    description=f"Keine Podcasts in der Kategorie **{category.name}** gefunden.",
+                    color=discord.Color.orange()
+                )
+                await interaction.followup.send(embed=embed, ephemeral=True)
+                return
+            
+            # Show podcasts in this category
+            embed = discord.Embed(
+                title=f"🎙️ Podcasts: {category.name}",
+                description="Wähle einen Podcast zum Anhören:",
+                color=discord.Color.blue()
+            )
+            
+            for podcast in category_podcasts:
+                embed.add_field(
+                    name=podcast['name'],
+                    value=podcast.get('description', 'Podcast'),
+                    inline=False
+                )
+            
+            embed.set_footer(text="Nutze /podcast <name> zum Abspielen")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        # Search for podcasts
+        if not query:
+            # Show all categories
+            embed = discord.Embed(
+                title="🎙️ Podcast-Kategorien",
+                description="Wähle eine Kategorie oder suche nach einem Podcast:\n\n"
+                           "📌 **Nutze:** `/podcast query:<suchbegriff>`\n"
+                           "📌 **Oder:** `/podcast category:<kategorie>`",
+                color=discord.Color.blue()
+            )
+            
+            for cat_key in lofi_player.get_podcast_categories():
+                cat_podcasts = lofi_player.get_podcasts_by_category(cat_key)
+                cat_names = ", ".join([p['name'] for p in cat_podcasts[:2]])
+                embed.add_field(
+                    name=cat_key.title(),
+                    value=cat_names + "...",
+                    inline=True
+                )
+            
+            await interaction.followup.send(embed=embed, ephemeral=True)
+            return
+        
+        # Search for podcasts matching query
+        loading_embed = discord.Embed(
+            title="🔍 Suche Podcasts...",
+            description=f"Suche nach: **{query}**",
+            color=discord.Color.blue()
+        )
+        await interaction.followup.send(embed=loading_embed, ephemeral=True)
+        
+        podcasts = await lofi_player.search_podcast(query, count=5)
+        
+        if not podcasts:
+            embed = discord.Embed(
+                title="❌ Keine Podcasts gefunden",
+                description=f"Konnte keine Podcasts für '{query}' finden!",
+                color=discord.Color.red()
+            )
+            await interaction.edit_original_response(embed=embed)
+            return
+        
+        # Play the first result
+        first_podcast = podcasts[0]
+        success = await lofi_player.play_podcast(
+            voice_client,
+            first_podcast,
+            guild_id,
+            volume=1.0,
+            user_id=interaction.user.id
+        )
+        
+        if success:
+            current_podcast = lofi_player.get_current_song(guild_id)
+            
+            embed = discord.Embed(
+                title="🎙️ Podcast wird abgespielt!",
+                color=discord.Color.green()
+            )
+            
+            if current_podcast:
+                duration_min = current_podcast.get('duration', 0) // 60
+                embed.add_field(
+                    name="📺 Podcast",
+                    value=f"**{current_podcast.get('title', 'Unknown')}**\n*{current_podcast.get('artist', 'Unknown')}*",
+                    inline=False
+                )
+                if duration_min > 0:
+                    embed.add_field(
+                        name="⏱️ Dauer",
+                        value=f"~{duration_min} Minuten",
+                        inline=True
+                    )
+            
+            # Show other results as suggestions
+            if len(podcasts) > 1:
+                suggestions = "\n".join([f"• {p['title'][:50]}" for p in podcasts[1:4]])
+                embed.add_field(
+                    name="📋 Weitere Ergebnisse",
+                    value=suggestions,
+                    inline=False
+                )
+            
+            await interaction.edit_original_response(embed=embed)
+        else:
+            embed = discord.Embed(
+                title="❌ Fehler",
+                description="Podcast konnte nicht abgespielt werden!",
+                color=discord.Color.red()
+            )
+            await interaction.edit_original_response(embed=embed)
+        
+    except Exception as e:
+        logger.error(f"Error in podcast command: {e}", exc_info=True)
+        embed = discord.Embed(
+            title="❌ Fehler",
+            description=f"Es ist ein Fehler aufgetreten: {str(e)}",
+            color=discord.Color.red()
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
 # Users can add albums by using the "Add Song" button and selecting "album" as the type
 # @tree.command(name="album", description="📀 Füge ein Album zur Warteschlange hinzu")
 # @app_commands.describe(
