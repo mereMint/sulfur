@@ -160,7 +160,9 @@
           "trolly": 250,
           "unlimited_word_find": 500,
           "unlimited_wordle": 500,
-          "rpg_access": 750
+          "rpg_access": 750,
+          "anidle_premium": 1000,
+          "songle_premium": 1000
         },
         "bundles": {
           "word_games_bundle": {

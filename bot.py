@@ -13540,6 +13540,203 @@ async def slots_command(interaction: discord.Interaction, bet: int):
             pass
 
 
+# --- Anidle Game Commands ---
+
+from modules import anidle
+
+anidle_group = app_commands.Group(name="anidle", description="Anidle - Anime Guessing Game")
+
+
+@anidle_group.command(name="play", description="Start a new Anidle game")
+async def anidle_play(interaction: discord.Interaction):
+    """Start a new Anidle game."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        user_id = interaction.user.id
+        
+        # Check if user already has an active game
+        if user_id in anidle.active_anidle_games:
+            game = anidle.active_anidle_games[user_id]
+            if game.is_active:
+                embed = game.create_embed()
+                await interaction.followup.send(
+                    "You have an active game! Use `/anidle guess <anime>` to continue.",
+                    embed=embed,
+                    ephemeral=True
+                )
+                return
+        
+        # Check if user can play daily
+        is_premium = await db_helpers.has_feature_unlock(user_id, 'anidle_premium')
+        can_play, message = anidle.can_play_daily(user_id, is_premium)
+        
+        if not can_play:
+            await interaction.followup.send(message, ephemeral=True)
+            return
+        
+        # Get daily anime
+        target_anime = await anidle.get_daily_anime()
+        if not target_anime:
+            await interaction.followup.send(
+                "Could not fetch today's anime. Please try again later.",
+                ephemeral=True
+            )
+            return
+        
+        # Create game
+        game = anidle.AnidleGame(user_id, target_anime, is_premium)
+        anidle.active_anidle_games[user_id] = game
+        anidle.record_daily_play(user_id)
+        
+        embed = game.create_embed()
+        await interaction.followup.send(embed=embed, ephemeral=True)
+        
+    except Exception as e:
+        logger.error(f"Error in anidle play command: {e}", exc_info=True)
+        await interaction.followup.send("An error occurred. Please try again.", ephemeral=True)
+
+
+@anidle_group.command(name="guess", description="Make a guess in your Anidle game")
+@app_commands.describe(anime_name="The name of the anime you want to guess")
+async def anidle_guess(interaction: discord.Interaction, anime_name: str):
+    """Make a guess in the Anidle game."""
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        user_id = interaction.user.id
+        
+        # Check if user has an active game
+        if user_id not in anidle.active_anidle_games:
+            await interaction.followup.send(
+                "You don't have an active game. Use `/anidle play` to start one!",
+                ephemeral=True
+            )
+            return
+        
+        game = anidle.active_anidle_games[user_id]
+        
+        if not game.is_active:
+            embed = game.create_embed()
+            await interaction.followup.send(
+                "Your game has ended. Use `/anidle play` to start a new one!",
+                embed=embed,
+                ephemeral=True
+            )
+            del anidle.active_anidle_games[user_id]
+            return
+        
+        # Search for the anime
+        await interaction.followup.send(f"Searching for '{anime_name}'...", ephemeral=True)
+        
+        results = await anidle.search_anime(anime_name)
+        if not results:
+            await interaction.edit_original_response(
+                content=f"Could not find anime matching '{anime_name}'. Try a different name!"
+            )
+            return
+        
+        # Get full details for first result
+        guessed_anime = await anidle.get_anime_by_id(results[0]['mal_id'])
+        if not guessed_anime:
+            await interaction.edit_original_response(
+                content="Error fetching anime details. Please try again."
+            )
+            return
+        
+        # Check for hints
+        if game.should_show_hint('cover'):
+            pass  # Hint will be shown in embed
+        if game.should_show_hint('synopsis'):
+            pass
+        if game.should_show_hint('character'):
+            pass
+        
+        # Make the guess
+        result = game.make_guess(guessed_anime)
+        
+        if 'error' in result:
+            await interaction.edit_original_response(content=result['error'])
+            return
+        
+        embed = game.create_embed(last_guess=result)
+        
+        # Clean up if game ended
+        if not game.is_active:
+            del anidle.active_anidle_games[user_id]
+        
+        await interaction.edit_original_response(content=None, embed=embed)
+        
+    except Exception as e:
+        logger.error(f"Error in anidle guess command: {e}", exc_info=True)
+        await interaction.followup.send("An error occurred. Please try again.", ephemeral=True)
+
+
+@anidle_group.command(name="status", description="Check your current Anidle game status")
+async def anidle_status(interaction: discord.Interaction):
+    """Check current game status."""
+    await interaction.response.defer(ephemeral=True)
+    
+    user_id = interaction.user.id
+    
+    if user_id not in anidle.active_anidle_games:
+        await interaction.followup.send(
+            "You don't have an active game. Use `/anidle play` to start one!",
+            ephemeral=True
+        )
+        return
+    
+    game = anidle.active_anidle_games[user_id]
+    embed = game.create_embed()
+    await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+@anidle_group.command(name="info", description="Learn how to play Anidle")
+async def anidle_info(interaction: discord.Interaction):
+    """Show game info and hints."""
+    embed = discord.Embed(
+        title="Anidle - How to Play",
+        description="Guess the daily anime in 20 tries or less!",
+        color=0x00ff41
+    )
+    
+    embed.add_field(
+        name="How It Works",
+        value=(
+            "1. Start a game with `/anidle play`\n"
+            "2. Guess anime names with `/anidle guess <name>`\n"
+            "3. Each guess shows how it compares:\n"
+            "   [OK] = Correct match\n"
+            "   [~] = Partial match\n"
+            "   [UP/DN] = Target is higher/lower\n"
+            "   [X] = Wrong"
+        ),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="Hints",
+        value=(
+            f"At {anidle.AnidleGame.HINT_COVER_AT} guesses: Blurred cover image\n"
+            f"At {anidle.AnidleGame.HINT_SYNOPSIS_AT} guesses: Synopsis excerpt\n"
+            f"At {anidle.AnidleGame.HINT_CHARACTER_AT} guesses: Main character hint"
+        ),
+        inline=False
+    )
+    
+    embed.add_field(
+        name="Daily Challenge",
+        value="Free users get 1 play per day. Premium users get unlimited plays!",
+        inline=False
+    )
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+# Register the anidle command group
+tree.add_command(anidle_group)
+
+
 class RussianRouletteView(discord.ui.View):
     """UI view for Russian Roulette game with Shoot and Cash Out buttons."""
     
