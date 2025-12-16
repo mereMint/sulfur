@@ -6,6 +6,7 @@ Checks for common installation issues and provides fix suggestions
 
 import sys
 import os
+import re
 import subprocess
 import importlib.util
 
@@ -225,16 +226,32 @@ def check_termux_specific():
     print_info("Checking Termux packages...")
     all_installed = True
     
-    # Get installed packages once
-    result = subprocess.run(
-        ["pkg", "list-installed"],
-        capture_output=True,
-        text=True
-    )
-    installed_packages = result.stdout
+    # Get installed packages once with error handling
+    try:
+        result = subprocess.run(
+            ["pkg", "list-installed"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode != 0:
+            print_error("Failed to run 'pkg list-installed'")
+            print_info(f"Error: {result.stderr}")
+            return False
+        
+        installed_packages = result.stdout
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        print_error(f"Could not check Termux packages: {e}")
+        return False
     
+    # Parse installed packages (format: "package-name/...")
+    # Use more precise matching to avoid false positives
     for pkg in packages:
-        if pkg in installed_packages:
+        # Look for package name at start of line or after newline
+        # This avoids matching substring in other package names
+        pattern = rf'(^|\n){re.escape(pkg)}(/|\s|$)'
+        if re.search(pattern, installed_packages):
             print_success(f"{pkg}")
         else:
             print_error(f"{pkg} - NOT INSTALLED")
