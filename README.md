@@ -50,13 +50,77 @@ Use `/help` in Discord to see all available commands organized by category:
 
 ## 📋 Quick Start
 
-### 🚀 Quick Install (Recommended)
+### 🔑 Prerequisites
 
-> **⚠️ Important:** This is a private repository. Make sure you have access and are authenticated with GitHub before proceeding.
+> **⚠️ Important:** This is a private repository. You need GitHub authentication to clone it.
 
-The easiest way to get started! Clone the repository and run the installer:
+**Required:** Set up SSH key or Personal Access Token for GitHub access.
+
+<details>
+<summary><b>🔐 Setup SSH Key (Recommended)</b></summary>
+
+1. **Generate SSH key:**
+   ```bash
+   ssh-keygen -t ed25519 -C "your_email@example.com"
+   # Press Enter to accept default location
+   # Optionally set a passphrase
+   ```
+
+2. **Add to SSH agent:**
+   ```bash
+   eval "$(ssh-agent -s)"
+   ssh-add ~/.ssh/id_ed25519
+   ```
+
+3. **Copy public key:**
+   ```bash
+   cat ~/.ssh/id_ed25519.pub
+   # Copy the output
+   ```
+
+4. **Add to GitHub:**
+   - Go to [GitHub Settings → SSH Keys](https://github.com/settings/keys)
+   - Click "New SSH key"
+   - Paste your public key
+   - Click "Add SSH key"
+
+5. **Test connection:**
+   ```bash
+   ssh -T git@github.com
+   # Should see: "Hi username! You've successfully authenticated..."
+   ```
+
+</details>
+
+<details>
+<summary><b>🎫 Alternative: Personal Access Token (PAT)</b></summary>
+
+1. **Generate token:**
+   - Go to [GitHub Settings → Developer settings → Personal access tokens → Tokens (classic)](https://github.com/settings/tokens)
+   - Click "Generate new token (classic)"
+   - Select scopes: `repo` (full control of private repositories)
+   - Click "Generate token"
+   - **Copy the token immediately** (you won't see it again!)
+
+2. **Use token when cloning:**
+   ```bash
+   git clone https://YOUR_TOKEN@github.com/mereMint/sulfur.git
+   ```
+   Or configure Git credential helper to store it.
+
+</details>
+
+### 🚀 Quick Install
 
 **Step 1: Clone the repository**
+
+Using SSH (recommended):
+```bash
+git clone git@github.com:mereMint/sulfur.git
+cd sulfur
+```
+
+Using HTTPS with token:
 ```bash
 git clone https://github.com/mereMint/sulfur.git
 cd sulfur

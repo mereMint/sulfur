@@ -42,13 +42,30 @@ pkg update && pkg upgrade -y
 
 ## Installation
 
-> **Note:** This repository is private. You need to authenticate with GitHub and clone it first.
+> **⚠️ Private Repository:** Requires SSH key authentication. Set this up first!
+
+### Setup SSH Key (First Time Only)
+
+```bash
+# 1. Generate SSH key in Termux
+ssh-keygen -t ed25519 -C "your_email@example.com"
+
+# 2. Display public key
+cat ~/.ssh/id_ed25519.pub
+
+# 3. Copy the entire output and add to GitHub:
+#    https://github.com/settings/keys
+
+# 4. Test connection
+ssh -T git@github.com
+# Should see: "Hi username! You've successfully authenticated..."
+```
 
 ### Quick Install
 
 ```bash
-# Clone the repository (requires authentication)
-git clone https://github.com/mereMint/sulfur.git
+# Clone the repository with SSH
+git clone git@github.com:mereMint/sulfur.git
 cd sulfur
 
 # Run the quick installer

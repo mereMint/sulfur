@@ -19,6 +19,58 @@ Solutions for common issues with Sulfur Bot.
 
 ## Installation Issues
 
+### "Permission denied (publickey)" or "Authentication failed"
+
+**Cause:** You don't have SSH key set up or GitHub authentication configured for this private repository.
+
+**Solution - Setup SSH Key:**
+
+1. **Generate SSH key:**
+   ```bash
+   ssh-keygen -t ed25519 -C "your_email@example.com"
+   # Press Enter to accept default location (~/.ssh/id_ed25519)
+   # Optionally set a passphrase for extra security
+   ```
+
+2. **Start SSH agent and add key:**
+   ```bash
+   eval "$(ssh-agent -s)"
+   ssh-add ~/.ssh/id_ed25519
+   ```
+
+3. **Copy your public key:**
+   ```bash
+   cat ~/.ssh/id_ed25519.pub
+   # Copy the entire output
+   ```
+
+4. **Add to GitHub:**
+   - Go to [GitHub Settings → SSH Keys](https://github.com/settings/keys)
+   - Click "New SSH key"
+   - Give it a title (e.g., "My Laptop")
+   - Paste your public key
+   - Click "Add SSH key"
+
+5. **Test the connection:**
+   ```bash
+   ssh -T git@github.com
+   # Expected: "Hi username! You've successfully authenticated..."
+   ```
+
+6. **Clone with SSH URL:**
+   ```bash
+   git clone git@github.com:mereMint/sulfur.git
+   ```
+
+**Alternative - Use Personal Access Token:**
+
+1. Generate token: [GitHub Settings → Personal Access Tokens](https://github.com/settings/tokens)
+2. Select scope: `repo` (full control of private repositories)
+3. Clone with token:
+   ```bash
+   git clone https://YOUR_TOKEN@github.com/mereMint/sulfur.git
+   ```
+
 ### "404: Not Found" when running one-command install
 
 **Error Message:**
@@ -381,6 +433,36 @@ YouTube may block requests. Solutions:
 ---
 
 ## Platform-Specific Issues
+
+### Windows: SSH key setup
+
+**Option 1: Using Git Bash (Recommended)**
+```bash
+# Run in Git Bash
+ssh-keygen -t ed25519 -C "your_email@example.com"
+cat ~/.ssh/id_ed25519.pub
+ssh -T git@github.com
+```
+
+**Option 2: Using PowerShell**
+```powershell
+# Check if OpenSSH is available
+Get-Command ssh
+
+# Generate key
+ssh-keygen -t ed25519 -C "your_email@example.com"
+
+# View public key
+Get-Content $env:USERPROFILE\.ssh\id_ed25519.pub
+
+# Test connection
+ssh -T git@github.com
+```
+
+**Option 3: GitHub Desktop**
+- Install [GitHub Desktop](https://desktop.github.com/)
+- Sign in with GitHub account
+- Clone from File → Clone Repository
 
 ### Windows: PowerShell execution policy
 

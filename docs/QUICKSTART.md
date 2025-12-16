@@ -4,17 +4,55 @@ Get Sulfur Bot running in under 5 minutes!
 
 ---
 
-## Quick Install
+## Prerequisites
 
-> **Note:** This repository is private, so you need to clone it first before running the installer.
+> **⚠️ This is a private repository** - You need SSH key or GitHub token to clone it.
+
+### Setup GitHub Authentication
+
+Choose one method:
+
+#### Option 1: SSH Key (Recommended)
+
+```bash
+# 1. Generate SSH key
+ssh-keygen -t ed25519 -C "your_email@example.com"
+
+# 2. Start SSH agent and add key
+eval "$(ssh-agent -s)"
+ssh-add ~/.ssh/id_ed25519
+
+# 3. Copy public key
+cat ~/.ssh/id_ed25519.pub
+
+# 4. Add to GitHub: https://github.com/settings/keys
+# 5. Test connection
+ssh -T git@github.com
+```
+
+#### Option 2: Personal Access Token
+
+1. Generate token at: https://github.com/settings/tokens
+2. Select scope: `repo` (full control of private repositories)
+3. Use when cloning or configure credential helper
+
+---
+
+## Quick Install
 
 ### Step 1: Clone Repository
 
-Make sure you have access to the repository and are authenticated with GitHub:
+**With SSH (recommended):**
+```bash
+git clone git@github.com:mereMint/sulfur.git
+cd sulfur
+```
 
+**With HTTPS:**
 ```bash
 git clone https://github.com/mereMint/sulfur.git
 cd sulfur
+# You'll be prompted for username and token/password
 ```
 
 ### Step 2: Run Quick Installer

@@ -38,11 +38,21 @@ Welcome to the Sulfur Bot Wiki! This comprehensive documentation will help you i
 
 ## 🚀 Quick Start
 
-> **Note:** This is a private repository. Make sure you have access and clone it first.
+> **⚠️ Private Repository:** Requires SSH key or GitHub token authentication.
 
+**Setup SSH key first (if not already done):**
 ```bash
-# Clone the repository
-git clone https://github.com/mereMint/sulfur.git
+# Generate key
+ssh-keygen -t ed25519 -C "your_email@example.com"
+
+# Add to GitHub: https://github.com/settings/keys
+# Test: ssh -T git@github.com
+```
+
+**Then clone and install:**
+```bash
+# Clone with SSH (recommended)
+git clone git@github.com:mereMint/sulfur.git
 cd sulfur
 
 # Run the quick installer
