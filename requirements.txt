@@ -11,10 +11,27 @@ yt-dlp
 # Installing `openai` pulls in `jiter` which fails to build on Termux/Android.
 # If you need the SDK for local testing, install it manually: `pip install openai`.
 
-# NOTE (Termux/Android users): The discord.py[voice] extra requires PyNaCl, which needs
-# libsodium to build. On Termux, install system dependencies first:
-#   pkg install libsodium clang
-# Then set environment variable before pip install:
-#   export SODIUM_INSTALL=system
-#   pip install -r requirements.txt
-# Or use the provided scripts (quick_setup.sh, termux_quickstart.sh) which handle this.
+# ============================================================================
+# IMPORTANT: Termux/Android Installation Instructions
+# ============================================================================
+# The discord.py[voice] extra requires PyNaCl, which needs libsodium to build.
+# On Termux, the bundled libsodium compilation fails, so you must use the
+# system-installed version instead.
+#
+# SOLUTION (run these commands in order):
+#   1. Install build dependencies:
+#      pkg update && pkg upgrade
+#      pkg install build-essential python binutils libsodium
+#
+#   2. Set environment variable:
+#      export SODIUM_INSTALL=system
+#
+#   3. Upgrade pip and install packages:
+#      pip install --upgrade pip wheel setuptools
+#      pip install -r requirements.txt
+#
+# OR simply use the provided installation scripts which handle this automatically:
+#   - bash termux_quickstart.sh
+#   - bash scripts/quickinstall.sh
+#   - bash scripts/install_termux.sh
+# ============================================================================

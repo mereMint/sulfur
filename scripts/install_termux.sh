@@ -164,7 +164,14 @@ install_wireguard() {
 install_dependencies() {
     echo -e "\n${BLUE}📦 Installing additional dependencies...${NC}"
     
+    # Note: build-essential, binutils, libsodium, and clang are required for PyNaCl
+    # PyNaCl (discord.py[voice] dependency) will use system libsodium instead of building from source
+    echo -e "${CYAN}Installing build tools and libraries for PyNaCl compilation...${NC}"
     pkg install -y \
+        build-essential \
+        binutils \
+        libsodium \
+        clang \
         ffmpeg \
         libffi \
         opus \
@@ -190,19 +197,35 @@ setup_venv() {
     # Activate and install dependencies
     source venv/bin/activate
     
-    echo -e "${YELLOW}Installing Python dependencies...${NC}"
-    pip install --upgrade pip
+    echo -e "${YELLOW}Upgrading pip and build tools...${NC}"
+    pip install --upgrade pip wheel setuptools
     
-    # Special handling for Termux - some packages need special flags
-    pip install wheel setuptools
+    # Set SODIUM_INSTALL=system to use system libsodium instead of building from source
+    # This prevents PyNaCl build failures on Termux where the bundled libsodium configure fails
+    echo -e "${CYAN}Setting SODIUM_INSTALL=system for PyNaCl compatibility...${NC}"
+    export SODIUM_INSTALL=system
     
-    # Install requirements (skip packages that fail on Termux)
-    pip install -r requirements.txt || {
-        echo -e "${YELLOW}Some packages may have failed. Installing core packages...${NC}"
+    echo -e "${YELLOW}Installing Python dependencies (this may take several minutes)...${NC}"
+    echo -e "${CYAN}Note: PyNaCl will use system libsodium library instead of building from source${NC}"
+    
+    # Install requirements with proper error handling
+    if pip install -r requirements.txt; then
+        echo -e "${GREEN}✅ All Python dependencies installed successfully!${NC}"
+    else
+        echo -e "${YELLOW}⚠️  Some packages may have failed. Installing core packages individually...${NC}"
+        export SODIUM_INSTALL=system
         pip install "discord.py[voice]>=2.4.0,<2.7.0" mysql-connector-python aiohttp python-dotenv Flask Flask-SocketIO waitress psutil yt-dlp
-    }
+        echo -e "${GREEN}✅ Core packages installed${NC}"
+    fi
     
-    echo -e "${GREEN}✅ Python dependencies installed${NC}"
+    # Verify PyNaCl installation
+    if python -c "import nacl" 2>/dev/null; then
+        echo -e "${GREEN}✅ PyNaCl (voice support) installed successfully${NC}"
+    else
+        echo -e "${YELLOW}⚠️  PyNaCl may not be installed - voice features may not work${NC}"
+    fi
+    
+    echo -e "${GREEN}✅ Python dependencies installation complete${NC}"
 }
 
 # Create startup script

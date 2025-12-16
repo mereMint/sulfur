@@ -295,13 +295,15 @@ REQUIRED_PACKAGES=(
     "nano"
     "wget"
     "curl"
+    "build-essential"
+    "binutils"
     "libsodium"
     "clang"
     "ffmpeg"
 )
 
 print_info "Installing required packages: ${REQUIRED_PACKAGES[*]}"
-print_info "Note: libsodium and clang are needed for PyNaCl voice support"
+print_info "Note: build-essential, binutils, libsodium, and clang are needed for PyNaCl voice support"
 print_info "Note: ffmpeg is required for Discord voice channel audio playback"
 pkg install -y "${REQUIRED_PACKAGES[@]}"
 
@@ -604,8 +606,8 @@ echo ""
 print_step "Step 8: Installing Python dependencies..."
 echo ""
 
-print_info "Upgrading pip..."
-pip install --upgrade pip --quiet
+print_info "Upgrading pip, wheel, and setuptools..."
+pip install --upgrade pip wheel setuptools --quiet
 
 print_info "Installing required packages (this may take several minutes)..."
 print_warning "Don't worry if you see warnings about 'legacy setup.py install' - this is normal"
@@ -621,12 +623,21 @@ if pip install -r requirements.txt; then
 else
     print_error "Some packages failed to install"
     print_info "Trying again with --no-cache-dir flag..."
+    export SODIUM_INSTALL=system
     if pip install -r requirements.txt --no-cache-dir; then
         print_success "Dependencies installed successfully on retry!"
     else
         print_error "Installation failed. Continuing with setup..."
         print_warning "Some features may not work without all dependencies"
     fi
+fi
+
+# Verify PyNaCl installation
+if python -c "import nacl" 2>/dev/null; then
+    print_success "PyNaCl (voice support) verified successfully"
+else
+    print_warning "PyNaCl verification failed - voice features may not work"
+    print_info "Try manually: export SODIUM_INSTALL=system && pip install PyNaCl"
 fi
 
 echo ""
