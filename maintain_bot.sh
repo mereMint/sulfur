@@ -1472,6 +1472,58 @@ preflight_check() {
     return 0
 }
 
+# Check and warn about optional API keys
+check_optional_api_keys() {
+    log_info "Checking optional API keys..."
+    
+    local warnings=0
+    
+    # Check for GEMINI_API_KEY or OPENAI_API_KEY (at least one is needed for AI)
+    local gemini_key openai_key
+    gemini_key=$(grep -E '^\s*GEMINI_API_KEY\s*=' .env 2>/dev/null | head -n1 | sed -E "s/^[^=]*=\s*//; s/^\"|\"$//g; s/^'|'\$//g")
+    openai_key=$(grep -E '^\s*OPENAI_API_KEY\s*=' .env 2>/dev/null | head -n1 | sed -E "s/^[^=]*=\s*//; s/^\"|\"$//g; s/^'|'\$//g")
+    
+    if [ -z "$gemini_key" ] || [ "$gemini_key" = "your_gemini_api_key_here" ]; then
+        if [ -z "$openai_key" ] || [ "$openai_key" = "your_openai_api_key_here" ]; then
+            log_warning "No AI API key configured (GEMINI_API_KEY or OPENAI_API_KEY)"
+            log_warning "AI chat features will not work without an API key"
+            log_info "  Get a free Gemini key: https://aistudio.google.com/apikey"
+            warnings=$((warnings + 1))
+        fi
+    fi
+    
+    # Check for LASTFM_API_KEY (optional, for enhanced music features)
+    local lastfm_key
+    lastfm_key=$(grep -E '^\s*LASTFM_API_KEY\s*=' .env 2>/dev/null | head -n1 | sed -E "s/^[^=]*=\s*//; s/^\"|\"$//g; s/^'|'\$//g")
+    
+    if [ -z "$lastfm_key" ] || [ "$lastfm_key" = "your_lastfm_api_key_here" ]; then
+        log_info "LASTFM_API_KEY not configured (optional)"
+        log_info "  Last.fm API enhances music recommendations and Songle song variety"
+        log_info "  Get a free key: https://www.last.fm/api/account/create"
+    else
+        log_success "LASTFM_API_KEY is configured"
+    fi
+    
+    # Check for FOOTBALL_DATA_API_KEY (optional, for sports betting)
+    local football_key
+    football_key=$(grep -E '^\s*FOOTBALL_DATA_API_KEY\s*=' .env 2>/dev/null | head -n1 | sed -E "s/^[^=]*=\s*//; s/^\"|\"$//g; s/^'|'\$//g")
+    
+    if [ -z "$football_key" ] || [ "$football_key" = "your_football_data_api_key_here" ]; then
+        log_info "FOOTBALL_DATA_API_KEY not configured (optional)"
+        log_info "  Required for international league betting (Premier League, La Liga, etc.)"
+        log_info "  German leagues work without this key (via OpenLigaDB)"
+    else
+        log_success "FOOTBALL_DATA_API_KEY is configured"
+    fi
+    
+    if [ $warnings -gt 0 ]; then
+        log_warning "Some features may be limited. Configure API keys in .env or via the web dashboard"
+        log_info "Web dashboard: http://localhost:5000/api_keys"
+    fi
+    
+    return 0
+}
+
 # Ensure system dependencies are installed (Termux-specific)
 ensure_system_dependencies() {
     # Only run on Termux
@@ -1647,6 +1699,9 @@ until preflight_check; do
     log_warning "Fix the issues above (edit .env), then press Enter to retry..."
     read -r _ || { log_error "Cannot read input in non-interactive mode"; sleep 60; }
 done
+
+# Check optional API keys and show warnings (non-blocking)
+check_optional_api_keys
 
 # Ensure system dependencies are installed (Termux only)
 ensure_system_dependencies
