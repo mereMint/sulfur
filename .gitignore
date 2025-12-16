@@ -1,31 +1,285 @@
-# Python
-__pycache__/
-*.pyc
+# ==============================================================================
+# Sulfur Bot - Git Ignore File
+# ==============================================================================
+# Prevents sensitive data and unnecessary files from being committed to the repo
+# ==============================================================================
 
-# Environment
+# ==============================================================================
+# SENSITIVE DATA - NEVER COMMIT
+# ==============================================================================
+
+# Environment variables and secrets
 .env
-venv/
+.env.*
+!.env.example
 *.env
+*.env.local
+*.env.production
+*.env.development
 
-# Logs and Backups
+# API Keys and Tokens
+**/api_keys.json
+**/secrets.json
+**/credentials.json
+*.secret
+*.token
+
+# Certificates and Keys
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+*.key.pub
+id_rsa*
+ssh_host_*
+
+# Database credentials and dumps
+database.ini
+db_config.json
+*.sql.gz
+*.dump
+*.backup
+
+# WireGuard VPN configurations (contains private keys!)
+config/wireguard/
+**/wireguard/*.conf
+**/wireguard/*.key
+**/wireguard/privatekey
+**/wireguard/publickey
+
+# Discord Bot Tokens
+discord_token.txt
+bot_token.txt
+
+# ==============================================================================
+# PYTHON
+# ==============================================================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+virtualenv/
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# ==============================================================================
+# RUNTIME & TEMPORARY FILES
+# ==============================================================================
+
+# Logs
 logs/
-backups/
+*.log
+*.log.*
+log.txt
 
-# Runtime files
+# Backups
+backups/
+*.backup
+*.bak
+*.tmp
+*.swp
+*~
+
+# PID files
+*.pid
+*.lock
+
+# Status and runtime files
 config/*.pid
 config/bot_status.json
 *.flag
 last_check.txt
 last_update.txt
+config/last_check.txt
 
-# Test files (keep in repo for reference)
-# test_port_reuse.py
-# test_web_dashboard_restart.py
-
-# IDE / Editor specific
-.vscode/test_db_null_handling.py
-test_chatbot_without_db.py
+# Temporary files
+tmp/
+temp/
 /tmp/
-test_*.py
-*.bak
+*.tmp
+
+# Cache
+cache/
+.cache/
+*.cache
+
+# ==============================================================================
+# DATABASE
+# ==============================================================================
+
+# SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+
+# SQL dumps and backups
+*.sql
+!scripts/db_migrations/*.sql
+!config/database_sync.sql
+*.sql.gz
+
+# Database configuration (may contain passwords)
+database.yml
+database.json
+
+# ==============================================================================
+# IDE / EDITOR
+# ==============================================================================
+
+# VSCode
+.vscode/
+!.vscode/settings.json.example
+*.code-workspace
+
+# PyCharm / IntelliJ
+.idea/
+*.iml
+*.iws
+.idea_modules/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# ==============================================================================
+# SYSTEM FILES
+# ==============================================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+.directory
+
+# ==============================================================================
+# PROJECT SPECIFIC
+# ==============================================================================
+
+# Claude Code (AI assistant)
 .claude/
+.claude/*
+
+# GitHub configuration (if using locally)
+.github/
+
+# Test files (development/debugging only)
+test_*.py
+*_test.py
+!test_*.py.example
+check_*.py
+!check_status.py
+!check_env.py
+verify_*.py
+apply_*_migration.py
+!apply_migration.py
+
+# Minecraft server files (large)
+minecraft/server.jar
+minecraft/world/
+minecraft/logs/
+minecraft/crash-reports/
+minecraft/*.jar
+minecraft/mods/
+minecraft/libraries/
+
+# Audio/Media files (large)
+music_cache/
+*.mp3
+*.mp4
+*.wav
+*.ogg
+*.flac
+*.m4a
+
+# Downloads
+downloads/
+*.zip
+*.tar.gz
+*.rar
+
+# Documentation builds
+docs/_build/
+docs/.doctrees/
+
+# ==============================================================================
+# ALLOWED EXCEPTIONS
+# ==============================================================================
+
+# Keep example files
+!.env.example
+!config.json.example
+!database.json.example
+
+# Keep migration SQL files
+!scripts/db_migrations/*.sql
+
+# Keep documentation
+!docs/**
+!README.md
+!*.md
