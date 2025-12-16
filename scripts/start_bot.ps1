@@ -65,18 +65,21 @@ Register-EngineEvent -SourceIdentifier PowerShell.Exiting -MessageData @{
 } | Out-Null
 
 Write-Host "Checking for updates from the repository..."
-Write-Host "  -> Stashing local changes to avoid conflicts..."
-git stash 2>&1 | Out-Null
+Write-Host "  -> Discarding local changes to use remote files (public repo mode)..."
 
-# --- FIX: Check for errors during git pull ---
-Write-Host "  -> Pulling latest version from the repository..."
-git pull 2>&1 | Out-Null
+# For public repos: Always use remote files via reset
+git fetch origin 2>&1 | Out-Null
+git reset --hard origin/main 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "Note: Git pull had issues, but continuing anyway..." -ForegroundColor Yellow
+    git reset --hard origin/master 2>&1 | Out-Null
 }
 
-Write-Host "  -> Re-applying stashed local changes..."
-git stash pop 2>&1 | Out-Null
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "✅ Updated to latest version" -ForegroundColor Green
+} else {
+    Write-Host "Note: Update had issues, but continuing anyway..." -ForegroundColor Yellow
+}
+
 Write-Host "Update check complete."
 
 # --- NEW: Check if the sync file was updated and import it ---

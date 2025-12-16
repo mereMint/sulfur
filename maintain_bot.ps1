@@ -1,7 +1,21 @@
 # ==============================================================================
 # Sulfur Bot - Maintenance Script (Fixed Process Management)
 # ==============================================================================
-param([switch]$SkipDatabaseBackup)
+# PUBLIC REPO MODE (Default):
+# - SkipCommit=true (no auto-commits)
+# - Local changes are DISCARDED on updates
+# - Always uses remote files (git reset --hard)
+# - No merge conflicts
+#
+# To enable legacy commit mode: run with -EnableCommit flag
+# ==============================================================================
+param(
+    [switch]$SkipDatabaseBackup,
+    [switch]$EnableCommit
+)
+
+# Default to skip commits (public repo mode)
+$script:SkipCommit = -not $EnableCommit
 $ErrorActionPreference='Continue'
 $statusFile=Join-Path $PSScriptRoot 'config\bot_status.json'
 $logDir=Join-Path $PSScriptRoot 'logs'
@@ -1014,7 +1028,31 @@ function Invoke-Update {
     $script:updateLoopCount++
     $script:lastUpdateTime = Get-Date
     
-    Invoke-GitCommit 'chore: Auto-commit before update'
+    # For public repos: Reset local changes instead of committing
+    if($script:SkipCommit){
+        # Check if there are local changes
+        $hasLocalChanges = git diff-index --quiet HEAD -- 2>$null
+        if($LASTEXITCODE -ne 0){
+            Write-ColorLog 'Local changes detected - discarding them before update' 'Yellow' '[UPDATE] '
+            Write-ColorLog 'Changes will be discarded to use remote files (public repo mode)' 'Yellow' '[UPDATE] '
+            
+            # Show what's being reset
+            git status --short 2>&1 | Select-Object -First 5 | ForEach-Object { Write-ColorLog "  $_" 'Gray' '[GIT] ' }
+            
+            # Reset to match remote exactly
+            git fetch origin 2>&1 | Out-Null
+            git reset --hard origin/main 2>&1 | Out-Null
+            if($LASTEXITCODE -ne 0){
+                git reset --hard origin/master 2>&1 | Out-Null
+            }
+            
+            Write-ColorLog 'Local changes discarded - using remote files' 'Green' '[UPDATE] '
+        }
+    } else {
+        # Legacy mode: Commit local changes before update (only if explicitly enabled)
+        Invoke-GitCommit 'chore: Auto-commit before update'
+    }
+    
     git fetch 2>&1 | Out-Null
     $changedFiles=git diff --name-only HEAD...origin/main 2>$null
     if(-not $changedFiles){ $changedFiles=git diff --name-only HEAD...origin/master 2>$null }
@@ -1025,17 +1063,23 @@ function Invoke-Update {
     
     if($changedFiles -like '*maintain_bot.ps1*' -or $changedFiles -like '*maintain_bot_fixed.ps1*'){
         Write-ColorLog 'Maintenance script updated; restarting...' 'Magenta' '[UPDATE] '
-        # Use rebase to avoid merge conflicts when local commits exist
-        git pull --rebase 2>&1 | Out-Null
-        if($LASTEXITCODE -ne 0){
-            Write-ColorLog 'Rebase failed, trying merge with --no-ff...' 'Yellow' '[UPDATE] '
-            git rebase --abort 2>&1 | Out-Null
-            git pull --no-rebase 2>&1 | Out-Null
+        
+        # For public repos, use hard reset to always match remote
+        if($script:SkipCommit){
+            git reset --hard $remoteCommit 2>&1 | Out-Null
+        } else {
+            # Legacy mode with rebase/merge
+            git pull --rebase 2>&1 | Out-Null
             if($LASTEXITCODE -ne 0){
-                Write-ColorLog 'Standard merge failed, trying explicit --no-ff merge...' 'Yellow' '[UPDATE] '
-                git merge --no-ff origin/main 2>&1 | Out-Null
+                Write-ColorLog 'Rebase failed, trying merge with --no-ff...' 'Yellow' '[UPDATE] '
+                git rebase --abort 2>&1 | Out-Null
+                git pull --no-rebase 2>&1 | Out-Null
                 if($LASTEXITCODE -ne 0){
-                    git merge --no-ff origin/master 2>&1 | Out-Null
+                    Write-ColorLog 'Standard merge failed, trying explicit --no-ff merge...' 'Yellow' '[UPDATE] '
+                    git merge --no-ff origin/main 2>&1 | Out-Null
+                    if($LASTEXITCODE -ne 0){
+                        git merge --no-ff origin/master 2>&1 | Out-Null
+                    }
                 }
             }
         }
@@ -1046,20 +1090,27 @@ function Invoke-Update {
         Stop-Transcript
         exit 0
     }
-    # Use rebase to avoid merge conflicts when local commits exist
-    git pull --rebase 2>&1 | Out-Null
-    if($LASTEXITCODE -ne 0){
-        Write-ColorLog 'Rebase failed, trying merge with --no-ff...' 'Yellow' '[UPDATE] '
-        git rebase --abort 2>&1 | Out-Null
-        git pull --no-rebase 2>&1 | Out-Null
+    # Normal update - use hard reset for public repos to avoid merge conflicts
+    if($script:SkipCommit){
+        # Always use remote files - no merge conflicts
+        git reset --hard $remoteCommit 2>&1 | Out-Null
+        Write-ColorLog 'Files updated to remote version (hard reset)' 'Green' '[UPDATE] '
+    } else {
+        # Legacy mode: Use rebase to avoid merge conflicts when local commits exist
+        git pull --rebase 2>&1 | Out-Null
         if($LASTEXITCODE -ne 0){
-            Write-ColorLog 'Standard merge failed, trying explicit --no-ff merge...' 'Yellow' '[UPDATE] '
-            git merge --no-ff origin/main 2>&1 | Out-Null
+            Write-ColorLog 'Rebase failed, trying merge with --no-ff...' 'Yellow' '[UPDATE] '
+            git rebase --abort 2>&1 | Out-Null
+            git pull --no-rebase 2>&1 | Out-Null
             if($LASTEXITCODE -ne 0){
-                git merge --no-ff origin/master 2>&1 | Out-Null
+                Write-ColorLog 'Standard merge failed, trying explicit --no-ff merge...' 'Yellow' '[UPDATE] '
+                git merge --no-ff origin/main 2>&1 | Out-Null
                 if($LASTEXITCODE -ne 0){
-                    Write-ColorLog 'All merge strategies failed - manual intervention may be required' 'Red' '[UPDATE] '
-                    Write-ColorLog 'Continuing with current code...' 'Yellow' '[UPDATE] '
+                    git merge --no-ff origin/master 2>&1 | Out-Null
+                    if($LASTEXITCODE -ne 0){
+                        Write-ColorLog 'All merge strategies failed - manual intervention may be required' 'Red' '[UPDATE] '
+                        Write-ColorLog 'Continuing with current code...' 'Yellow' '[UPDATE] '
+                    }
                 }
             }
         }

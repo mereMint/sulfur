@@ -159,7 +159,13 @@ setup_repository() {
         if [ "$update_choice" != "n" ] && [ "$update_choice" != "N" ]; then
             echo -e "${BLUE}📥 Updating repository...${NC}"
             cd "$INSTALL_DIR"
-            git pull
+            
+            # Reset any local changes to always use remote files (public repo)
+            echo "   Discarding local changes (using remote files)..."
+            git fetch origin
+            git reset --hard origin/main || git reset --hard origin/master
+            
+            echo -e "${GREEN}✅ Updated to latest version${NC}"
         fi
     else
         echo -e "${BLUE}📥 Cloning Sulfur Bot repository...${NC}"

@@ -5,11 +5,18 @@
 # Features:
 # - Auto-start bot and web dashboard
 # - Check for updates every minute
-# - Auto-commit database changes every 5 minutes
 # - Auto-backup database every 30 minutes
 # - Auto-restart on updates
 # - Self-update capability
 # - Graceful shutdown with Ctrl+C
+#
+# PUBLIC REPO MODE (Default):
+# - SKIP_COMMIT=true (no auto-commits)
+# - Local changes are DISCARDED on updates
+# - Always uses remote files (git reset --hard)
+# - No merge conflicts
+#
+# To enable legacy commit mode: run with --enable-commit flag
 # ==============================================================================
 
 # Colors
@@ -776,8 +783,27 @@ apply_updates() {
     UPDATE_LOOP_COUNT=$((UPDATE_LOOP_COUNT + 1))
     LAST_UPDATE_TIME=$(date +%s)
     
-    # Commit any pending changes first
-    git_commit "chore: Auto-commit before update"
+    # For public repos: Reset local changes instead of committing
+    # This prevents merge conflicts and ensures we always use remote files
+    if [ "$SKIP_COMMIT" = true ]; then
+        # Check if there are local changes
+        if ! git diff-index --quiet HEAD -- 2>/dev/null; then
+            log_warning "Local changes detected - stashing them before update"
+            log_info "Changes will be discarded to use remote files (public repo mode)"
+            
+            # Show what's being reset
+            git status --short 2>&1 | head -5 | sed 's/^/  | /' | tee -a "$MAIN_LOG"
+            
+            # Reset to match remote exactly
+            git fetch origin >>"$MAIN_LOG" 2>&1
+            git reset --hard origin/main >>"$MAIN_LOG" 2>&1 || git reset --hard origin/master >>"$MAIN_LOG" 2>&1
+            
+            log_success "Local changes discarded - using remote files"
+        fi
+    else
+        # Legacy mode: Commit local changes before update (only if explicitly enabled)
+        git_commit "chore: Auto-commit before update"
+    fi
     
     # Check if this script is being updated
     git fetch &>>"$MAIN_LOG"
@@ -790,13 +816,18 @@ apply_updates() {
     if echo "$CHANGED_FILES" | grep -q "maintain_bot.sh"; then
         log_update "Maintenance script will be updated - restarting..."
         
-        # Use rebase to avoid merge conflicts when local commits exist
-        if ! git pull --rebase >>"$MAIN_LOG" 2>&1; then
-            log_warning "Rebase failed, trying merge with --no-ff..."
-            git rebase --abort >>"$MAIN_LOG" 2>&1 || true
-            if ! git pull --no-rebase >>"$MAIN_LOG" 2>&1; then
-                log_warning "Standard merge failed, trying --no-ff merge..."
-                git merge --no-ff origin/main >>"$MAIN_LOG" 2>&1 || git merge --no-ff origin/master >>"$MAIN_LOG" 2>&1 || true
+        # For public repos, use hard reset to always match remote
+        if [ "$SKIP_COMMIT" = true ]; then
+            git reset --hard "$REMOTE_COMMIT" >>"$MAIN_LOG" 2>&1
+        else
+            # Legacy mode with rebase/merge
+            if ! git pull --rebase >>"$MAIN_LOG" 2>&1; then
+                log_warning "Rebase failed, trying merge with --no-ff..."
+                git rebase --abort >>"$MAIN_LOG" 2>&1 || true
+                if ! git pull --no-rebase >>"$MAIN_LOG" 2>&1; then
+                    log_warning "Standard merge failed, trying --no-ff merge..."
+                    git merge --no-ff origin/main >>"$MAIN_LOG" 2>&1 || git merge --no-ff origin/master >>"$MAIN_LOG" 2>&1 || true
+                fi
             fi
         fi
         
@@ -807,16 +838,23 @@ apply_updates() {
         exec "$0" "$@"
     fi
     
-    # Normal update - use rebase to avoid merge conflicts when local commits exist
-    if ! git pull --rebase >>"$MAIN_LOG" 2>&1; then
-        log_warning "Rebase failed, trying merge with --no-ff..."
-        git rebase --abort >>"$MAIN_LOG" 2>&1 || true
-        if ! git pull --no-rebase >>"$MAIN_LOG" 2>&1; then
-            log_warning "Standard merge failed, trying explicit --no-ff merge..."
-            if ! git merge --no-ff origin/main >>"$MAIN_LOG" 2>&1; then
-                if ! git merge --no-ff origin/master >>"$MAIN_LOG" 2>&1; then
-                    log_error "All merge strategies failed - manual intervention may be required"
-                    log_warning "Continuing with current code..."
+    # Normal update - use hard reset for public repos to avoid merge conflicts
+    if [ "$SKIP_COMMIT" = true ]; then
+        # Always use remote files - no merge conflicts
+        git reset --hard "$REMOTE_COMMIT" >>"$MAIN_LOG" 2>&1
+        log_update "Files updated to remote version (hard reset)"
+    else
+        # Legacy mode: Use rebase to avoid merge conflicts when local commits exist
+        if ! git pull --rebase >>"$MAIN_LOG" 2>&1; then
+            log_warning "Rebase failed, trying merge with --no-ff..."
+            git rebase --abort >>"$MAIN_LOG" 2>&1 || true
+            if ! git pull --no-rebase >>"$MAIN_LOG" 2>&1; then
+                log_warning "Standard merge failed, trying explicit --no-ff merge..."
+                if ! git merge --no-ff origin/main >>"$MAIN_LOG" 2>&1; then
+                    if ! git merge --no-ff origin/master >>"$MAIN_LOG" 2>&1; then
+                        log_error "All merge strategies failed - manual intervention may be required"
+                        log_warning "Continuing with current code..."
+                    fi
                 fi
             fi
         fi

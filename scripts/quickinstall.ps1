@@ -147,7 +147,15 @@ function Setup-Repository {
         if ($update -ne "n" -and $update -ne "N") {
             Write-Step "Updating repository..."
             Set-Location $InstallDir
-            git pull
+            
+            # Reset any local changes to always use remote files (public repo)
+            Write-Host "   Discarding local changes (using remote files)..." -ForegroundColor Yellow
+            git fetch origin 2>&1 | Out-Null
+            git reset --hard origin/main 2>&1 | Out-Null
+            if($LASTEXITCODE -ne 0){
+                git reset --hard origin/master 2>&1 | Out-Null
+            }
+            Write-Host "✅ Updated to latest version" -ForegroundColor Green
         }
     }
     else {

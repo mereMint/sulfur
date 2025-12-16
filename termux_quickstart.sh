@@ -475,7 +475,12 @@ else
         if [[ "$UPDATE_REPO" =~ ^[Yy]$ ]]; then
             cd "$REPO_DIR"
             print_info "Pulling latest changes..."
-            git pull
+            
+            # Reset any local changes to always use remote files (public repo)
+            print_step "Discarding local changes (using remote files)..."
+            git fetch origin
+            git reset --hard origin/main || git reset --hard origin/master
+            
             print_success "Repository updated!"
         else
             print_info "Keeping existing repository"
