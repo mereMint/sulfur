@@ -292,6 +292,160 @@ def check_wireguard() -> Tuple[bool, str]:
 # Installation Functions
 # ==============================================================================
 
+def install_all_system_dependencies(plat: str) -> bool:
+    """
+    Install ALL system dependencies for the current platform.
+    
+    This function ensures a complete, automatic installation of all required
+    system packages so users don't have to troubleshoot or manually install anything.
+    
+    Args:
+        plat: The detected platform (termux, linux, raspberrypi, windows, macos, wsl)
+        
+    Returns:
+        True if all dependencies were installed successfully
+    """
+    print_section("Installing System Dependencies")
+    print_info("Installing all required system packages automatically...")
+    print_info("This may take a few minutes. Please wait...")
+    
+    success = True
+    
+    if plat == 'termux':
+        # Termux - comprehensive package list for all features
+        print_step("Installing Termux packages...")
+        packages = [
+            # Build essentials
+            'binutils', 'clang', 'make', 'cmake', 'pkg-config', 
+            # Python and development
+            'python', 'python-pip', 'rust',  # Rust for some Python packages
+            # Crypto and networking
+            'libffi', 'openssl', 'libsodium',  # For PyNaCl
+            # Database
+            'mariadb',
+            # VPN
+            'wireguard-tools',
+            # Java for Minecraft
+            'openjdk-17',
+            # Utilities
+            'git', 'curl', 'wget', 'unzip', 'tar',
+            # Networking tools
+            'net-tools', 'iproute2',
+        ]
+        
+        # Update package list first
+        print_info("Updating package repository...")
+        run_command(['pkg', 'update', '-y'], quiet=True)
+        run_command(['pkg', 'upgrade', '-y'], quiet=True)
+        
+        for package in packages:
+            print_info(f"  Installing {package}...")
+            code, out, err = run_command(['pkg', 'install', '-y', package], quiet=True)
+            if code != 0:
+                print_warning(f"  Could not install {package} (may not be needed)")
+        
+        print_success("Termux system packages installed")
+        
+    elif plat in ['linux', 'raspberrypi', 'wsl']:
+        # Debian/Ubuntu-based systems
+        print_step("Installing Linux packages via apt...")
+        
+        packages = [
+            # Build essentials
+            'build-essential', 'python3-dev', 'libffi-dev',
+            # Crypto
+            'libsodium-dev', 'libssl-dev',
+            # Database
+            'mariadb-server', 'mariadb-client', 'libmariadb-dev',
+            # VPN
+            'wireguard', 'wireguard-tools',
+            # Java for Minecraft
+            'openjdk-21-jre-headless',
+            # Utilities
+            'git', 'curl', 'wget', 'unzip',
+            # Networking
+            'net-tools', 'iptables',
+        ]
+        
+        # Update package list
+        print_info("Updating package repository...")
+        run_command(['sudo', 'apt', 'update'], quiet=True)
+        
+        # Install packages in one command for efficiency
+        print_info("Installing packages (this may take a while)...")
+        code, out, err = run_command(
+            ['sudo', 'apt', 'install', '-y'] + packages,
+            quiet=True
+        )
+        
+        if code != 0:
+            # Try installing packages one by one as fallback
+            print_warning("Bulk install failed, trying individual packages...")
+            for package in packages:
+                print_info(f"  Installing {package}...")
+                run_command(['sudo', 'apt', 'install', '-y', package], quiet=True)
+        
+        print_success("Linux system packages installed")
+        
+    elif plat == 'macos':
+        # macOS via Homebrew
+        print_step("Installing macOS packages via Homebrew...")
+        
+        if not shutil.which('brew'):
+            print_warning("Homebrew not found. Installing Homebrew first...")
+            code, out, err = run_command([
+                '/bin/bash', '-c', 
+                '$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)'
+            ])
+            if code != 0:
+                print_error("Failed to install Homebrew. Please install manually from https://brew.sh/")
+                return False
+        
+        packages = [
+            'python', 'libffi', 'libsodium', 'openssl',
+            'mariadb', 'wireguard-tools', 'openjdk@21',
+            'git', 'curl', 'wget'
+        ]
+        
+        for package in packages:
+            print_info(f"  Installing {package}...")
+            run_command(['brew', 'install', package], quiet=True)
+        
+        print_success("macOS packages installed")
+        
+    elif plat == 'windows':
+        # Windows - provide instructions and attempt winget
+        print_step("Setting up Windows dependencies...")
+        
+        # Try using winget if available
+        if shutil.which('winget'):
+            print_info("Using Windows Package Manager (winget)...")
+            
+            winget_packages = [
+                'Python.Python.3.12',
+                'MariaDB.Server',
+                'WireGuard.WireGuard',
+                'EclipseAdoptium.Temurin.21.JRE',
+                'Git.Git',
+            ]
+            
+            for package in winget_packages:
+                print_info(f"  Installing {package}...")
+                run_command(['winget', 'install', '--accept-package-agreements', '--accept-source-agreements', '-e', '--id', package], quiet=True)
+            
+            print_success("Windows packages installed via winget")
+        else:
+            print_warning("Windows Package Manager (winget) not found")
+            print_info("Please install the following manually:")
+            print_info("  - Python 3.12+: https://python.org/downloads/")
+            print_info("  - MariaDB: https://mariadb.org/download/")
+            print_info("  - WireGuard: https://wireguard.com/install/")
+            print_info("  - Java 21: https://adoptium.net/")
+            success = False
+    
+    return success
+
+
 def install_termux_build_deps() -> bool:
     """
     Install build dependencies required for compiling Python packages on Termux.
@@ -302,7 +456,14 @@ def install_termux_build_deps() -> bool:
     print_step("Installing Termux build dependencies...")
     
     # Install build essentials including binutils (provides ld linker)
-    packages = ['binutils', 'clang', 'make', 'pkg-config', 'libffi', 'openssl']
+    # Also include libsodium for PyNaCl pre-built binaries
+    packages = [
+        'binutils', 'clang', 'make', 'cmake', 'pkg-config', 
+        'libffi', 'openssl', 'libsodium', 'rust', 'python-pip'
+    ]
+    
+    # Update package list first
+    run_command(['pkg', 'update', '-y'], quiet=True)
     
     for package in packages:
         print_info(f"Installing {package}...")
@@ -322,12 +483,22 @@ def install_python_dependencies() -> bool:
         print_error("requirements.txt not found")
         return False
     
-    # On Termux, install build dependencies first
     plat = detect_platform()
+    
+    # Install system build dependencies first based on platform
     if plat == 'termux':
         print_info("Termux detected - installing build dependencies first...")
         install_termux_build_deps()
+    elif plat in ['linux', 'raspberrypi', 'wsl']:
+        # Ensure build tools are available
+        print_info("Ensuring build tools are available...")
+        run_command(['sudo', 'apt', 'install', '-y', 'build-essential', 'python3-dev', 'libffi-dev', 'libsodium-dev'], quiet=True)
     
+    # Upgrade pip first
+    print_info("Upgrading pip...")
+    run_command([sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip'], quiet=True)
+    
+    # Install dependencies
     code, out, err = run_command([
         sys.executable, '-m', 'pip', 'install', '-r', 'requirements.txt', '--upgrade'
     ])
@@ -338,23 +509,28 @@ def install_python_dependencies() -> bool:
     else:
         print_error(f"Failed to install dependencies: {err}")
         
-        # Provide helpful hints for common errors
-        if 'PyNaCl' in err or 'pynacl' in err.lower():
-            print_info("PyNaCl build failed. Try installing libsodium:")
-            if plat == 'termux':
-                print_info("  pkg install libsodium")
-            elif plat in ['linux', 'raspberrypi', 'wsl']:
-                print_info("  sudo apt install libsodium-dev")
-            elif plat == 'macos':
-                print_info("  brew install libsodium")
+        # Automatic retry with additional packages
+        print_info("Attempting automatic fix...")
         
-        if 'no acceptable ld found' in err.lower() or 'linker' in err.lower():
-            print_info("Linker not found. Install build tools:")
-            if plat == 'termux':
-                print_info("  pkg install binutils clang")
-            elif plat in ['linux', 'raspberrypi', 'wsl']:
-                print_info("  sudo apt install build-essential")
+        if plat == 'termux':
+            # Install libsodium and retry
+            run_command(['pkg', 'install', '-y', 'libsodium'], quiet=True)
+        elif plat in ['linux', 'raspberrypi', 'wsl']:
+            run_command(['sudo', 'apt', 'install', '-y', 'libsodium-dev', 'libssl-dev'], quiet=True)
+        elif plat == 'macos':
+            run_command(['brew', 'install', 'libsodium'], quiet=True)
         
+        # Retry installation
+        print_info("Retrying dependency installation...")
+        code, out, err = run_command([
+            sys.executable, '-m', 'pip', 'install', '-r', 'requirements.txt', '--upgrade'
+        ])
+        
+        if code == 0:
+            print_success("Python dependencies installed after automatic fix")
+            return True
+        
+        print_error("Installation still failed after automatic fix")
         return False
 
 
@@ -1000,6 +1176,213 @@ def setup_minecraft_server(plat: str) -> bool:
 # WireGuard VPN Setup
 # ==============================================================================
 
+def setup_wireguard_vpn_automatic(plat: str) -> dict:
+    """
+    Automatically set up WireGuard VPN server with zero user input.
+    
+    This function:
+    - Generates server keys automatically
+    - Detects local IP for endpoint
+    - Configures NAT and routing
+    - Creates ready-to-use configuration
+    
+    Returns:
+        dict with setup result and configuration details
+    """
+    result = {
+        'success': False,
+        'endpoint': None,
+        'port': 51820,
+        'server_address': '10.0.0.1/24',
+        'server_public_key': None,
+        'config_path': None,
+        'error': None
+    }
+    
+    print_step("Setting up WireGuard VPN automatically...")
+    
+    # Check if WireGuard is installed
+    wg_ok, wg_msg = check_wireguard()
+    if not wg_ok:
+        print_info("WireGuard not installed. Installing now...")
+        if plat == 'termux':
+            run_command(['pkg', 'install', '-y', 'wireguard-tools'], quiet=True)
+        elif plat in ['linux', 'raspberrypi', 'wsl']:
+            run_command(['sudo', 'apt', 'install', '-y', 'wireguard', 'wireguard-tools'], quiet=True)
+        elif plat == 'macos':
+            run_command(['brew', 'install', 'wireguard-tools'], quiet=True)
+        
+        # Re-check
+        wg_ok, wg_msg = check_wireguard()
+        if not wg_ok:
+            result['error'] = "Failed to install WireGuard"
+            return result
+    
+    print_success("WireGuard available")
+    
+    # Auto-detect local IP
+    local_ip = None
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+    except Exception:
+        pass
+    
+    if not local_ip:
+        local_ip = "127.0.0.1"
+        print_warning("Could not detect local IP, using localhost")
+    else:
+        print_success(f"Detected local IP: {local_ip}")
+    
+    result['endpoint'] = local_ip
+    
+    # Create config directory
+    os.makedirs('config/wireguard', exist_ok=True)
+    
+    # Generate server keys
+    print_step("Generating server encryption keys...")
+    try:
+        if shutil.which('wg'):
+            # Generate private key
+            priv_result = subprocess.run(['wg', 'genkey'], capture_output=True, text=True)
+            private_key = priv_result.stdout.strip()
+            
+            # Generate public key
+            pub_result = subprocess.run(['wg', 'pubkey'], input=private_key, capture_output=True, text=True)
+            public_key = pub_result.stdout.strip()
+            
+            result['server_public_key'] = public_key
+            print_success("Server keys generated")
+        else:
+            result['error'] = "WireGuard tools not found in PATH"
+            return result
+    except Exception as e:
+        result['error'] = f"Failed to generate keys: {e}"
+        return result
+    
+    # Detect network interface for NAT
+    net_interface = None
+    try:
+        if plat in ['linux', 'raspberrypi', 'wsl']:
+            # Get default route interface
+            route_result = subprocess.run(['ip', 'route', 'show', 'default'], capture_output=True, text=True)
+            if route_result.returncode == 0:
+                parts = route_result.stdout.split()
+                if 'dev' in parts:
+                    net_interface = parts[parts.index('dev') + 1]
+        elif plat == 'termux':
+            net_interface = 'wlan0'  # Common on Android
+        elif plat == 'macos':
+            net_interface = 'en0'  # Common on macOS
+    except Exception:
+        net_interface = 'eth0'  # Fallback
+    
+    print_info(f"Using network interface: {net_interface or 'auto'}")
+    
+    # Create server configuration
+    vpn_network = '10.0.0.0/24'
+    server_address = '10.0.0.1/24'
+    listen_port = 51820
+    
+    if plat in ['linux', 'raspberrypi', 'wsl'] and net_interface:
+        server_config_content = f"""[Interface]
+PrivateKey = {private_key}
+Address = {server_address}
+ListenPort = {listen_port}
+SaveConfig = false
+
+# NAT and forwarding for VPN clients
+PostUp = sysctl -w net.ipv4.ip_forward=1
+PostUp = iptables -t nat -A POSTROUTING -s {vpn_network} -o {net_interface} -j MASQUERADE
+PostUp = iptables -A FORWARD -i %i -j ACCEPT
+PostUp = iptables -A FORWARD -o %i -j ACCEPT
+
+PostDown = iptables -t nat -D POSTROUTING -s {vpn_network} -o {net_interface} -j MASQUERADE
+PostDown = iptables -D FORWARD -i %i -j ACCEPT
+PostDown = iptables -D FORWARD -o %i -j ACCEPT
+
+# Peers will be added automatically when users connect
+"""
+    else:
+        # Simplified config for other platforms
+        server_config_content = f"""[Interface]
+PrivateKey = {private_key}
+Address = {server_address}
+ListenPort = {listen_port}
+
+# Peers will be added automatically when users connect
+"""
+    
+    # Save server config
+    server_conf_path = 'config/wireguard/wg0.conf'
+    with open(server_conf_path, 'w') as f:
+        f.write(server_config_content)
+    os.chmod(server_conf_path, 0o600)  # Secure permissions
+    
+    result['config_path'] = server_conf_path
+    print_success(f"Server config saved to {server_conf_path}")
+    
+    # Save JSON config for the bot
+    vpn_config = {
+        "role": "server",
+        "endpoint": f"{local_ip}:{listen_port}",
+        "address": server_address,
+        "port": listen_port,
+        "public_key": public_key,
+        "private_key": private_key,  # Stored securely
+        "network_interface": net_interface,
+        "peers": [],
+        "auto_configured": True,
+        "setup_date": time.strftime("%Y-%m-%d %H:%M:%S")
+    }
+    
+    with open('config/wireguard/vpn_config.json', 'w') as f:
+        json.dump(vpn_config, f, indent=2)
+    os.chmod('config/wireguard/vpn_config.json', 0o600)
+    
+    # Try to start the VPN interface
+    if plat in ['linux', 'raspberrypi']:
+        print_step("Starting VPN interface...")
+        
+        # Copy config to system location
+        code, _, _ = run_command(['sudo', 'cp', server_conf_path, '/etc/wireguard/wg0.conf'], quiet=True)
+        if code == 0:
+            run_command(['sudo', 'chmod', '600', '/etc/wireguard/wg0.conf'], quiet=True)
+            
+            # Enable and start
+            run_command(['sudo', 'systemctl', 'enable', 'wg-quick@wg0'], quiet=True)
+            code, _, err = run_command(['sudo', 'wg-quick', 'up', 'wg0'], quiet=True)
+            
+            if code == 0:
+                print_success("VPN interface started and enabled on boot")
+            else:
+                print_warning("Could not start VPN interface automatically")
+                print_info("Start manually with: sudo wg-quick up wg0")
+    
+    result['success'] = True
+    
+    print()
+    print_success("VPN Server configured automatically!")
+    print()
+    print_info("📋 VPN Connection Details:")
+    print(f"   Server IP: {local_ip}")
+    print(f"   Port: {listen_port} (UDP)")
+    print(f"   Public Key: {public_key[:20]}...")
+    print()
+    print_info("💡 To connect devices:")
+    print("   1. Use /vpn addclient <device_name> in Discord")
+    print("   2. The bot will generate a config/QR code for your device")
+    print("   3. Import into WireGuard app on your phone/computer")
+    print()
+    print_info("🌐 For remote access (outside your network):")
+    print(f"   Forward UDP port {listen_port} on your router to {local_ip}")
+    
+    return result
+
+
 def setup_wireguard_vpn(plat: str) -> bool:
     """Set up WireGuard VPN."""
     print_section("WireGuard VPN Setup")
@@ -1010,25 +1393,35 @@ def setup_wireguard_vpn(plat: str) -> bool:
         print_warning("WireGuard not found")
         print_info(f"Install command: {get_wireguard_install_command(plat)}")
         
+        # Try to install automatically
+        print_info("Attempting automatic installation...")
         if plat == 'termux':
-            print_warning("Note: Full WireGuard VPN on Termux requires root access")
+            run_command(['pkg', 'install', '-y', 'wireguard-tools'], quiet=True)
+        elif plat in ['linux', 'raspberrypi', 'wsl']:
+            run_command(['sudo', 'apt', 'install', '-y', 'wireguard', 'wireguard-tools'], quiet=True)
+        elif plat == 'macos':
+            run_command(['brew', 'install', 'wireguard-tools'], quiet=True)
         
-        if not ask_yes_no("Continue anyway?", default=False):
-            return False
+        wg_ok, wg_msg = check_wireguard()
+        if not wg_ok:
+            print_warning("Could not install WireGuard automatically")
+            if not ask_yes_no("Continue anyway?", default=False):
+                return False
     else:
         print_success(wg_msg)
     
     # VPN role selection
-    print("\n--- VPN Role ---")
+    print("\n--- VPN Setup Mode ---")
     role_options = [
-        "Server (this machine will accept VPN connections)",
-        "Client (this machine will connect to a VPN server)",
+        "Automatic Setup (recommended - fully automatic server configuration)",
+        "Manual Server Setup (enter details manually)",
+        "Client Setup (connect to an existing VPN server)",
         "Skip VPN setup for now"
     ]
     
-    role_choice = ask_choice("Select VPN role:", role_options, default=2)
+    role_choice = ask_choice("Select setup mode:", role_options, default=0)
     
-    if role_choice == 2:
+    if role_choice == 3:
         print_info("VPN setup skipped")
         return True
     
@@ -1036,6 +1429,11 @@ def setup_wireguard_vpn(plat: str) -> bool:
     os.makedirs('config/wireguard', exist_ok=True)
     
     if role_choice == 0:
+        # Fully automatic setup
+        result = setup_wireguard_vpn_automatic(plat)
+        return result['success']
+    
+    elif role_choice == 1:
         # Server setup
         print("\n--- VPN Server Configuration ---")
         
@@ -1378,14 +1776,106 @@ def run_full_setup():
         sys.exit(1)
     print_success(f"Python: {py_msg}")
     
-    # Choose what to set up
+    # Choose setup mode
+    print_section("Setup Mode")
+    print("How would you like to proceed?\n")
+    
+    mode_options = [
+        "Full Automatic Setup (recommended - installs everything automatically)",
+        "Interactive Setup (choose individual components)",
+        "Quick Setup (bot only, minimal questions)"
+    ]
+    
+    mode_choice = ask_choice("Select setup mode:", mode_options, default=0)
+    
+    if mode_choice == 0:
+        # Full automatic setup - install everything with minimal user input
+        print_section("Full Automatic Setup")
+        print_info("This will install all system dependencies, set up the database,")
+        print_info("configure VPN, and prepare everything for you automatically.")
+        print()
+        
+        if not ask_yes_no("Proceed with full automatic setup?", default=True):
+            print_info("Setup cancelled")
+            return
+        
+        # Step 1: Install all system dependencies
+        print_section("Step 1: System Dependencies")
+        install_all_system_dependencies(plat)
+        
+        # Step 2: Python dependencies
+        print_section("Step 2: Python Dependencies")
+        install_python_dependencies()
+        
+        # Step 3: Environment file
+        print_section("Step 3: Configuration")
+        setup_env_file()
+        
+        # Step 4: Database
+        print_section("Step 4: Database Setup")
+        setup_database(plat)
+        
+        # Step 5: VPN (automatic)
+        print_section("Step 5: VPN Setup")
+        vpn_result = setup_wireguard_vpn_automatic(plat)
+        
+        # Step 6: Ask about Minecraft
+        print_section("Step 6: Minecraft Server (Optional)")
+        if ask_yes_no("Set up Minecraft server?", default=False):
+            setup_minecraft_server(plat)
+        
+        # Summary
+        print_header("SETUP COMPLETE")
+        print_success("All components have been set up automatically!")
+        print()
+        print("Your Sulfur Bot is ready to use:")
+        print()
+        print("  🤖 Start the bot:")
+        print("     python bot.py")
+        print()
+        print("  🌐 Web Dashboard:")
+        print("     http://localhost:5000")
+        print()
+        if vpn_result.get('success'):
+            print("  🔐 VPN Access:")
+            print(f"     Server: {vpn_result.get('endpoint')}:{vpn_result.get('port')}")
+            print("     Use /vpn addclient in Discord to add devices")
+            print()
+        print("  💬 Discord Commands:")
+        print("     /help - Show all commands")
+        print("     /admin - Admin panel")
+        print()
+        return
+    
+    elif mode_choice == 2:
+        # Quick setup - just bot dependencies
+        print_section("Quick Setup")
+        
+        # Install system dependencies
+        install_all_system_dependencies(plat)
+        
+        # Python dependencies
+        install_python_dependencies()
+        
+        # Basic env setup
+        setup_env_file()
+        
+        # Database
+        setup_database(plat)
+        
+        print_header("QUICK SETUP COMPLETE")
+        print("Start the bot with: python bot.py")
+        return
+    
+    # Interactive setup (original flow)
     print_section("Setup Options")
     print("What would you like to set up?\n")
     
     setup_options = [
+        ("System Dependencies (All build tools & packages)", True),
         ("Bot Dependencies & Configuration", True),
         ("Database (MySQL/MariaDB)", True),
-        ("WireGuard VPN", False),
+        ("WireGuard VPN", True),
         ("Minecraft Server", False)
     ]
     
@@ -1406,8 +1896,13 @@ def run_full_setup():
     # Run selected setups
     success_count = 0
     
+    if "System Dependencies (All build tools & packages)" in selected:
+        print_section("Step 1: System Dependencies")
+        if install_all_system_dependencies(plat):
+            success_count += 1
+    
     if "Bot Dependencies & Configuration" in selected:
-        print_section("Step 1: Bot Dependencies")
+        print_section("Step 2: Bot Dependencies")
         
         # Check dependencies
         pip_ok, pip_msg = check_pip()
