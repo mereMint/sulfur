@@ -507,6 +507,38 @@ def setup_minecraft_server(plat: str) -> bool:
         schedule_config['start_hour'] = int(start_hour)
         schedule_config['end_hour'] = int(end_hour)
     
+    # Mods configuration
+    print("\n--- Mods Configuration ---")
+    
+    install_perf_mods = False
+    install_voice_chat = False
+    install_automodpack = False
+    
+    if server_type in ['fabric', 'paper', 'purpur']:
+        install_perf_mods = ask_yes_no("Install performance optimization mods?", default=True)
+        if install_perf_mods:
+            print_info("Will install: Lithium, Ferritecore, Spark, etc.")
+    
+    if server_type == 'fabric':
+        print("\n--- AutoModpack (Recommended) ---")
+        print("AutoModpack automatically syncs mods to players when they connect.")
+        print("✅ Players only need to install AutoModpack once - no manual mod setup!")
+        print("✅ Great for beginners - seamless installation experience")
+        install_automodpack = ask_yes_no("Enable AutoModpack for automatic mod syncing?", default=True)
+        if install_automodpack:
+            print_success("AutoModpack will be configured automatically")
+            print_info("Players will auto-download all server mods on first connect")
+        
+        print("\n--- Voice Chat ---")
+        print("Simple Voice Chat allows proximity voice communication in-game.")
+        print("⚠️  Players will need to install the client mod to use voice chat.")
+        if install_automodpack:
+            print_info("(AutoModpack will auto-install this for players too!)")
+        install_voice_chat = ask_yes_no("Enable Simple Voice Chat mod?", default=False)
+        if install_voice_chat:
+            print_info("Voice chat will be configured on port 24454 (UDP)")
+            print_info("Remember to forward this port on your router!")
+    
     # Update config.json
     config_path = 'config/config.json'
     try:
@@ -532,6 +564,19 @@ def setup_minecraft_server(plat: str) -> bool:
             "whitelist": True,
             "schedule": schedule_config,
             "boot_with_bot": True,
+            "performance_mods": {
+                "enabled": install_perf_mods
+            },
+            "optional_mods": {
+                "automodpack": {
+                    "enabled": install_automodpack,
+                    "beginner_friendly": True
+                },
+                "simple_voice_chat": {
+                    "enabled": install_voice_chat,
+                    "requires_client_mod": True
+                }
+            },
             "backups": {
                 "enabled": True,
                 "interval_hours": 6,

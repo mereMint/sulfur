@@ -183,6 +183,71 @@ PERFORMANCE_MODS = {
     ]
 }
 
+# Voice chat mod configuration
+VOICE_CHAT_MODS = {
+    "simple_voice_chat": {
+        "name": "Simple Voice Chat",
+        "modrinth_id": "9eGKb6K1",
+        "description": "Proximity voice chat for Minecraft",
+        "config_file": "voicechat/voicechat-server.properties",
+        "default_config": {
+            "port": 24454,
+            "bind_address": "",
+            "max_voice_distance": 48.0,
+            "crouch_distance_multiplier": 1.0,
+            "whisper_distance_multiplier": 0.5,
+            "codec": "OPUS",
+            "mtu_size": 1024,
+            "keep_alive": 1000,
+            "enable_groups": True,
+            "voice_host": "",
+            "allow_recording": True,
+            "spectator_interaction": False,
+            "spectator_player_possession": False,
+            "force_voice_chat": False,
+            "login_timeout": 10000,
+            "broadcast_range": -1.0
+        },
+        "required_client_mod": True
+    }
+}
+
+# AutoModpack configuration - Automatically syncs mods between server and clients
+AUTOMODPACK_CONFIG = {
+    "name": "AutoModpack",
+    "modrinth_id": "k68glP2e",  # AutoModpack on Modrinth
+    "description": "Automatically syncs server mods to clients - no manual installation needed",
+    "config_dir": "automodpack",
+    "server_config_file": "automodpack/automodpack-server.json",
+    "default_server_config": {
+        "modpackName": "Sulfur Server Modpack",
+        "modpackHost": "",  # Will be auto-configured with server IP
+        "hostPort": 30037,  # Default AutoModpack port
+        "hostIp": "0.0.0.0",
+        "syncedFiles": [
+            "/mods/",
+            "/config/"
+        ],
+        "excludeSyncedFiles": [
+            "*.txt",
+            "*.log"
+        ],
+        "optionalMods": [],
+        "autoExcludeServerMods": True,
+        "velocityMode": False,
+        "reverseProxy": False,
+        "selfUpdater": True,
+        "acceptedLoaders": ["fabric", "quilt"],
+        "restartScript": "./start.sh",
+        "generateModpackOnStart": True
+    },
+    "required_client_mod": True,
+    "beginner_friendly": True
+}
+
+# Modrinth API base URL
+MODRINTH_API = "https://api.modrinth.com/v2"
+
 # ==============================================================================
 # Global State
 # ==============================================================================
@@ -673,8 +738,559 @@ async def setup_fabric_server(version: str) -> Tuple[bool, str]:
 
 
 # ==============================================================================
-# Server Process Management
+# Mod Management
 # ==============================================================================
+
+async def get_mod_download_url(modrinth_id: str, minecraft_version: str, loader: str = "fabric") -> Optional[Dict]:
+    """
+    Get the download URL for a mod from Modrinth.
+    
+    Args:
+        modrinth_id: The Modrinth project ID
+        minecraft_version: The Minecraft version
+        loader: The mod loader (fabric, forge, etc.)
+        
+    Returns:
+        Dictionary with download info, or None if not found
+    """
+    try:
+        import aiohttp
+        async with aiohttp.ClientSession() as session:
+            # Get project versions
+            url = f"{MODRINTH_API}/project/{modrinth_id}/version"
+            params = {
+                "game_versions": f'["{minecraft_version}"]',
+                "loaders": f'["{loader}"]'
+            }
+            
+            headers = {
+                "User-Agent": "SulfurBot/1.0 (github.com/mereMint/sulfur)"
+            }
+            
+            async with session.get(url, params=params, headers=headers) as response:
+                if response.status != 200:
+                    logger.warning(f"Modrinth API returned {response.status} for {modrinth_id}")
+                    return None
+                
+                versions = await response.json()
+            
+            if not versions:
+                logger.warning(f"No compatible version found for {modrinth_id} on MC {minecraft_version}")
+                return None
+            
+            # Get the latest compatible version
+            latest = versions[0]
+            files = latest.get('files', [])
+            
+            if not files:
+                return None
+            
+            # Find the primary file
+            primary_file = next((f for f in files if f.get('primary', False)), files[0])
+            
+            return {
+                'name': latest.get('name', modrinth_id),
+                'version': latest.get('version_number'),
+                'url': primary_file.get('url'),
+                'filename': primary_file.get('filename'),
+                'sha512': primary_file.get('hashes', {}).get('sha512')
+            }
+            
+    except Exception as e:
+        logger.error(f"Error getting mod download URL for {modrinth_id}: {e}")
+        return None
+
+
+async def download_mod(mod_info: Dict, progress_callback: Callable = None) -> Tuple[bool, str]:
+    """
+    Download a mod to the mods directory.
+    
+    Args:
+        mod_info: Dictionary with mod download info
+        progress_callback: Optional callback for progress updates
+        
+    Returns:
+        Tuple of (success, path_or_error)
+    """
+    os.makedirs(MC_MODS_DIR, exist_ok=True)
+    
+    url = mod_info.get('url')
+    filename = mod_info.get('filename', 'mod.jar')
+    
+    if not url:
+        return False, "No download URL provided"
+    
+    dest_path = os.path.join(MC_MODS_DIR, filename)
+    
+    # Check if already downloaded
+    if os.path.exists(dest_path):
+        # Verify hash if available
+        expected_hash = mod_info.get('sha512')
+        if expected_hash:
+            with open(dest_path, 'rb') as f:
+                file_hash = hashlib.sha512(f.read()).hexdigest()
+            if file_hash == expected_hash:
+                logger.info(f"Mod {filename} already downloaded and verified")
+                return True, dest_path
+        else:
+            logger.info(f"Mod {filename} already exists, skipping download")
+            return True, dest_path
+    
+    success = await download_file(url, dest_path, progress_callback)
+    
+    if success:
+        logger.info(f"Downloaded mod: {filename}")
+        return True, dest_path
+    else:
+        return False, f"Failed to download {filename}"
+
+
+async def download_performance_mods(minecraft_version: str, server_type: str = "fabric") -> List[Dict]:
+    """
+    Download all performance mods for the given server type.
+    
+    Args:
+        minecraft_version: The Minecraft version
+        server_type: The server type (fabric, paper, purpur)
+        
+    Returns:
+        List of results for each mod
+    """
+    results = []
+    mods = PERFORMANCE_MODS.get(server_type, [])
+    
+    for mod in mods:
+        result = {
+            'name': mod['name'],
+            'success': False
+        }
+        
+        if 'modrinth_id' in mod:
+            mod_info = await get_mod_download_url(mod['modrinth_id'], minecraft_version, server_type)
+            if mod_info:
+                success, path = await download_mod(mod_info)
+                result['success'] = success
+                result['path'] = path if success else None
+                result['error'] = path if not success else None
+            else:
+                result['error'] = 'Could not find compatible version'
+        elif 'url' in mod:
+            # Direct download URL
+            mod_info = {
+                'url': mod['url'],
+                'filename': f"{mod['name']}.jar"
+            }
+            success, path = await download_mod(mod_info)
+            result['success'] = success
+            result['path'] = path if success else None
+            result['error'] = path if not success else None
+        
+        results.append(result)
+    
+    return results
+
+
+async def download_voice_chat_mod(minecraft_version: str, server_type: str = "fabric") -> Dict:
+    """
+    Download and configure the Simple Voice Chat mod.
+    
+    Args:
+        minecraft_version: The Minecraft version
+        server_type: The server type
+        
+    Returns:
+        Result dictionary
+    """
+    result = {
+        'success': False,
+        'mod_downloaded': False,
+        'config_created': False
+    }
+    
+    voice_mod = VOICE_CHAT_MODS.get('simple_voice_chat')
+    if not voice_mod:
+        result['error'] = 'Voice chat mod configuration not found'
+        return result
+    
+    # Download the mod
+    mod_info = await get_mod_download_url(voice_mod['modrinth_id'], minecraft_version, server_type)
+    if not mod_info:
+        result['error'] = f'Could not find Simple Voice Chat for MC {minecraft_version}'
+        return result
+    
+    success, path = await download_mod(mod_info)
+    result['mod_downloaded'] = success
+    
+    if not success:
+        result['error'] = f'Failed to download mod: {path}'
+        return result
+    
+    result['mod_path'] = path
+    
+    # Create default configuration
+    config_created = await configure_voice_chat_mod()
+    result['config_created'] = config_created
+    result['success'] = True
+    
+    return result
+
+
+async def configure_voice_chat_mod(custom_config: Dict = None) -> bool:
+    """
+    Configure the Simple Voice Chat mod with default or custom settings.
+    
+    Args:
+        custom_config: Optional custom configuration to merge with defaults
+        
+    Returns:
+        True if configuration was created successfully
+    """
+    voice_mod = VOICE_CHAT_MODS.get('simple_voice_chat')
+    if not voice_mod:
+        return False
+    
+    # Ensure config directory exists
+    voicechat_config_dir = os.path.join(MC_SERVER_DIR, "config", "voicechat")
+    os.makedirs(voicechat_config_dir, exist_ok=True)
+    
+    config_path = os.path.join(MC_SERVER_DIR, voice_mod['config_file'])
+    
+    # Merge custom config with defaults
+    config = voice_mod['default_config'].copy()
+    if custom_config:
+        config.update(custom_config)
+    
+    try:
+        # Write as properties file
+        with open(config_path, 'w') as f:
+            f.write("# Simple Voice Chat Server Configuration\n")
+            f.write("# Auto-generated by Sulfur Bot\n\n")
+            
+            for key, value in config.items():
+                if isinstance(value, bool):
+                    value = str(value).lower()
+                elif isinstance(value, float):
+                    value = str(value)
+                f.write(f"{key}={value}\n")
+        
+        logger.info(f"Created voice chat configuration at {config_path}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to create voice chat config: {e}")
+        return False
+
+
+async def check_for_mod_updates(minecraft_version: str, server_type: str = "fabric") -> List[Dict]:
+    """
+    Check for updates to installed mods.
+    
+    Args:
+        minecraft_version: The Minecraft version
+        server_type: The server type
+        
+    Returns:
+        List of mods with available updates
+    """
+    updates = []
+    
+    if not os.path.exists(MC_MODS_DIR):
+        return updates
+    
+    # Get installed mods
+    installed_mods = []
+    for filename in os.listdir(MC_MODS_DIR):
+        if filename.endswith('.jar'):
+            installed_mods.append(filename)
+    
+    # Check performance mods
+    for mod in PERFORMANCE_MODS.get(server_type, []):
+        if 'modrinth_id' in mod:
+            latest = await get_mod_download_url(mod['modrinth_id'], minecraft_version, server_type)
+            if latest:
+                # Check if we have a different version installed
+                current_file = None
+                for installed in installed_mods:
+                    if mod['name'].lower() in installed.lower():
+                        current_file = installed
+                        break
+                
+                if current_file and current_file != latest.get('filename'):
+                    updates.append({
+                        'name': mod['name'],
+                        'current_file': current_file,
+                        'new_version': latest.get('version'),
+                        'new_filename': latest.get('filename'),
+                        'download_url': latest.get('url')
+                    })
+    
+    return updates
+
+
+async def update_all_mods(minecraft_version: str, server_type: str = "fabric") -> Dict:
+    """
+    Update all installed mods to their latest versions.
+    
+    Args:
+        minecraft_version: The Minecraft version
+        server_type: The server type
+        
+    Returns:
+        Dictionary with update results
+    """
+    result = {
+        'checked': 0,
+        'updated': 0,
+        'failed': 0,
+        'details': []
+    }
+    
+    updates = await check_for_mod_updates(minecraft_version, server_type)
+    result['checked'] = len(updates)
+    
+    for update in updates:
+        detail = {
+            'name': update['name'],
+            'success': False
+        }
+        
+        try:
+            # Remove old version
+            old_path = os.path.join(MC_MODS_DIR, update['current_file'])
+            if os.path.exists(old_path):
+                os.remove(old_path)
+            
+            # Download new version
+            mod_info = {
+                'url': update['download_url'],
+                'filename': update['new_filename']
+            }
+            success, path = await download_mod(mod_info)
+            
+            detail['success'] = success
+            if success:
+                result['updated'] += 1
+                detail['new_version'] = update['new_version']
+            else:
+                result['failed'] += 1
+                detail['error'] = path
+                
+        except Exception as e:
+            result['failed'] += 1
+            detail['error'] = str(e)
+        
+        result['details'].append(detail)
+    
+    return result
+
+
+async def download_automodpack(minecraft_version: str, server_type: str = "fabric") -> Dict:
+    """
+    Download and configure AutoModpack for automatic mod syncing.
+    
+    AutoModpack automatically syncs server mods to clients when they connect,
+    eliminating the need for manual mod installation.
+    
+    Args:
+        minecraft_version: The Minecraft version
+        server_type: The server type
+        
+    Returns:
+        Result dictionary
+    """
+    result = {
+        'success': False,
+        'mod_downloaded': False,
+        'config_created': False
+    }
+    
+    # Download the mod
+    mod_info = await get_mod_download_url(AUTOMODPACK_CONFIG['modrinth_id'], minecraft_version, server_type)
+    if not mod_info:
+        result['error'] = f'Could not find AutoModpack for MC {minecraft_version}'
+        return result
+    
+    success, path = await download_mod(mod_info)
+    result['mod_downloaded'] = success
+    
+    if not success:
+        result['error'] = f'Failed to download AutoModpack: {path}'
+        return result
+    
+    result['mod_path'] = path
+    
+    # Create configuration
+    config_created = await configure_automodpack()
+    result['config_created'] = config_created
+    result['success'] = True
+    
+    return result
+
+
+async def configure_automodpack(server_ip: str = None, modpack_name: str = None) -> bool:
+    """
+    Configure AutoModpack with optimal settings for beginner-friendly mod syncing.
+    
+    Args:
+        server_ip: The server's public IP (auto-detected if None)
+        modpack_name: Name for the modpack
+        
+    Returns:
+        True if configuration was created successfully
+    """
+    # Ensure config directory exists
+    automodpack_config_dir = os.path.join(MC_SERVER_DIR, "automodpack")
+    os.makedirs(automodpack_config_dir, exist_ok=True)
+    
+    config_path = os.path.join(MC_SERVER_DIR, AUTOMODPACK_CONFIG['server_config_file'])
+    
+    # Build configuration
+    config = AUTOMODPACK_CONFIG['default_server_config'].copy()
+    
+    if modpack_name:
+        config['modpackName'] = modpack_name
+    
+    if server_ip:
+        config['modpackHost'] = server_ip
+    
+    try:
+        with open(config_path, 'w') as f:
+            json.dump(config, f, indent=2)
+        
+        logger.info(f"Created AutoModpack configuration at {config_path}")
+        
+        # Also create a client instruction file for users
+        await create_automodpack_client_instructions()
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to create AutoModpack config: {e}")
+        return False
+
+
+async def create_automodpack_client_instructions() -> bool:
+    """
+    Create a README file with instructions for clients on how to use AutoModpack.
+    
+    Returns:
+        True if file was created
+    """
+    instructions_path = os.path.join(MC_SERVER_DIR, "CLIENT_SETUP_INSTRUCTIONS.md")
+    
+    instructions = """# 🎮 How to Join the Server
+
+## One-Time Setup (Super Easy!)
+
+### Step 1: Install Fabric Loader
+1. Go to https://fabricmc.net/use/installer/
+2. Download and run the installer
+3. Select your Minecraft version and click "Install"
+
+### Step 2: Install AutoModpack (Client)
+1. Download AutoModpack from: https://modrinth.com/mod/automodpack
+2. Put the .jar file in your `.minecraft/mods/` folder
+   - Windows: `%appdata%\\.minecraft\\mods\\`
+   - Mac: `~/Library/Application Support/minecraft/mods/`
+   - Linux: `~/.minecraft/mods/`
+
+### Step 3: Launch and Connect
+1. Open Minecraft with the Fabric profile
+2. Add this server to your server list
+3. Connect to the server
+
+**That's it!** AutoModpack will automatically download all required mods.
+
+## What Happens Automatically
+
+When you connect:
+1. ✅ AutoModpack detects the server's modpack
+2. ✅ Downloads all required mods automatically
+3. ✅ Configures everything for you
+4. ✅ You're ready to play!
+
+## Troubleshooting
+
+### "Mods failed to download"
+- Check your internet connection
+- Try connecting again
+
+### "Version mismatch"
+- Make sure you have the correct Minecraft version
+- Update AutoModpack to the latest version
+
+### Need Help?
+Ask in Discord or contact the server admin!
+"""
+    
+    try:
+        with open(instructions_path, 'w') as f:
+            f.write(instructions)
+        logger.info(f"Created client instructions at {instructions_path}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to create client instructions: {e}")
+        return False
+
+
+async def setup_mods_on_install(config: Dict) -> Dict:
+    """
+    Download and configure all mods during initial setup.
+    
+    Args:
+        config: Minecraft configuration
+        
+    Returns:
+        Setup result dictionary
+    """
+    result = {
+        'success': True,
+        'performance_mods': [],
+        'voice_chat': None,
+        'automodpack': None,
+        'errors': []
+    }
+    
+    server_type = config.get('server_type', 'fabric')
+    minecraft_version = config.get('minecraft_version', '1.21.4')
+    
+    # AutoModpack is enabled by default for beginner-friendly experience
+    # It automatically syncs mods to clients when they connect
+    automodpack_enabled = config.get('optional_mods', {}).get('automodpack', {}).get('enabled', True)
+    
+    if automodpack_enabled and server_type == 'fabric':
+        logger.info("Setting up AutoModpack for automatic mod syncing...")
+        automodpack_result = await download_automodpack(minecraft_version, server_type)
+        result['automodpack'] = automodpack_result
+        
+        if automodpack_result.get('success'):
+            logger.info("✅ AutoModpack configured - clients will auto-download mods!")
+        else:
+            result['errors'].append(f"AutoModpack setup failed: {automodpack_result.get('error')}")
+    
+    # Download performance mods if enabled
+    if config.get('performance_mods', {}).get('enabled', True):
+        logger.info("Downloading performance mods...")
+        perf_results = await download_performance_mods(minecraft_version, server_type)
+        result['performance_mods'] = perf_results
+        
+        failed = [r for r in perf_results if not r['success']]
+        if failed:
+            result['errors'].extend([f"Failed to download {r['name']}: {r.get('error')}" for r in failed])
+    
+    # Set up voice chat if enabled
+    if config.get('optional_mods', {}).get('simple_voice_chat', {}).get('enabled', False):
+        logger.info("Setting up voice chat mod...")
+        voice_result = await download_voice_chat_mod(minecraft_version, server_type)
+        result['voice_chat'] = voice_result
+        
+        if not voice_result.get('success'):
+            result['errors'].append(f"Voice chat setup failed: {voice_result.get('error')}")
+    
+    if result['errors']:
+        result['success'] = False
+    
+    return result
 
 def is_server_running() -> bool:
     """Check if the Minecraft server is currently running."""
