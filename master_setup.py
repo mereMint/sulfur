@@ -1220,14 +1220,13 @@ def setup_wireguard_vpn_automatic(plat: str) -> dict:
     
     print_success("WireGuard available")
     
-    # Auto-detect local IP
+    # Auto-detect local IP using context manager for proper resource management
     local_ip = None
     try:
         import socket
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        local_ip = s.getsockname()[0]
-        s.close()
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
     except Exception:
         pass
     
@@ -1248,11 +1247,25 @@ def setup_wireguard_vpn_automatic(plat: str) -> dict:
         if shutil.which('wg'):
             # Generate private key
             priv_result = subprocess.run(['wg', 'genkey'], capture_output=True, text=True)
+            if priv_result.returncode != 0:
+                result['error'] = f"Failed to generate private key: {priv_result.stderr}"
+                return result
             private_key = priv_result.stdout.strip()
+            
+            if not private_key:
+                result['error'] = "Generated private key is empty"
+                return result
             
             # Generate public key
             pub_result = subprocess.run(['wg', 'pubkey'], input=private_key, capture_output=True, text=True)
+            if pub_result.returncode != 0:
+                result['error'] = f"Failed to generate public key: {pub_result.stderr}"
+                return result
             public_key = pub_result.stdout.strip()
+            
+            if not public_key:
+                result['error'] = "Generated public key is empty"
+                return result
             
             result['server_public_key'] = public_key
             print_success("Server keys generated")
@@ -1263,7 +1276,7 @@ def setup_wireguard_vpn_automatic(plat: str) -> dict:
         result['error'] = f"Failed to generate keys: {e}"
         return result
     
-    # Detect network interface for NAT
+    # Detect network interface for NAT dynamically
     net_interface = None
     try:
         if plat in ['linux', 'raspberrypi', 'wsl']:
@@ -1272,11 +1285,30 @@ def setup_wireguard_vpn_automatic(plat: str) -> dict:
             if route_result.returncode == 0:
                 parts = route_result.stdout.split()
                 if 'dev' in parts:
-                    net_interface = parts[parts.index('dev') + 1]
+                    dev_index = parts.index('dev')
+                    if dev_index + 1 < len(parts):
+                        net_interface = parts[dev_index + 1]
         elif plat == 'termux':
-            net_interface = 'wlan0'  # Common on Android
+            # Try to detect active interface on Android
+            route_result = subprocess.run(['ip', 'route', 'show', 'default'], capture_output=True, text=True)
+            if route_result.returncode == 0:
+                parts = route_result.stdout.split()
+                if 'dev' in parts:
+                    dev_index = parts.index('dev')
+                    if dev_index + 1 < len(parts):
+                        net_interface = parts[dev_index + 1]
+            if not net_interface:
+                net_interface = 'wlan0'  # Fallback for Android
         elif plat == 'macos':
-            net_interface = 'en0'  # Common on macOS
+            # Try to detect active interface on macOS
+            route_result = subprocess.run(['route', '-n', 'get', 'default'], capture_output=True, text=True)
+            if route_result.returncode == 0:
+                for line in route_result.stdout.split('\n'):
+                    if 'interface:' in line:
+                        net_interface = line.split(':')[1].strip()
+                        break
+            if not net_interface:
+                net_interface = 'en0'  # Fallback for macOS
     except Exception:
         net_interface = 'eth0'  # Fallback
     
@@ -1332,16 +1364,19 @@ ListenPort = {listen_port}
         "address": server_address,
         "port": listen_port,
         "public_key": public_key,
-        "private_key": private_key,  # Stored securely
+        "private_key": private_key,  # Note: Protected by file permissions (0o600). For production, consider additional encryption.
         "network_interface": net_interface,
         "peers": [],
         "auto_configured": True,
         "setup_date": time.strftime("%Y-%m-%d %H:%M:%S")
     }
     
-    with open('config/wireguard/vpn_config.json', 'w') as f:
+    # Save config with secure permissions
+    vpn_config_path = 'config/wireguard/vpn_config.json'
+    with open(vpn_config_path, 'w') as f:
         json.dump(vpn_config, f, indent=2)
-    os.chmod('config/wireguard/vpn_config.json', 0o600)
+    os.chmod(vpn_config_path, 0o600)  # Only owner can read/write
+    print_info("VPN config saved with secure permissions (owner-only access)")
     
     # Try to start the VPN interface
     if plat in ['linux', 'raspberrypi']:
