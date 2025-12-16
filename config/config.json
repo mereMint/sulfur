@@ -41,7 +41,9 @@
     "word_games": true,
     "focus_timer": true,
     "autonomous_behavior": true,
-    "bot_mind": true
+    "bot_mind": true,
+    "minecraft_server": true,
+    "wireguard_vpn": false
   },
   "api": {
     "provider": "openai",
@@ -433,6 +435,57 @@
       "lastfm_diversity_factor": 0.3,
       "prefer_lastfm_over_ai": true,
       "songle_genres": ["pop", "rock", "hip-hop", "electronic", "indie", "rnb", "alternative"]
+    },
+    "minecraft": {
+      "enabled": true,
+      "server_type": "paper",
+      "minecraft_version": "1.21.4",
+      "memory_min": "1G",
+      "memory_max": "4G",
+      "port": 25565,
+      "rcon_port": 25575,
+      "motd": "Sulfur Bot Minecraft Server",
+      "max_players": 20,
+      "online_mode": true,
+      "whitelist": true,
+      "schedule": {
+        "mode": "always",
+        "start_hour": 6,
+        "end_hour": 22,
+        "weekday_hours": {"start": 6, "end": 22},
+        "weekend_hours": {"start": 0, "end": 24}
+      },
+      "performance_mods": {
+        "enabled": true,
+        "mods": ["lithium", "ferritecore", "spark"]
+      },
+      "optional_mods": {
+        "simple_voice_chat": {
+          "enabled": false,
+          "requires_client_mod": true
+        }
+      },
+      "modpack": {
+        "enabled": false,
+        "name": null
+      },
+      "backups": {
+        "enabled": true,
+        "interval_hours": 6,
+        "max_backups": 10,
+        "include_mods": false,
+        "include_configs": true
+      },
+      "auto_restart": true,
+      "restart_delay_seconds": 30,
+      "shutdown_warning_minutes": [5, 1],
+      "boot_with_bot": true
+    },
+    "wireguard": {
+      "enabled": false,
+      "interface": "wg0",
+      "port": 51820,
+      "server_address": "10.0.0.1/24"
     }
   }
 }

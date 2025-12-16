@@ -1,0 +1,1051 @@
+#!/usr/bin/env python3
+"""
+Sulfur Bot - Master Setup Wizard
+
+Comprehensive installation wizard for:
+- Bot dependencies and configuration
+- WireGuard VPN setup
+- Minecraft server download and configuration
+
+Supports: Termux/Android, Linux, Windows, Raspberry Pi
+"""
+
+import os
+import sys
+import platform
+import subprocess
+import json
+import shutil
+import time
+import urllib.request
+from typing import Optional, Tuple, List
+from getpass import getpass
+
+# ==============================================================================
+# Colors and Formatting (cross-platform)
+# ==============================================================================
+
+class Colors:
+    """ANSI color codes for terminal output."""
+    
+    # Check if colors are supported
+    _supports_color = (
+        hasattr(sys.stdout, 'isatty') and sys.stdout.isatty()
+        and os.environ.get('TERM', '') != 'dumb'
+        and platform.system() != 'Windows'  # Windows needs special handling
+    )
+    
+    # Enable colors on Windows 10+
+    if platform.system() == 'Windows':
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
+            _supports_color = True
+        except Exception:
+            _supports_color = False
+    
+    if _supports_color:
+        RESET = '\033[0m'
+        BOLD = '\033[1m'
+        RED = '\033[91m'
+        GREEN = '\033[92m'
+        YELLOW = '\033[93m'
+        BLUE = '\033[94m'
+        CYAN = '\033[96m'
+        MAGENTA = '\033[95m'
+    else:
+        RESET = BOLD = RED = GREEN = YELLOW = BLUE = CYAN = MAGENTA = ''
+
+
+def print_header(text: str):
+    """Print a header with decorative borders."""
+    width = 70
+    print()
+    print(f"{Colors.CYAN}{'═' * width}{Colors.RESET}")
+    print(f"{Colors.BOLD}{Colors.CYAN}{text.center(width)}{Colors.RESET}")
+    print(f"{Colors.CYAN}{'═' * width}{Colors.RESET}")
+    print()
+
+
+def print_section(text: str):
+    """Print a section header."""
+    print(f"\n{Colors.BLUE}{'─' * 60}{Colors.RESET}")
+    print(f"  {Colors.BOLD}{text}{Colors.RESET}")
+    print(f"{Colors.BLUE}{'─' * 60}{Colors.RESET}")
+
+
+def print_success(text: str):
+    """Print a success message."""
+    print(f"  {Colors.GREEN}✅ {text}{Colors.RESET}")
+
+
+def print_error(text: str):
+    """Print an error message."""
+    print(f"  {Colors.RED}❌ {text}{Colors.RESET}")
+
+
+def print_warning(text: str):
+    """Print a warning message."""
+    print(f"  {Colors.YELLOW}⚠️  {text}{Colors.RESET}")
+
+
+def print_info(text: str):
+    """Print an info message."""
+    print(f"  {Colors.CYAN}ℹ️  {text}{Colors.RESET}")
+
+
+def print_step(text: str):
+    """Print a step indicator."""
+    print(f"  {Colors.MAGENTA}→{Colors.RESET} {text}")
+
+
+def ask_yes_no(prompt: str, default: bool = True) -> bool:
+    """Ask a yes/no question."""
+    suffix = " [Y/n]: " if default else " [y/N]: "
+    response = input(f"{prompt}{suffix}").strip().lower()
+    
+    if not response:
+        return default
+    
+    return response in ('y', 'yes', 'ja', 'j')
+
+
+def ask_choice(prompt: str, options: List[str], default: int = 0) -> int:
+    """Ask the user to choose from a list of options."""
+    print(f"\n{prompt}")
+    for i, option in enumerate(options):
+        marker = f"{Colors.GREEN}→{Colors.RESET}" if i == default else " "
+        print(f"  {marker} [{i + 1}] {option}")
+    
+    while True:
+        try:
+            response = input(f"\nEnter choice [1-{len(options)}] (default: {default + 1}): ").strip()
+            if not response:
+                return default
+            choice = int(response) - 1
+            if 0 <= choice < len(options):
+                return choice
+            print_error(f"Please enter a number between 1 and {len(options)}")
+        except ValueError:
+            print_error("Please enter a valid number")
+
+
+# ==============================================================================
+# Platform Detection
+# ==============================================================================
+
+def detect_platform() -> str:
+    """Detect the current platform."""
+    system = platform.system().lower()
+    
+    # Check for Termux (Android)
+    if os.path.exists('/data/data/com.termux'):
+        return 'termux'
+    
+    # Check for WSL
+    if system == 'linux' and 'microsoft' in platform.uname().release.lower():
+        return 'wsl'
+    
+    # Check for Raspberry Pi
+    if system == 'linux':
+        try:
+            with open('/proc/cpuinfo', 'r') as f:
+                if 'Raspberry Pi' in f.read():
+                    return 'raspberrypi'
+        except (IOError, OSError):
+            pass
+        return 'linux'
+    
+    if system == 'windows':
+        return 'windows'
+    
+    if system == 'darwin':
+        return 'macos'
+    
+    return system
+
+
+def get_platform_name(plat: str) -> str:
+    """Get a human-readable platform name."""
+    names = {
+        'termux': 'Termux (Android)',
+        'linux': 'Linux',
+        'windows': 'Windows',
+        'raspberrypi': 'Raspberry Pi',
+        'wsl': 'Windows Subsystem for Linux',
+        'macos': 'macOS'
+    }
+    return names.get(plat, plat.title())
+
+
+def run_command(cmd: List[str], capture: bool = False, shell: bool = False) -> Tuple[int, str, str]:
+    """Run a command and return the result."""
+    try:
+        if shell and isinstance(cmd, list):
+            cmd = ' '.join(cmd)
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            shell=shell
+        )
+        return result.returncode, result.stdout, result.stderr
+    except FileNotFoundError:
+        return 1, '', f'Command not found: {cmd[0] if isinstance(cmd, list) else cmd}'
+    except Exception as e:
+        return 1, '', str(e)
+
+
+# ==============================================================================
+# Dependency Checks
+# ==============================================================================
+
+def check_python_version() -> Tuple[bool, str]:
+    """Check if Python version meets requirements."""
+    version = sys.version_info
+    if version.major < 3 or (version.major == 3 and version.minor < 8):
+        return False, f"Python {version.major}.{version.minor} found. Python 3.8+ required."
+    return True, f"Python {version.major}.{version.minor}.{version.micro}"
+
+
+def check_pip() -> Tuple[bool, str]:
+    """Check if pip is installed."""
+    code, out, _ = run_command([sys.executable, '-m', 'pip', '--version'])
+    if code == 0:
+        return True, out.strip()
+    return False, "pip not found"
+
+
+def check_git() -> Tuple[bool, str]:
+    """Check if git is installed."""
+    code, out, _ = run_command(['git', '--version'])
+    if code == 0:
+        return True, out.strip()
+    return False, "git not found"
+
+
+def check_mysql() -> Tuple[bool, str]:
+    """Check if MySQL/MariaDB is installed."""
+    # Try mysql command
+    code, out, _ = run_command(['mysql', '--version'])
+    if code == 0:
+        return True, out.strip()
+    
+    # Try mariadb command
+    code, out, _ = run_command(['mariadb', '--version'])
+    if code == 0:
+        return True, out.strip()
+    
+    return False, "MySQL/MariaDB not found"
+
+
+def check_java() -> Tuple[bool, str]:
+    """Check if Java is installed."""
+    code, out, err = run_command(['java', '-version'])
+    # Java outputs version to stderr
+    version_text = err if err else out
+    
+    if code == 0:
+        import re
+        match = re.search(r'version "([^"]+)"', version_text)
+        if match:
+            return True, f"Java {match.group(1)}"
+        match = re.search(r'openjdk (\d+)', version_text, re.IGNORECASE)
+        if match:
+            return True, f"Java {match.group(1)}"
+        return True, "Java installed"
+    
+    return False, "Java not found"
+
+
+def check_wireguard() -> Tuple[bool, str]:
+    """Check if WireGuard is installed."""
+    wg_path = shutil.which('wg')
+    if wg_path:
+        code, out, _ = run_command(['wg', '--version'])
+        return True, out.strip() if code == 0 else "WireGuard installed"
+    return False, "WireGuard not found"
+
+
+# ==============================================================================
+# Installation Functions
+# ==============================================================================
+
+def install_python_dependencies() -> bool:
+    """Install Python dependencies from requirements.txt."""
+    print_step("Installing Python dependencies...")
+    
+    if not os.path.exists('requirements.txt'):
+        print_error("requirements.txt not found")
+        return False
+    
+    code, out, err = run_command([
+        sys.executable, '-m', 'pip', 'install', '-r', 'requirements.txt', '--upgrade'
+    ])
+    
+    if code == 0:
+        print_success("Python dependencies installed")
+        return True
+    else:
+        print_error(f"Failed to install dependencies: {err}")
+        return False
+
+
+def get_mysql_install_command(plat: str) -> str:
+    """Get the MySQL installation command for the platform."""
+    commands = {
+        'termux': 'pkg install mariadb',
+        'linux': 'sudo apt install mariadb-server mariadb-client',
+        'raspberrypi': 'sudo apt install mariadb-server mariadb-client',
+        'windows': 'Download from https://dev.mysql.com/downloads/installer/',
+        'wsl': 'sudo apt install mariadb-server mariadb-client',
+        'macos': 'brew install mariadb'
+    }
+    return commands.get(plat, 'Install MySQL or MariaDB manually')
+
+
+def get_java_install_command(plat: str) -> str:
+    """Get the Java installation command for the platform."""
+    commands = {
+        'termux': 'pkg install openjdk-21',
+        'linux': 'sudo apt install openjdk-21-jdk',
+        'raspberrypi': 'sudo apt install openjdk-21-jdk',
+        'windows': 'Download from https://adoptium.net/',
+        'wsl': 'sudo apt install openjdk-21-jdk',
+        'macos': 'brew install openjdk@21'
+    }
+    return commands.get(plat, 'Install Java 21 manually')
+
+
+def get_wireguard_install_command(plat: str) -> str:
+    """Get the WireGuard installation command for the platform."""
+    commands = {
+        'termux': 'pkg install wireguard-tools',
+        'linux': 'sudo apt install wireguard',
+        'raspberrypi': 'sudo apt install wireguard',
+        'windows': 'Download from https://www.wireguard.com/install/',
+        'wsl': 'sudo apt install wireguard-tools',
+        'macos': 'brew install wireguard-tools'
+    }
+    return commands.get(plat, 'Install WireGuard manually')
+
+
+# ==============================================================================
+# Configuration Setup
+# ==============================================================================
+
+def setup_env_file() -> bool:
+    """Create or update the .env file."""
+    print_section("Environment Configuration")
+    
+    env_path = '.env'
+    env_example = '.env.example'
+    
+    # Load existing values if .env exists
+    existing = {}
+    if os.path.exists(env_path):
+        print_info("Existing .env file found")
+        with open(env_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    existing[key.strip()] = value.strip().strip('"').strip("'")
+        
+        if not ask_yes_no("Do you want to reconfigure?", default=False):
+            print_info("Keeping existing configuration")
+            return True
+    
+    # Copy from example if it exists and no .env
+    elif os.path.exists(env_example):
+        shutil.copy(env_example, env_path)
+        print_info("Created .env from .env.example")
+    
+    print("\nPlease provide the following configuration values:")
+    print("(Press Enter to keep existing value or use default)\n")
+    
+    config = {}
+    
+    # Discord Bot Token
+    current = existing.get('DISCORD_BOT_TOKEN', '')
+    masked = f"{current[:10]}..." if len(current) > 10 else "(not set)"
+    token = input(f"Discord Bot Token [{masked}]: ").strip()
+    config['DISCORD_BOT_TOKEN'] = token if token else current
+    
+    # Database configuration
+    print("\n--- Database Configuration ---")
+    config['DB_HOST'] = input(f"Database Host [{existing.get('DB_HOST', 'localhost')}]: ").strip() or existing.get('DB_HOST', 'localhost')
+    config['DB_USER'] = input(f"Database User [{existing.get('DB_USER', 'sulfur_bot_user')}]: ").strip() or existing.get('DB_USER', 'sulfur_bot_user')
+    
+    current_pass = existing.get('DB_PASS', '')
+    db_pass = getpass(f"Database Password [{'****' if current_pass else '(empty)'}]: ") or current_pass
+    config['DB_PASS'] = db_pass
+    
+    config['DB_NAME'] = input(f"Database Name [{existing.get('DB_NAME', 'sulfur_bot')}]: ").strip() or existing.get('DB_NAME', 'sulfur_bot')
+    
+    # AI API Keys
+    print("\n--- AI API Keys (at least one required) ---")
+    
+    current = existing.get('GEMINI_API_KEY', '')
+    masked = f"{current[:10]}..." if len(current) > 10 else "(not set)"
+    gemini_key = input(f"Gemini API Key [{masked}]: ").strip()
+    config['GEMINI_API_KEY'] = gemini_key if gemini_key else current
+    
+    current = existing.get('OPENAI_API_KEY', '')
+    masked = f"{current[:10]}..." if len(current) > 10 else "(not set)"
+    openai_key = input(f"OpenAI API Key [{masked}]: ").strip()
+    config['OPENAI_API_KEY'] = openai_key if openai_key else current
+    
+    # Optional keys
+    print("\n--- Optional API Keys ---")
+    
+    current = existing.get('LASTFM_API_KEY', '')
+    masked = f"{current[:10]}..." if len(current) > 10 else "(not set)"
+    lastfm_key = input(f"Last.fm API Key [{masked}]: ").strip()
+    config['LASTFM_API_KEY'] = lastfm_key if lastfm_key else current
+    
+    current = existing.get('FOOTBALL_DATA_API_KEY', '')
+    masked = f"{current[:10]}..." if len(current) > 10 else "(not set)"
+    football_key = input(f"Football-Data.org API Key [{masked}]: ").strip()
+    config['FOOTBALL_DATA_API_KEY'] = football_key if football_key else current
+    
+    # Write .env file
+    try:
+        with open(env_path, 'w') as f:
+            f.write("# Sulfur Bot Configuration\n")
+            f.write("# Generated by setup wizard\n\n")
+            
+            f.write("# Discord\n")
+            f.write(f'DISCORD_BOT_TOKEN="{config.get("DISCORD_BOT_TOKEN", "")}"\n\n')
+            
+            f.write("# Database\n")
+            f.write(f'DB_HOST={config.get("DB_HOST", "localhost")}\n')
+            f.write(f'DB_USER={config.get("DB_USER", "sulfur_bot_user")}\n')
+            f.write(f'DB_PASS={config.get("DB_PASS", "")}\n')
+            f.write(f'DB_NAME={config.get("DB_NAME", "sulfur_bot")}\n\n')
+            
+            f.write("# AI APIs\n")
+            f.write(f'GEMINI_API_KEY={config.get("GEMINI_API_KEY", "")}\n')
+            f.write(f'OPENAI_API_KEY={config.get("OPENAI_API_KEY", "")}\n\n')
+            
+            f.write("# Optional APIs\n")
+            f.write(f'LASTFM_API_KEY={config.get("LASTFM_API_KEY", "")}\n')
+            f.write(f'FOOTBALL_DATA_API_KEY={config.get("FOOTBALL_DATA_API_KEY", "")}\n')
+        
+        print_success("Configuration saved to .env")
+        return True
+        
+    except Exception as e:
+        print_error(f"Failed to save configuration: {e}")
+        return False
+
+
+# ==============================================================================
+# Minecraft Server Setup
+# ==============================================================================
+
+def setup_minecraft_server(plat: str) -> bool:
+    """Set up the Minecraft server."""
+    print_section("Minecraft Server Setup")
+    
+    # Check Java
+    java_ok, java_msg = check_java()
+    if not java_ok:
+        print_warning(f"Java not found. Minecraft requires Java 21.")
+        print_info(f"Install command: {get_java_install_command(plat)}")
+        
+        if not ask_yes_no("Continue anyway?", default=False):
+            return False
+    else:
+        print_success(java_msg)
+    
+    # Choose server type
+    server_types = [
+        "PaperMC (Recommended - High performance, plugin support)",
+        "Purpur (Paper fork with extra features)",
+        "Vanilla (Official Minecraft server)",
+        "Fabric (Lightweight modding platform)"
+    ]
+    
+    choice = ask_choice("Select server type:", server_types, default=0)
+    server_type = ['paper', 'purpur', 'vanilla', 'fabric'][choice]
+    
+    # Choose Minecraft version
+    print("\nEnter Minecraft version (e.g., 1.21.4, 1.20.4):")
+    mc_version = input("Version [1.21.4]: ").strip() or "1.21.4"
+    
+    # Memory allocation
+    print("\n--- Memory Configuration ---")
+    print("Recommended RAM allocation:")
+    print("  - Raspberry Pi: 1G-2G")
+    print("  - Desktop/Server: 4G-8G")
+    print("  - Termux: 1G-2G")
+    
+    mem_min = input("Minimum RAM [1G]: ").strip() or "1G"
+    mem_max = input("Maximum RAM [4G]: ").strip() or "4G"
+    
+    # Schedule configuration
+    print("\n--- Server Schedule ---")
+    schedule_options = [
+        "Always on (24/7)",
+        "Timed (e.g., 6:00-22:00 daily)",
+        "Weekdays only (with time limits)",
+        "Weekends only",
+        "Custom schedule"
+    ]
+    
+    schedule_choice = ask_choice("Select schedule mode:", schedule_options, default=0)
+    schedule_mode = ['always', 'timed', 'weekdays_only', 'weekends_only', 'custom'][schedule_choice]
+    
+    schedule_config = {"mode": schedule_mode}
+    
+    if schedule_mode == 'timed':
+        start_hour = input("Start hour [6]: ").strip() or "6"
+        end_hour = input("End hour [22]: ").strip() or "22"
+        schedule_config['start_hour'] = int(start_hour)
+        schedule_config['end_hour'] = int(end_hour)
+    
+    # Update config.json
+    config_path = 'config/config.json'
+    try:
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+        else:
+            config = {}
+        
+        if 'modules' not in config:
+            config['modules'] = {}
+        
+        config['modules']['minecraft'] = {
+            "enabled": True,
+            "server_type": server_type,
+            "minecraft_version": mc_version,
+            "memory_min": mem_min,
+            "memory_max": mem_max,
+            "port": 25565,
+            "motd": "Sulfur Bot Minecraft Server",
+            "max_players": 20,
+            "online_mode": True,
+            "whitelist": True,
+            "schedule": schedule_config,
+            "boot_with_bot": True,
+            "backups": {
+                "enabled": True,
+                "interval_hours": 6,
+                "max_backups": 10
+            }
+        }
+        
+        # Add to features
+        if 'features' not in config:
+            config['features'] = {}
+        config['features']['minecraft_server'] = True
+        
+        with open(config_path, 'w') as f:
+            json.dump(config, f, indent=2)
+        
+        print_success("Minecraft configuration saved to config.json")
+        
+    except Exception as e:
+        print_error(f"Failed to update config: {e}")
+        return False
+    
+    # Download server JAR
+    if ask_yes_no("Download Minecraft server now?"):
+        print_step("This will be done when the bot starts or via the web dashboard.")
+        print_info("You can also run: python -c \"from modules import minecraft_server; ...\"")
+    
+    print_success("Minecraft server configured")
+    return True
+
+
+# ==============================================================================
+# WireGuard VPN Setup
+# ==============================================================================
+
+def setup_wireguard_vpn(plat: str) -> bool:
+    """Set up WireGuard VPN."""
+    print_section("WireGuard VPN Setup")
+    
+    # Check WireGuard
+    wg_ok, wg_msg = check_wireguard()
+    if not wg_ok:
+        print_warning("WireGuard not found")
+        print_info(f"Install command: {get_wireguard_install_command(plat)}")
+        
+        if plat == 'termux':
+            print_warning("Note: Full WireGuard VPN on Termux requires root access")
+        
+        if not ask_yes_no("Continue anyway?", default=False):
+            return False
+    else:
+        print_success(wg_msg)
+    
+    # VPN role selection
+    print("\n--- VPN Role ---")
+    role_options = [
+        "Server (this machine will accept VPN connections)",
+        "Client (this machine will connect to a VPN server)",
+        "Skip VPN setup for now"
+    ]
+    
+    role_choice = ask_choice("Select VPN role:", role_options, default=2)
+    
+    if role_choice == 2:
+        print_info("VPN setup skipped")
+        return True
+    
+    # Create config directory
+    os.makedirs('config/wireguard', exist_ok=True)
+    
+    if role_choice == 0:
+        # Server setup
+        print("\n--- VPN Server Configuration ---")
+        
+        # Get server endpoint
+        print("Enter your server's public IP or domain name:")
+        print("(This is how clients will connect to you)")
+        endpoint = input("Endpoint: ").strip()
+        
+        if not endpoint:
+            print_error("Endpoint is required for server setup")
+            return False
+        
+        # VPN network
+        vpn_network = input("VPN Network [10.0.0.1/24]: ").strip() or "10.0.0.1/24"
+        vpn_port = input("VPN Port [51820]: ").strip() or "51820"
+        
+        # Save server config
+        server_config = {
+            "role": "server",
+            "endpoint": endpoint,
+            "address": vpn_network,
+            "port": int(vpn_port),
+            "peers": []
+        }
+        
+        with open('config/wireguard/vpn_config.json', 'w') as f:
+            json.dump(server_config, f, indent=2)
+        
+        print_success("VPN server configuration saved")
+        print_info("Generate keys and config by running the bot and using /vpn setup")
+        
+    else:
+        # Client setup
+        print("\n--- VPN Client Configuration ---")
+        print("You'll need the following from your VPN server admin:")
+        print("  - Server public key")
+        print("  - Server endpoint (IP:port)")
+        print("  - Your assigned VPN IP address")
+        
+        server_pubkey = input("Server Public Key: ").strip()
+        server_endpoint = input("Server Endpoint (IP:port): ").strip()
+        client_address = input("Your VPN Address [10.0.0.2/32]: ").strip() or "10.0.0.2/32"
+        
+        if not server_pubkey or not server_endpoint:
+            print_error("Server public key and endpoint are required")
+            return False
+        
+        # Save client config
+        client_config = {
+            "role": "client",
+            "server_public_key": server_pubkey,
+            "server_endpoint": server_endpoint,
+            "address": client_address
+        }
+        
+        with open('config/wireguard/vpn_config.json', 'w') as f:
+            json.dump(client_config, f, indent=2)
+        
+        print_success("VPN client configuration saved")
+        print_info("Generate your keypair by running the bot")
+    
+    return True
+
+
+# ==============================================================================
+# Database Setup
+# ==============================================================================
+
+def list_database_backups() -> List[str]:
+    """List available database backup files."""
+    backup_dir = 'backups'
+    if not os.path.exists(backup_dir):
+        return []
+    
+    backups = []
+    for filename in os.listdir(backup_dir):
+        if filename.endswith('.sql'):
+            backups.append(os.path.join(backup_dir, filename))
+    
+    # Sort by modification time, newest first
+    backups.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+    return backups
+
+
+def export_database(db_host: str, db_user: str, db_pass: str, db_name: str, output_path: str) -> Tuple[bool, str]:
+    """
+    Export the database to a SQL file.
+    
+    Returns:
+        Tuple of (success, message)
+    """
+    try:
+        cmd = ['mysqldump', '-h', db_host, '-u', db_user]
+        if db_pass:
+            cmd.append(f'-p{db_pass}')
+        else:
+            cmd.append('--skip-password')
+        cmd.append(db_name)
+        
+        code, stdout, stderr = run_command(cmd)
+        
+        if code == 0:
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(stdout)
+            return True, f"Database exported to {output_path}"
+        else:
+            return False, f"Export failed: {stderr}"
+            
+    except Exception as e:
+        return False, str(e)
+
+
+def import_database(db_host: str, db_user: str, db_pass: str, db_name: str, input_path: str) -> Tuple[bool, str]:
+    """
+    Import a database from a SQL file.
+    
+    Returns:
+        Tuple of (success, message)
+    """
+    if not os.path.exists(input_path):
+        return False, f"File not found: {input_path}"
+    
+    try:
+        # Read SQL file
+        with open(input_path, 'r', encoding='utf-8') as f:
+            sql_content = f.read()
+        
+        cmd = ['mysql', '-h', db_host, '-u', db_user]
+        if db_pass:
+            cmd.append(f'-p{db_pass}')
+        cmd.append(db_name)
+        
+        # Run with SQL input
+        import subprocess
+        result = subprocess.run(cmd, input=sql_content, capture_output=True, text=True)
+        
+        if result.returncode == 0:
+            return True, "Database imported successfully"
+        else:
+            return False, f"Import failed: {result.stderr}"
+            
+    except Exception as e:
+        return False, str(e)
+
+
+def setup_database(plat: str) -> bool:
+    """Set up the database with import/export options."""
+    print_section("Database Setup")
+    
+    # Check MySQL
+    mysql_ok, mysql_msg = check_mysql()
+    if not mysql_ok:
+        print_warning("MySQL/MariaDB not found")
+        print_info(f"Install command: {get_mysql_install_command(plat)}")
+        
+        if plat == 'termux':
+            print_info("After installing, start with: mysqld_safe &")
+        
+        if not ask_yes_no("Continue with database setup anyway?", default=False):
+            return False
+    else:
+        print_success(mysql_msg)
+    
+    # Check for existing backups
+    backups = list_database_backups()
+    
+    # Database setup options
+    print("\n--- Database Options ---")
+    db_options = [
+        "Create new empty database",
+        "Import from existing backup file",
+        "Skip database setup"
+    ]
+    
+    if backups:
+        print(f"\n{Colors.CYAN}Found {len(backups)} existing backup(s){Colors.RESET}")
+    
+    choice = ask_choice("Select database setup option:", db_options, default=0)
+    
+    if choice == 2:
+        print_info("Database setup skipped")
+        return True
+    
+    # Run the MySQL setup wizard first to create database and user
+    print_step("Running MySQL setup wizard...")
+    code, out, err = run_command([sys.executable, 'setup_wizard.py'])
+    
+    if code != 0:
+        print_warning("Database setup may have encountered issues")
+        print_info("You can run 'python setup_wizard.py' manually later")
+        
+        if not ask_yes_no("Continue anyway?", default=False):
+            return False
+    
+    # If importing, do the import
+    if choice == 1:
+        print_section("Import Database")
+        
+        if backups:
+            print("\nAvailable backups:")
+            for i, backup in enumerate(backups[:10]):
+                filename = os.path.basename(backup)
+                size_mb = os.path.getsize(backup) / 1024 / 1024
+                mtime = time.strftime('%Y-%m-%d %H:%M', time.localtime(os.path.getmtime(backup)))
+                print(f"  [{i + 1}] {filename} ({size_mb:.1f} MB) - {mtime}")
+            
+            backup_choice = input(f"\nSelect backup [1-{min(len(backups), 10)}] or enter path: ").strip()
+            
+            if backup_choice.isdigit():
+                idx = int(backup_choice) - 1
+                if 0 <= idx < len(backups):
+                    backup_path = backups[idx]
+                else:
+                    print_error("Invalid selection")
+                    return False
+            elif os.path.exists(backup_choice):
+                backup_path = backup_choice
+            else:
+                print_error(f"File not found: {backup_choice}")
+                return False
+        else:
+            backup_path = input("Enter path to SQL backup file: ").strip()
+            if not os.path.exists(backup_path):
+                print_error(f"File not found: {backup_path}")
+                return False
+        
+        # Load database credentials
+        db_host = os.environ.get('DB_HOST', 'localhost')
+        db_user = os.environ.get('DB_USER', 'sulfur_bot_user')
+        db_pass = os.environ.get('DB_PASS', '')
+        db_name = os.environ.get('DB_NAME', 'sulfur_bot')
+        
+        print_step(f"Importing from {os.path.basename(backup_path)}...")
+        success, message = import_database(db_host, db_user, db_pass, db_name, backup_path)
+        
+        if success:
+            print_success(message)
+        else:
+            print_error(message)
+            return False
+    
+    # Offer to create a backup of the current state
+    if ask_yes_no("\nCreate a backup of the current database?", default=True):
+        os.makedirs('backups', exist_ok=True)
+        
+        db_host = os.environ.get('DB_HOST', 'localhost')
+        db_user = os.environ.get('DB_USER', 'sulfur_bot_user')
+        db_pass = os.environ.get('DB_PASS', '')
+        db_name = os.environ.get('DB_NAME', 'sulfur_bot')
+        
+        import time
+        timestamp = time.strftime('%Y%m%d_%H%M%S')
+        backup_path = f"backups/database_backup_{timestamp}.sql"
+        
+        print_step(f"Creating backup: {backup_path}")
+        success, message = export_database(db_host, db_user, db_pass, db_name, backup_path)
+        
+        if success:
+            print_success(message)
+        else:
+            print_warning(f"Backup failed: {message}")
+    
+    return True
+
+
+# ==============================================================================
+# Main Setup Wizard
+# ==============================================================================
+
+def run_full_setup():
+    """Run the complete setup wizard."""
+    print_header("SULFUR BOT - MASTER SETUP WIZARD")
+    
+    # Detect platform
+    plat = detect_platform()
+    print(f"Detected Platform: {Colors.BOLD}{get_platform_name(plat)}{Colors.RESET}")
+    
+    # Check Python
+    py_ok, py_msg = check_python_version()
+    if not py_ok:
+        print_error(py_msg)
+        sys.exit(1)
+    print_success(f"Python: {py_msg}")
+    
+    # Choose what to set up
+    print_section("Setup Options")
+    print("What would you like to set up?\n")
+    
+    setup_options = [
+        ("Bot Dependencies & Configuration", True),
+        ("Database (MySQL/MariaDB)", True),
+        ("WireGuard VPN", False),
+        ("Minecraft Server", False)
+    ]
+    
+    selected = []
+    for option, default in setup_options:
+        if ask_yes_no(f"Set up {option}?", default=default):
+            selected.append(option)
+    
+    if not selected:
+        print_warning("No options selected. Exiting.")
+        return
+    
+    print(f"\nSelected: {', '.join(selected)}")
+    if not ask_yes_no("\nProceed with setup?"):
+        print_info("Setup cancelled")
+        return
+    
+    # Run selected setups
+    success_count = 0
+    
+    if "Bot Dependencies & Configuration" in selected:
+        print_section("Step 1: Bot Dependencies")
+        
+        # Check dependencies
+        pip_ok, pip_msg = check_pip()
+        if pip_ok:
+            print_success(f"pip: {pip_msg}")
+            if install_python_dependencies():
+                success_count += 1
+        else:
+            print_error(pip_msg)
+        
+        # Setup .env
+        if setup_env_file():
+            success_count += 1
+    
+    if "Database (MySQL/MariaDB)" in selected:
+        if setup_database(plat):
+            success_count += 1
+    
+    if "WireGuard VPN" in selected:
+        if setup_wireguard_vpn(plat):
+            success_count += 1
+    
+    if "Minecraft Server" in selected:
+        if setup_minecraft_server(plat):
+            success_count += 1
+    
+    # Summary
+    print_header("SETUP COMPLETE")
+    
+    print(f"Completed {success_count}/{len(selected)} setup tasks\n")
+    
+    print("Next steps:")
+    print("  1. Review and update config/config.json if needed")
+    print("  2. Start the bot: python bot.py")
+    print("  3. Access web dashboard: http://localhost:5000")
+    print()
+    
+    if "Minecraft Server" in selected:
+        print("Minecraft Server:")
+        print("  - Server will download on first start")
+        print("  - Use /mcstart and /mcstop in Discord (admin only)")
+        print("  - Access Minecraft dashboard in web UI")
+        print()
+    
+    if "WireGuard VPN" in selected:
+        print("WireGuard VPN:")
+        print("  - Complete setup via Discord commands")
+        print("  - Use /vpn status to check connection")
+        print()
+
+
+def run_quick_check():
+    """Run a quick system check without full setup."""
+    print_header("SULFUR BOT - SYSTEM CHECK")
+    
+    plat = detect_platform()
+    print(f"Platform: {get_platform_name(plat)}\n")
+    
+    checks = [
+        ("Python", check_python_version),
+        ("pip", check_pip),
+        ("Git", check_git),
+        ("MySQL/MariaDB", check_mysql),
+        ("Java", check_java),
+        ("WireGuard", check_wireguard)
+    ]
+    
+    print("Checking system dependencies:\n")
+    
+    for name, check_func in checks:
+        ok, msg = check_func()
+        if ok:
+            print_success(f"{name}: {msg}")
+        else:
+            print_warning(f"{name}: {msg}")
+    
+    # Check for config files
+    print("\nChecking configuration files:\n")
+    
+    config_files = [
+        ('.env', 'Environment configuration'),
+        ('config/config.json', 'Bot configuration'),
+        ('config/system_prompt.txt', 'AI system prompt'),
+        ('config/wireguard/vpn_config.json', 'VPN configuration'),
+    ]
+    
+    for path, desc in config_files:
+        if os.path.exists(path):
+            print_success(f"{desc}: {path}")
+        else:
+            print_warning(f"{desc}: {path} (not found)")
+
+
+# ==============================================================================
+# Entry Point
+# ==============================================================================
+
+if __name__ == '__main__':
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Sulfur Bot Setup Wizard')
+    parser.add_argument('--check', action='store_true', help='Run system check only')
+    parser.add_argument('--minecraft', action='store_true', help='Set up Minecraft server only')
+    parser.add_argument('--vpn', action='store_true', help='Set up VPN only')
+    parser.add_argument('--database', action='store_true', help='Set up database only')
+    parser.add_argument('--config', action='store_true', help='Set up configuration only')
+    
+    args = parser.parse_args()
+    
+    try:
+        if args.check:
+            run_quick_check()
+        elif args.minecraft:
+            plat = detect_platform()
+            setup_minecraft_server(plat)
+        elif args.vpn:
+            plat = detect_platform()
+            setup_wireguard_vpn(plat)
+        elif args.database:
+            plat = detect_platform()
+            setup_database(plat)
+        elif args.config:
+            setup_env_file()
+        else:
+            run_full_setup()
+    except KeyboardInterrupt:
+        print("\n\nSetup cancelled by user")
+        sys.exit(0)
+    except Exception as e:
+        print_error(f"Setup failed: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
