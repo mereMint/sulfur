@@ -1397,6 +1397,41 @@ ListenPort = {listen_port}
                 print_warning("Could not start VPN interface automatically")
                 print_info("Start manually with: sudo wg-quick up wg0")
     
+    elif plat == 'termux':
+        # Termux-specific: VPN server runs on device, clients connect via WireGuard Android app
+        print_step("Configuring for Termux (non-rooted mode)...")
+        print()
+        print_info("📱 VPN on Termux (Non-Rooted Android):")
+        print("   Since Termux doesn't have root access, the VPN server configuration")
+        print("   has been saved for use with external VPN tools.")
+        print()
+        print_info("   For connecting OTHER devices to this server:")
+        print("   1. Install WireGuard app on the device you want to connect")
+        print("   2. Use /vpn addclient <device_name> in Discord")
+        print("   3. Scan the QR code or import the config file")
+        print()
+        print_info("   Config saved to: config/wireguard/")
+        print()
+        
+        # Export info file for easy reference
+        try:
+            info_file = 'config/wireguard/server_info.txt'
+            with open(info_file, 'w') as f:
+                f.write("=== Sulfur Bot VPN Server Info ===\n\n")
+                f.write(f"Server IP: {local_ip}\n")
+                f.write(f"Port: {listen_port} (UDP)\n")
+                f.write(f"Public Key: {public_key}\n")
+                f.write(f"\nSetup Date: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("\n--- How to Connect Devices ---\n")
+                f.write("1. Use /vpn addclient <device_name> in Discord\n")
+                f.write("2. Scan the QR code with WireGuard app\n")
+                f.write("   OR import the config file from Downloads/SulfurVPN/\n")
+                f.write("\n--- For Remote Access ---\n")
+                f.write(f"Forward UDP port {listen_port} on your router to {local_ip}\n")
+            print_success(f"Server info saved to {info_file}")
+        except Exception as e:
+            print_warning(f"Could not save server info file: {e}")
+    
     result['success'] = True
     
     print()
