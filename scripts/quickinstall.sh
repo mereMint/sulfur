@@ -171,8 +171,14 @@ setup_repository() {
         echo -e "${BLUE}📥 Cloning Sulfur Bot repository...${NC}"
         git clone https://github.com/mereMint/sulfur.git "$INSTALL_DIR"
     fi
-    
+
     cd "$INSTALL_DIR"
+
+    # Fix file permissions for shell scripts
+    echo -e "${BLUE}Setting executable permissions for scripts...${NC}"
+    chmod +x *.sh 2>/dev/null || true
+    chmod +x scripts/*.sh 2>/dev/null || true
+    chmod +x scripts/*.ps1 2>/dev/null || true
 }
 
 # Setup Python virtual environment
