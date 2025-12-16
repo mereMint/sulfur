@@ -81,13 +81,14 @@ LEFT JOIN (
 -- ============================================================================
 -- Part 2: Create a unified view for game statistics per user
 -- This combines data from all individual game tables
+-- Uses players table as base for efficiency (avoids UNION)
 -- ============================================================================
 
 DROP VIEW IF EXISTS v_user_game_stats;
 
 CREATE VIEW v_user_game_stats AS
 SELECT 
-    user_id,
+    p.discord_id AS user_id,
     -- Blackjack stats
     bj.blackjack_games,
     bj.blackjack_wins,
@@ -118,7 +119,7 @@ SELECT
     dt.detective_failed,
     dt.detective_total_played,
     dt.detective_current_difficulty
-FROM (SELECT DISTINCT user_id FROM gambling_stats UNION SELECT DISTINCT user_id FROM detective_user_stats) all_users
+FROM players p
 LEFT JOIN (
     SELECT user_id,
            COUNT(*) AS blackjack_games,
@@ -127,7 +128,7 @@ LEFT JOIN (
            SUM(payout) AS blackjack_total_won
     FROM blackjack_games
     GROUP BY user_id
-) bj ON all_users.user_id = bj.user_id
+) bj ON p.discord_id = bj.user_id
 LEFT JOIN (
     SELECT user_id,
            COUNT(*) AS roulette_games,
@@ -136,7 +137,7 @@ LEFT JOIN (
            SUM(payout) AS roulette_total_won
     FROM roulette_games
     GROUP BY user_id
-) rl ON all_users.user_id = rl.user_id
+) rl ON p.discord_id = rl.user_id
 LEFT JOIN (
     SELECT user_id,
            COUNT(*) AS mines_games,
@@ -145,7 +146,7 @@ LEFT JOIN (
            SUM(payout) AS mines_total_won
     FROM mines_games
     GROUP BY user_id
-) mn ON all_users.user_id = mn.user_id
+) mn ON p.discord_id = mn.user_id
 LEFT JOIN (
     SELECT user_id,
            COUNT(*) AS tower_games,
@@ -154,7 +155,7 @@ LEFT JOIN (
            SUM(payout) AS tower_total_won
     FROM tower_games
     GROUP BY user_id
-) tw ON all_users.user_id = tw.user_id
+) tw ON p.discord_id = tw.user_id
 LEFT JOIN (
     SELECT user_id,
            COUNT(*) AS rr_games,
@@ -163,7 +164,7 @@ LEFT JOIN (
            SUM(payout) AS rr_total_won
     FROM russian_roulette_games
     GROUP BY user_id
-) rr ON all_users.user_id = rr.user_id
+) rr ON p.discord_id = rr.user_id
 LEFT JOIN (
     SELECT user_id,
            cases_solved AS detective_solved,
@@ -171,7 +172,7 @@ LEFT JOIN (
            total_cases_played AS detective_total_played,
            current_difficulty AS detective_current_difficulty
     FROM detective_user_stats
-) dt ON all_users.user_id = dt.user_id;
+) dt ON p.discord_id = dt.user_id;
 
 
 -- ============================================================================

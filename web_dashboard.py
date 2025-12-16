@@ -47,6 +47,10 @@ DB_USER = os.environ.get("DB_USER", "sulfur_bot_user")
 DB_PASS = os.environ.get("DB_PASS", "")
 DB_NAME = os.environ.get("DB_NAME", "sulfur_bot")
 
+# User profile defaults (used in API responses)
+DEFAULT_USER_COLOR = '#00ff41'
+DEFAULT_USER_LANGUAGE = 'de'
+
 # Initialize the database pool for the web dashboard with retry logic
 print("[Web Dashboard] Initializing database connection...")
 logger.info("Initializing database connection...")
@@ -4641,8 +4645,8 @@ def api_users_profiles():
                     'voice_minutes': int(user.get('voice_minutes', 0) or 0),
                     'songs_played': int(user.get('songs_played', 0) or 0),
                     'last_seen': str(user.get('last_seen', '')) if user.get('last_seen') else None,
-                    'equipped_color': user.get('equipped_color', '#00ff41'),
-                    'language': user.get('language', 'de')
+                    'equipped_color': user.get('equipped_color', DEFAULT_USER_COLOR),
+                    'language': user.get('language', DEFAULT_USER_LANGUAGE)
                 })
             
             return jsonify({

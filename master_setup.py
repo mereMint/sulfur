@@ -232,26 +232,31 @@ def run_command_streaming(cmd: List[str], description: str = "", shell: bool = F
         Tuple of (return_code, stdout, stderr)
     """
     import threading
-    import itertools
     
     spinner_chars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
-    spinner_running = True
-    current_line = ""
+    # Use threading.Event for thread-safe signaling
+    spinner_stop_event = threading.Event()
+    current_line_lock = threading.Lock()
+    current_line = [""]  # Use list to allow modification in nested function
     
     def spinner():
         """Spinner thread that shows activity."""
         idx = 0
-        while spinner_running:
-            if current_line:
+        while not spinner_stop_event.is_set():
+            with current_line_lock:
+                line_text = current_line[0]
+            
+            if line_text:
                 # Show current activity with spinner
-                display = f"\r  {Colors.CYAN}{spinner_chars[idx]}{Colors.RESET} {current_line[:60]}"
+                display = f"\r  {Colors.CYAN}{spinner_chars[idx]}{Colors.RESET} {line_text[:60]}"
                 sys.stdout.write(display + " " * 20)  # Pad to clear old text
                 sys.stdout.flush()
             else:
                 sys.stdout.write(f"\r  {Colors.CYAN}{spinner_chars[idx]}{Colors.RESET} Working...")
                 sys.stdout.flush()
             idx = (idx + 1) % len(spinner_chars)
-            time.sleep(0.1)
+            # Wait with timeout so we can check the stop event
+            spinner_stop_event.wait(timeout=0.1)
     
     try:
         if shell and isinstance(cmd, list):
@@ -278,15 +283,18 @@ def run_command_streaming(cmd: List[str], description: str = "", shell: bool = F
         for line in process.stdout:
             line = line.rstrip()
             stdout_lines.append(line)
-            current_line = line
+            with current_line_lock:
+                current_line[0] = line
             
             # For important lines, print them immediately
             if any(keyword in line.lower() for keyword in ['error', 'warning', 'failed', 'downloading', 'installing', 'unpacking', 'setting up']):
-                spinner_running = False
+                # Pause spinner briefly to print line cleanly
+                spinner_stop_event.set()
                 time.sleep(0.15)  # Let spinner thread stop
                 sys.stdout.write('\r' + ' ' * 80 + '\r')  # Clear spinner line
                 print(f"  {Colors.BLUE}→{Colors.RESET} {line[:70]}")
-                spinner_running = True
+                # Resume spinner
+                spinner_stop_event.clear()
                 spinner_thread = threading.Thread(target=spinner, daemon=True)
                 spinner_thread.start()
         
@@ -294,19 +302,19 @@ def run_command_streaming(cmd: List[str], description: str = "", shell: bool = F
         return_code = process.wait()
         
         # Stop spinner
-        spinner_running = False
-        time.sleep(0.15)
+        spinner_stop_event.set()
+        spinner_thread.join(timeout=0.5)  # Wait for thread to finish
         sys.stdout.write('\r' + ' ' * 80 + '\r')  # Clear spinner line
         
         return return_code, '\n'.join(stdout_lines), ''
         
     except FileNotFoundError:
-        spinner_running = False
+        spinner_stop_event.set()
         time.sleep(0.15)
         sys.stdout.write('\r' + ' ' * 80 + '\r')
         return 1, '', f'Command not found: {cmd[0] if isinstance(cmd, list) else cmd}'
     except Exception as e:
-        spinner_running = False
+        spinner_stop_event.set()
         time.sleep(0.15)
         sys.stdout.write('\r' + ' ' * 80 + '\r')
         return 1, '', str(e)
