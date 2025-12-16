@@ -74,6 +74,10 @@ def detect_platform():
 
 PLATFORM = detect_platform()
 
+# Timing constants (in seconds)
+MYSQL_STARTUP_TIMEOUT = 15
+MYSQL_SERVER_WAIT = 2
+
 def print_header(text):
     print("\n" + "=" * 60)
     print(text.center(60))
@@ -280,7 +284,7 @@ def start_mysql_termux():
     
     # Wait for server to become ready
     print("  → Waiting for MariaDB to become ready...")
-    for i in range(15):
+    for i in range(MYSQL_STARTUP_TIMEOUT):
         time.sleep(1)
         if mysql_server_reachable():
             print(f"  ✅ MariaDB is ready (took {i+1}s)")
@@ -309,7 +313,7 @@ def try_start_mysql_service():
         for cmd in start_cmds:
             code, out, err = run_simple_command(cmd)
             if code == 0:
-                time.sleep(2)  # Give server time to become ready
+                time.sleep(MYSQL_SERVER_WAIT)  # Give server time to become ready
                 return True, "".join([out, err]).strip()
         return False, ""
     
@@ -317,7 +321,7 @@ def try_start_mysql_service():
     if PLATFORM == 'macos':
         code, out, err = run_simple_command(["brew", "services", "start", "mariadb"])
         if code == 0:
-            time.sleep(2)
+            time.sleep(MYSQL_SERVER_WAIT)
             return True, out
         return False, err
     
@@ -326,7 +330,7 @@ def try_start_mysql_service():
         for service in ['MariaDB', 'MySQL', 'MySQL80', 'MySQL84']:
             code, out, err = run_simple_command(["net", "start", service])
             if code == 0:
-                time.sleep(2)
+                time.sleep(MYSQL_SERVER_WAIT)
                 return True, out
         return False, ""
     
@@ -339,13 +343,13 @@ def try_connect_root_auto():
     Returns (connection, method_used) or (None, None) if failed.
     
     Tries in order:
-    1. No password (common on fresh Termux/Linux installs)
-    2. Unix socket authentication (common on Linux)
-    3. MYSQL_ROOT_PASSWORD environment variable
+    1. MYSQL_ROOT_PASSWORD environment variable (if set)
+    2. No password (common on fresh Termux/Linux installs)
+    3. Empty password with explicit connection (fallback)
     """
     methods = [
         ("no password", {"host": "localhost", "user": "root", "password": ""}),
-        ("socket auth", {"host": "localhost", "user": "root", "password": "", "auth_plugin": "mysql_native_password"}),
+        ("empty password", {"host": "localhost", "user": "root"}),
     ]
     
     # Add env var password if provided
@@ -357,6 +361,8 @@ def try_connect_root_auto():
             conn = mysql.connector.connect(**conn_args)
             return conn, method_name
         except mysql.connector.Error:
+            continue
+        except Exception:
             continue
     
     return None, None
