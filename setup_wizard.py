@@ -7,6 +7,8 @@ Supports custom database configuration via .env file or command line arguments.
 
 import sys
 import os
+import subprocess
+import shutil
 from getpass import getpass
 
 # Try to load environment variables from .env file
@@ -88,6 +90,119 @@ DB_HOST = os.environ.get('DB_HOST', 'localhost')
 DB_USER = os.environ.get('DB_USER', 'sulfur_bot_user')
 DB_PASS = os.environ.get('DB_PASS', '')
 DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot')
+MYSQL_ROOT_PASSWORD = os.environ.get('MYSQL_ROOT_PASSWORD', '')  # Optional: provide to auto-provision
+
+# Quick mode: if DB already works with provided credentials, skip setup
+def quick_db_check():
+    try:
+        conn = mysql.connector.connect(
+            host=DB_HOST,
+            user=DB_USER,
+            password=DB_PASS if DB_PASS else None,
+            database=DB_NAME
+        )
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
+def auto_provision_with_root(root_password: str):
+    """Create DB and user automatically using provided root password."""
+    conn = mysql.connector.connect(host='localhost', user='root', password=root_password)
+    cursor = conn.cursor()
+    cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{DB_NAME}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+    cursor.execute(f"DROP USER IF EXISTS '{DB_USER}'@'{DB_HOST}'")
+    if DB_PASS:
+        cursor.execute(f"CREATE USER '{DB_USER}'@'{DB_HOST}' IDENTIFIED BY %s", (DB_PASS,))
+    else:
+        cursor.execute(f"CREATE USER '{DB_USER}'@'{DB_HOST}' IDENTIFIED BY ''")
+    cursor.execute(f"GRANT ALL PRIVILEGES ON `{DB_NAME}`.* TO '{DB_USER}'@'{DB_HOST}'")
+    cursor.execute("FLUSH PRIVILEGES")
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return True
+
+
+def run_simple_command(cmd):
+    """Run a simple shell command and return (code, stdout, stderr)."""
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        return result.returncode, result.stdout.strip(), result.stderr.strip()
+    except FileNotFoundError:
+        return 127, '', 'command not found'
+    except Exception as e:
+        return 1, '', str(e)
+
+
+def mysql_installed():
+    """Check if mysql/mariadb client/server binaries exist."""
+    return any(shutil.which(cmd) for cmd in ["mysql", "mariadb", "mysqld", "mariadbd"])
+
+
+def install_mysql_if_missing():
+    """Attempt to install MySQL/MariaDB using common package managers."""
+    if mysql_installed():
+        return True
+    # Termux
+    if shutil.which("pkg"):
+        print("Attempting install via 'pkg install mariadb'...")
+        code, out, err = run_simple_command(["pkg", "install", "mariadb", "-y"])
+        if code == 0:
+            return True
+        print(f"Install failed: {err or out}")
+        return False
+    # Debian/Ubuntu
+    if shutil.which("apt-get") or shutil.which("apt"):
+        print("Attempting install via apt (mariadb-server mariadb-client)...")
+        code, out, err = run_simple_command(["sudo", "apt-get", "update"])
+        if code != 0:
+            print(f"apt-get update failed: {err or out}")
+            return False
+        code, out, err = run_simple_command(["sudo", "apt-get", "install", "-y", "mariadb-server", "mariadb-client"])
+        if code == 0:
+            return True
+        print(f"apt-get install failed: {err or out}")
+        return False
+    # Homebrew
+    if shutil.which("brew"):
+        print("Attempting install via brew install mariadb...")
+        code, out, err = run_simple_command(["brew", "install", "mariadb"])
+        if code == 0:
+            return True
+        print(f"brew install failed: {err or out}")
+        return False
+    print("No supported package manager found for auto-install. Please install MySQL/MariaDB manually.")
+    return False
+
+
+def mysql_server_reachable():
+    """Best-effort reachability check; access denied still means reachable."""
+    checks = [
+        ["mysqladmin", "ping", "-uroot", "--connect-timeout=2"],
+        ["mariadb-admin", "ping", "-uroot", "--connect-timeout=2"],
+    ]
+    for cmd in checks:
+        code, _, _ = run_simple_command(cmd)
+        if code in (0, 1):  # 1 can be "access denied" but server is up
+            return True
+    return False
+
+
+def try_start_mysql_service():
+    """Try to start MySQL/MariaDB using common service commands."""
+    start_cmds = [
+        ["sudo", "systemctl", "start", "mysql"],
+        ["sudo", "systemctl", "start", "mariadb"],
+        ["sudo", "service", "mysql", "start"],
+        ["sudo", "service", "mariadb", "start"],
+    ]
+    for cmd in start_cmds:
+        code, out, err = run_simple_command(cmd)
+        if code == 0:
+            return True, "".join([out, err]).strip()
+    return False, ""
 
 # Validate configuration to prevent SQL injection
 try:
@@ -105,6 +220,49 @@ print_header("SULFUR BOT - MYSQL SETUP WIZARD")
 
 print("This wizard will help you set up the MySQL database for Sulfur Bot.")
 print()
+# Ensure MySQL/MariaDB is available; auto-install when possible
+if not mysql_installed():
+    print("MySQL/MariaDB not detected on this system.")
+    choice = input("Attempt automatic installation? [Y/n]: ").strip().lower()
+    if choice in ("", "y", "yes"):
+        if install_mysql_if_missing():
+            print("✅ Installation attempt finished.")
+            started, _ = try_start_mysql_service()
+            if started:
+                print("✅ MySQL service start attempted.")
+        else:
+            print("❌ Automatic installation failed. Please install MySQL/MariaDB manually and rerun.")
+            sys.exit(1)
+    else:
+        print("Installation skipped. Please install MySQL/MariaDB and rerun this wizard.")
+        sys.exit(1)
+
+# If service still not reachable, try to start it
+if not mysql_server_reachable():
+    started, _ = try_start_mysql_service()
+    if started:
+        print("✅ Attempted to start MySQL service.")
+    else:
+        print("⚠️  Could not verify MySQL service. Continuing to connection checks...")
+
+if quick_db_check():
+    print("Detected existing working database connection with provided credentials.")
+    print("Skipping setup and exiting successfully.")
+    sys.exit(0)
+
+# Fast-path auto provision if MYSQL_ROOT_PASSWORD is provided (non-empty)
+if MYSQL_ROOT_PASSWORD:
+    try:
+        print("Attempting automatic database provisioning using MYSQL_ROOT_PASSWORD...")
+        if auto_provision_with_root(MYSQL_ROOT_PASSWORD):
+            if quick_db_check():
+                print("Auto-provision successful. Exiting.")
+                sys.exit(0)
+    except mysql.connector.Error as err:
+        print(f"Auto-provision failed: {err}")
+    except Exception as e:
+        print(f"Auto-provision unexpected error: {e}")
+
 print("Current configuration (from .env or defaults):")
 print(f"  • Database Host: {DB_HOST}")
 print(f"  • Database Name: {DB_NAME}")
@@ -120,27 +278,36 @@ print_section("Step 1: Testing MySQL Connection")
 print("Attempting to connect to MySQL...")
 print()
 
-# Try different scenarios
-scenarios = [
-    ("root with no password", "root", ""),
-    ("root with password (will prompt)", "root", None),
-]
+# Best-effort auto-start if server is unreachable
+if not mysql_server_reachable():
+    print("MySQL server does not appear to be reachable.")
+    if input("Attempt to start MySQL automatically? [y/N]: ").strip().lower() == 'y':
+        started, msg = try_start_mysql_service()
+        if started:
+            print("✅ Attempted to start MySQL service")
+        else:
+            print("⚠️  Could not start MySQL automatically. Please start it manually.")
+    else:
+        print("Skipping automatic start; will try to connect anyway.")
+    print()
 
 connected = False
 root_conn = None
 last_error = None
+max_attempts = 3
 
-for scenario_name, user, password in scenarios:
-    if password is None:
-        print(f"Trying: {scenario_name}")
-        password = getpass(f"Enter MySQL root password: ")
+for attempt in range(1, max_attempts + 1):
+    if attempt == 1:
+        print("Trying: root with no password...", end=" ")
+        password = ""
     else:
-        print(f"Trying: {scenario_name}...", end=" ")
+        print(f"Trying: root with password (attempt {attempt}/{max_attempts})")
+        password = getpass("Enter MySQL root password: ")
     
     try:
         root_conn = mysql.connector.connect(
             host='localhost',
-            user=user,
+            user='root',
             password=password
         )
         print("✅ Connected!")
@@ -148,10 +315,12 @@ for scenario_name, user, password in scenarios:
         break
     except mysql.connector.Error as err:
         last_error = err
-        if password == "":
-            print("❌ Failed")
+        if err.errno == 1045:
+            print("❌ Access denied")
         else:
-            print(f"❌ Failed")
+            print(f"❌ Failed: {err}")
+        if attempt < max_attempts:
+            print("Please try again with the correct root password.")
         continue
 
 if not connected:
