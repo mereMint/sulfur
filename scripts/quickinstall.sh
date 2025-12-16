@@ -143,6 +143,25 @@ install_packages() {
     esac
 }
 
+# Install Termux-specific dependencies for PyNaCl
+install_termux_dependencies() {
+    if [ "$PLATFORM" = "termux" ]; then
+        echo -e "${BLUE}📦 Installing Termux build dependencies for PyNaCl...${NC}"
+        echo -e "${CYAN}   This includes: build-essential, binutils, pkg-config, libsodium, clang${NC}"
+        
+        (pkg install -y \
+            build-essential \
+            binutils \
+            pkg-config \
+            libsodium \
+            clang \
+            python \
+            git) 2>/dev/null || true
+        
+        echo -e "${GREEN}✅ Termux build dependencies installed${NC}"
+    fi
+}
+
 # Clone or update repository
 setup_repository() {
     if [ -d "$INSTALL_DIR" ]; then
@@ -301,15 +320,34 @@ setup_python() {
     source venv/bin/activate
     
     # Upgrade pip
-    echo -e "${BLUE}📦 Upgrading pip...${NC}"
-    pip install --upgrade pip --quiet
+    echo -e "${BLUE}📦 Upgrading pip and build tools...${NC}"
+    pip install --upgrade pip wheel setuptools --quiet
+
+    # Termux-specific: Set SODIUM_INSTALL for PyNaCl
+    if [ "$PLATFORM" = "termux" ]; then
+        echo -e "${CYAN}Setting SODIUM_INSTALL=system for PyNaCl compatibility on Termux...${NC}"
+        export SODIUM_INSTALL=system
+    fi
 
     # Install dependencies
-    echo -e "${BLUE}📦 Installing dependencies...${NC}"
+    echo -e "${BLUE}📦 Installing dependencies (this may take several minutes)...${NC}"
+    if [ "$PLATFORM" = "termux" ]; then
+        echo -e "${CYAN}   Note: PyNaCl will use system libsodium library instead of building from source${NC}"
+    fi
+    
     if ! pip install -r requirements.txt; then
         echo -e "${RED}❌ Failed to install Python dependencies${NC}"
         echo -e "${YELLOW}Please check your internet connection and try again.${NC}"
         exit 1
+    fi
+
+    # Verify PyNaCl installation on Termux
+    if [ "$PLATFORM" = "termux" ]; then
+        if python -c "import nacl" 2>/dev/null; then
+            echo -e "${GREEN}✅ PyNaCl (voice support) verified successfully${NC}"
+        else
+            echo -e "${YELLOW}⚠️  PyNaCl verification failed - voice features may not work${NC}"
+        fi
     fi
 
     echo -e "${GREEN}✅ Python dependencies installed${NC}"
@@ -403,6 +441,9 @@ main() {
     echo -e "${BLUE}🔍 Checking requirements...${NC}"
     check_requirements
     
+    # Install Termux-specific dependencies before repository setup
+    install_termux_dependencies
+    
     echo ""
     echo -e "${BLUE}📁 Setting up repository...${NC}"
     setup_repository
@@ -424,6 +465,13 @@ main() {
         if [ "$update_deps" != "n" ] && [ "$update_deps" != "N" ]; then
             # Just update dependencies
             source venv/bin/activate
+            
+            # Termux-specific: Set SODIUM_INSTALL for PyNaCl
+            if [ "$PLATFORM" = "termux" ]; then
+                echo -e "${CYAN}Setting SODIUM_INSTALL=system for PyNaCl compatibility...${NC}"
+                export SODIUM_INSTALL=system
+            fi
+            
             pip install -r requirements.txt --upgrade --quiet
             echo -e "${GREEN}✅ Dependencies updated${NC}"
         fi

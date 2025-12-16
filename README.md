@@ -65,10 +65,12 @@ irm https://raw.githubusercontent.com/mereMint/sulfur/main/scripts/quickinstall.
 ```
 
 This will automatically:
-- ✅ Install all dependencies
+- ✅ Install all dependencies (including PyNaCl fix for Termux)
 - ✅ Clone the repository
 - ✅ Set up Python environment
 - ✅ Run the interactive setup wizard
+
+> **📱 Termux Users**: The script automatically handles PyNaCl installation. If you encounter errors, see [PYNACL_TERMUX_FIX.md](PYNACL_TERMUX_FIX.md).
 
 ### 📚 Documentation
 
@@ -376,6 +378,9 @@ chmod +x scripts/install_termux.sh
 # Install core packages
 pkg install -y python python-pip git mariadb
 
+# Install build tools (REQUIRED for PyNaCl/discord.py[voice])
+pkg install -y build-essential binutils pkg-config libsodium clang
+
 # Install optional packages
 pkg install -y ffmpeg libffi opus screen curl wget openssl
 
@@ -385,6 +390,9 @@ pkg install -y openjdk-21
 # For WireGuard (limited without root)
 pkg install -y wireguard-tools
 ```
+
+> **⚠️ Important for Voice Support**: PyNaCl (required for discord.py[voice]) needs special handling on Termux.
+> See [PYNACL_TERMUX_FIX.md](PYNACL_TERMUX_FIX.md) if you encounter build errors.
 
 #### Step 3: Initialize and Start MariaDB
 
@@ -422,9 +430,24 @@ EXIT;
 cd sulfur
 python -m venv venv
 source venv/bin/activate
-pip install --upgrade pip
+
+# Upgrade pip and build tools
+pip install --upgrade pip wheel setuptools
+
+# IMPORTANT: Set this environment variable for PyNaCl on Termux
+export SODIUM_INSTALL=system
+
+# Install dependencies
 pip install -r requirements.txt
 ```
+
+> **💡 Tip**: If you encounter PyNaCl build errors, run:
+> ```bash
+> export SODIUM_INSTALL=system
+> pip cache purge
+> pip install -r requirements.txt
+> ```
+> See [PYNACL_TERMUX_FIX.md](PYNACL_TERMUX_FIX.md) for more details.
 
 #### Step 6: Configure and Run
 
@@ -467,6 +490,54 @@ sudo sed -i 's/CONF_SWAPSIZE=100/CONF_SWAPSIZE=1024/' /etc/dphys-swapfile
 sudo dphys-swapfile setup
 sudo dphys-swapfile swapon
 ```
+
+---
+
+## 🛠️ Troubleshooting
+
+### Installation Issues
+
+If you encounter problems during installation:
+
+1. **Run the verification script**:
+   ```bash
+   python verify_installation.py
+   ```
+   This will check your installation and provide specific fix suggestions.
+
+2. **Common Errors**:
+   - **PyNaCl build failure on Termux**: See [PYNACL_TERMUX_FIX.md](PYNACL_TERMUX_FIX.md)
+   - **Other installation errors**: See [INSTALLATION_ERROR_FIXES.md](INSTALLATION_ERROR_FIXES.md)
+
+3. **Quick Fixes**:
+   ```bash
+   # Clear pip cache
+   pip cache purge
+   
+   # For Termux, set environment variable
+   export SODIUM_INSTALL=system
+   
+   # Reinstall dependencies
+   pip install --upgrade pip wheel setuptools
+   pip install -r requirements.txt
+   ```
+
+### Runtime Issues
+
+- **Database Connection Failed**: Make sure MariaDB/MySQL is running
+  - Termux: `mysqld_safe &`
+  - Linux: `sudo systemctl start mariadb`
+  - Windows: Start MySQL service from Services
+
+- **Bot Not Responding**: Check logs in `logs/` directory
+
+- **Permission Errors**: Never use `sudo` with pip in Termux. On other systems, use virtual environments to avoid permission issues.
+
+### Getting Help
+
+- 📖 Read the [detailed documentation](docs/)
+- 🐛 Check [open issues](https://github.com/mereMint/sulfur/issues)
+- 💬 Ask in the Discord server
 
 ---
 

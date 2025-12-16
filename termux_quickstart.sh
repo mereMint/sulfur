@@ -295,18 +295,24 @@ REQUIRED_PACKAGES=(
     "nano"
     "wget"
     "curl"
+    "build-essential"
+    "binutils"
+    "pkg-config"
     "libsodium"
     "clang"
     "ffmpeg"
 )
 
 print_info "Installing required packages: ${REQUIRED_PACKAGES[*]}"
-print_info "Note: libsodium and clang are needed for PyNaCl voice support"
+print_info "Note: build-essential, binutils, pkg-config, libsodium, and clang are needed for PyNaCl voice support"
 print_info "Note: ffmpeg is required for Discord voice channel audio playback"
 pkg install -y "${REQUIRED_PACKAGES[@]}"
 
+# Cache the list of installed packages for efficiency
+INSTALLED_PACKAGES=$(pkg list-installed 2>/dev/null)
+
 for package in "${REQUIRED_PACKAGES[@]}"; do
-    if command -v "$package" &> /dev/null || pkg list-installed 2>/dev/null | grep -q "^${package}"; then
+    if command -v "$package" &> /dev/null || echo "$INSTALLED_PACKAGES" | grep -q "^${package}"; then
         print_success "$package is installed"
     else
         print_warning "$package may not be installed correctly"
@@ -604,8 +610,8 @@ echo ""
 print_step "Step 8: Installing Python dependencies..."
 echo ""
 
-print_info "Upgrading pip..."
-pip install --upgrade pip --quiet
+print_info "Upgrading pip, wheel, and setuptools..."
+pip install --upgrade pip wheel setuptools --quiet
 
 print_info "Installing required packages (this may take several minutes)..."
 print_warning "Don't worry if you see warnings about 'legacy setup.py install' - this is normal"
@@ -621,12 +627,21 @@ if pip install -r requirements.txt; then
 else
     print_error "Some packages failed to install"
     print_info "Trying again with --no-cache-dir flag..."
+    export SODIUM_INSTALL=system
     if pip install -r requirements.txt --no-cache-dir; then
         print_success "Dependencies installed successfully on retry!"
     else
         print_error "Installation failed. Continuing with setup..."
         print_warning "Some features may not work without all dependencies"
     fi
+fi
+
+# Verify PyNaCl installation
+if python -c "import nacl" 2>/dev/null; then
+    print_success "PyNaCl (voice support) verified successfully"
+else
+    print_warning "PyNaCl verification failed - voice features may not work"
+    print_info "Try manually: export SODIUM_INSTALL=system && pip install PyNaCl"
 fi
 
 echo ""
