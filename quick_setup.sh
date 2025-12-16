@@ -318,11 +318,23 @@ echo -e "${YELLOW}Step 4: Installing Python Dependencies${NC}"
 echo -e "${GRAY}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
+# Install system dependencies for PyNaCl on Termux
+if [ "$IS_TERMUX" = true ]; then
+    echo -e "${CYAN}Installing system dependencies for voice support...${NC}"
+    pkg install -y libsodium clang 2>/dev/null || true
+    echo ""
+fi
+
 echo -e "${CYAN}Upgrading pip...${NC}"
 $PYTHON_CMD -m pip install --upgrade pip --quiet
 
 echo -e "${CYAN}Installing dependencies from requirements.txt...${NC}"
 echo -e "${GRAY}(This may take a few minutes...)${NC}"
+
+# Set SODIUM_INSTALL=system to use system libsodium for PyNaCl
+# This prevents build failures on Termux where bundled libsodium configure fails
+export SODIUM_INSTALL=system
+
 pip install -r requirements.txt
 
 if [ $? -eq 0 ]; then
