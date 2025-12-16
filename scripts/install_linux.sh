@@ -268,8 +268,48 @@ install_dependencies() {
 setup_venv() {
     echo -e "\n${BLUE}🐍 Setting up Python virtual environment...${NC}"
     
+    # Check if venv module is available
+    if ! python3 -m venv --help >/dev/null 2>&1; then
+        echo -e "${YELLOW}⚠ Python venv module not available. Installing...${NC}"
+        
+        # Detect Linux distribution
+        if [ -f /etc/debian_version ]; then
+            # Debian/Ubuntu
+            PYTHON_VERSION=$(python3 --version 2>&1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
+            echo -e "${BLUE}Installing python${PYTHON_VERSION}-venv...${NC}"
+            if command -v sudo &> /dev/null; then
+                sudo apt-get update -qq && sudo apt-get install -y python${PYTHON_VERSION}-venv python3-venv 2>/dev/null || {
+                    echo -e "${RED}✗ Failed to install venv package${NC}"
+                    echo -e "${YELLOW}Please install manually: sudo apt install python3-venv${NC}"
+                    exit 1
+                }
+            fi
+        elif [ -f /etc/redhat-release ]; then
+            # RHEL/CentOS/Fedora
+            echo -e "${BLUE}Installing python3-venv...${NC}"
+            if command -v sudo &> /dev/null; then
+                sudo dnf install -y python3-venv 2>/dev/null || sudo yum install -y python3-venv 2>/dev/null || {
+                    echo -e "${RED}✗ Failed to install venv package${NC}"
+                    exit 1
+                }
+            fi
+        elif [ -f /etc/arch-release ]; then
+            # Arch Linux
+            echo -e "${BLUE}Installing python...${NC}"
+            if command -v sudo &> /dev/null; then
+                sudo pacman -S --noconfirm python 2>/dev/null || {
+                    echo -e "${RED}✗ Failed to install venv package${NC}"
+                    exit 1
+                }
+            fi
+        fi
+    fi
+    
     if [ ! -d "venv" ]; then
-        python3 -m venv venv
+        if ! python3 -m venv venv; then
+            echo -e "${RED}✗ Failed to create virtual environment${NC}"
+            exit 1
+        fi
         echo -e "${GREEN}✅ Virtual environment created${NC}"
     else
         echo -e "${GREEN}✅ Virtual environment already exists${NC}"

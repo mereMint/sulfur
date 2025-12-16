@@ -243,12 +243,65 @@ echo -e "${YELLOW}Step 3: Setting Up Python Virtual Environment${NC}"
 echo -e "${GRAY}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
+# Check if venv module is available
+if ! $PYTHON_CMD -m venv --help >/dev/null 2>&1; then
+    echo -e "${YELLOW}⚠ Python venv module not available. Installing...${NC}"
+    
+    # Detect Linux distribution
+    if [ -f /etc/debian_version ]; then
+        # Debian/Ubuntu
+        PYTHON_VERSION=$($PYTHON_CMD --version 2>&1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
+        echo -e "${CYAN}Attempting to install python${PYTHON_VERSION}-venv...${NC}"
+        if command -v sudo &> /dev/null; then
+            sudo apt-get update -qq && sudo apt-get install -y python${PYTHON_VERSION}-venv python3-venv 2>/dev/null || {
+                echo -e "${RED}✗ Failed to install venv package${NC}"
+                echo -e "${YELLOW}Please install manually: sudo apt install python3-venv${NC}"
+                exit 1
+            }
+        else
+            echo -e "${RED}✗ sudo not available. Please install venv manually: apt install python3-venv${NC}"
+            exit 1
+        fi
+    elif [ -f /etc/redhat-release ]; then
+        # RHEL/CentOS/Fedora
+        echo -e "${CYAN}Attempting to install python3-venv...${NC}"
+        if command -v sudo &> /dev/null; then
+            sudo dnf install -y python3-venv 2>/dev/null || sudo yum install -y python3-venv 2>/dev/null || {
+                echo -e "${RED}✗ Failed to install venv package${NC}"
+                echo -e "${YELLOW}Please install manually: sudo dnf install python3-venv${NC}"
+                exit 1
+            }
+        else
+            echo -e "${RED}✗ sudo not available. Please install venv manually: dnf install python3-venv${NC}"
+            exit 1
+        fi
+    elif [ -f /etc/arch-release ]; then
+        # Arch Linux
+        echo -e "${CYAN}Attempting to install python...${NC}"
+        if command -v sudo &> /dev/null; then
+            sudo pacman -S --noconfirm python 2>/dev/null || {
+                echo -e "${RED}✗ Failed to install venv package${NC}"
+                echo -e "${YELLOW}Please install manually: sudo pacman -S python${NC}"
+                exit 1
+            }
+        else
+            echo -e "${RED}✗ sudo not available. Please install venv manually: pacman -S python${NC}"
+            exit 1
+        fi
+    else
+        echo -e "${RED}✗ Could not detect your Linux distribution${NC}"
+        echo -e "${YELLOW}Please install python3-venv for your system and try again${NC}"
+        exit 1
+    fi
+fi
+
 if [ ! -d "venv" ]; then
     echo -e "${CYAN}Creating virtual environment...${NC}"
     if $PYTHON_CMD -m venv venv; then
         echo -e "${GREEN}✓ Virtual environment created${NC}"
     else
         echo -e "${RED}✗ Failed to create virtual environment${NC}"
+        echo -e "${YELLOW}Please try installing python3-venv manually and running this script again${NC}"
         exit 1
     fi
 else

@@ -554,11 +554,42 @@ echo ""
 print_step "Step 7: Setting up Python virtual environment..."
 echo ""
 
+# Check if venv module is available (for Termux on Android)
+if ! python -m venv --help >/dev/null 2>&1; then
+    print_warning "⚠ Python venv module not available. Installing..."
+    
+    if command -v pkg &> /dev/null; then
+        # Termux environment
+        print_info "Installing python..."
+        pkg install -y python 2>/dev/null || {
+            print_error "Failed to install venv package"
+            echo ""
+            print_info "Please install manually: pkg install python"
+            exit 1
+        }
+    elif [ -f /etc/debian_version ]; then
+        # Debian/Ubuntu
+        PYTHON_VERSION=$(python3 --version 2>&1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
+        print_info "Installing python${PYTHON_VERSION}-venv..."
+        if command -v sudo &> /dev/null; then
+            sudo apt-get update -qq && sudo apt-get install -y python${PYTHON_VERSION}-venv python3-venv 2>/dev/null || {
+                print_error "Failed to install venv package"
+                echo ""
+                print_info "Please install manually: sudo apt install python3-venv"
+                exit 1
+            }
+        fi
+    fi
+fi
+
 if [ -d "venv" ]; then
     print_success "Virtual environment already exists"
 else
     print_info "Creating virtual environment..."
-    python -m venv venv
+    if ! python -m venv venv; then
+        print_error "Failed to create virtual environment"
+        exit 1
+    fi
     print_success "Virtual environment created!"
 fi
 
