@@ -345,11 +345,9 @@ def try_connect_root_auto():
     Tries in order:
     1. MYSQL_ROOT_PASSWORD environment variable (if set)
     2. No password (common on fresh Termux/Linux installs)
-    3. Empty password with explicit connection (fallback)
     """
     methods = [
         ("no password", {"host": "localhost", "user": "root", "password": ""}),
-        ("empty password", {"host": "localhost", "user": "root"}),
     ]
     
     # Add env var password if provided
