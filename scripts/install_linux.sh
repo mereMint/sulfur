@@ -62,14 +62,23 @@ detect_distro() {
 # Update package manager
 update_packages() {
     echo -e "\n${BLUE}📦 Updating package lists...${NC}"
+    echo -e "${CYAN}  This may take a moment. Progress will be shown below.${NC}"
+    echo ""
     
     if command -v apt-get &> /dev/null; then
-        sudo apt-get update -qq
+        sudo apt-get update 2>&1 | while read line; do
+            echo -e "  ${CYAN}→${NC} $line"
+        done
     elif command -v dnf &> /dev/null; then
-        sudo dnf check-update -q || true
+        sudo dnf check-update 2>&1 | head -20 | while read line; do
+            echo -e "  ${CYAN}→${NC} $line"
+        done || true
     elif command -v pacman &> /dev/null; then
-        sudo pacman -Sy --noconfirm
+        sudo pacman -Sy --noconfirm 2>&1 | while read line; do
+            echo -e "  ${CYAN}→${NC} $line"
+        done
     fi
+    echo ""
 }
 
 # Install Python
@@ -81,13 +90,21 @@ install_python() {
         echo -e "${GREEN}✅ Python $PYTHON_VERSION found${NC}"
     else
         echo -e "${YELLOW}Installing Python 3...${NC}"
+        echo -e "${CYAN}  Progress will be shown below.${NC}"
+        echo ""
         
         if command -v apt-get &> /dev/null; then
-            sudo apt-get install -y python3 python3-pip python3-venv
+            sudo apt-get install -y python3 python3-pip python3-venv 2>&1 | grep -E "(Unpacking|Setting up|is already)" | while read line; do
+                echo -e "  ${CYAN}→${NC} $line"
+            done
         elif command -v dnf &> /dev/null; then
-            sudo dnf install -y python3 python3-pip
+            sudo dnf install -y python3 python3-pip 2>&1 | grep -E "(Installing|Upgrading)" | while read line; do
+                echo -e "  ${CYAN}→${NC} $line"
+            done
         elif command -v pacman &> /dev/null; then
-            sudo pacman -S --noconfirm python python-pip
+            sudo pacman -S --noconfirm python python-pip 2>&1 | while read line; do
+                echo -e "  ${CYAN}→${NC} $line"
+            done
         fi
     fi
     
@@ -126,15 +143,25 @@ install_database() {
         echo -e "${GREEN}✅ MySQL/MariaDB found${NC}"
     else
         echo -e "${YELLOW}Installing MariaDB...${NC}"
+        echo -e "${CYAN}  This may take a few minutes. Progress will be shown below.${NC}"
+        echo ""
         
         if command -v apt-get &> /dev/null; then
-            sudo apt-get install -y mariadb-server mariadb-client
+            sudo apt-get install -y mariadb-server mariadb-client 2>&1 | grep -E "(Unpacking|Setting up|is already|Selecting)" | while read line; do
+                echo -e "  ${CYAN}→${NC} $line"
+            done
         elif command -v dnf &> /dev/null; then
-            sudo dnf install -y mariadb-server mariadb
+            sudo dnf install -y mariadb-server mariadb 2>&1 | grep -E "(Installing|Upgrading|Complete)" | while read line; do
+                echo -e "  ${CYAN}→${NC} $line"
+            done
         elif command -v pacman &> /dev/null; then
-            sudo pacman -S --noconfirm mariadb
+            sudo pacman -S --noconfirm mariadb 2>&1 | while read line; do
+                echo -e "  ${CYAN}→${NC} $line"
+            done
         fi
         
+        echo ""
+        echo -e "${CYAN}Starting MariaDB service...${NC}"
         # Start and enable MariaDB
         sudo systemctl start mariadb || sudo systemctl start mysql
         sudo systemctl enable mariadb || sudo systemctl enable mysql

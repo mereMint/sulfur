@@ -51,11 +51,21 @@ check_storage() {
     fi
 }
 
-# Update packages
+# Update packages - show progress
 update_packages() {
     echo -e "\n${BLUE}📦 Updating package lists...${NC}"
-    pkg update -y
-    pkg upgrade -y
+    echo -e "${CYAN}  This may take a few minutes on first run.${NC}"
+    echo -e "${CYAN}  You will see progress as packages are downloaded...${NC}"
+    echo ""
+    # Use -y flag to auto-accept, but show output for progress
+    pkg update -y 2>&1 | while read line; do
+        echo -e "  ${CYAN}→${NC} $line"
+    done
+    echo ""
+    echo -e "${CYAN}  Upgrading packages...${NC}"
+    pkg upgrade -y 2>&1 | while read line; do
+        echo -e "  ${CYAN}→${NC} $line"
+    done
 }
 
 # Install Python
@@ -98,10 +108,17 @@ install_database() {
         echo -e "${GREEN}✅ MariaDB found${NC}"
     else
         echo -e "${YELLOW}Installing MariaDB...${NC}"
-        pkg install -y mariadb
+        echo -e "${CYAN}  This may take a few minutes. Progress will be shown below.${NC}"
+        echo ""
+        pkg install -y mariadb 2>&1 | while read line; do
+            echo -e "  ${CYAN}→${NC} $line"
+        done
         
-        echo -e "${CYAN}Initializing MariaDB...${NC}"
-        mysql_install_db
+        echo ""
+        echo -e "${CYAN}Initializing MariaDB database...${NC}"
+        mysql_install_db 2>&1 | while read line; do
+            echo -e "  ${CYAN}→${NC} $line"
+        done
     fi
     
     # Check if MariaDB is running
@@ -167,20 +184,22 @@ install_dependencies() {
     # Note: build-essential, binutils, pkg-config, libsodium, and clang are required for PyNaCl
     # PyNaCl (discord.py[voice] dependency) will use system libsodium instead of building from source
     echo -e "${CYAN}Installing build tools and libraries for PyNaCl compilation...${NC}"
-    pkg install -y \
-        build-essential \
-        binutils \
-        pkg-config \
-        libsodium \
-        clang \
-        ffmpeg \
-        libffi \
-        opus \
-        screen \
-        curl \
-        wget \
-        openssl
+    echo -e "${CYAN}  This may take a few minutes. Progress will be shown below.${NC}"
+    echo ""
     
+    PACKAGES="build-essential binutils pkg-config libsodium clang ffmpeg libffi opus screen curl wget openssl"
+    TOTAL=$(echo $PACKAGES | wc -w)
+    CURRENT=0
+    
+    for pkg in $PACKAGES; do
+        CURRENT=$((CURRENT + 1))
+        echo -e "  [${CURRENT}/${TOTAL}] Installing ${pkg}..."
+        pkg install -y $pkg 2>&1 | grep -E "(Unpacking|Setting up|is already)" | while read line; do
+            echo -e "    ${CYAN}→${NC} $line"
+        done
+    done
+    
+    echo ""
     echo -e "${GREEN}✅ Dependencies installed${NC}"
 }
 
@@ -199,23 +218,35 @@ setup_venv() {
     source venv/bin/activate
     
     echo -e "${YELLOW}Upgrading pip and build tools...${NC}"
-    pip install --upgrade pip wheel setuptools
+    pip install --upgrade pip wheel setuptools 2>&1 | grep -E "(Installing|Collecting|Successfully)" | while read line; do
+        echo -e "  ${CYAN}→${NC} $line"
+    done
     
     # Set SODIUM_INSTALL=system to use system libsodium instead of building from source
     # This prevents PyNaCl build failures on Termux where the bundled libsodium configure fails
     echo -e "${CYAN}Setting SODIUM_INSTALL=system for PyNaCl compatibility...${NC}"
     export SODIUM_INSTALL=system
     
+    echo ""
     echo -e "${YELLOW}Installing Python dependencies (this may take several minutes)...${NC}"
     echo -e "${CYAN}Note: PyNaCl will use system libsodium library instead of building from source${NC}"
+    echo -e "${CYAN}  Progress will be shown as packages are installed.${NC}"
+    echo ""
     
-    # Install requirements with proper error handling
-    if pip install -r requirements.txt; then
+    # Install requirements with proper error handling - show progress
+    if pip install -r requirements.txt 2>&1 | tee /dev/stderr | grep -E "(Installing|Collecting|Successfully|Downloading|Building|Using cached)" | while read line; do
+        echo -e "  ${CYAN}→${NC} $line"
+    done; then
+        echo ""
         echo -e "${GREEN}✅ All Python dependencies installed successfully!${NC}"
     else
+        echo ""
         echo -e "${YELLOW}⚠️  Some packages may have failed. Installing core packages individually...${NC}"
         export SODIUM_INSTALL=system
-        pip install "discord.py[voice]>=2.4.0,<2.7.0" mysql-connector-python aiohttp python-dotenv Flask Flask-SocketIO waitress psutil yt-dlp
+        echo ""
+        pip install "discord.py[voice]>=2.4.0,<2.7.0" mysql-connector-python aiohttp python-dotenv Flask Flask-SocketIO waitress psutil yt-dlp 2>&1 | grep -E "(Installing|Collecting|Successfully)" | while read line; do
+            echo -e "  ${CYAN}→${NC} $line"
+        done
         echo -e "${GREEN}✅ Core packages installed${NC}"
     fi
     

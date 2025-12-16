@@ -217,6 +217,109 @@ def run_command(cmd: List[str], capture: bool = False, shell: bool = False, quie
         return 1, '', '' if quiet else str(e)
 
 
+def run_command_streaming(cmd: List[str], description: str = "", shell: bool = False) -> Tuple[int, str, str]:
+    """
+    Run a command with real-time streaming output and a progress spinner.
+    
+    Use this for long-running commands where users need to see progress.
+    
+    Args:
+        cmd: Command and arguments as a list
+        description: Description of what the command is doing
+        shell: If True, run command through shell
+    
+    Returns:
+        Tuple of (return_code, stdout, stderr)
+    """
+    import threading
+    
+    spinner_chars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+    # Use threading.Event for thread-safe signaling
+    spinner_stop_event = threading.Event()
+    current_line_lock = threading.Lock()
+    current_line = [""]  # Use list to allow modification in nested function
+    
+    def spinner():
+        """Spinner thread that shows activity."""
+        idx = 0
+        while not spinner_stop_event.is_set():
+            with current_line_lock:
+                line_text = current_line[0]
+            
+            if line_text:
+                # Show current activity with spinner
+                display = f"\r  {Colors.CYAN}{spinner_chars[idx]}{Colors.RESET} {line_text[:60]}"
+                sys.stdout.write(display + " " * 20)  # Pad to clear old text
+                sys.stdout.flush()
+            else:
+                sys.stdout.write(f"\r  {Colors.CYAN}{spinner_chars[idx]}{Colors.RESET} Working...")
+                sys.stdout.flush()
+            idx = (idx + 1) % len(spinner_chars)
+            # Wait with timeout so we can check the stop event
+            spinner_stop_event.wait(timeout=0.1)
+    
+    try:
+        if shell and isinstance(cmd, list):
+            cmd = ' '.join(cmd)
+        
+        # Start the command with streaming output
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # Combine stderr into stdout
+            text=True,
+            shell=shell,
+            bufsize=1,  # Line buffered
+            universal_newlines=True
+        )
+        
+        # Start spinner thread
+        spinner_thread = threading.Thread(target=spinner, daemon=True)
+        spinner_thread.start()
+        
+        stdout_lines = []
+        
+        # Read output line by line
+        for line in process.stdout:
+            line = line.rstrip()
+            stdout_lines.append(line)
+            with current_line_lock:
+                current_line[0] = line
+            
+            # For important lines, print them immediately
+            if any(keyword in line.lower() for keyword in ['error', 'warning', 'failed', 'downloading', 'installing', 'unpacking', 'setting up']):
+                # Pause spinner briefly to print line cleanly
+                spinner_stop_event.set()
+                time.sleep(0.15)  # Let spinner thread stop
+                sys.stdout.write('\r' + ' ' * 80 + '\r')  # Clear spinner line
+                print(f"  {Colors.BLUE}→{Colors.RESET} {line[:70]}")
+                # Resume spinner
+                spinner_stop_event.clear()
+                spinner_thread = threading.Thread(target=spinner, daemon=True)
+                spinner_thread.start()
+        
+        # Wait for process to complete
+        return_code = process.wait()
+        
+        # Stop spinner
+        spinner_stop_event.set()
+        spinner_thread.join(timeout=0.5)  # Wait for thread to finish
+        sys.stdout.write('\r' + ' ' * 80 + '\r')  # Clear spinner line
+        
+        return return_code, '\n'.join(stdout_lines), ''
+        
+    except FileNotFoundError:
+        spinner_stop_event.set()
+        time.sleep(0.15)
+        sys.stdout.write('\r' + ' ' * 80 + '\r')
+        return 1, '', f'Command not found: {cmd[0] if isinstance(cmd, list) else cmd}'
+    except Exception as e:
+        spinner_stop_event.set()
+        time.sleep(0.15)
+        sys.stdout.write('\r' + ' ' * 80 + '\r')
+        return 1, '', str(e)
+
+
 # ==============================================================================
 # Dependency Checks
 # ==============================================================================
@@ -333,17 +436,41 @@ def install_all_system_dependencies(plat: str) -> bool:
             'net-tools', 'iproute2',
         ]
         
-        # Update package list first
-        print_info("Updating package repository...")
-        run_command(['pkg', 'update', '-y'], quiet=True)
-        run_command(['pkg', 'upgrade', '-y'], quiet=True)
+        # Update package list first - use streaming to show progress
+        print_info("Updating package repository (this may take a few minutes)...")
+        print_info("  You will see progress as packages are downloaded...")
+        print()
+        code, out, err = run_command_streaming(['pkg', 'update', '-y'], "Updating packages")
+        if code != 0:
+            print_warning("  Package update had some issues, continuing anyway...")
         
-        for package in packages:
-            print_info(f"  Installing {package}...")
-            code, out, err = run_command(['pkg', 'install', '-y', package], quiet=True)
+        print()
+        print_info("Upgrading existing packages...")
+        code, out, err = run_command_streaming(['pkg', 'upgrade', '-y'], "Upgrading packages")
+        if code != 0:
+            print_warning("  Package upgrade had some issues, continuing anyway...")
+        
+        print()
+        print_info(f"Installing {len(packages)} packages...")
+        print_info("  Progress will be shown for each package.")
+        print()
+        
+        # Install packages one at a time with streaming output
+        failed_packages = []
+        for i, package in enumerate(packages, 1):
+            print(f"  [{i}/{len(packages)}] Installing {package}...")
+            code, out, err = run_command_streaming(['pkg', 'install', '-y', package], f"Installing {package}")
             if code != 0:
-                print_warning(f"  Could not install {package} (may not be needed)")
+                failed_packages.append(package)
+                print_warning(f"    Could not install {package} (may not be needed)")
+            else:
+                print_success(f"    {package} installed")
         
+        if failed_packages:
+            print_warning(f"  Some packages could not be installed: {', '.join(failed_packages)}")
+            print_info("  This is usually fine - some packages are optional.")
+        
+        print()
         print_success("Termux system packages installed")
         
     elif plat in ['linux', 'raspberrypi', 'wsl']:
@@ -367,24 +494,40 @@ def install_all_system_dependencies(plat: str) -> bool:
             'net-tools', 'iptables',
         ]
         
-        # Update package list
+        # Update package list with streaming output
         print_info("Updating package repository...")
-        run_command(['sudo', 'apt', 'update'], quiet=True)
+        print_info("  You will see progress as the package list is updated...")
+        print()
+        code, out, err = run_command_streaming(['sudo', 'apt', 'update'], "Updating package list")
         
-        # Install packages in one command for efficiency
-        print_info("Installing packages (this may take a while)...")
-        code, out, err = run_command(
+        # Install packages with streaming output
+        print()
+        print_info("Installing packages (this may take a few minutes)...")
+        print_info("  Progress will be shown as packages are installed.")
+        print()
+        code, out, err = run_command_streaming(
             ['sudo', 'apt', 'install', '-y'] + packages,
-            quiet=True
+            "Installing packages"
         )
         
         if code != 0:
             # Try installing packages one by one as fallback
-            print_warning("Bulk install failed, trying individual packages...")
-            for package in packages:
-                print_info(f"  Installing {package}...")
-                run_command(['sudo', 'apt', 'install', '-y', package], quiet=True)
+            print()
+            print_warning("Bulk install had issues, trying individual packages...")
+            failed_packages = []
+            for i, package in enumerate(packages, 1):
+                print(f"  [{i}/{len(packages)}] Installing {package}...")
+                pkg_code, _, _ = run_command_streaming(['sudo', 'apt', 'install', '-y', package], f"Installing {package}")
+                if pkg_code != 0:
+                    failed_packages.append(package)
+                    print_warning(f"    Could not install {package}")
+                else:
+                    print_success(f"    {package} installed")
+            
+            if failed_packages:
+                print_warning(f"  Some packages could not be installed: {', '.join(failed_packages)}")
         
+        print()
         print_success("Linux system packages installed")
         
     elif plat == 'macos':
@@ -393,10 +536,11 @@ def install_all_system_dependencies(plat: str) -> bool:
         
         if not shutil.which('brew'):
             print_warning("Homebrew not found. Installing Homebrew first...")
-            code, out, err = run_command([
+            print_info("  This may take a few minutes...")
+            code, out, err = run_command_streaming([
                 '/bin/bash', '-c', 
                 '$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)'
-            ])
+            ], "Installing Homebrew")
             if code != 0:
                 print_error("Failed to install Homebrew. Please install manually from https://brew.sh/")
                 return False
@@ -407,10 +551,15 @@ def install_all_system_dependencies(plat: str) -> bool:
             'git', 'curl', 'wget'
         ]
         
-        for package in packages:
-            print_info(f"  Installing {package}...")
-            run_command(['brew', 'install', package], quiet=True)
+        print_info(f"Installing {len(packages)} packages...")
+        print()
+        for i, package in enumerate(packages, 1):
+            print(f"  [{i}/{len(packages)}] Installing {package}...")
+            code, out, err = run_command_streaming(['brew', 'install', package], f"Installing {package}")
+            if code == 0:
+                print_success(f"    {package} installed")
         
+        print()
         print_success("macOS packages installed")
         
     elif plat == 'windows':
@@ -420,6 +569,8 @@ def install_all_system_dependencies(plat: str) -> bool:
         # Try using winget if available
         if shutil.which('winget'):
             print_info("Using Windows Package Manager (winget)...")
+            print_info("  Progress will be shown for each package.")
+            print()
             
             winget_packages = [
                 'Python.Python.3.12',
@@ -429,10 +580,16 @@ def install_all_system_dependencies(plat: str) -> bool:
                 'Git.Git',
             ]
             
-            for package in winget_packages:
-                print_info(f"  Installing {package}...")
-                run_command(['winget', 'install', '--accept-package-agreements', '--accept-source-agreements', '-e', '--id', package], quiet=True)
+            for i, package in enumerate(winget_packages, 1):
+                print(f"  [{i}/{len(winget_packages)}] Installing {package}...")
+                code, out, err = run_command_streaming(
+                    ['winget', 'install', '--accept-package-agreements', '--accept-source-agreements', '-e', '--id', package],
+                    f"Installing {package}"
+                )
+                if code == 0:
+                    print_success(f"    {package} installed")
             
+            print()
             print_success("Windows packages installed via winget")
         else:
             print_warning("Windows Package Manager (winget) not found")
@@ -462,15 +619,21 @@ def install_termux_build_deps() -> bool:
         'libffi', 'openssl', 'libsodium', 'rust', 'python-pip'
     ]
     
-    # Update package list first
-    run_command(['pkg', 'update', '-y'], quiet=True)
+    # Update package list first with streaming
+    print_info("Updating package list...")
+    run_command_streaming(['pkg', 'update', '-y'], "Updating packages")
     
-    for package in packages:
-        print_info(f"Installing {package}...")
-        code, out, err = run_command(['pkg', 'install', '-y', package], quiet=True)
+    print()
+    print_info(f"Installing {len(packages)} build dependencies...")
+    for i, package in enumerate(packages, 1):
+        print(f"  [{i}/{len(packages)}] Installing {package}...")
+        code, out, err = run_command_streaming(['pkg', 'install', '-y', package], f"Installing {package}")
         if code != 0:
-            print_warning(f"Failed to install {package}: {err}")
+            print_warning(f"    Failed to install {package}")
+        else:
+            print_success(f"    {package} installed")
     
+    print()
     print_success("Build dependencies installed")
     return True
 
@@ -492,44 +655,57 @@ def install_python_dependencies() -> bool:
     elif plat in ['linux', 'raspberrypi', 'wsl']:
         # Ensure build tools are available
         print_info("Ensuring build tools are available...")
-        run_command(['sudo', 'apt', 'install', '-y', 'build-essential', 'python3-dev', 'libffi-dev', 'libsodium-dev'], quiet=True)
+        run_command_streaming(['sudo', 'apt', 'install', '-y', 'build-essential', 'python3-dev', 'libffi-dev', 'libsodium-dev'], "Installing build tools")
     
     # Upgrade pip first
     print_info("Upgrading pip...")
-    run_command([sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip'], quiet=True)
+    run_command_streaming([sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip'], "Upgrading pip")
     
-    # Install dependencies
-    code, out, err = run_command([
+    # Install dependencies with streaming output
+    print()
+    print_info("Installing Python packages from requirements.txt...")
+    print_info("  This may take several minutes. Progress will be shown below.")
+    print()
+    
+    code, out, err = run_command_streaming([
         sys.executable, '-m', 'pip', 'install', '-r', 'requirements.txt', '--upgrade'
-    ])
+    ], "Installing Python packages")
     
     if code == 0:
+        print()
         print_success("Python dependencies installed")
         return True
     else:
-        print_error(f"Failed to install dependencies: {err}")
+        print()
+        print_error(f"Failed to install dependencies")
         
         # Automatic retry with additional packages
         print_info("Attempting automatic fix...")
         
         if plat == 'termux':
             # Install libsodium and retry
-            run_command(['pkg', 'install', '-y', 'libsodium'], quiet=True)
+            print_info("Installing libsodium...")
+            run_command_streaming(['pkg', 'install', '-y', 'libsodium'], "Installing libsodium")
         elif plat in ['linux', 'raspberrypi', 'wsl']:
-            run_command(['sudo', 'apt', 'install', '-y', 'libsodium-dev', 'libssl-dev'], quiet=True)
+            print_info("Installing additional libraries...")
+            run_command_streaming(['sudo', 'apt', 'install', '-y', 'libsodium-dev', 'libssl-dev'], "Installing libraries")
         elif plat == 'macos':
-            run_command(['brew', 'install', 'libsodium'], quiet=True)
+            print_info("Installing libsodium via brew...")
+            run_command_streaming(['brew', 'install', 'libsodium'], "Installing libsodium")
         
-        # Retry installation
+        # Retry installation with streaming
+        print()
         print_info("Retrying dependency installation...")
-        code, out, err = run_command([
+        code, out, err = run_command_streaming([
             sys.executable, '-m', 'pip', 'install', '-r', 'requirements.txt', '--upgrade'
-        ])
+        ], "Installing Python packages (retry)")
         
         if code == 0:
+            print()
             print_success("Python dependencies installed after automatic fix")
             return True
         
+        print()
         print_error("Installation still failed after automatic fix")
         return False
 
