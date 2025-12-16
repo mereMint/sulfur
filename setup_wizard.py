@@ -45,11 +45,61 @@ def print_section(text):
     print(f"  {text}")
     print('─' * 60)
 
+def validate_identifier(name, identifier_type="identifier"):
+    """
+    Validate a MySQL identifier (database name, username, hostname).
+    Returns True if valid, raises ValueError if invalid.
+    
+    MySQL identifiers can contain:
+    - Letters (a-z, A-Z)
+    - Digits (0-9)
+    - Underscores (_)
+    - Dollar signs ($)
+    
+    For safety, we restrict to alphanumeric and underscore only.
+    """
+    import re
+    if not name:
+        raise ValueError(f"{identifier_type} cannot be empty")
+    if len(name) > 64:  # MySQL max identifier length
+        raise ValueError(f"{identifier_type} cannot exceed 64 characters")
+    if not re.match(r'^[a-zA-Z0-9_]+$', name):
+        raise ValueError(f"{identifier_type} can only contain letters, numbers, and underscores")
+    return True
+
+def validate_hostname(host):
+    """
+    Validate a hostname for MySQL connection.
+    Allows localhost, IP addresses, and domain names.
+    """
+    import re
+    if not host:
+        raise ValueError("Hostname cannot be empty")
+    # Allow localhost, IP addresses, and simple hostnames
+    if host == 'localhost' or host == '127.0.0.1':
+        return True
+    # Simple hostname/IP validation
+    if re.match(r'^[a-zA-Z0-9._-]+$', host):
+        return True
+    raise ValueError(f"Invalid hostname format: {host}")
+
 # Get database configuration from environment or use defaults
 DB_HOST = os.environ.get('DB_HOST', 'localhost')
 DB_USER = os.environ.get('DB_USER', 'sulfur_bot_user')
 DB_PASS = os.environ.get('DB_PASS', '')
 DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot')
+
+# Validate configuration to prevent SQL injection
+try:
+    validate_hostname(DB_HOST)
+    validate_identifier(DB_USER, "Database user")
+    validate_identifier(DB_NAME, "Database name")
+    # Password doesn't need identifier validation, but we'll escape it properly when used
+except ValueError as e:
+    print(f"\n❌ Configuration Error: {e}")
+    print("\nPlease check your .env file for invalid characters.")
+    print("Database name and user can only contain letters, numbers, and underscores.")
+    sys.exit(1)
 
 print_header("SULFUR BOT - MYSQL SETUP WIZARD")
 
@@ -121,24 +171,39 @@ if not connected:
 # Now set up the database
 print_section("Step 2: Creating Database and User")
 
+def escape_password(password):
+    """
+    Escape special characters in password for MySQL.
+    Note: For user creation, we need to escape single quotes properly.
+    """
+    if not password:
+        return ''
+    # Escape single quotes by doubling them (MySQL standard escaping)
+    return password.replace("'", "''")
+
 try:
     cursor = root_conn.cursor()
     
     # Create database with configurable name
+    # DB_NAME is already validated to contain only safe characters
     print(f"Creating database '{DB_NAME}'...", end=" ")
     cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{DB_NAME}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
     print("✅")
     
     # Drop old user
+    # DB_USER and DB_HOST are already validated
     print(f"Removing old user '{DB_USER}' if exists...", end=" ")
     cursor.execute(f"DROP USER IF EXISTS '{DB_USER}'@'{DB_HOST}'")
     print("✅")
     
     # Create user with configurable name and password
+    # Password is escaped to handle special characters safely
+    escaped_pass = escape_password(DB_PASS)
+    
     print(f"Creating user '{DB_USER}'...", end=" ")
     try:
         if DB_PASS:
-            cursor.execute(f"CREATE USER '{DB_USER}'@'{DB_HOST}' IDENTIFIED BY '{DB_PASS}'")
+            cursor.execute(f"CREATE USER '{DB_USER}'@'{DB_HOST}' IDENTIFIED BY '{escaped_pass}'")
         else:
             cursor.execute(f"CREATE USER '{DB_USER}'@'{DB_HOST}' IDENTIFIED BY ''")
         print("✅")
@@ -148,7 +213,7 @@ try:
             print()
             print("  ⚠️  Authentication plugin issue, trying alternative method...")
             if DB_PASS:
-                cursor.execute(f"CREATE USER '{DB_USER}'@'{DB_HOST}' IDENTIFIED WITH mysql_native_password BY '{DB_PASS}'")
+                cursor.execute(f"CREATE USER '{DB_USER}'@'{DB_HOST}' IDENTIFIED WITH mysql_native_password BY '{escaped_pass}'")
             else:
                 cursor.execute(f"CREATE USER '{DB_USER}'@'{DB_HOST}' IDENTIFIED WITH mysql_native_password BY ''")
             print("  ✅ User created with alternative method")

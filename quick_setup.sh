@@ -38,8 +38,8 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         *)
-            echo -e "${RED}Unknown option: $1${NC}"
-            exit 1
+            # Skip unknown options silently for backward compatibility
+            shift
             ;;
     esac
 done
