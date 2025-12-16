@@ -538,8 +538,13 @@ async def get_random_song_from_combined_library(db_helpers) -> dict:
                 if lastfm_songs and len(lastfm_songs) > 0:
                     # Add unique songs from Last.fm
                     for song in lastfm_songs:
+                        # Use hashlib for deterministic ID generation
+                        import hashlib
+                        song_key = f"{song.get('artist', '')}|{song.get('title', '')}"
+                        song_hash = int(hashlib.md5(song_key.encode()).hexdigest()[:8], 16)
+                        song_id = (song_hash % 100000) + 100000  # IDs from 100000-199999
                         all_songs.append({
-                            'id': hash(f"{song.get('artist')}|{song.get('title')}") % 100000 + 100000,  # Generate unique ID
+                            'id': song_id,
                             'title': song.get('title', 'Unknown'),
                             'artist': song.get('artist', 'Unknown'),
                             'year': song.get('year') or 2020,

@@ -20,11 +20,40 @@ from modules.logger_utils import bot_logger as logger
 LASTFM_API_BASE_URL = "https://ws.audioscrobbler.com/2.0/"
 
 # Cache for API responses to reduce API calls
-_track_cache: Dict[str, dict] = {}
-_album_cache: Dict[str, dict] = {}
-_similar_tracks_cache: Dict[str, List[dict]] = {}
+# Each cache entry is a tuple of (timestamp, data)
+_track_cache: Dict[str, tuple] = {}
+_album_cache: Dict[str, tuple] = {}
+_similar_tracks_cache: Dict[str, tuple] = {}
 CACHE_MAX_SIZE = 500
 CACHE_TTL_SECONDS = 3600  # 1 hour
+
+
+def _get_cached(cache: dict, key: str) -> Optional[Any]:
+    """Get an item from cache if it exists and hasn't expired."""
+    import time
+    if key in cache:
+        timestamp, data = cache[key]
+        if time.time() - timestamp < CACHE_TTL_SECONDS:
+            return data
+        else:
+            # Expired, remove from cache
+            del cache[key]
+    return None
+
+
+def _set_cached(cache: dict, key: str, data: Any) -> None:
+    """Set an item in cache with current timestamp, evicting old entries if needed."""
+    import time
+    
+    # Evict oldest entries if cache is full
+    if len(cache) >= CACHE_MAX_SIZE:
+        # Remove 10% of oldest entries
+        entries_to_remove = max(1, CACHE_MAX_SIZE // 10)
+        sorted_keys = sorted(cache.keys(), key=lambda k: cache[k][0])
+        for old_key in sorted_keys[:entries_to_remove]:
+            del cache[old_key]
+    
+    cache[key] = (time.time(), data)
 
 
 def get_lastfm_api_key() -> Optional[str]:
@@ -166,8 +195,9 @@ async def get_track_info(track_name: str, artist: str) -> Optional[dict]:
         return None
     
     cache_key = f"{artist}|{track_name}".lower()
-    if cache_key in _track_cache:
-        return _track_cache[cache_key]
+    cached = _get_cached(_track_cache, cache_key)
+    if cached is not None:
+        return cached
     
     params = {
         'method': 'track.getInfo',
@@ -195,8 +225,7 @@ async def get_track_info(track_name: str, artist: str) -> Optional[dict]:
         }
         
         # Cache the result
-        if len(_track_cache) < CACHE_MAX_SIZE:
-            _track_cache[cache_key] = result
+        _set_cached(_track_cache, cache_key, result)
         
         return result
         
@@ -220,8 +249,8 @@ async def get_album_tracks(album_name: str, artist: str) -> List[dict]:
         return []
     
     cache_key = f"{artist}|{album_name}".lower()
-    if cache_key in _album_cache:
-        cached = _album_cache[cache_key]
+    cached = _get_cached(_album_cache, cache_key)
+    if cached is not None:
         return cached.get('tracks', [])
     
     params = {
@@ -255,12 +284,11 @@ async def get_album_tracks(album_name: str, artist: str) -> List[dict]:
             })
         
         # Cache the result
-        if len(_album_cache) < CACHE_MAX_SIZE:
-            _album_cache[cache_key] = {
-                'name': album.get('name'),
-                'artist': artist,
-                'tracks': tracks
-            }
+        _set_cached(_album_cache, cache_key, {
+            'name': album.get('name'),
+            'artist': artist,
+            'tracks': tracks
+        })
         
         logger.info(f"Last.fm: Found {len(tracks)} tracks for album '{album_name}' by '{artist}'")
         return tracks
@@ -287,8 +315,9 @@ async def get_similar_tracks(track_name: str, artist: str, limit: int = 20) -> L
         return []
     
     cache_key = f"{artist}|{track_name}".lower()
-    if cache_key in _similar_tracks_cache:
-        return _similar_tracks_cache[cache_key][:limit]
+    cached = _get_cached(_similar_tracks_cache, cache_key)
+    if cached is not None:
+        return cached[:limit]
     
     params = {
         'method': 'track.getSimilar',
@@ -320,8 +349,7 @@ async def get_similar_tracks(track_name: str, artist: str, limit: int = 20) -> L
             })
         
         # Cache the result
-        if len(_similar_tracks_cache) < CACHE_MAX_SIZE:
-            _similar_tracks_cache[cache_key] = results
+        _set_cached(_similar_tracks_cache, cache_key, results)
         
         logger.info(f"Last.fm: Found {len(results)} similar tracks to '{track_name}' by '{artist}'")
         return results
@@ -633,9 +661,11 @@ async def get_random_songs_for_songle(count: int = 50, genres: List[str] = None)
     Get random songs suitable for the Songle game.
     Uses Last.fm top tracks by genre/tag for variety.
     
+    Genres can be configured in config/config.json under modules.music.songle_genres.
+    
     Args:
         count: Number of songs to retrieve
-        genres: Optional list of genres to sample from
+        genres: Optional list of genres to sample from. If None, uses config or defaults.
     
     Returns:
         List of song dictionaries with title, artist, genre
@@ -644,7 +674,19 @@ async def get_random_songs_for_songle(count: int = 50, genres: List[str] = None)
         logger.info("Last.fm not configured for Songle random songs")
         return []
     
-    # Default genres for variety
+    # Load genres from config if not provided
+    if genres is None:
+        try:
+            import json
+            config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config', 'config.json')
+            if os.path.exists(config_path):
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                genres = config.get('modules', {}).get('music', {}).get('songle_genres', None)
+        except Exception as e:
+            logger.debug(f"Could not load genres from config: {e}")
+    
+    # Default genres for variety (fallback if config not available)
     default_genres = [
         'pop', 'rock', 'hip-hop', 'electronic', 'indie', 'rnb',
         'alternative', 'dance', 'metal', 'jazz', 'classical',

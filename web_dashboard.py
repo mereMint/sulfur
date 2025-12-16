@@ -1024,6 +1024,13 @@ def _read_env_file() -> dict:
     return env_values
 
 
+def _format_env_value(key: str, value: str) -> str:
+    """Format a key-value pair for .env file, quoting if necessary."""
+    if value and any(c in value for c in ' "\'#='):
+        return f'{key}="{value}"\n'
+    return f'{key}={value}\n'
+
+
 def _write_env_file(env_values: dict) -> bool:
     """Write key-value pairs back to the .env file, preserving comments and structure."""
     env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
@@ -1052,11 +1059,7 @@ def _write_env_file(env_values: dict) -> bool:
                 if key in env_values:
                     # Update the value
                     value = env_values[key]
-                    # Quote the value if it contains special characters
-                    if value and any(c in value for c in ' "\'#='):
-                        new_lines.append(f'{key}="{value}"\n')
-                    else:
-                        new_lines.append(f'{key}={value}\n')
+                    new_lines.append(_format_env_value(key, value))
                     updated_keys.add(key)
                 else:
                     new_lines.append(line)
@@ -1066,10 +1069,7 @@ def _write_env_file(env_values: dict) -> bool:
         # Add new keys that weren't in the file
         for key, value in env_values.items():
             if key not in updated_keys:
-                if value and any(c in value for c in ' "\'#='):
-                    new_lines.append(f'{key}="{value}"\n')
-                else:
-                    new_lines.append(f'{key}={value}\n')
+                new_lines.append(_format_env_value(key, value))
         
         # Write the updated file
         with open(env_path, 'w', encoding='utf-8') as f:
@@ -1236,7 +1236,25 @@ def api_validate_api_key(key_name):
 
 
 async def _validate_api_key_async(key_name: str, key_value: str) -> dict:
-    """Validate an API key by making a test request."""
+    """
+    Validate an API key by making a test request to the respective service.
+    
+    Makes lightweight API calls to verify the key is valid and has proper permissions.
+    Each API service has a different validation endpoint:
+    - Gemini: Lists available models
+    - OpenAI: Lists available models
+    - Last.fm: Gets top artists chart (1 result)
+    - Football-Data.org: Lists available competitions
+    
+    Args:
+        key_name: The environment variable name (e.g., 'GEMINI_API_KEY')
+        key_value: The actual API key value to validate
+        
+    Returns:
+        dict with keys:
+            - 'valid': bool indicating if the key is valid
+            - 'message': str with success message or error description
+    """
     import aiohttp
     
     try:
