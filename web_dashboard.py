@@ -4509,7 +4509,7 @@ def user_profiles_page():
 
 @app.route('/api/users/profiles', methods=['GET'])
 def api_users_profiles():
-    """API endpoint to get all user profiles."""
+    """API endpoint to get all user profiles with consolidated data."""
     try:
         if not db_helpers.db_pool:
             return jsonify({'error': 'Database not available', 'users': []}), 500
@@ -4537,51 +4537,84 @@ def api_users_profiles():
                     'message': 'No users found. Users will appear after interacting with the bot.'
                 })
             
-            # Get user profiles with stats - use latest stats for each user
-            # Try a complex query first, fallback to simple if tables don't exist
             users = None
             
-            # First, try the comprehensive query with all tables
+            # Try the consolidated view first (if migration has been applied)
             try:
                 cursor.execute("""
                     SELECT 
-                        p.discord_id as user_id,
-                        p.display_name,
-                        CASE WHEN COUNT(fu.id) > 0 THEN 1 ELSE 0 END as is_premium,
-                        COALESCE(p.level, 0) as level,
-                        COALESCE(p.xp, 0) as xp,
-                        COALESCE(p.balance, 0) as coins,
-                        COALESCE(MAX(us.messages_sent), 0) as message_count,
-                        COALESCE(mh_count.song_count, 0) as songs_played
-                    FROM players p
-                    LEFT JOIN user_stats us ON p.discord_id = us.user_id
-                    LEFT JOIN feature_unlocks fu ON p.discord_id = fu.user_id AND fu.feature_name LIKE '%premium%'
-                    LEFT JOIN (
-                        SELECT user_id, COUNT(*) as song_count
-                        FROM music_history
-                        GROUP BY user_id
-                    ) mh_count ON p.discord_id = mh_count.user_id
-                    GROUP BY p.discord_id, p.display_name, p.level, p.xp, p.balance, mh_count.song_count
-                    ORDER BY 
-                        level DESC, 
-                        xp DESC,
-                        p.display_name ASC
+                        user_id,
+                        display_name,
+                        level,
+                        xp,
+                        balance as coins,
+                        CASE WHEN premium_features_unlocked > 0 THEN 1 ELSE 0 END as is_premium,
+                        total_messages as message_count,
+                        total_voice_minutes as voice_minutes,
+                        last_seen,
+                        equipped_color,
+                        language
+                    FROM v_user_profiles
+                    ORDER BY level DESC, xp DESC, display_name ASC
                     LIMIT 500
                 """)
                 users = cursor.fetchall()
-            except Exception as complex_err:
-                logger.warning(f"Complex user query failed (likely missing tables): {complex_err}")
-                # Fallback to simple query from players table only
+                logger.info(f"Retrieved {len(users)} user profiles from consolidated view")
+            except Exception as view_err:
+                logger.debug(f"Consolidated view not available, using fallback: {view_err}")
+            
+            # If view failed, try the comprehensive query
+            if users is None:
+                try:
+                    cursor.execute("""
+                        SELECT 
+                            p.discord_id as user_id,
+                            p.display_name,
+                            COALESCE(p.level, 0) as level,
+                            COALESCE(p.xp, 0) as xp,
+                            COALESCE(p.balance, 0) as coins,
+                            CASE WHEN COUNT(fu.feature_name) > 0 THEN 1 ELSE 0 END as is_premium,
+                            COALESCE(SUM(us.messages_sent), 0) as message_count,
+                            COALESCE(SUM(us.voice_minutes), 0) as voice_minutes,
+                            p.last_seen,
+                            COALESCE(uc.equipped_color, '#00ff41') as equipped_color,
+                            COALESCE(uc.language, 'de') as language,
+                            COALESCE(mh_count.song_count, 0) as songs_played
+                        FROM players p
+                        LEFT JOIN user_stats us ON p.discord_id = us.user_id
+                        LEFT JOIN user_customization uc ON p.discord_id = uc.user_id
+                        LEFT JOIN feature_unlocks fu ON p.discord_id = fu.user_id AND fu.feature_name LIKE '%premium%'
+                        LEFT JOIN (
+                            SELECT user_id, COUNT(*) as song_count
+                            FROM music_history
+                            GROUP BY user_id
+                        ) mh_count ON p.discord_id = mh_count.user_id
+                        GROUP BY p.discord_id, p.display_name, p.level, p.xp, p.balance, 
+                                 p.last_seen, uc.equipped_color, uc.language, mh_count.song_count
+                        ORDER BY level DESC, xp DESC, p.display_name ASC
+                        LIMIT 500
+                    """)
+                    users = cursor.fetchall()
+                    logger.info(f"Retrieved {len(users)} user profiles using comprehensive query")
+                except Exception as complex_err:
+                    logger.warning(f"Comprehensive query failed: {complex_err}")
+            
+            # Fallback to simple players-only query
+            if users is None:
                 try:
                     cursor.execute("""
                         SELECT 
                             discord_id as user_id,
                             display_name,
-                            0 as is_premium,
                             COALESCE(level, 0) as level,
                             COALESCE(xp, 0) as xp,
                             COALESCE(balance, 0) as coins,
+                            0 as is_premium,
                             0 as message_count,
+                            0 as voice_minutes,
+                            last_seen,
+                            '#00ff41' as equipped_color,
+                            'de' as language,
                             0 as songs_played
                         FROM players
                         ORDER BY level DESC, xp DESC, display_name ASC
@@ -4593,9 +4626,7 @@ def api_users_profiles():
                     logger.error(f"Simple user query also failed: {simple_err}")
                     users = []
             
-            logger.info(f"Retrieved {len(users or [])} user profiles from database")
-            
-            # Convert to proper format
+            # Convert to proper format with all available data
             users_list = []
             for user in (users or []):
                 users_list.append({
@@ -4607,7 +4638,11 @@ def api_users_profiles():
                     'xp': int(user.get('xp', 0) or 0),
                     'coins': int(user.get('coins', 0) or 0),
                     'message_count': int(user.get('message_count', 0) or 0),
-                    'songs_played': int(user.get('songs_played', 0) or 0)
+                    'voice_minutes': int(user.get('voice_minutes', 0) or 0),
+                    'songs_played': int(user.get('songs_played', 0) or 0),
+                    'last_seen': str(user.get('last_seen', '')) if user.get('last_seen') else None,
+                    'equipped_color': user.get('equipped_color', '#00ff41'),
+                    'language': user.get('language', 'de')
                 })
             
             return jsonify({
