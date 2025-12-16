@@ -13,6 +13,13 @@ param(
     [switch]$Force
 )
 
+# Detect if running in non-interactive mode (piped input)
+$INTERACTIVE = -not ([Console]::IsInputRedirected)
+
+if (-not $INTERACTIVE) {
+    Write-Host "Note: Running in non-interactive mode (piped from PowerShell)" -ForegroundColor Yellow
+}
+
 # Colors
 function Write-ColorHost {
     param([string]$Message, [string]$Color = "White")
@@ -38,9 +45,13 @@ $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIde
 if (-not $isAdmin) {
     Write-Warning "This script works best when run as Administrator."
     Write-Info "Some installations may require manual steps without admin rights."
-    $continue = Read-Host "Continue anyway? [Y/n]"
-    if ($continue -eq "n" -or $continue -eq "N") {
-        exit 0
+    if ($INTERACTIVE) {
+        $continue = Read-Host "Continue anyway? [Y/n]"
+        if ($continue -eq "n" -or $continue -eq "N") {
+            exit 0
+        }
+    } else {
+        Write-Host "Continuing in non-interactive mode" -ForegroundColor Yellow
     }
 }
 
@@ -105,7 +116,11 @@ function Install-Python {
         Write-Info "Please download Python from https://www.python.org/downloads/"
         Write-Info "Make sure to check 'Add Python to PATH' during installation"
         Start-Process "https://www.python.org/downloads/"
-        Read-Host "Press Enter after installing Python..."
+        if ($INTERACTIVE) {
+            Read-Host "Press Enter after installing Python..."
+        } else {
+            Write-Host "Please install Python 3.8+ manually: https://www.python.org/downloads/" -ForegroundColor Yellow
+        }
     }
     
     return (Get-Command python -ErrorAction SilentlyContinue) -ne $null
@@ -135,7 +150,11 @@ function Install-Git {
     else {
         Write-Info "Please download Git from https://git-scm.com/download/win"
         Start-Process "https://git-scm.com/download/win"
-        Read-Host "Press Enter after installing Git..."
+        if ($INTERACTIVE) {
+            Read-Host "Press Enter after installing Git..."
+        } else {
+            Write-Host "Please install Git manually: https://git-scm.com/download/win" -ForegroundColor Yellow
+        }
     }
     
     return (Get-Command git -ErrorAction SilentlyContinue) -ne $null
@@ -167,6 +186,11 @@ function Install-MySQL {
     
     Write-Step "MySQL not found"
     
+    if (-not $INTERACTIVE) {
+        Write-Host "Skipping MySQL installation (non-interactive mode)" -ForegroundColor Yellow
+        return $false
+    }
+    
     $install = Read-Host "Install MySQL? [Y/n]"
     if ($install -eq "n" -or $install -eq "N") {
         Write-Info "Skipping MySQL. You can install it later."
@@ -183,7 +207,9 @@ function Install-MySQL {
     else {
         Write-Info "Please download MySQL from https://dev.mysql.com/downloads/installer/"
         Start-Process "https://dev.mysql.com/downloads/installer/"
-        Read-Host "Press Enter after installing MySQL..."
+        if ($INTERACTIVE) {
+            Read-Host "Press Enter after installing MySQL..."
+        }
     }
     
     return (Get-Command mysql -ErrorAction SilentlyContinue) -ne $null
@@ -217,6 +243,11 @@ function Install-Java {
         }
     }
     
+    if (-not $INTERACTIVE) {
+        Write-Host "Skipping Java installation (non-interactive mode)" -ForegroundColor Yellow
+        return $false
+    }
+    
     $install = Read-Host "Install Java 21 for Minecraft server? [Y/n]"
     if ($install -eq "n" -or $install -eq "N") {
         return $false
@@ -234,7 +265,9 @@ function Install-Java {
     else {
         Write-Info "Please download Java 21 from https://adoptium.net/"
         Start-Process "https://adoptium.net/"
-        Read-Host "Press Enter after installing Java..."
+        if ($INTERACTIVE) {
+            Read-Host "Press Enter after installing Java..."
+        }
     }
     
     return (Get-Command java -ErrorAction SilentlyContinue) -ne $null
@@ -258,6 +291,11 @@ function Install-WireGuard {
         return $true
     }
     
+    if (-not $INTERACTIVE) {
+        Write-Host "Skipping WireGuard installation (non-interactive mode)" -ForegroundColor Yellow
+        return $false
+    }
+    
     $install = Read-Host "Install WireGuard VPN? [y/N]"
     if ($install -ne "y" -and $install -ne "Y") {
         return $false
@@ -271,7 +309,9 @@ function Install-WireGuard {
     else {
         Write-Info "Please download WireGuard from https://www.wireguard.com/install/"
         Start-Process "https://www.wireguard.com/install/"
-        Read-Host "Press Enter after installing WireGuard..."
+        if ($INTERACTIVE) {
+            Read-Host "Press Enter after installing WireGuard..."
+        }
     }
     
     return $true
@@ -345,6 +385,11 @@ function Run-SetupWizard {
 
 # Create shortcut
 function Create-Shortcut {
+    if (-not $INTERACTIVE) {
+        Write-Host "Skipping desktop shortcut creation (non-interactive mode)" -ForegroundColor Yellow
+        return
+    }
+    
     $createShortcut = Read-Host "Create desktop shortcut? [Y/n]"
     if ($createShortcut -eq "n" -or $createShortcut -eq "N") {
         return
@@ -389,9 +434,13 @@ function Main {
     Write-ColorHost "════════════════════════════════════════════════════════════════" "Green"
     
     # Run setup wizard
-    $runWizard = Read-Host "Run the setup wizard now? [Y/n]"
-    if ($runWizard -ne "n" -and $runWizard -ne "N") {
-        Run-SetupWizard
+    if ($INTERACTIVE) {
+        $runWizard = Read-Host "Run the setup wizard now? [Y/n]"
+        if ($runWizard -ne "n" -and $runWizard -ne "N") {
+            Run-SetupWizard
+        }
+    } else {
+        Write-Host "Setup wizard available: python master_setup.py" -ForegroundColor Cyan
     }
     
     Create-Shortcut

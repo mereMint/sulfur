@@ -7,6 +7,13 @@
 #   Set-ExecutionPolicy Bypass -Scope Process; .\scripts\quickinstall.ps1
 # ==============================================================================
 
+# Detect if running in non-interactive mode (piped input)
+$INTERACTIVE = -not ([Console]::IsInputRedirected)
+
+if (-not $INTERACTIVE) {
+    Write-Host "Note: Running in non-interactive mode (piped from PowerShell)" -ForegroundColor Yellow
+}
+
 # Check if running as Administrator
 $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
@@ -99,7 +106,11 @@ function Install-Python {
         Write-Info "Please download Python from https://www.python.org/downloads/"
         Write-Info "Make sure to check 'Add Python to PATH' during installation"
         Start-Process "https://www.python.org/downloads/"
-        Read-Host "Press Enter after installing Python..."
+        if ($INTERACTIVE) {
+            Read-Host "Press Enter after installing Python..."
+        } else {
+            Write-Host "Please install Python 3.8+ manually: https://www.python.org/downloads/" -ForegroundColor Yellow
+        }
     }
     
     return (Get-Command python -ErrorAction SilentlyContinue) -ne $null
@@ -129,7 +140,11 @@ function Install-Git {
     else {
         Write-Info "Please download Git from https://git-scm.com/download/win"
         Start-Process "https://git-scm.com/download/win"
-        Read-Host "Press Enter after installing Git..."
+        if ($INTERACTIVE) {
+            Read-Host "Press Enter after installing Git..."
+        } else {
+            Write-Host "Please install Git manually: https://git-scm.com/download/win" -ForegroundColor Yellow
+        }
     }
     
     return (Get-Command git -ErrorAction SilentlyContinue) -ne $null
@@ -142,7 +157,12 @@ function Setup-Repository {
     
     if (Test-Path $InstallDir) {
         Write-Info "Sulfur directory already exists at $InstallDir"
-        $update = Read-Host "Update to latest version? [Y/n]"
+        if ($INTERACTIVE) {
+            $update = Read-Host "Update to latest version? [Y/n]"
+        } else {
+            $update = "y"
+            Write-Host "Updating to latest version (non-interactive mode)" -ForegroundColor Yellow
+        }
         
         if ($update -ne "n" -and $update -ne "N") {
             Write-Step "Updating repository..."
@@ -203,7 +223,12 @@ function Run-SetupWizard {
     Write-ColorHost "═══════════════════════════════════════════════════════════════" "Magenta"
     Write-Host ""
     
-    $runWizard = Read-Host "Run the interactive setup wizard? [Y/n]"
+    if ($INTERACTIVE) {
+        $runWizard = Read-Host "Run the interactive setup wizard? [Y/n]"
+    } else {
+        $runWizard = "n"
+        Write-Host "Skipping interactive setup wizard (non-interactive mode)" -ForegroundColor Yellow
+    }
     
     if ($runWizard -ne "n" -and $runWizard -ne "N") {
         & .\venv\Scripts\Activate.ps1
@@ -220,6 +245,11 @@ function Run-SetupWizard {
 
 # Create desktop shortcut
 function Create-Shortcut {
+    if (-not $INTERACTIVE) {
+        Write-Host "Skipping desktop shortcut creation (non-interactive mode)" -ForegroundColor Yellow
+        return
+    }
+    
     $createShortcut = Read-Host "Create desktop shortcut? [Y/n]"
     if ($createShortcut -eq "n" -or $createShortcut -eq "N") {
         return
@@ -292,14 +322,16 @@ function Main {
     # Setup virtual environment
     Setup-VirtualEnv
     
-    # Run full Windows installer if available
-    if (Test-Path "scripts\install_windows.ps1") {
+    # Run full Windows installer if available and in interactive mode
+    if ($INTERACTIVE -and (Test-Path "scripts\install_windows.ps1")) {
         $runFull = Read-Host "Run full Windows installer (includes MySQL, Java, etc.)? [y/N]"
         if ($runFull -eq "y" -or $runFull -eq "Y") {
             & .\scripts\install_windows.ps1
         }
+    } elseif (-not $INTERACTIVE -and (Test-Path "scripts\install_windows.ps1")) {
+        Write-Host "Full Windows installer available (run manually: .\scripts\install_windows.ps1)" -ForegroundColor Cyan
     }
-    
+
     # Interactive setup
     Run-SetupWizard
     

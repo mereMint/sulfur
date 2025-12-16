@@ -245,8 +245,8 @@ setup_python() {
     echo -e "${GREEN}✅ Python dependencies installed${NC}"
 }
 
-# Run platform-specific installer
-run_installer() {
+# Run platform-specific installer (FULL installer - optional)
+run_full_installer() {
     case $PLATFORM in
         termux)
             if [ -f "scripts/install_termux.sh" ]; then
@@ -261,10 +261,15 @@ run_installer() {
             fi
             ;;
         *)
-            # Just use the basic setup
-            setup_python
+            echo -e "${YELLOW}No full installer available for this platform${NC}"
             ;;
     esac
+}
+
+# Quick installer - just Python dependencies
+run_quick_installer() {
+    echo -e "${BLUE}🚀 Running quick installation...${NC}"
+    setup_python
 }
 
 # Interactive setup
@@ -339,22 +344,35 @@ main() {
         echo -e "${GREEN}✅ Existing installation found${NC}"
         
         if [ "$INTERACTIVE" = true ]; then
-            echo -n "   Run full installer again? [y/N]: "
-            read -r full_install
+            echo -n "   Update dependencies? [Y/n]: "
+            read -r update_deps
         else
-            full_install="n"
-            echo "   Updating dependencies only (non-interactive mode)"
+            update_deps="y"
+            echo "   Updating dependencies (non-interactive mode)"
         fi
         
-        if [ "$full_install" = "y" ] || [ "$full_install" = "Y" ]; then
-            run_installer
-        else
+        if [ "$update_deps" != "n" ] && [ "$update_deps" != "N" ]; then
             # Just update dependencies
             source venv/bin/activate
-            pip install -r requirements.txt --upgrade
+            pip install -r requirements.txt --upgrade --quiet
+            echo -e "${GREEN}✅ Dependencies updated${NC}"
         fi
     else
-        run_installer
+        # Fresh install - use quick installer (just Python setup)
+        run_quick_installer
+    fi
+    
+    # Offer full installer only in interactive mode
+    if [ "$INTERACTIVE" = true ]; then
+        echo ""
+        echo -e "${YELLOW}Would you like to run the full system installer?${NC}"
+        echo -e "${CYAN}   This includes: MySQL/MariaDB, Java (for Minecraft), WireGuard VPN${NC}"
+        echo -n "   Run full installer? [y/N]: "
+        read -r full_install
+        
+        if [ "$full_install" = "y" ] || [ "$full_install" = "Y" ]; then
+            run_full_installer
+        fi
     fi
     
     interactive_setup
