@@ -10,6 +10,14 @@
 
 set -e
 
+# Detect if stdin is a pipe (script is being piped from curl/wget)
+if [ -t 0 ]; then
+    INTERACTIVE=true
+else
+    INTERACTIVE=false
+    echo "Note: Running in non-interactive mode (piped from curl/wget)"
+fi
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -139,8 +147,14 @@ install_packages() {
 setup_repository() {
     if [ -d "$INSTALL_DIR" ]; then
         echo -e "${BLUE}📁 Sulfur directory already exists${NC}"
-        echo -n "   Update to latest version? [Y/n]: "
-        read -r update_choice
+        
+        if [ "$INTERACTIVE" = true ]; then
+            echo -n "   Update to latest version? [Y/n]: "
+            read -r update_choice
+        else
+            update_choice="y"
+            echo "   Updating to latest version (non-interactive mode)"
+        fi
         
         if [ "$update_choice" != "n" ] && [ "$update_choice" != "N" ]; then
             echo -e "${BLUE}📥 Updating repository...${NC}"
@@ -215,8 +229,13 @@ interactive_setup() {
     echo -e "${MAGENTA}═══════════════════════════════════════════════════════════════${NC}"
     echo ""
     
-    echo -n "Run the interactive setup wizard? [Y/n]: "
-    read -r run_wizard
+    if [ "$INTERACTIVE" = true ]; then
+        echo -n "Run the interactive setup wizard? [Y/n]: "
+        read -r run_wizard
+    else
+        run_wizard="n"
+        echo "Skipping interactive setup wizard (non-interactive mode)"
+    fi
     
     if [ "$run_wizard" != "n" ] && [ "$run_wizard" != "N" ]; then
         source venv/bin/activate
@@ -272,8 +291,14 @@ main() {
     # Check if this is a fresh install or update
     if [ -f "venv/bin/activate" ]; then
         echo -e "${GREEN}✅ Existing installation found${NC}"
-        echo -n "   Run full installer again? [y/N]: "
-        read -r full_install
+        
+        if [ "$INTERACTIVE" = true ]; then
+            echo -n "   Run full installer again? [y/N]: "
+            read -r full_install
+        else
+            full_install="n"
+            echo "   Updating dependencies only (non-interactive mode)"
+        fi
         
         if [ "$full_install" = "y" ] || [ "$full_install" = "Y" ]; then
             run_installer

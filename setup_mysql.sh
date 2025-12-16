@@ -123,11 +123,11 @@ if $MYSQL_CLIENT -u sulfur_bot_user sulfur_bot -e "SELECT 'Connection successful
     echo -e "${CYAN}Next steps:${NC}"
     if [ "$IS_TERMUX" = true ]; then
         echo -e "1. Install dependencies: pip install -r requirements.txt"
-        echo -e "2. Run setup test: python test_setup.py"
+        echo -e "2. Run setup test: python verify_setup.py"
         echo -e "3. Start the bot: bash start.sh"
     else
         echo -e "1. Install dependencies: pip install -r requirements.txt"
-        echo -e "2. Run setup test: python3 test_setup.py"
+        echo -e "2. Run setup test: python3 verify_setup.py"
         echo -e "3. Start the bot: ./start.sh"
     fi
 else

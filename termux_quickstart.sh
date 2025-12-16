@@ -701,9 +701,9 @@ if [ -f "verify_termux_setup.sh" ]; then
         print_warning "Some verification checks failed - review above"
         print_info "You can still try to run the bot"
     fi
-elif [ -f "test_setup.py" ]; then
+elif [ -f "verify_setup.py" ]; then
     print_info "Running Python setup verification..."
-    if python test_setup.py; then
+    if python verify_setup.py; then
         print_success "Verification passed!"
     else
         print_warning "Some verification checks failed - review above"
@@ -711,7 +711,7 @@ elif [ -f "test_setup.py" ]; then
     fi
 else
     print_warning "No verification script found, skipping tests"
-    print_info "You can run 'python test_setup.py' later to verify"
+    print_info "You can run 'python verify_setup.py' later to verify"
 fi
 
 echo ""

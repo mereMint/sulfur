@@ -174,12 +174,16 @@ print_section("Step 2: Creating Database and User")
 def escape_password(password):
     """
     Escape special characters in password for MySQL.
-    Note: For user creation, we need to escape single quotes properly.
+    Note: For user creation, we need to escape single quotes and backslashes properly.
+    MySQL string literal escaping requires: ' -> '' and \\ -> \\\\
     """
     if not password:
         return ''
-    # Escape single quotes by doubling them (MySQL standard escaping)
-    return password.replace("'", "''")
+    # Escape backslashes first (they escape other characters)
+    password = password.replace('\\', '\\\\')
+    # Then escape single quotes by doubling them (MySQL standard escaping)
+    password = password.replace("'", "''")
+    return password
 
 try:
     cursor = root_conn.cursor()

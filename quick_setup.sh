@@ -217,9 +217,9 @@ fi
 
 # Verify .env has required fields
 echo -e "${CYAN}Verifying .env configuration...${NC}"
-HAS_DISCORD_TOKEN=$(grep -c 'DISCORD_BOT_TOKEN=".\\+"' .env 2>/dev/null || echo 0)
-HAS_GEMINI_KEY=$(grep -c 'GEMINI_API_KEY=".\\+"' .env 2>/dev/null || echo 0)
-HAS_OPENAI_KEY=$(grep -c 'OPENAI_API_KEY=".\\+"' .env 2>/dev/null || echo 0)
+HAS_DISCORD_TOKEN=$(grep -E -c 'DISCORD_BOT_TOKEN=".+"' .env 2>/dev/null || echo 0)
+HAS_GEMINI_KEY=$(grep -E -c 'GEMINI_API_KEY=".+"' .env 2>/dev/null || echo 0)
+HAS_OPENAI_KEY=$(grep -E -c 'OPENAI_API_KEY=".+"' .env 2>/dev/null || echo 0)
 
 if [ "$HAS_DISCORD_TOKEN" -eq 0 ]; then
     echo -e "${RED}✗ DISCORD_BOT_TOKEN not set in .env${NC}"
@@ -304,7 +304,11 @@ echo -e "${GRAY}━━━━━━━━━━━━━━━━━━━━━$
 echo ""
 
 echo -e "${CYAN}Running setup verification...${NC}"
-$PYTHON_CMD test_setup.py
+if [ -f "verify_setup.py" ]; then
+    $PYTHON_CMD verify_setup.py
+else
+    echo -e "${YELLOW}⚠ verify_setup.py not found, skipping verification${NC}"
+fi
 
 echo ""
 
