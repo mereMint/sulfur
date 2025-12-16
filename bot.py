@@ -165,7 +165,7 @@ DB_PASS = os.environ.get("DB_PASS", "").strip()  # Empty password is OK
 DB_NAME = os.environ.get("DB_NAME", "sulfur_bot").strip() or "sulfur_bot"
 
 # Validate database credentials - prevent connection with empty username/database
-if not DB_USER or DB_USER == "":
+if not DB_USER:
     logger.critical("DB_USER is not set or is empty in .env file!")
     logger.critical("Please set DB_USER in your .env file (e.g., DB_USER=sulfur_bot_user)")
     logger.critical("Do NOT use DB_USER=\"\" or DB_USER= with empty string")
@@ -189,7 +189,7 @@ if not DB_USER or DB_USER == "":
     print("="*70)
     exit(1)
 
-if not DB_NAME or DB_NAME == "":
+if not DB_NAME:
     logger.critical("DB_NAME is not set or is empty in .env file!")
     logger.critical("Please set DB_NAME in your .env file (e.g., DB_NAME=sulfur_bot)")
     logger.critical("Do NOT use DB_NAME=\"\" or DB_NAME= with empty string")

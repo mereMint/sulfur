@@ -146,9 +146,10 @@ BOT_PREFIX=!
 # Verify .env has required fields
 Write-Host "Verifying .env configuration..." -ForegroundColor Cyan
 $envContent = Get-Content ".env" -Raw
-$hasDiscordToken = $envContent -match 'DISCORD_BOT_TOKEN=".+"'
-$hasGeminiKey = $envContent -match 'GEMINI_API_KEY=".+"'
-$hasOpenAIKey = $envContent -match 'OPENAI_API_KEY=".+"'
+# Match both quoted and unquoted non-empty values
+$hasDiscordToken = $envContent -match 'DISCORD_BOT_TOKEN="?.+?"?'
+$hasGeminiKey = $envContent -match 'GEMINI_API_KEY="?.+?"?'
+$hasOpenAIKey = $envContent -match 'OPENAI_API_KEY="?.+?"?'
 
 if (-not $hasDiscordToken) {
     Write-Host "✗ DISCORD_BOT_TOKEN not set in .env" -ForegroundColor Red

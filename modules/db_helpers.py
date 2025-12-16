@@ -146,21 +146,21 @@ def init_db_pool(host, user, password, database, max_retries=1, retry_delay=1):
     global db_pool
     
     # Validate credentials before attempting connection
-    if not user or user.strip() == "":
+    if not user or not user.strip():
         logger.error("FATAL: Database user is empty or not set")
         logger.error("Please check your .env file and ensure DB_USER is set to a valid value")
         logger.error("Example: DB_USER=sulfur_bot_user")
         logger.error("Do NOT use: DB_USER=\"\" or DB_USER='' (empty quotes)")
         return False
     
-    if not database or database.strip() == "":
+    if not database or not database.strip():
         logger.error("FATAL: Database name is empty or not set")
         logger.error("Please check your .env file and ensure DB_NAME is set to a valid value")
         logger.error("Example: DB_NAME=sulfur_bot")
         logger.error("Do NOT use: DB_NAME=\"\" or DB_NAME='' (empty quotes)")
         return False
     
-    if not host or host.strip() == "":
+    if not host or not host.strip():
         logger.error("FATAL: Database host is empty or not set")
         logger.error("Using default: localhost")
         host = "localhost"
