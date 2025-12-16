@@ -251,8 +251,9 @@ def check_termux_specific():
     for pkg in packages:
         # Look for package name at start of line or after newline
         # This avoids matching substring in other package names
-        pattern = rf'(^|\n){re.escape(pkg)}(/|\s|$)'
-        if re.search(pattern, installed_packages):
+        # Compile pattern once for better performance
+        pattern = re.compile(rf'(^|\n){re.escape(pkg)}(/|\s|$)')
+        if pattern.search(installed_packages):
             print_success(f"{pkg}")
         else:
             print_error(f"{pkg} - NOT INSTALLED")
@@ -263,12 +264,10 @@ def check_termux_specific():
         print_info("  pkg install " + " ".join(packages))
     
     # Check SODIUM_INSTALL variable
-    sodium_install = os.environ.get('SODIUM_INSTALL')
-    if sodium_install:
-        if sodium_install == "system":
-            print_success("SODIUM_INSTALL=system is set")
-        else:
-            print_warning(f"SODIUM_INSTALL={sodium_install} (should be 'system')")
+    if os.environ.get('SODIUM_INSTALL') == 'system':
+        print_success("SODIUM_INSTALL=system is set")
+    elif os.environ.get('SODIUM_INSTALL'):
+        print_warning(f"SODIUM_INSTALL={os.environ.get('SODIUM_INSTALL')} (should be 'system')")
     else:
         print_warning("SODIUM_INSTALL not set")
         print_info("  export SODIUM_INSTALL=system")

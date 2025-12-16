@@ -308,8 +308,11 @@ print_info "Note: build-essential, binutils, pkg-config, libsodium, and clang ar
 print_info "Note: ffmpeg is required for Discord voice channel audio playback"
 pkg install -y "${REQUIRED_PACKAGES[@]}"
 
+# Cache the list of installed packages for efficiency
+INSTALLED_PACKAGES=$(pkg list-installed 2>/dev/null)
+
 for package in "${REQUIRED_PACKAGES[@]}"; do
-    if command -v "$package" &> /dev/null || pkg list-installed 2>/dev/null | grep -q "^${package}"; then
+    if command -v "$package" &> /dev/null || echo "$INSTALLED_PACKAGES" | grep -q "^${package}"; then
         print_success "$package is installed"
     else
         print_warning "$package may not be installed correctly"

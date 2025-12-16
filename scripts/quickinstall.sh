@@ -149,14 +149,14 @@ install_termux_dependencies() {
         echo -e "${BLUE}📦 Installing Termux build dependencies for PyNaCl...${NC}"
         echo -e "${CYAN}   This includes: build-essential, binutils, pkg-config, libsodium, clang${NC}"
         
-        pkg install -y \
+        (pkg install -y \
             build-essential \
             binutils \
             pkg-config \
             libsodium \
             clang \
             python \
-            git 2>/dev/null || true
+            git) 2>/dev/null || true
         
         echo -e "${GREEN}✅ Termux build dependencies installed${NC}"
     fi
