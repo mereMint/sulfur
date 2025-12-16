@@ -1799,12 +1799,17 @@ def api_activity_stats():
                     if row and row.get('user_id'):
                         active_users_today.add(row.get('user_id'))
             
-            # Users who played games
-            for game_table in ['blackjack_games', 'roulette_games', 'mines_games']:
-                result = safe_db_query(cursor, f"""
-                    SELECT DISTINCT user_id FROM {game_table} 
+            # Users who played games - use safe table list
+            game_tables = ['blackjack_games', 'roulette_games', 'mines_games']
+            for game_table in game_tables:
+                # Validate table name against allowlist
+                if game_table not in ['blackjack_games', 'roulette_games', 'mines_games']:
+                    continue
+                    
+                result = safe_db_query(cursor, """
+                    SELECT DISTINCT user_id FROM {} 
                     WHERE DATE(played_at) = CURDATE()
-                """, fetch_all=True)
+                """.format(game_table), fetch_all=True)
                 if result:
                     for row in result:
                         if row and row.get('user_id'):

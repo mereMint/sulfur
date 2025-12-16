@@ -25,6 +25,10 @@ from getpass import getpass
 # Colors and Formatting (cross-platform)
 # ==============================================================================
 
+# Database startup timing constants (in seconds)
+DB_STARTUP_WAIT = 3          # Wait time after starting database server
+DB_CONNECTION_TIMEOUT = 2    # Timeout for connection attempts
+
 class Colors:
     """ANSI color codes for terminal output."""
     
@@ -180,7 +184,18 @@ def get_platform_name(plat: str) -> str:
 
 
 def run_command(cmd: List[str], capture: bool = False, shell: bool = False, quiet: bool = False) -> Tuple[int, str, str]:
-    """Run a command and return the result."""
+    """
+    Run a command and return the result.
+    
+    Args:
+        cmd: Command and arguments as a list
+        capture: Legacy parameter (now always captures unless quiet=True)
+        shell: If True, run command through shell
+        quiet: If True, suppress all output (no stdout/stderr capture)
+    
+    Returns:
+        Tuple of (return_code, stdout, stderr)
+    """
     try:
         if shell and isinstance(cmd, list):
             cmd = ' '.join(cmd)
@@ -454,7 +469,7 @@ def ensure_mysql_running(plat: str) -> bool:
         
         # Wait a moment for server to start
         print_info("Waiting for server to start...")
-        time.sleep(3)
+        time.sleep(DB_STARTUP_WAIT)
         
         if is_server_running():
             print_success("MariaDB started successfully")
@@ -475,7 +490,7 @@ def ensure_mysql_running(plat: str) -> bool:
             # Try mariadb.service first
             code, _, _ = run_command(['sudo', 'systemctl', 'start', 'mariadb'], quiet=True)
             if code == 0:
-                time.sleep(2)
+                time.sleep(DB_CONNECTION_TIMEOUT)
                 if is_server_running():
                     print_success("MariaDB started successfully")
                     
@@ -487,7 +502,7 @@ def ensure_mysql_running(plat: str) -> bool:
             # Try mysql.service
             code, _, _ = run_command(['sudo', 'systemctl', 'start', 'mysql'], quiet=True)
             if code == 0:
-                time.sleep(2)
+                time.sleep(DB_CONNECTION_TIMEOUT)
                 if is_server_running():
                     print_success("MySQL started successfully")
                     
@@ -501,14 +516,14 @@ def ensure_mysql_running(plat: str) -> bool:
             print_info("Starting MySQL via service...")
             code, _, _ = run_command(['sudo', 'service', 'mysql', 'start'], quiet=True)
             if code == 0:
-                time.sleep(2)
+                time.sleep(DB_CONNECTION_TIMEOUT)
                 if is_server_running():
                     print_success("MySQL started successfully")
                     return True
             
             code, _, _ = run_command(['sudo', 'service', 'mariadb', 'start'], quiet=True)
             if code == 0:
-                time.sleep(2)
+                time.sleep(DB_CONNECTION_TIMEOUT)
                 if is_server_running():
                     print_success("MariaDB started successfully")
                     return True
@@ -523,7 +538,7 @@ def ensure_mysql_running(plat: str) -> bool:
         
         code, _, _ = run_command(['brew', 'services', 'start', 'mariadb'])
         if code == 0:
-            time.sleep(2)
+            time.sleep(DB_CONNECTION_TIMEOUT)
             if is_server_running():
                 print_success("MariaDB started successfully")
                 print_info("MariaDB will start automatically on boot")
@@ -540,7 +555,7 @@ def ensure_mysql_running(plat: str) -> bool:
         # Try MariaDB service
         code, _, _ = run_command(['net', 'start', 'MariaDB'], quiet=True)
         if code == 0:
-            time.sleep(2)
+            time.sleep(DB_CONNECTION_TIMEOUT)
             if is_server_running():
                 print_success("MariaDB started successfully")
                 return True
@@ -548,7 +563,7 @@ def ensure_mysql_running(plat: str) -> bool:
         # Try MySQL service
         code, _, _ = run_command(['net', 'start', 'MySQL'], quiet=True)
         if code == 0:
-            time.sleep(2)
+            time.sleep(DB_CONNECTION_TIMEOUT)
             if is_server_running():
                 print_success("MySQL started successfully")
                 return True
