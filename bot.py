@@ -1316,12 +1316,23 @@ async def update_stock_market():
 # --- NEW: Periodic news generation ---
 @_tasks.loop(hours=6)
 async def generate_news():
-    """Generate news articles every 6 hours."""
+    """Generate news articles every 6 hours (not on startup)."""
     try:
         await news.generate_news_article(db_helpers, api_helpers, config, GEMINI_API_KEY, OPENAI_API_KEY)
         logger.info("News article generated")
     except Exception as e:
         logger.error(f"Error generating news: {e}", exc_info=True)
+
+
+@generate_news.before_loop
+async def before_generate_news():
+    """Wait until bot is ready and skip the first immediate execution."""
+    await client.wait_until_ready()
+    # Wait 6 hours before the first news generation to avoid generating on startup
+    # The loop will then continue every 6 hours after that
+    import asyncio
+    logger.info("News generation scheduled - first article will be generated in 6 hours")
+    await asyncio.sleep(6 * 60 * 60)  # Wait 6 hours before first generation
 
 
 @update_presence_task.before_loop
@@ -13743,7 +13754,7 @@ class AnidleGameView(discord.ui.View):
     """Interactive view for Anidle game with Guess and Skip buttons."""
     
     def __init__(self, game):
-        super().__init__(timeout=300)  # 5 minute timeout
+        super().__init__(timeout=1800)  # 30 minute timeout (was 5 minutes, increased to prevent early expiration)
         self.game = game
     
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -19784,8 +19795,21 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
 
 
 # --- GRACEFUL SHUTDOWN HANDLER ---
+# Guard to prevent multiple shutdown attempts
+_shutdown_in_progress = False
+
 async def graceful_shutdown(signal_name=None):
     """Handle graceful shutdown of the bot."""
+    global _shutdown_in_progress
+    
+    # Prevent multiple shutdown attempts
+    if _shutdown_in_progress:
+        logger.info(f"Shutdown already in progress, ignoring {signal_name if signal_name else 'duplicate'} signal")
+        print(f"[Shutdown] Already in progress, ignoring signal")
+        return
+    
+    _shutdown_in_progress = True
+    
     if signal_name:
         logger.info(f"Received {signal_name}, shutting down gracefully...")
         print(f"\n[Shutdown] Received {signal_name}, shutting down gracefully...")
@@ -19823,6 +19847,12 @@ async def graceful_shutdown(signal_name=None):
 
 def signal_handler(sig, frame):
     """Handle SIGINT and SIGTERM signals."""
+    global _shutdown_in_progress
+    
+    # Ignore signals if shutdown is already in progress
+    if _shutdown_in_progress:
+        return
+    
     signal_name = 'SIGINT' if sig == signal.SIGINT else 'SIGTERM'
     print(f"\n[Signal] Received {signal_name}")
     

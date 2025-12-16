@@ -621,7 +621,7 @@ def api_get_config():
     try:
         with open('config/config.json', 'r', encoding='utf-8') as f:
             config = json.load(f)
-        return jsonify({'status': 'success', 'data': config})
+        return jsonify({'status': 'success', 'config': config})
     except Exception as e:
         logger.error(f"Error getting config: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
@@ -3801,8 +3801,16 @@ def api_music_status():
                     'duration_seconds': duration_seconds
                 }
             
-            # Get queue
-            queue = lofi_player.get_queue_preview(guild_id, count=10)
+            # Get queue and format for JSON response
+            raw_queue = lofi_player.get_queue_preview(guild_id, count=20)  # Get more songs for better display
+            queue = []
+            for song in raw_queue:
+                queue.append({
+                    'title': song.get('title', 'Unknown'),
+                    'artist': song.get('artist', 'Unknown Artist'),
+                    'source': song.get('source', 'bot'),
+                    'url': song.get('url', '')
+                })
             stats['queue_length'] = lofi_player.get_queue_length(guild_id)
         
         # Get total songs played from database

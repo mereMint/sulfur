@@ -250,6 +250,28 @@ async def initialize_songle_tables(db_helpers):
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
+            # NEW: Table for open song library (database-backed song storage)
+            # This allows adding songs dynamically from user listening history
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS songle_song_library (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    title VARCHAR(255) NOT NULL,
+                    artist VARCHAR(255) NOT NULL,
+                    album VARCHAR(255) DEFAULT 'Unknown Album',
+                    year INT DEFAULT 2020,
+                    genre VARCHAR(100) DEFAULT 'Pop',
+                    source ENUM('hardcoded', 'user_history', 'admin') DEFAULT 'hardcoded',
+                    play_count INT DEFAULT 0,
+                    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    added_by BIGINT DEFAULT NULL,
+                    UNIQUE KEY unique_song (title, artist),
+                    INDEX idx_title (title),
+                    INDEX idx_artist (artist),
+                    INDEX idx_genre (genre),
+                    INDEX idx_year (year)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """)
+            
             conn.commit()
             logger.info("Songle tables initialized successfully")
         finally:
@@ -354,6 +376,222 @@ async def record_songle_game(db_helpers, user_id: int, song_id: int, guesses: in
     except Exception as e:
         logger.error(f"Error recording Songle game: {e}", exc_info=True)
         return False
+
+
+async def populate_song_library_from_history(db_helpers, limit: int = 100) -> int:
+    """
+    Populate the Songle song library from user music history.
+    This allows the game to use songs that users have actually listened to.
+    
+    Args:
+        db_helpers: Database helpers module
+        limit: Maximum number of songs to add
+    
+    Returns:
+        Number of songs added
+    """
+    try:
+        if not db_helpers.db_pool:
+            return 0
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return 0
+        
+        cursor = conn.cursor(dictionary=True)
+        songs_added = 0
+        
+        try:
+            # Get popular songs from music history (songs played at least 2 times)
+            cursor.execute("""
+                SELECT 
+                    song_title as title,
+                    song_artist as artist,
+                    album,
+                    COUNT(*) as play_count
+                FROM music_history
+                WHERE song_title IS NOT NULL 
+                    AND song_artist IS NOT NULL
+                    AND song_title != 'Unknown'
+                    AND song_artist != 'Unknown Artist'
+                GROUP BY song_title, song_artist, album
+                HAVING COUNT(*) >= 2
+                ORDER BY play_count DESC
+                LIMIT %s
+            """, (limit,))
+            
+            songs = cursor.fetchall()
+            
+            for song in songs:
+                try:
+                    cursor.execute("""
+                        INSERT IGNORE INTO songle_song_library 
+                            (title, artist, album, source, play_count)
+                        VALUES (%s, %s, %s, 'user_history', %s)
+                    """, (
+                        song['title'][:255],
+                        song['artist'][:255],
+                        (song.get('album') or 'Unknown Album')[:255],
+                        song['play_count']
+                    ))
+                    if cursor.rowcount > 0:
+                        songs_added += 1
+                except Exception as e:
+                    logger.debug(f"Could not add song to library: {e}")
+            
+            conn.commit()
+            logger.info(f"Added {songs_added} songs to Songle library from music history")
+            return songs_added
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error populating song library: {e}", exc_info=True)
+        return 0
+
+
+async def get_songs_from_library(db_helpers, limit: int = 50) -> List[dict]:
+    """
+    Get songs from the database song library.
+    
+    Returns:
+        List of song dictionaries from the database
+    """
+    try:
+        if not db_helpers.db_pool:
+            return []
+        
+        conn = db_helpers.db_pool.get_connection()
+        if not conn:
+            return []
+        
+        cursor = conn.cursor(dictionary=True)
+        try:
+            cursor.execute("""
+                SELECT 
+                    id,
+                    title,
+                    artist,
+                    album,
+                    year,
+                    genre
+                FROM songle_song_library
+                ORDER BY play_count DESC, RAND()
+                LIMIT %s
+            """, (limit,))
+            
+            songs = cursor.fetchall()
+            
+            # Convert to format expected by SongleGame
+            return [
+                {
+                    'id': 10000 + song['id'],  # Offset ID to avoid conflicts with hardcoded songs
+                    'title': song['title'],
+                    'artist': song['artist'],
+                    'year': song.get('year', 2020),
+                    'genre': song.get('genre', 'Pop'),
+                    'album': song.get('album', 'Unknown Album')
+                }
+                for song in songs
+            ]
+        finally:
+            cursor.close()
+            conn.close()
+    except Exception as e:
+        logger.error(f"Error getting songs from library: {e}", exc_info=True)
+        return []
+
+
+async def get_random_song_from_combined_library(db_helpers) -> dict:
+    """
+    Get a random song from combined sources (hardcoded + database).
+    This provides more variety for premium users.
+    
+    Args:
+        db_helpers: Database helpers module
+    
+    Returns:
+        A random song dictionary
+    """
+    try:
+        # Get songs from database
+        db_songs = await get_songs_from_library(db_helpers, limit=100)
+        
+        # Combine with hardcoded songs
+        all_songs = SONG_DATABASE.copy()
+        all_songs.extend(db_songs)
+        
+        if all_songs:
+            song = random.choice(all_songs)
+            logger.info(f"Selected random song from combined library: {song.get('title')} by {song.get('artist')}")
+            return song
+        
+        # Fallback to hardcoded if nothing available
+        return random.choice(SONG_DATABASE)
+    except Exception as e:
+        logger.error(f"Error getting random song from combined library: {e}", exc_info=True)
+        return random.choice(SONG_DATABASE)
+
+
+async def search_songs_combined(db_helpers, query: str) -> List[dict]:
+    """
+    Search for songs in both hardcoded database and user library.
+    
+    Args:
+        db_helpers: Database helpers module
+        query: Search query
+    
+    Returns:
+        List of matching songs (max 10)
+    """
+    results = []
+    query_lower = query.lower()
+    
+    # Search hardcoded database first
+    for song in SONG_DATABASE:
+        if (query_lower in song['title'].lower() or 
+            query_lower in song['artist'].lower()):
+            results.append(song)
+    
+    # Search database library
+    try:
+        if db_helpers.db_pool:
+            conn = db_helpers.db_pool.get_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+                try:
+                    cursor.execute("""
+                        SELECT id, title, artist, album, year, genre
+                        FROM songle_song_library
+                        WHERE title LIKE %s OR artist LIKE %s
+                        LIMIT 10
+                    """, (f"%{query}%", f"%{query}%"))
+                    
+                    for song in cursor.fetchall():
+                        results.append({
+                            'id': 10000 + song['id'],
+                            'title': song['title'],
+                            'artist': song['artist'],
+                            'year': song.get('year', 2020),
+                            'genre': song.get('genre', 'Pop'),
+                            'album': song.get('album', 'Unknown Album')
+                        })
+                finally:
+                    cursor.close()
+                    conn.close()
+    except Exception as e:
+        logger.error(f"Error searching songs in database: {e}")
+    
+    # Remove duplicates based on title+artist
+    seen = set()
+    unique_results = []
+    for song in results:
+        key = (song['title'].lower(), song['artist'].lower())
+        if key not in seen:
+            seen.add(key)
+            unique_results.append(song)
+    
+    return unique_results[:10]  # Limit results
 
 
 class SongleGame:
@@ -584,7 +822,10 @@ def record_daily_play(user_id: int):
 
 
 def search_songs(query: str) -> List[dict]:
-    """Search for songs matching the query."""
+    """
+    Search for songs matching the query in the hardcoded database.
+    For searching both hardcoded and user library, use search_songs_combined().
+    """
     query_lower = query.lower()
     results = []
     

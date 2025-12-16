@@ -2180,15 +2180,19 @@ async def play_next_in_queue(voice_client: discord.VoiceClient, guild_id: int) -
             logger.info("Queue empty, stopping playback")
             return False
         
-        # Shuffle remaining queue for variety after each song
-        # Keep the immediate next song (first in queue) stable, shuffle the rest
+        # Only shuffle remaining queue if NOT playing an album (songs with track_number)
+        # This preserves album track order while still providing variety for regular playlists
         if len(queue) > 1:
-            # Keep first song, shuffle the rest
             first_song = queue[0]
-            remaining = queue[1:]
-            random.shuffle(remaining)
-            queue = [first_song] + remaining
-            active_sessions[guild_id]['queue'] = queue
+            # Check if this looks like an album queue (has track_number)
+            is_album_queue = first_song.get('track_number', 0) > 0 or first_song.get('album')
+            
+            if not is_album_queue:
+                # Keep first song, shuffle the rest for variety
+                remaining = queue[1:]
+                random.shuffle(remaining)
+                queue = [first_song] + remaining
+                active_sessions[guild_id]['queue'] = queue
         
         # Get next song (pop from front)
         next_song = queue.pop(0)
