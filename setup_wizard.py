@@ -315,34 +315,83 @@ for attempt in range(1, max_attempts + 1):
         break
     except mysql.connector.Error as err:
         last_error = err
-        if err.errno == 1045:
+        if err.errno == 2003:
+            # Connection refused - server is not running
+            print(f"❌ Failed: {err}")
+            print()
+            print("⚠️  MySQL server is not running or not accepting connections.")
+            print("   Please start the server first and try again.")
+            break  # Exit loop immediately, don't ask for more passwords
+        elif err.errno == 1045:
             print("❌ Access denied")
+            if attempt < max_attempts:
+                print("Please try again with the correct root password.")
         else:
             print(f"❌ Failed: {err}")
-        if attempt < max_attempts:
-            print("Please try again with the correct root password.")
+            if attempt < max_attempts:
+                print("Please try again with the correct root password.")
         continue
 
 if not connected:
     print_section("❌ Cannot Connect to MySQL")
     print()
-    print("Could not connect to MySQL as root. Possible issues:")
-    print()
-    print("  1. MySQL service not running")
-    print("     → Check if MySQL is running:")
-    print("       - Windows: Get-Service MySQL84")
-    print("       - Linux:   sudo systemctl status mysql")
-    print("       - Fix:     Start-Service MySQL84  /  sudo systemctl start mysql")
-    print()
-    print("  2. Incorrect root password")
-    print("     → If you forgot the root password, reset it:")
-    print("       - See: MYSQL_PASSWORD_RESET.md  (Windows)")
-    print("       - Or run: sudo mysql -u root")
-    print("       - Then: ALTER USER 'root'@'localhost' IDENTIFIED BY 'newpassword';")
-    print()
-    print("  3. MySQL not installed properly")
-    print("     → Reinstall MySQL (see INSTALLATION_GUIDE.md)")
-    print()
+    
+    # Provide targeted guidance based on error type
+    if last_error and last_error.errno == 2003:
+        # Connection refused - server not running
+        print("MySQL server is not running or not accepting connections.")
+        print()
+        print("Please start the MySQL/MariaDB server first:")
+        print()
+        print("  • Windows:")
+        print("    Get-Service MySQL84  # Check status")
+        print("    Start-Service MySQL84  # Start the service")
+        print()
+        print("  • Linux (systemd):")
+        print("    sudo systemctl status mysql")
+        print("    sudo systemctl start mysql  # or mariadb")
+        print()
+        print("  • Termux (Android):")
+        print("    mysqld_safe --datadir=$PREFIX/var/lib/mysql &")
+        print("    # Wait a few seconds for it to start")
+        print()
+        print("  • macOS (Homebrew):")
+        print("    brew services start mariadb")
+        print()
+    elif last_error and last_error.errno == 1045:
+        # Access denied - authentication issue
+        print("Could not authenticate with MySQL as root.")
+        print()
+        print("Possible solutions:")
+        print()
+        print("  1. Incorrect root password")
+        print("     → Run this wizard again with the correct password")
+        print()
+        print("  2. Reset the root password:")
+        print("     → See: MYSQL_PASSWORD_RESET.md (Windows)")
+        print("     → Or run: sudo mysql -u root")
+        print("     → Then: ALTER USER 'root'@'localhost' IDENTIFIED BY 'newpassword';")
+        print()
+    else:
+        # Other errors
+        print("Could not connect to MySQL as root. Possible issues:")
+        print()
+        print("  1. MySQL service not running")
+        print("     → Check if MySQL is running:")
+        print("       - Windows: Get-Service MySQL84")
+        print("       - Linux:   sudo systemctl status mysql")
+        print("       - Fix:     Start-Service MySQL84  /  sudo systemctl start mysql")
+        print()
+        print("  2. Incorrect root password")
+        print("     → If you forgot the root password, reset it:")
+        print("       - See: MYSQL_PASSWORD_RESET.md  (Windows)")
+        print("       - Or run: sudo mysql -u root")
+        print("       - Then: ALTER USER 'root'@'localhost' IDENTIFIED BY 'newpassword';")
+        print()
+        print("  3. MySQL not installed properly")
+        print("     → Reinstall MySQL (see INSTALLATION_GUIDE.md)")
+        print()
+    
     if last_error:
         print(f"Technical details: {last_error}")
     print()
