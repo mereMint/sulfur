@@ -122,6 +122,8 @@ from modules import word_service  # Dictionary API for word validation
 from modules import sport_betting  # NEW: Sport betting system
 from modules import sport_betting_ui_v2 as sport_betting_ui  # NEW: Sport betting UI components (v2)
 from modules import focus_timer  # NEW: Focus timer with activity monitoring
+from modules import songle  # Songle - Guess the Song game
+from modules import anidle  # Anidle - Anime Guessing game
 from modules import lofi_player  # NEW: Lofi music player
 from modules import personality_evolution  # NEW: Personality evolution and learning system
 from modules import advanced_ai  # NEW: Advanced AI reasoning and intelligence
@@ -1049,6 +1051,24 @@ async def on_ready():
     except Exception as e:
         logger.warning(f"Could not sync sport betting matches on startup: {e}")
     print("Sport betting system ready!")
+    
+    # --- NEW: Initialize Songle game tables ---
+    print("Initializing Songle game system...")
+    try:
+        await songle.initialize_songle_tables(db_helpers)
+        print("Songle game system ready!")
+    except Exception as e:
+        logger.warning(f"Could not initialize Songle tables: {e}")
+        print(f"WARNING: Songle table initialization failed: {e}")
+    
+    # --- NEW: Initialize Anidle game tables ---
+    print("Initializing Anidle game system...")
+    try:
+        await anidle.initialize_anidle_tables(db_helpers)
+        print("Anidle game system ready!")
+    except Exception as e:
+        logger.warning(f"Could not initialize Anidle tables: {e}")
+        print(f"WARNING: Anidle table initialization failed: {e}")
 
     # --- NEW: Clean up leftover game channels on restart ---
     print("Checking for leftover game channels...")
@@ -13653,8 +13673,6 @@ async def slots_command(interaction: discord.Interaction, bet: int):
 
 # --- Anidle Game Commands ---
 
-from modules import anidle
-
 
 class AnidleGuessModal(discord.ui.Modal, title="Guess the Anime"):
     """Modal for entering anime guess."""
@@ -13734,13 +13752,13 @@ class AnidleGameView(discord.ui.View):
             return False
         return True
     
-    @discord.ui.button(label="Guess", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="🎯 Guess", style=discord.ButtonStyle.primary)
     async def guess_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Open modal to enter guess."""
         modal = AnidleGuessModal(self.game, self)
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="Skip", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="⏭️ Skip", style=discord.ButtonStyle.secondary)
     async def skip_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Skip the current game."""
         self.game.is_active = False
@@ -13751,25 +13769,99 @@ class AnidleGameView(discord.ui.View):
         
         await interaction.response.edit_message(content="Game skipped!", embed=embed, view=None)
     
-    @discord.ui.button(label="Info", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="ℹ️ Info", style=discord.ButtonStyle.secondary)
     async def info_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Show game info."""
         embed = discord.Embed(
-            title="Anidle - How to Play",
-            description="Guess the daily anime!",
+            title="🎌 Anidle - How to Play",
+            description="Guess the mystery anime using the clues!",
             color=0x00ff41
         )
         embed.add_field(
-            name="Feedback",
-            value="[OK] = Correct | [~] = Partial | [UP/DN] = Higher/Lower | [X] = Wrong",
+            name="📊 Feedback Symbols",
+            value="✅ = Correct | 🟨 = Partial Match | ⬆️/⬇️ = Higher/Lower | ❌ = Wrong",
             inline=False
         )
         embed.add_field(
-            name="Hints",
-            value=f"At 10 guesses: Blurred cover\nAt 15 guesses: Synopsis\nAt 20 guesses: Main character",
+            name="💡 Hints Unlock At",
+            value=f"🖼️ Cover image: 10 guesses\n📖 Synopsis: 15 guesses\n👤 Character: 20 guesses",
             inline=False
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class AnidleMenuView(discord.ui.View):
+    """Menu view for starting Anidle games with mode selection for premium users."""
+    
+    def __init__(self, user_id: int, is_premium: bool):
+        super().__init__(timeout=60)
+        self.user_id = user_id
+        self.is_premium = is_premium
+        
+        # Remove random button if not premium
+        if not is_premium:
+            self.remove_item(self.random_game_button)
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("This is not your menu!", ephemeral=True)
+            return False
+        return True
+    
+    @discord.ui.button(label="📅 Daily Anime", style=discord.ButtonStyle.primary, emoji="🎌")
+    async def daily_game_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Start the daily anime game."""
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            # Get daily anime
+            target_anime = await anidle.get_daily_anime(db_helpers)
+            if not target_anime:
+                await interaction.followup.send(
+                    "Could not fetch today's anime. Please try again later.",
+                    ephemeral=True
+                )
+                return
+            
+            # Create game
+            game = anidle.AnidleGame(self.user_id, target_anime, self.is_premium)
+            anidle.active_anidle_games[self.user_id] = game
+            anidle.record_daily_play(self.user_id)
+            
+            embed = game.create_embed()
+            view = AnidleGameView(game)
+            await interaction.edit_original_response(content=None, embed=embed, view=view)
+            
+        except Exception as e:
+            logger.error(f"Error starting daily anidle: {e}", exc_info=True)
+            await interaction.followup.send("An error occurred. Please try again.", ephemeral=True)
+    
+    @discord.ui.button(label="🎲 Random Anime", style=discord.ButtonStyle.success, emoji="✨", row=0)
+    async def random_game_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Start a random anime game (premium only)."""
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            # Get random anime for premium users
+            target_anime = await anidle.get_random_anime()
+            if not target_anime:
+                await interaction.followup.send(
+                    "Could not fetch a random anime. Please try again later.",
+                    ephemeral=True
+                )
+                return
+            
+            # Create game
+            game = anidle.AnidleGame(self.user_id, target_anime, self.is_premium)
+            anidle.active_anidle_games[self.user_id] = game
+            
+            embed = game.create_embed()
+            view = AnidleGameView(game)
+            await interaction.edit_original_response(content=None, embed=embed, view=view)
+            
+        except Exception as e:
+            logger.error(f"Error starting random anidle: {e}", exc_info=True)
+            await interaction.followup.send("An error occurred. Please try again.", ephemeral=True)
 
 
 anidle_group = app_commands.Group(name="anidle", description="Anidle - Anime Guessing Game")
@@ -13806,7 +13898,21 @@ async def anidle_play(interaction: discord.Interaction):
             await interaction.followup.send(message, ephemeral=True)
             return
         
-        # Get daily anime (pass db_helpers for database persistence)
+        # For premium users, show a menu to choose between daily and random
+        if is_premium:
+            embed = discord.Embed(
+                title="🎌 Anidle - Choose Game Mode",
+                description="As a **Premium** member, you can play unlimited games!\n\n"
+                           "📅 **Daily Anime** - Same anime for everyone today\n"
+                           "🎲 **Random Anime** - A random anime just for you",
+                color=0x00d4ff
+            )
+            embed.set_footer(text="✨ Premium perks: Unlimited plays + Random mode!")
+            view = AnidleMenuView(user_id, is_premium)
+            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            return
+        
+        # For free users, start daily game directly
         target_anime = await anidle.get_daily_anime(db_helpers)
         if not target_anime:
             await interaction.followup.send(
@@ -13970,8 +14076,6 @@ tree.add_command(anidle_group)
 
 
 # --- Songle (Guess the Song) Game Commands ---
-
-from modules import songle
 
 
 class SongleGuessModal(discord.ui.Modal, title="Guess the Song"):
@@ -14140,8 +14244,17 @@ async def songle_play(interaction: discord.Interaction):
             await interaction.followup.send(message, ephemeral=True)
             return
         
-        # Get daily song (pass db_helpers for database persistence)
-        target_song = await songle.get_daily_song(db_helpers)
+        # Get song - premium users get random songs, free users get daily song
+        if is_premium:
+            # Premium users get a random song each time
+            target_song = songle.get_random_song()
+        else:
+            # Free users get the daily song (pass db_helpers for database persistence)
+            target_song = await songle.get_daily_song(db_helpers)
+        
+        # Preload the song's YouTube URL in the background for faster playback
+        # This reduces wait time when user clicks "Listen"
+        asyncio.create_task(songle.get_song_youtube_url(target_song))
         
         # Create game
         game = songle.SongleGame(user_id, target_song, is_premium)
@@ -19243,84 +19356,40 @@ async def on_message(message):
         """Helper function to encapsulate the API call logic."""
         dynamic_system_prompt = config['bot']['system_prompt']
         
-        # Add language reminder to prevent language slips
-        dynamic_system_prompt += "\n\nREMINDER: Antworte IMMER auf Deutsch!"
+        # Add compact language reminder
+        dynamic_system_prompt += "\n\n[Sprache: Deutsch | Kurze Antworten (1-3 Sätze)]"
         
-        # Add accuracy enforcement for current conversation using constant template
-        dynamic_system_prompt += "\n\n" + ACCURACY_CHECK_TEMPLATE.format(user_name=message.author.display_name)
+        # --- STREAMLINED: Add minimal context to reduce token usage ---
+        # Only add context that significantly impacts response quality
         
-        # --- ENHANCED: Add evolved personality context for smarter AI responses ---
-        try:
-            personality_context = await personality_evolution.get_personality_context_for_prompt()
-            if personality_context:
-                dynamic_system_prompt += f"\n\n{personality_context}"
-                logger.debug("Added evolved personality context to prompt")
-        except Exception as e:
-            logger.warning(f"Could not add personality evolution context: {e}")
-        
-        # --- NEW: Add bot mind state to system prompt for personality-aware responses ---
+        # Compact mind state (only if notable)
         try:
             mind_state = bot_mind.get_mind_state_api()
             mood = mind_state.get('mood', 'neutral')
             energy = mind_state.get('energy_level', 1.0)
             boredom = mind_state.get('boredom_level', 0.0)
-            mood_desc = bot_mind.get_mood_description()
             
-            # Build mind state context based on all factors
-            mind_context_parts = []
+            # Only add mind state if it's notably different from normal
+            state_notes = []
+            if energy < 0.3:
+                state_notes.append("müde")
+            if boredom > 0.6:
+                state_notes.append("gelangweilt")
+            if mood in ['excited', 'annoyed', 'sarcastic']:
+                state_notes.append(mood)
             
-            # Energy level affects response style
-            if energy < 0.2:
-                mind_context_parts.append("VERY LOW ENERGY: You're extremely tired and low on energy. Keep responses brief, maybe a bit sluggish or distracted. Show fatigue.")
-            elif energy < 0.4:
-                mind_context_parts.append("LOW ENERGY: You're feeling somewhat tired. Responses can be a bit shorter and less enthusiastic.")
-            elif energy > 0.8:
-                mind_context_parts.append("HIGH ENERGY: You're well-rested and energetic! Show more enthusiasm and engagement.")
-            
-            # Boredom affects engagement
-            if boredom > 0.7:
-                mind_context_parts.append("VERY BORED: You're extremely bored from lack of stimulation. Be more sarcastic, maybe complain about being bored, or try to spice things up.")
-            elif boredom > 0.4:
-                mind_context_parts.append("SOMEWHAT BORED: You're feeling a bit understimulated. Show mild disinterest or try to make things more interesting.")
-            
-            # Mood-specific adjustments
-            if mood in ['bored', 'sarcastic']:
-                mind_context_parts.append(f"Current mood: {mood_desc} - Be slightly more sarcastic and witty.")
-            elif mood == 'excited':
-                mind_context_parts.append(f"Current mood: {mood_desc} - Be enthusiastic and energetic.")
-            elif mood == 'curious':
-                mind_context_parts.append(f"Current mood: {mood_desc} - Ask follow-up questions and show interest.")
-            elif mood == 'contemplative':
-                mind_context_parts.append(f"Current mood: {mood_desc} - Be thoughtful and philosophical.")
-            elif mood == 'annoyed':
-                mind_context_parts.append(f"Current mood: {mood_desc} - Show slight irritation or impatience.")
-            
-            # Combine mind state parts
-            if mind_context_parts:
-                dynamic_system_prompt += "\n\n=== YOUR CURRENT MENTAL STATE ===\n" + "\n".join(mind_context_parts)
-                logger.debug(f"Added mind state to prompt: energy={energy:.2f}, boredom={boredom:.2f}, mood={mood}")
-            
-            # Add interests to context (only recent ones to avoid fixation)
-            interests = mind_state.get('interests', [])
-            if interests:
-                recent_interests = ", ".join(interests[-3:])  # Only last 3 to avoid overwhelming context
-                dynamic_system_prompt += f"\n\nYour current interests: {recent_interests}"
+            if state_notes:
+                dynamic_system_prompt += f"\n[Stimmung: {', '.join(state_notes)}]"
                 
-        except (AttributeError, KeyError, ImportError) as e:
-            logger.warning(f"Could not add mind state to prompt (module or data unavailable): {e}")
-        
-        # Add compact user context (level, current activity)
-        try:
-            user_context = await get_enriched_user_context(message.author.id, message.author.display_name, db_helpers)
-            if user_context:
-                dynamic_system_prompt += user_context
         except Exception:
-            pass  # Context is optional, don't fail
+            pass
         
-        # Get relationship summary
+        # Compact relationship context (only if exists)
         relationship_summary = await get_relationship_summary(message.author.id)
-        if relationship_summary:
-            dynamic_system_prompt += f"\n\nBeziehung zu '{message.author.display_name}': {relationship_summary}"
+        if relationship_summary and len(relationship_summary) > 10:
+            # Truncate to max 100 chars to save tokens
+            short_summary = relationship_summary[:100] + "..." if len(relationship_summary) > 100 else relationship_summary
+            dynamic_system_prompt += f"\n[{message.author.display_name}: {short_summary}]"
         
         # Get AI response
         provider_to_use = await get_current_provider(config)
