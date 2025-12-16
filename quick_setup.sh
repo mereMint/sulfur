@@ -3,7 +3,12 @@
 # Sulfur Bot - Quick Setup Script for Linux/Termux
 # ============================================================
 # This script automates the entire setup process for first-time users
-# Usage: bash quick_setup.sh
+# Usage: bash quick_setup.sh [--install-dir /path/to/install]
+#
+# Options:
+#   --install-dir DIR   Custom installation directory
+#   -h, --help          Show this help message
+# ============================================================
 
 # Colors
 RED='\033[0;31m'
@@ -12,6 +17,32 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 GRAY='\033[0;37m'
 NC='\033[0m'
+
+# Parse command line arguments
+INSTALL_DIR=""
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --install-dir|-d)
+            INSTALL_DIR="$2"
+            shift 2
+            ;;
+        -h|--help)
+            echo "Sulfur Bot Quick Setup Script"
+            echo ""
+            echo "Usage: bash quick_setup.sh [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  --install-dir DIR   Custom installation directory"
+            echo "  -h, --help          Show this help message"
+            echo ""
+            exit 0
+            ;;
+        *)
+            # Skip unknown options silently for backward compatibility
+            shift
+            ;;
+    esac
+done
 
 echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${CYAN}║         Sulfur Bot - Quick Setup Wizard                   ║${NC}"
@@ -30,9 +61,20 @@ else
 fi
 echo ""
 
-# Get script directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Determine installation directory
+if [ -n "$INSTALL_DIR" ]; then
+    SCRIPT_DIR="$INSTALL_DIR"
+    if [ ! -d "$SCRIPT_DIR" ]; then
+        echo -e "${YELLOW}Creating installation directory: $SCRIPT_DIR${NC}"
+        mkdir -p "$SCRIPT_DIR"
+    fi
+else
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
 cd "$SCRIPT_DIR" || exit 1
+
+echo -e "${GRAY}Installation directory: $SCRIPT_DIR${NC}"
+echo ""
 
 # Step 1: Check Prerequisites
 echo -e "${YELLOW}Step 1: Checking Prerequisites${NC}"

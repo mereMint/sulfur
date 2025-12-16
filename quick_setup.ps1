@@ -3,6 +3,14 @@
 # ============================================================
 # This script automates the entire setup process for first-time users
 # Usage: Right-click > Run with PowerShell
+# 
+# Parameters:
+#   -InstallDir "C:\path\to\install" - Custom installation directory
+# ============================================================
+
+param(
+    [string]$InstallDir = ""
+)
 
 $ErrorActionPreference = 'Continue'
 
@@ -11,8 +19,20 @@ Write-Host "║         Sulfur Bot - Quick Setup Wizard (Windows)         ║" -
 Write-Host "╚════════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
 Write-Host ""
 
-$scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
+# Determine installation path
+if ([string]::IsNullOrWhiteSpace($InstallDir)) {
+    $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
+} else {
+    $scriptPath = $InstallDir
+    if (-not (Test-Path $scriptPath)) {
+        Write-Host "Creating installation directory: $scriptPath" -ForegroundColor Yellow
+        New-Item -ItemType Directory -Path $scriptPath -Force | Out-Null
+    }
+}
 Set-Location $scriptPath
+
+Write-Host "Installation directory: $scriptPath" -ForegroundColor Gray
+Write-Host ""
 
 # Step 1: Check Prerequisites
 Write-Host "Step 1: Checking Prerequisites" -ForegroundColor Yellow
