@@ -38,6 +38,16 @@ Grant permission when prompted. This allows access to Download folder.
 pkg update && pkg upgrade -y
 ```
 
+### Install Required Packages
+
+```bash
+# Essential packages for SSH access and Git
+pkg install -y openssh git
+
+# Verify SSH is installed
+ssh -V
+```
+
 ---
 
 ## Installation
@@ -75,8 +85,8 @@ bash scripts/quickinstall.sh
 ### Manual Install
 
 ```bash
-# Install core packages
-pkg install -y git python python-pip mariadb
+# Install core packages (including SSH)
+pkg install -y openssh git python python-pip mariadb
 
 # Optional packages
 pkg install -y ffmpeg opus screen curl wget openssl

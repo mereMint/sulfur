@@ -71,6 +71,49 @@ Solutions for common issues with Sulfur Bot.
    git clone https://YOUR_TOKEN@github.com/mereMint/sulfur.git
    ```
 
+**Termux-Specific:** If SSH is not installed:
+```bash
+pkg install openssh
+ssh -V  # Verify installation
+```
+
+**Linux-Specific:** If SSH is not installed:
+```bash
+# Debian/Ubuntu
+sudo apt install openssh-client
+
+# Fedora/RHEL
+sudo dnf install openssh-clients
+
+# Arch Linux
+sudo pacman -S openssh
+```
+
+### "ssh: command not found"
+
+**Termux:**
+```bash
+pkg install openssh
+```
+
+**Linux:**
+```bash
+# Debian/Ubuntu
+sudo apt install openssh-client
+
+# Fedora/RHEL
+sudo dnf install openssh-clients
+
+# Arch Linux  
+sudo pacman -S openssh
+```
+
+Verify installation:
+```bash
+ssh -V
+ssh-keygen -V
+```
+
 ### "404: Not Found" when running one-command install
 
 **Error Message:**
@@ -482,6 +525,58 @@ reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /
 Ports below 1024 require root. Use higher ports or:
 ```bash
 sudo setcap 'cap_net_bind_service=+ep' $(which python3)
+```
+
+### Linux: SSH key permissions
+
+If SSH complains about key permissions:
+```bash
+chmod 700 ~/.ssh
+chmod 600 ~/.ssh/id_ed25519
+chmod 644 ~/.ssh/id_ed25519.pub
+chmod 644 ~/.ssh/known_hosts
+```
+
+### Linux: Git asks for password repeatedly
+
+Configure credential helper:
+```bash
+# Cache credentials for 1 hour
+git config --global credential.helper 'cache --timeout=3600'
+
+# Or use SSH instead of HTTPS
+git remote set-url origin git@github.com:mereMint/sulfur.git
+```
+
+### Termux: SSH key issues
+
+**Problem: SSH agent not starting**
+```bash
+# Install and start SSH agent
+pkg install openssh
+eval "$(ssh-agent -s)"
+ssh-add ~/.ssh/id_ed25519
+```
+
+**Problem: Permission denied for SSH key**
+```bash
+# Fix permissions
+chmod 700 ~/.ssh
+chmod 600 ~/.ssh/id_ed25519
+chmod 644 ~/.ssh/id_ed25519.pub
+```
+
+**Problem: Can't copy SSH key**
+```bash
+# Method 1: Use termux-clipboard-set (requires Termux:API)
+cat ~/.ssh/id_ed25519.pub | termux-clipboard-set
+
+# Method 2: Display and manually copy
+cat ~/.ssh/id_ed25519.pub
+# Long-press to select, then copy
+
+# Method 3: Save to shared storage
+cat ~/.ssh/id_ed25519.pub > /sdcard/ssh_key.txt
 ```
 
 ### Termux: Bot stops when screen locks
