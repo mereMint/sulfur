@@ -1,759 +1,101 @@
 """
-Automated MySQL Setup Wizard for Sulfur Bot
-Automatically handles database initialization and setup with minimal user input.
+Database Setup Wizard for Sulfur Bot
 
-Features:
-- Auto-detects platform (Termux, Linux, Windows, macOS)
-- Auto-installs MariaDB/MySQL when possible
-- Auto-initializes database directory (Termux)
-- Auto-starts database server
-- Auto-provisions database and user without password prompts when possible
-- Falls back to interactive mode only when necessary
+This script is a wrapper around the secure database setup script.
+It provides a simple interface for setting up the database with strong security.
 
-Supports custom database configuration via .env file or command line arguments.
+For advanced users, you can directly run:
+    bash scripts/setup_database_secure.sh
 """
 
 import sys
 import os
 import subprocess
-import shutil
-import time
-import platform
-from getpass import getpass
-
-# Try to load environment variables from .env file
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass  # dotenv not available, will use defaults
-
-try:
-    import mysql.connector
-except ModuleNotFoundError:
-    print("\n" + "=" * 60)
-    print("ERROR: mysql-connector-python not installed".center(60))
-    print("=" * 60 + "\n")
-    print("The mysql-connector-python package is required to run this script.")
-    print()
-    print("To install it, run:")
-    print("  pip install mysql-connector-python")
-    print()
-    print("Or install all dependencies:")
-    print("  pip install -r requirements.txt")
-    print()
-    print("If running through install_wizard.ps1, this should not happen.")
-    print("Please ensure dependencies are installed before database setup.")
-    print()
-    sys.exit(1)
-
-# ============================================================
-# Platform Detection
-# ============================================================
-
-def detect_platform():
-    """Detect the current platform."""
-    # Check for Termux (Android)
-    if os.path.exists('/data/data/com.termux') or os.environ.get('TERMUX_VERSION'):
-        return 'termux'
-    
-    system = platform.system().lower()
-    
-    # Check for WSL
-    if system == 'linux' and 'microsoft' in platform.uname().release.lower():
-        return 'wsl'
-    
-    if system == 'linux':
-        return 'linux'
-    if system == 'windows':
-        return 'windows'
-    if system == 'darwin':
-        return 'macos'
-    
-    return system
-
-PLATFORM = detect_platform()
-
-# Timing constants (in seconds)
-MYSQL_STARTUP_TIMEOUT = 15
-MYSQL_SERVER_WAIT = 2
+from pathlib import Path
 
 def print_header(text):
     print("\n" + "=" * 60)
     print(text.center(60))
     print("=" * 60 + "\n")
 
-def print_section(text):
-    print(f"\n{'─' * 60}")
-    print(f"  {text}")
-    print('─' * 60)
+def print_error(text):
+    print(f"❌ ERROR: {text}")
 
-def validate_identifier(name, identifier_type="identifier"):
-    """
-    Validate a MySQL identifier (database name, username, hostname).
-    Returns True if valid, raises ValueError if invalid.
-    
-    MySQL identifiers can contain:
-    - Letters (a-z, A-Z)
-    - Digits (0-9)
-    - Underscores (_)
-    - Dollar signs ($)
-    
-    For safety, we restrict to alphanumeric and underscore only.
-    """
-    import re
-    if not name:
-        raise ValueError(f"{identifier_type} cannot be empty")
-    if len(name) > 64:  # MySQL max identifier length
-        raise ValueError(f"{identifier_type} cannot exceed 64 characters")
-    if not re.match(r'^[a-zA-Z0-9_]+$', name):
-        raise ValueError(f"{identifier_type} can only contain letters, numbers, and underscores")
-    return True
+def print_success(text):
+    print(f"✅ {text}")
 
-def validate_hostname(host):
-    """
-    Validate a hostname for MySQL connection.
-    Allows localhost, IP addresses, and domain names.
-    """
-    import re
-    if not host:
-        raise ValueError("Hostname cannot be empty")
-    # Allow localhost, IP addresses, and simple hostnames
-    if host == 'localhost' or host == '127.0.0.1':
-        return True
-    # Simple hostname/IP validation
-    if re.match(r'^[a-zA-Z0-9._-]+$', host):
-        return True
-    raise ValueError(f"Invalid hostname format: {host}")
+def print_info(text):
+    print(f"ℹ️  {text}")
 
-# Get database configuration from environment or use defaults
-# IMPORTANT: Ensure we NEVER have empty strings - always use defaults
-DB_HOST = os.environ.get('DB_HOST', 'localhost').strip() or 'localhost'
-DB_USER = os.environ.get('DB_USER', 'sulfur_bot_user').strip() or 'sulfur_bot_user'
-DB_PASS = os.environ.get('DB_PASS', '').strip()  # Empty password is OK
-DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot').strip() or 'sulfur_bot'
-MYSQL_ROOT_PASSWORD = os.environ.get('MYSQL_ROOT_PASSWORD', '').strip()  # Optional: provide to auto-provision
+print_header("SULFUR BOT - DATABASE SETUP WIZARD")
 
-# Validate credentials - never proceed with empty user or database name
-if not DB_USER:
-    print("\n" + "="*60)
-    print("ERROR: DB_USER is empty or not set")
-    print("="*60)
-    print("")
-    print("The DB_USER environment variable must have a value.")
-    print("It cannot be an empty string or contain only whitespace.")
-    print("")
-    print("Please check your .env file and ensure:")
-    print("  DB_USER=sulfur_bot_user")
-    print("")
-    print("Do NOT use:")
-    print("  DB_USER=\"\"  (empty quotes)")
-    print("  DB_USER=''   (empty quotes)")
-    print("  DB_USER=     (nothing after equals)")
-    print("")
-    sys.exit(1)
-
-if not DB_NAME:
-    print("\n" + "="*60)
-    print("ERROR: DB_NAME is empty or not set")
-    print("="*60)
-    print("")
-    print("The DB_NAME environment variable must have a value.")
-    print("It cannot be an empty string or contain only whitespace.")
-    print("")
-    print("Please check your .env file and ensure:")
-    print("  DB_NAME=sulfur_bot")
-    print("")
-    print("Do NOT use:")
-    print("  DB_NAME=\"\"  (empty quotes)")
-    print("  DB_NAME=''   (empty quotes)")
-    print("  DB_NAME=     (nothing after equals)")
-    print("")
-    sys.exit(1)
-
-# Quick mode: if DB already works with provided credentials, skip setup
-def quick_db_check():
-    try:
-        conn = mysql.connector.connect(
-            host=DB_HOST,
-            user=DB_USER,
-            password=DB_PASS if DB_PASS else None,
-            database=DB_NAME
-        )
-        conn.close()
-        return True
-    except Exception:
-        return False
-
-
-def auto_provision_with_root(root_password: str):
-    """Create DB and user automatically using provided root password."""
-    conn = mysql.connector.connect(host='localhost', user='root', password=root_password)
-    cursor = conn.cursor()
-    cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{DB_NAME}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
-    cursor.execute(f"DROP USER IF EXISTS '{DB_USER}'@'{DB_HOST}'")
-    if DB_PASS:
-        cursor.execute(f"CREATE USER '{DB_USER}'@'{DB_HOST}' IDENTIFIED BY %s", (DB_PASS,))
-    else:
-        cursor.execute(f"CREATE USER '{DB_USER}'@'{DB_HOST}' IDENTIFIED BY ''")
-    cursor.execute(f"GRANT ALL PRIVILEGES ON `{DB_NAME}`.* TO '{DB_USER}'@'{DB_HOST}'")
-    cursor.execute("FLUSH PRIVILEGES")
-    conn.commit()
-    cursor.close()
-    conn.close()
-    return True
-
-
-def run_simple_command(cmd):
-    """Run a simple shell command and return (code, stdout, stderr)."""
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        return result.returncode, result.stdout.strip(), result.stderr.strip()
-    except FileNotFoundError:
-        return 127, '', 'command not found'
-    except Exception as e:
-        return 1, '', str(e)
-
-
-def mysql_installed():
-    """Check if mysql/mariadb client/server binaries exist."""
-    return any(shutil.which(cmd) for cmd in ["mysql", "mariadb", "mysqld", "mariadbd"])
-
-
-def install_mysql_if_missing():
-    """Attempt to install MySQL/MariaDB using common package managers."""
-    if mysql_installed():
-        return True
-    # Termux
-    if shutil.which("pkg"):
-        print("Attempting install via 'pkg install mariadb'...")
-        code, out, err = run_simple_command(["pkg", "install", "mariadb", "-y"])
-        if code == 0:
-            return True
-        print(f"Install failed: {err or out}")
-        return False
-    # Debian/Ubuntu
-    if shutil.which("apt-get") or shutil.which("apt"):
-        print("Attempting install via apt (mariadb-server mariadb-client)...")
-        code, out, err = run_simple_command(["sudo", "apt-get", "update"])
-        if code != 0:
-            print(f"apt-get update failed: {err or out}")
-            return False
-        code, out, err = run_simple_command(["sudo", "apt-get", "install", "-y", "mariadb-server", "mariadb-client"])
-        if code == 0:
-            return True
-        print(f"apt-get install failed: {err or out}")
-        return False
-    # Homebrew
-    if shutil.which("brew"):
-        print("Attempting install via brew install mariadb...")
-        code, out, err = run_simple_command(["brew", "install", "mariadb"])
-        if code == 0:
-            return True
-        print(f"brew install failed: {err or out}")
-        return False
-    print("No supported package manager found for auto-install. Please install MySQL/MariaDB manually.")
-    return False
-
-
-def mysql_server_reachable():
-    """Best-effort reachability check; access denied still means reachable."""
-    checks = [
-        ["mysqladmin", "ping", "-uroot", "--connect-timeout=2"],
-        ["mariadb-admin", "ping", "-uroot", "--connect-timeout=2"],
-    ]
-    for cmd in checks:
-        code, _, _ = run_simple_command(cmd)
-        if code in (0, 1):  # 1 can be "access denied" but server is up
-            return True
-    return False
-
-
-def initialize_mysql_termux():
-    """Initialize MariaDB data directory on Termux (first-time setup)."""
-    if PLATFORM != 'termux':
-        return True
-    
-    # Check if data directory exists
-    prefix = os.environ.get('PREFIX', '/data/data/com.termux/files/usr')
-    datadir = f"{prefix}/var/lib/mysql"
-    
-    if os.path.isdir(datadir) and os.listdir(datadir):
-        print("  ✅ MariaDB data directory already initialized")
-        return True
-    
-    print("  → Initializing MariaDB data directory (first-time setup)...")
-    code, out, err = run_simple_command(["mysql_install_db"])
-    if code == 0:
-        print("  ✅ MariaDB initialized successfully")
-        return True
-    else:
-        print(f"  ⚠️  Initialization had issues: {err or out}")
-        # Still return True as the directory might be partially initialized
-        return True
-
-
-def start_mysql_termux():
-    """Start MariaDB on Termux using mysqld_safe."""
-    if PLATFORM != 'termux':
-        return False
-    
-    # Check if already running
-    code, _, _ = run_simple_command(["pgrep", "-x", "mysqld"])
-    if code == 0:
-        print("  ✅ MariaDB is already running")
-        return True
-    
-    print("  → Starting MariaDB server...")
-    prefix = os.environ.get('PREFIX', '/data/data/com.termux/files/usr')
-    datadir = f"{prefix}/var/lib/mysql"
-    
-    # Start mysqld_safe in background
-    try:
-        subprocess.Popen(
-            ["mysqld_safe", f"--datadir={datadir}"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True
-        )
-    except Exception as e:
-        print(f"  ⚠️  Failed to start mysqld_safe: {e}")
-        return False
-    
-    # Wait for server to become ready
-    print("  → Waiting for MariaDB to become ready...")
-    for i in range(MYSQL_STARTUP_TIMEOUT):
-        time.sleep(1)
-        if mysql_server_reachable():
-            print(f"  ✅ MariaDB is ready (took {i+1}s)")
-            return True
-    
-    print("  ⚠️  MariaDB may still be starting...")
-    return False
-
-
-def try_start_mysql_service():
-    """Try to start MySQL/MariaDB using platform-appropriate methods."""
-    
-    # Termux: use mysqld_safe
-    if PLATFORM == 'termux':
-        initialize_mysql_termux()
-        return start_mysql_termux(), ""
-    
-    # Linux/WSL: try systemctl, then service
-    if PLATFORM in ['linux', 'wsl']:
-        start_cmds = [
-            ["sudo", "systemctl", "start", "mariadb"],
-            ["sudo", "systemctl", "start", "mysql"],
-            ["sudo", "service", "mariadb", "start"],
-            ["sudo", "service", "mysql", "start"],
-        ]
-        for cmd in start_cmds:
-            code, out, err = run_simple_command(cmd)
-            if code == 0:
-                time.sleep(MYSQL_SERVER_WAIT)  # Give server time to become ready
-                return True, "".join([out, err]).strip()
-        return False, ""
-    
-    # macOS: use brew services
-    if PLATFORM == 'macos':
-        code, out, err = run_simple_command(["brew", "services", "start", "mariadb"])
-        if code == 0:
-            time.sleep(MYSQL_SERVER_WAIT)
-            return True, out
-        return False, err
-    
-    # Windows: try net start
-    if PLATFORM == 'windows':
-        for service in ['MariaDB', 'MySQL', 'MySQL80', 'MySQL84']:
-            code, out, err = run_simple_command(["net", "start", service])
-            if code == 0:
-                time.sleep(MYSQL_SERVER_WAIT)
-                return True, out
-        return False, ""
-    
-    return False, ""
-
-
-def try_connect_root_auto():
-    """
-    Try to connect as root automatically without password input.
-    Returns (connection, method_used) or (None, None) if failed.
-    
-    Tries in order:
-    1. MYSQL_ROOT_PASSWORD environment variable (if set)
-    2. No password (common on fresh Termux/Linux installs)
-    """
-    methods = [
-        ("no password", {"host": "localhost", "user": "root", "password": ""}),
-    ]
-    
-    # Add env var password if provided
-    if MYSQL_ROOT_PASSWORD:
-        methods.insert(0, ("env variable", {"host": "localhost", "user": "root", "password": MYSQL_ROOT_PASSWORD}))
-    
-    for method_name, conn_args in methods:
-        try:
-            conn = mysql.connector.connect(**conn_args)
-            return conn, method_name
-        except mysql.connector.Error:
-            continue
-        except Exception:
-            continue
-    
-    return None, None
-
-# Validate configuration to prevent SQL injection
-try:
-    validate_hostname(DB_HOST)
-    validate_identifier(DB_USER, "Database user")
-    validate_identifier(DB_NAME, "Database name")
-    # Password doesn't need identifier validation, but we'll escape it properly when used
-except ValueError as e:
-    print(f"\n❌ Configuration Error: {e}")
-    print("\nPlease check your .env file for invalid characters.")
-    print("Database name and user can only contain letters, numbers, and underscores.")
-    sys.exit(1)
-
-print_header("SULFUR BOT - AUTOMATED DATABASE SETUP")
-
-print(f"Platform detected: {PLATFORM}")
+print("This wizard will set up your database with:")
+print("  • Cryptographically secure passwords (48+ characters)")
+print("  • Proper security hardening")
+print("  • Automatic user and database creation")
+print("  • Secure configuration storage")
 print()
 
-# ============================================================
-# STEP 1: Quick check - if DB already works, we're done
-# ============================================================
-print_section("Step 1: Checking Existing Configuration")
-
-if quick_db_check():
-    print("✅ Database connection already working with configured credentials!")
-    print("   No setup needed. Exiting successfully.")
-    sys.exit(0)
-
-print("  → Database not yet configured. Starting automated setup...")
-print()
-
-# ============================================================
-# STEP 2: Ensure MySQL/MariaDB is installed
-# ============================================================
-print_section("Step 2: Ensuring MySQL/MariaDB is Installed")
-
-if mysql_installed():
-    print("  ✅ MySQL/MariaDB is installed")
-else:
-    print("  → MySQL/MariaDB not found. Installing automatically...")
-    if install_mysql_if_missing():
-        print("  ✅ Installation complete")
-    else:
-        print()
-        print("  ❌ Could not install MySQL/MariaDB automatically.")
-        print("     Please install manually:")
-        if PLATFORM == 'termux':
-            print("       pkg install mariadb")
-        elif PLATFORM in ['linux', 'wsl']:
-            print("       sudo apt install mariadb-server mariadb-client")
-        elif PLATFORM == 'macos':
-            print("       brew install mariadb")
-        elif PLATFORM == 'windows':
-            print("       Download from https://mariadb.org/download/")
-        sys.exit(1)
-
-# ============================================================
-# STEP 3: Initialize and start the database server
-# ============================================================
-print_section("Step 3: Starting Database Server")
-
-# On Termux, initialize first if needed
-if PLATFORM == 'termux':
-    initialize_mysql_termux()
-
-if mysql_server_reachable():
-    print("  ✅ Database server is already running")
-else:
-    print("  → Database server not running. Starting automatically...")
-    started, _ = try_start_mysql_service()
-    
-    if started and mysql_server_reachable():
-        print("  ✅ Database server started successfully")
-    else:
-        # Wait a bit more and try again
-        print("  → Waiting for server to become ready...")
-        time.sleep(3)
-        
-        if mysql_server_reachable():
-            print("  ✅ Database server is now ready")
-        else:
-            print()
-            print("  ❌ Could not start database server automatically.")
-            print()
-            if PLATFORM == 'termux':
-                print("  Please start manually:")
-                print("    mysqld_safe &")
-                print("    sleep 5")
-            elif PLATFORM in ['linux', 'wsl']:
-                print("  Please start manually:")
-                print("    sudo systemctl start mariadb  # or mysql")
-            elif PLATFORM == 'macos':
-                print("  Please start manually:")
-                print("    brew services start mariadb")
-            elif PLATFORM == 'windows':
-                print("  Please start MySQL/MariaDB service from Services (services.msc)")
-            print()
-            print("  Then run this script again.")
-            sys.exit(1)
-
-# ============================================================
-# STEP 4: Connect as root (automatically if possible)
-# ============================================================
-print_section("Step 4: Connecting to Database")
-
-print("  → Attempting automatic root connection...")
-
-root_conn, method_used = try_connect_root_auto()
-
-if root_conn:
-    print(f"  ✅ Connected as root ({method_used})")
-else:
-    # Fall back to asking for password
-    print("  → Automatic connection failed. Trying with password...")
-    print()
-    
-    connected = False
-    last_error = None
-    max_attempts = 3
-    
-    for attempt in range(1, max_attempts + 1):
-        print(f"  Attempt {attempt}/{max_attempts}")
-        password = getpass("  Enter MySQL root password: ")
-        
-        try:
-            root_conn = mysql.connector.connect(
-                host='localhost',
-                user='root',
-                password=password
-            )
-            print("  ✅ Connected!")
-            connected = True
-            break
-        except mysql.connector.Error as err:
-            last_error = err
-            if err.errno == 2003:
-                # Connection refused - server is not running
-                print(f"  ❌ Server not running: {err}")
-                print()
-                print("  ⚠️  MySQL server is not running or not accepting connections.")
-                print("     Please start the server first and try again.")
-                break  # Exit loop immediately, don't ask for more passwords
-            elif err.errno == 1045:
-                print("  ❌ Access denied - incorrect password")
-                if attempt < max_attempts:
-                    print("     Please try again.")
-            else:
-                print(f"  ❌ Failed: {err}")
-                if attempt < max_attempts:
-                    print("     This may be a network or configuration issue.")
-            continue
-    
-    if not root_conn:
-        print_section("❌ Cannot Connect to MySQL")
-        print()
-        
-        # Provide targeted guidance based on error type
-        if last_error and last_error.errno == 2003:
-            # Connection refused - server not running
-            print("MySQL server is not running or not accepting connections.")
-            print()
-            print("Please start the MySQL/MariaDB server first:")
-            print()
-            print("  • Windows (PowerShell):")
-            print("    Get-Service -Name 'MySQL*','MariaDB' -ErrorAction SilentlyContinue")
-            print("    # Then start the service you found, e.g.:")
-            print("    # Start-Service -Name 'MySQL80'  # or MySQL84, MariaDB, etc.")
-            print()
-            print("  • Linux (systemd):")
-            print("    sudo systemctl status mysql  # or mariadb")
-            print("    sudo systemctl start mysql  # or mariadb")
-            print()
-            print("  • Termux (Android):")
-            print("    # First time only - run: mysql_install_db")
-            print("    mysqld_safe --datadir=$PREFIX/var/lib/mysql &")
-            print("    sleep 5  # Wait for server to start")
-            print()
-            print("  • macOS (Homebrew):")
-            print("    brew services start mariadb")
-            print()
-        elif last_error and last_error.errno == 1045:
-            # Access denied - authentication issue
-            print("Could not authenticate with MySQL as root.")
-            print()
-            print("Possible solutions:")
-            print()
-            print("  1. Incorrect root password")
-            print("     → Run this wizard again with the correct password")
-            print()
-            print("  2. Reset the root password:")
-            print("     → See: MYSQL_PASSWORD_RESET.md (Windows)")
-            print("     → Or run: sudo mysql -u root")
-            print("     → Then: ALTER USER 'root'@'localhost' IDENTIFIED BY 'newpassword';")
-            print()
-        else:
-            # Other errors
-            print("Could not connect to MySQL as root. Possible issues:")
-            print()
-            print("  1. MySQL service not running")
-            print("     → Check if MySQL is running:")
-            print("       - Windows: Get-Service -Name 'MySQL*','MariaDB'")
-            print("       - Linux:   sudo systemctl status mysql  # or mariadb")
-            print("       - Fix:     Start MySQL/MariaDB service before running setup")
-            print()
-            print("  2. Incorrect root password")
-            print("     → If you forgot the root password, reset it:")
-            print("       - See: MYSQL_PASSWORD_RESET.md  (Windows)")
-            print("       - Or run: sudo mysql -u root")
-            print("       - Then: ALTER USER 'root'@'localhost' IDENTIFIED BY 'newpassword';")
-            print()
-            print("  3. MySQL not installed properly")
-            print("     → Reinstall MySQL (see INSTALLATION_GUIDE.md)")
-            print()
-        
-        if last_error:
-            print(f"Technical details: {last_error}")
-        print()
-        sys.exit(1)
-
-# ============================================================
-# STEP 5: Create Database and User
-# ============================================================
-print_section("Step 5: Creating Database and User")
-
-def escape_password(password):
-    """
-    Escape special characters in password for MySQL.
-    Note: For user creation, we need to escape single quotes and backslashes properly.
-    MySQL string literal escaping requires: ' -> '' and \\ -> \\\\
-    """
-    if not password:
-        return ''
-    # Escape backslashes first (they escape other characters)
-    password = password.replace('\\', '\\\\')
-    # Then escape single quotes by doubling them (MySQL standard escaping)
-    password = password.replace("'", "''")
-    return password
-
-try:
-    cursor = root_conn.cursor()
-    
-    # Create database with configurable name
-    # DB_NAME is already validated to contain only safe characters
-    print(f"  → Creating database '{DB_NAME}'...", end=" ")
-    cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{DB_NAME}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
-    print("✅")
-    
-    # Drop old user
-    # DB_USER and DB_HOST are already validated
-    print(f"  → Setting up user '{DB_USER}'...", end=" ")
-    cursor.execute(f"DROP USER IF EXISTS '{DB_USER}'@'{DB_HOST}'")
-    
-    # Create user with configurable name and password
-    # Password is escaped to handle special characters safely
-    escaped_pass = escape_password(DB_PASS)
-    
-    try:
-        if DB_PASS:
-            cursor.execute(f"CREATE USER '{DB_USER}'@'{DB_HOST}' IDENTIFIED BY '{escaped_pass}'")
-        else:
-            cursor.execute(f"CREATE USER '{DB_USER}'@'{DB_HOST}' IDENTIFIED BY ''")
-        print("✅")
-    except mysql.connector.Error as err:
-        # Try alternative authentication methods
-        if "plugin" in str(err).lower():
-            if DB_PASS:
-                cursor.execute(f"CREATE USER '{DB_USER}'@'{DB_HOST}' IDENTIFIED WITH mysql_native_password BY '{escaped_pass}'")
-            else:
-                cursor.execute(f"CREATE USER '{DB_USER}'@'{DB_HOST}' IDENTIFIED WITH mysql_native_password BY ''")
-            print("✅ (native auth)")
-        else:
-            raise
-    
-    # Grant privileges
-    print("  → Granting privileges...", end=" ")
-    cursor.execute(f"GRANT ALL PRIVILEGES ON `{DB_NAME}`.* TO '{DB_USER}'@'{DB_HOST}'")
-    cursor.execute("FLUSH PRIVILEGES")
-    print("✅")
-    
-    cursor.close()
-    root_conn.close()
-    
-    print_section("Step 6: Verifying Setup")
-    
-    # Test connection as bot user
-    print("  → Testing bot user connection...", end=" ")
-    try:
-        # Try with the password from the config
-        test_conn = mysql.connector.connect(
-            host=DB_HOST,
-            user=DB_USER,
-            password=DB_PASS if DB_PASS else None,
-            database=DB_NAME
-        )
-        test_conn.close()
-        print("✅")
-    except mysql.connector.Error as err:
-        print("⚠️")
-        print()
-        print("  Warning: Connection test failed, but database may have been created successfully.")
-        print(f"  Error: {err}")
-        print()
-        print("  The bot should still work. If you experience issues, run this wizard again.")
-    
-    print_header("✅ DATABASE SETUP COMPLETE!")
-    
-    print("Your database is ready! Configuration:")
-    print()
-    print(f"  Database: {DB_NAME}")
-    print(f"  User:     {DB_USER}")  
-    print(f"  Password: {'(set)' if DB_PASS else '(none)'}")
-    print(f"  Host:     {DB_HOST}")
-    print()
-    print("The bot can now connect to the database.")
-    print()
-    print("Next steps (if running manually):")
-    print("  1. python apply_migration.py    (creates tables)")
-    print("  2. python bot.py                (start the bot)")
-    print()
-    
-except mysql.connector.Error as err:
-    print(f"\n❌ MySQL Error: {err.errno} - {err.msg}")
-    print()
-    print("Database setup failed. Please check the error message above.")
-    print()
-    
-    if err.errno == 1045:
-        print("💡 Error 1045: Access denied")
-        print("   This usually means the root password is incorrect.")
-        print("   Try again with the correct password.")
-    elif err.errno == 1007:
-        print("💡 Error 1007: Database already exists")
-        print("   The database was already created. This is normal if you're")
-        print("   running setup_wizard.py again.")
-    elif err.errno == 1317:
-        print("💡 Error 1317: Query execution was interrupted")
-        print("   The MySQL server interrupted the query.")
-        print("   This might happen if the server is shutting down.")
-    else:
-        print("For help:")
-        print("  • Windows: See MYSQL_SETUP.md or MYSQL_PASSWORD_RESET.md")
-        print("  • Linux:   Check MySQL logs: journalctl -u mysql -n 50")
-        print("  • Termux:  Make sure MySQL is running: mysqld_safe &")
-    
-    print()
-    print("You can try running this script again later.")
+# Check if we're in the project root
+if not os.path.exists('bot.py'):
+    print_error("This script must be run from the project root directory")
+    print_info("Please cd to the project directory and run again")
     sys.exit(1)
 
+# Check if database is already configured
+if os.path.exists('config/database.json'):
+    print_info("Database configuration already exists: config/database.json")
+    response = input("\nReconfigure database? (y/N): ").strip().lower()
+    if response != 'y':
+        print_info("Keeping existing configuration")
+        sys.exit(0)
+    
+    print_info("Removing old configuration...")
+    os.remove('config/database.json')
+
+# Run the secure setup script
+print()
+print_info("Starting secure database setup...")
+print()
+
+secure_setup_script = Path('scripts/setup_database_secure.sh')
+
+if not secure_setup_script.exists():
+    print_error("Secure setup script not found: scripts/setup_database_secure.sh")
+    print_info("The script may have been moved or deleted")
+    sys.exit(1)
+
+try:
+    # Run the secure setup script
+    result = subprocess.run(
+        ['bash', str(secure_setup_script)],
+        cwd=os.getcwd()
+    )
+    
+    if result.returncode == 0:
+        print()
+        print_success("Database setup complete!")
+        print()
+        print_info("Next steps:")
+        print("  1. Run migrations: python apply_migration.py --all")
+        print("  2. Start the bot:  python bot.py")
+        print()
+        sys.exit(0)
+    else:
+        print()
+        print_error("Database setup failed")
+        print_info("Check the error messages above for details")
+        sys.exit(1)
+
+except FileNotFoundError:
+    print_error("bash command not found")
+    print_info("This script requires bash to run")
+    print_info("On Windows, use Git Bash or WSL")
+    sys.exit(1)
+except KeyboardInterrupt:
+    print()
+    print_info("Setup cancelled by user")
+    sys.exit(1)
 except Exception as e:
-    print(f"\n❌ Unexpected error: {e}")
-    import traceback
-    traceback.print_exc()
-    print()
-    print("An unexpected error occurred. Please check the details above.")
+    print_error(f"Unexpected error: {e}")
     sys.exit(1)
