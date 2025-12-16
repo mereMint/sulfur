@@ -472,8 +472,14 @@ backup_database() {
     
     local backup_file="$BACKUP_DIR/sulfur_bot_backup_$(date +"%Y-%m-%d_%H-%M-%S").sql"
     
-    # Try backup with password from environment or without password
-    if [ -n "$DB_PASS" ]; then
+    # Check if password is actually set (not empty or just whitespace)
+    local password_set=false
+    if [ -n "$DB_PASS" ] && [ "$(echo "$DB_PASS" | tr -d ' ')" != "" ]; then
+        password_set=true
+    fi
+    
+    # Try backup with password from environment if set
+    if [ "$password_set" = true ]; then
         # Use password if set
         if $dump_cmd -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" > "$backup_file" 2>>"$MAIN_LOG"; then
             log_success "Database backup created: $(basename "$backup_file")"
@@ -491,6 +497,8 @@ backup_database() {
                 log_success "Database backup created using debian.cnf: $(basename "$backup_file")"
             else
                 log_error "Database backup failed (tried no password and debian.cnf)"
+                log_info "Note: If you have no password for the database user, this is expected."
+                log_info "The bot will continue, but backups will need to be created manually."
                 return 1
             fi
         fi

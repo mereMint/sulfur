@@ -430,12 +430,21 @@ function Invoke-DatabaseBackup {
         if(-not $user){$user='sulfur_bot_user'}
         $db=$env:DB_NAME
         if(-not $db){$db='sulfur_bot'}
+        $pass=$env:DB_PASS
+        
         $backupDir=Join-Path $PSScriptRoot 'backups'
         if(-not(Test-Path $backupDir)){New-Item -ItemType Directory -Path $backupDir|Out-Null}
         $backupFile=Join-Path $backupDir "sulfur_bot_backup_$(Get-Date -Format 'yyyy-MM-dd_HH-mm-ss').sql"
         
         if($dumpCmd){
-            & $dumpCmd -u $user $db > $backupFile 2>$null
+            # Check if password is actually set (not empty or whitespace)
+            if([string]::IsNullOrWhiteSpace($pass)){
+                # No password - try without password
+                & $dumpCmd -u $user $db > $backupFile 2>$null
+            } else {
+                # Has password - use it
+                & $dumpCmd -u $user -p$pass $db > $backupFile 2>$null
+            }
         } else {
             'mysqldump/mariadb-dump not found; placeholder backup entry.' | Out-File -FilePath $backupFile
         }
@@ -449,6 +458,7 @@ function Invoke-DatabaseBackup {
             return $true
         } else {
             Write-ColorLog 'Backup failed' 'Red' '[DB] '
+            Write-ColorLog 'Note: If the database user has no password, backups can be created manually' 'Yellow' '[DB] '
             return $false
         }
     } catch {

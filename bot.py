@@ -170,11 +170,16 @@ MAX_EMOJI_LIMIT_ERROR_CODE = 30008
 ACCURACY_CHECK_TEMPLATE = "ACCURACY CHECK: You are currently responding to '{user_name}'. Check the message history carefully - each message shows who said what. ONLY reference things that are explicitly visible in the provided conversation history. Do NOT make assumptions about what was said or done."
 
 # --- REFACTORED: Add a more robust token check with diagnostics ---
-if not DISCORD_BOT_TOKEN:
-    logger.critical("DISCORD_BOT_TOKEN environment variable is not set")
-    print("Error: DISCORD_BOT_TOKEN environment variable is not set.")
+if not DISCORD_BOT_TOKEN or not DISCORD_BOT_TOKEN.strip():
+    logger.critical("DISCORD_BOT_TOKEN environment variable is not set or is empty")
+    print("Error: DISCORD_BOT_TOKEN environment variable is not set or is empty.")
     print("Please ensure your '.env' file exists in the same directory as the bot and contains the line:")
     print('DISCORD_BOT_TOKEN="YOUR_BOT_TOKEN_HERE"')
+    print("\nTo get your bot token:")
+    print("  1. Go to https://discord.com/developers/applications")
+    print("  2. Click on your application")
+    print("  3. Click 'Bot' -> 'Reset Token'")
+    print("  4. Copy the token and paste it in the .env file")
     exit()
 
 # --- NEW: Diagnostic check to ensure the token looks valid ---
@@ -183,7 +188,12 @@ if len(token_parts) != 3:
     logger.critical(f"DISCORD_BOT_TOKEN appears malformed (parts: {len(token_parts)})")
     print("Error: The DISCORD_BOT_TOKEN appears to be malformed.")
     print(f"  -> Sanitized Token Preview: {DISCORD_BOT_TOKEN[:5]}...{DISCORD_BOT_TOKEN[-5:]}")
-    print("A valid token should have three parts separated by dots. Please get a new token from the Discord Developer Portal.")
+    print("\nA valid token should have three parts separated by dots.")
+    print("\nTo get a new valid token:")
+    print("  1. Go to https://discord.com/developers/applications")
+    print("  2. Click on your application")
+    print("  3. Click 'Bot' -> 'Reset Token'")
+    print("  4. Copy the new token and update your .env file")
     exit()
 
 # --- REFACTORED: Check for API keys based on provider ---

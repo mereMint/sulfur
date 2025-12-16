@@ -368,21 +368,19 @@ def setup_env_file() -> bool:
     
     config = {}
     
-    # Discord Bot Token
+    # Discord Bot Token - REQUIRED
+    config['DISCORD_BOT_TOKEN'] = ''
     current = existing.get('DISCORD_BOT_TOKEN', '')
     masked = f"{current[:10]}..." if len(current) > 10 else "(not set)"
-    token = input(f"Discord Bot Token [{masked}]: ").strip()
-    config['DISCORD_BOT_TOKEN'] = token if token else current
     
-    # Database configuration
-    print("\n--- Database Configuration ---")
-    config['DB_HOST'] = input(f"Database Host [{existing.get('DB_HOST', 'localhost')}]: ").strip() or existing.get('DB_HOST', 'localhost')
-    config['DB_USER'] = input(f"Database User [{existing.get('DB_USER', 'sulfur_bot_user')}]: ").strip() or existing.get('DB_USER', 'sulfur_bot_user')
-    
-    current_pass = existing.get('DB_PASS', '')
-    db_pass = getpass(f"Database Password [{'****' if current_pass else '(empty)'}]: ") or current_pass
-    config['DB_PASS'] = db_pass
-    
+    while not config['DISCORD_BOT_TOKEN']:
+        token = input(f"Discord Bot Token [{masked}]: ").strip()
+        if token:
+            config['DISCORD_BOT_TOKEN'] = token
+        elif current:
+            config['DISCORD_BOT_TOKEN'] = current
+        else:
+            print_warning("Discord Bot Token is required! (Press Ctrl+C to cancel)")
     config['DB_NAME'] = input(f"Database Name [{existing.get('DB_NAME', 'sulfur_bot')}]: ").strip() or existing.get('DB_NAME', 'sulfur_bot')
     
     # AI API Keys
