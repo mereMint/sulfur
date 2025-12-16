@@ -50,6 +50,39 @@ Use `/help` in Discord to see all available commands organized by category:
 
 ## 📋 Quick Start
 
+### 🚀 One-Command Install (Recommended)
+
+The easiest way to get started! Copy and run one command:
+
+**Linux / macOS / Termux:**
+```bash
+curl -sSL https://raw.githubusercontent.com/mereMint/sulfur/main/scripts/quickinstall.sh | bash
+```
+
+**Windows (PowerShell as Administrator):**
+```powershell
+irm https://raw.githubusercontent.com/mereMint/sulfur/main/scripts/quickinstall.ps1 | iex
+```
+
+This will automatically:
+- ✅ Install all dependencies
+- ✅ Clone the repository
+- ✅ Set up Python environment
+- ✅ Run the interactive setup wizard
+
+### 📚 Documentation
+
+- **[Quick Start Guide](docs/QUICKSTART.md)** - Get running in 5 minutes
+- **[Full Wiki](docs/WIKI.md)** - Complete documentation
+- **[VPN Setup](docs/VPN_GUIDE.md)** - WireGuard configuration
+- **[Minecraft Server](docs/MINECRAFT.md)** - Server setup & mods
+- **[Termux Guide](docs/TERMUX.md)** - Android-specific instructions
+- **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues & solutions
+
+### 🔧 Manual Installation
+
+If you prefer manual installation:
+
 ### 🪟 Windows
 
 1. Clone the repository:

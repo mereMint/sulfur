@@ -198,6 +198,16 @@ def follow_log_file():
                         enhanced_line = '<span class="badge bg-warning me-1">Admin</span>' + line
                     elif 'chat' in line_lower or 'conversation' in line_lower:
                         enhanced_line = '<span class="badge bg-info me-1">Chat</span>' + line
+                    elif 'modpack' in line_lower or 'mrpack' in line_lower:
+                        enhanced_line = '<span class="badge bg-dark me-1">Modpack</span>' + line
+                    elif 'minecraft' in line_lower or 'server' in line_lower and 'start' in line_lower:
+                        enhanced_line = '<span class="badge bg-success me-1">Minecraft</span>' + line
+                    elif 'wireguard' in line_lower or 'vpn' in line_lower:
+                        enhanced_line = '<span class="badge bg-primary me-1">VPN</span>' + line
+                    elif 'automodpack' in line_lower:
+                        enhanced_line = '<span class="badge bg-info me-1">AutoModpack</span>' + line
+                    elif 'modrinth' in line_lower or 'curseforge' in line_lower:
+                        enhanced_line = '<span class="badge bg-secondary me-1">ModSource</span>' + line
                     elif 'level' in line_lower or 'xp' in line_lower:
                         enhanced_line = '<span class="badge bg-primary me-1">Leveling</span>' + line
                     elif 'economy' in line_lower or 'coin' in line_lower:
@@ -988,6 +998,13 @@ API_KEYS_CONFIG = {
         'get_url': 'https://www.football-data.org/client/register',
         'required': False,
         'category': 'Sports'
+    },
+    'CURSEFORGE_API_KEY': {
+        'name': 'CurseForge API Key',
+        'description': 'Required for auto-downloading CurseForge modpacks (Raspberry Flavoured, Homestead)',
+        'get_url': 'https://console.curseforge.com/',
+        'required': False,
+        'category': 'Minecraft'
     }
 }
 
@@ -5312,6 +5329,210 @@ def database_export():
     except Exception as e:
         logger.error(f"Error exporting database: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+# ============================================================
+# Minecraft / Modpack Status Endpoints
+# ============================================================
+
+@app.route('/api/minecraft/status', methods=['GET'])
+def api_minecraft_status():
+    """API endpoint to get Minecraft server and modpack status."""
+    try:
+        from modules import minecraft_server as mc
+        
+        status = {
+            'server_running': mc.is_server_running(),
+            'current_modpack': mc.get_current_modpack(),
+            'available_modpacks': {},
+            'state': mc._server_state.copy() if hasattr(mc, '_server_state') else {}
+        }
+        
+        # Get available modpacks
+        for name, config in mc.MODPACKS.items():
+            status['available_modpacks'][name] = {
+                'name': config.get('name'),
+                'description': config.get('description'),
+                'source': config.get('source'),
+                'server_type': config.get('server_type')
+            }
+        
+        # Get saved worlds
+        status['saved_worlds'] = mc.list_saved_worlds()
+        
+        logger.info(f"Minecraft status requested: server_running={status['server_running']}, modpack={status['current_modpack']}")
+        
+        return jsonify({
+            'status': 'success',
+            'data': status
+        })
+    except Exception as e:
+        logger.error(f"Error getting Minecraft status: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/minecraft/modpack/install', methods=['POST'])
+def api_install_modpack():
+    """API endpoint to install a modpack."""
+    try:
+        data = request.get_json()
+        modpack_name = data.get('modpack')
+        minecraft_version = data.get('minecraft_version')
+        
+        if not modpack_name:
+            return jsonify({'status': 'error', 'message': 'Modpack name is required'}), 400
+        
+        from modules import minecraft_server as mc
+        
+        if modpack_name not in mc.MODPACKS:
+            return jsonify({'status': 'error', 'message': f'Unknown modpack: {modpack_name}'}), 400
+        
+        logger.info(f"Installing modpack: {modpack_name}")
+        
+        result = run_async(mc.install_modpack(modpack_name, minecraft_version))
+        
+        if result.get('success'):
+            logger.info(f"Modpack '{modpack_name}' installed successfully")
+            return jsonify({
+                'status': 'success',
+                'message': f"Modpack '{modpack_name}' installed successfully",
+                'data': result
+            })
+        else:
+            logger.error(f"Modpack installation failed: {result.get('errors')}")
+            return jsonify({
+                'status': 'error',
+                'message': 'Installation failed',
+                'errors': result.get('errors', []),
+                'data': result
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"Error installing modpack: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/minecraft/modpack/switch', methods=['POST'])
+def api_switch_modpack():
+    """API endpoint to switch modpacks."""
+    try:
+        data = request.get_json()
+        new_modpack = data.get('modpack')
+        save_current = data.get('save_current', True)
+        
+        if not new_modpack:
+            return jsonify({'status': 'error', 'message': 'Modpack name is required'}), 400
+        
+        from modules import minecraft_server as mc
+        
+        if new_modpack not in mc.MODPACKS:
+            return jsonify({'status': 'error', 'message': f'Unknown modpack: {new_modpack}'}), 400
+        
+        # Get config
+        with open('config/config.json', 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        
+        mc_config = config.get('modules', {}).get('minecraft', {})
+        
+        logger.info(f"Switching to modpack: {new_modpack}")
+        
+        result = run_async(mc.switch_modpack(new_modpack, mc_config, save_current))
+        
+        for step in result.get('steps', []):
+            logger.info(f"[Modpack Switch] {step}")
+        
+        if result.get('success'):
+            logger.info(f"Switched to modpack '{new_modpack}' successfully")
+            return jsonify({
+                'status': 'success',
+                'message': f"Switched to '{new_modpack}' successfully",
+                'data': result
+            })
+        else:
+            logger.error(f"Modpack switch failed: {result.get('errors')}")
+            return jsonify({
+                'status': 'error',
+                'message': 'Switch failed',
+                'errors': result.get('errors', []),
+                'data': result
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"Error switching modpack: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+# ============================================================
+# VPN Status Endpoints
+# ============================================================
+
+@app.route('/api/vpn/status', methods=['GET'])
+def api_vpn_status():
+    """API endpoint to get VPN status."""
+    try:
+        from modules import wireguard_manager as wg
+        
+        status = {
+            'wireguard_installed': wg.is_wireguard_installed(),
+            'platform': wg._get_platform(),
+            'interface_exists': False,
+            'peers': []
+        }
+        
+        # Try to get interface status
+        try:
+            interface_status = run_async(wg.get_interface_status())
+            status['interface_exists'] = interface_status.get('exists', False)
+            status['interface_active'] = interface_status.get('active', False)
+            status['peers'] = interface_status.get('peers', [])
+        except Exception as e:
+            logger.debug(f"Could not get WireGuard interface status: {e}")
+        
+        logger.info(f"VPN status requested: installed={status['wireguard_installed']}")
+        
+        return jsonify({
+            'status': 'success',
+            'data': status
+        })
+    except Exception as e:
+        logger.error(f"Error getting VPN status: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/vpn/add_device', methods=['POST'])
+def api_vpn_add_device():
+    """API endpoint to add a VPN device."""
+    try:
+        data = request.get_json()
+        device_name = data.get('device_name')
+        
+        if not device_name:
+            return jsonify({'status': 'error', 'message': 'Device name is required'}), 400
+        
+        from modules import wireguard_manager as wg
+        
+        logger.info(f"Adding VPN device: {device_name}")
+        
+        result = run_async(wg.add_device_easy(device_name))
+        
+        if result.get('success'):
+            logger.info(f"VPN device '{device_name}' added successfully")
+            return jsonify({
+                'status': 'success',
+                'message': f"Device '{device_name}' added successfully",
+                'data': result
+            })
+        else:
+            logger.error(f"Failed to add VPN device: {result.get('error')}")
+            return jsonify({
+                'status': 'error',
+                'message': result.get('error', 'Unknown error'),
+                'data': result
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"Error adding VPN device: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
 if __name__ == '__main__':

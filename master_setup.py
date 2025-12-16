@@ -461,20 +461,76 @@ def setup_minecraft_server(plat: str) -> bool:
     else:
         print_success(java_msg)
     
-    # Choose server type
-    server_types = [
-        "PaperMC (Recommended - High performance, plugin support)",
-        "Purpur (Paper fork with extra features)",
-        "Vanilla (Official Minecraft server)",
-        "Fabric (Lightweight modding platform)"
+    # Choose server type or modpack
+    print("\n--- Server Type / Modpack Selection ---")
+    print("Choose between a standard server or a pre-configured modpack:")
+    
+    setup_options = [
+        "Standard Server (Choose server type manually)",
+        "🍓 Raspberry Flavoured - CurseForge (Vanilla+ with QoL)",
+        "😴 Melatonin - Modrinth (Maximum performance)",
+        "🏠 Homestead Cozy - CurseForge (Farms, building, decoration)"
     ]
     
-    choice = ask_choice("Select server type:", server_types, default=0)
-    server_type = ['paper', 'purpur', 'vanilla', 'fabric'][choice]
+    setup_choice = ask_choice("Select setup type:", setup_options, default=0)
     
-    # Choose Minecraft version
-    print("\nEnter Minecraft version (e.g., 1.21.4, 1.20.4):")
-    mc_version = input("Version [1.21.4]: ").strip() or "1.21.4"
+    selected_modpack = None
+    server_type = 'paper'
+    mc_version = '1.21.4'
+    
+    if setup_choice == 0:
+        # Standard server selection
+        server_types = [
+            "PaperMC (Recommended - High performance, plugin support)",
+            "Purpur (Paper fork with extra features)",
+            "Vanilla (Official Minecraft server)",
+            "Fabric (Lightweight modding platform)"
+        ]
+        
+        choice = ask_choice("Select server type:", server_types, default=0)
+        server_type = ['paper', 'purpur', 'vanilla', 'fabric'][choice]
+        
+        # Choose Minecraft version
+        print("\nEnter Minecraft version (e.g., 1.21.4, 1.20.4):")
+        mc_version = input("Version [1.21.4]: ").strip() or "1.21.4"
+    else:
+        # Modpack selected
+        modpack_map = {
+            1: 'raspberry_flavoured',
+            2: 'melatonin', 
+            3: 'homestead'
+        }
+        selected_modpack = modpack_map.get(setup_choice)
+        server_type = 'fabric'  # All modpacks use Fabric
+        
+        modpack_sources = {
+            'raspberry_flavoured': 'CurseForge',
+            'melatonin': 'Modrinth',
+            'homestead': 'CurseForge'
+        }
+        
+        print_success(f"Selected modpack: {selected_modpack.replace('_', ' ').title()}")
+        print_info(f"Source: {modpack_sources.get(selected_modpack, 'Unknown')}")
+        print_info("Server type: Fabric (required for modpacks)")
+        print()
+        print("📦 Modpack will be downloaded from:")
+        
+        modpack_urls = {
+            'raspberry_flavoured': "  https://www.curseforge.com/minecraft/modpacks/raspberry-flavoured",
+            'melatonin': "  https://modrinth.com/modpack/melatonin",
+            'homestead': "  https://www.curseforge.com/minecraft/modpacks/homestead-cozy"
+        }
+        
+        print(modpack_urls.get(selected_modpack, ""))
+        print()
+        
+        if modpack_sources.get(selected_modpack) == 'CurseForge':
+            print_warning("CurseForge modpacks require an API key for automatic download.")
+            print_info("Set CURSEFORGE_API_KEY in .env or download manually.")
+        
+        print()
+        print_info("✨ AutoModpack will sync all mods to players automatically!")
+        print_info("   Players only need Fabric + AutoModpack to join.")
     
     # Memory allocation
     print("\n--- Memory Configuration ---")
@@ -507,6 +563,44 @@ def setup_minecraft_server(plat: str) -> bool:
         schedule_config['start_hour'] = int(start_hour)
         schedule_config['end_hour'] = int(end_hour)
     
+    # Mods configuration
+    print("\n--- Mods Configuration ---")
+    
+    install_perf_mods = False
+    install_voice_chat = False
+    install_automodpack = False
+    
+    if server_type in ['fabric', 'paper', 'purpur']:
+        install_perf_mods = ask_yes_no("Install performance optimization mods?", default=True)
+        if install_perf_mods:
+            print_info("Will install: Lithium, Ferritecore, Spark, etc.")
+    
+    # Skip these prompts if modpack is selected (they're already configured)
+    if selected_modpack:
+        install_automodpack = True  # Always enable for modpacks
+        install_voice_chat = ask_yes_no("Enable Simple Voice Chat for proximity voice?", default=True)
+        if install_voice_chat:
+            print_info("Voice chat will be auto-installed with the modpack")
+    elif server_type == 'fabric':
+        print("\n--- AutoModpack (Recommended) ---")
+        print("AutoModpack automatically syncs mods to players when they connect.")
+        print("✅ Players only need to install AutoModpack once - no manual mod setup!")
+        print("✅ Great for beginners - seamless installation experience")
+        install_automodpack = ask_yes_no("Enable AutoModpack for automatic mod syncing?", default=True)
+        if install_automodpack:
+            print_success("AutoModpack will be configured automatically")
+            print_info("Players will auto-download all server mods on first connect")
+        
+        print("\n--- Voice Chat ---")
+        print("Simple Voice Chat allows proximity voice communication in-game.")
+        print("⚠️  Players will need to install the client mod to use voice chat.")
+        if install_automodpack:
+            print_info("(AutoModpack will auto-install this for players too!)")
+        install_voice_chat = ask_yes_no("Enable Simple Voice Chat mod?", default=False)
+        if install_voice_chat:
+            print_info("Voice chat will be configured on port 24454 (UDP)")
+            print_info("Remember to forward this port on your router!")
+    
     # Update config.json
     config_path = 'config/config.json'
     try:
@@ -519,6 +613,13 @@ def setup_minecraft_server(plat: str) -> bool:
         if 'modules' not in config:
             config['modules'] = {}
         
+        # Build modpack config
+        modpack_config = {
+            "enabled": selected_modpack is not None,
+            "name": selected_modpack,
+            "auto_install": True
+        }
+        
         config['modules']['minecraft'] = {
             "enabled": True,
             "server_type": server_type,
@@ -526,12 +627,26 @@ def setup_minecraft_server(plat: str) -> bool:
             "memory_min": mem_min,
             "memory_max": mem_max,
             "port": 25565,
-            "motd": "Sulfur Bot Minecraft Server",
+            "motd": f"Sulfur Bot - {selected_modpack.replace('_', ' ').title() if selected_modpack else 'Minecraft'} Server",
             "max_players": 20,
             "online_mode": True,
             "whitelist": True,
             "schedule": schedule_config,
             "boot_with_bot": True,
+            "modpack": modpack_config,
+            "performance_mods": {
+                "enabled": install_perf_mods and not selected_modpack  # Modpacks include their own
+            },
+            "optional_mods": {
+                "automodpack": {
+                    "enabled": install_automodpack,
+                    "beginner_friendly": True
+                },
+                "simple_voice_chat": {
+                    "enabled": install_voice_chat,
+                    "requires_client_mod": True
+                }
+            },
             "backups": {
                 "enabled": True,
                 "interval_hours": 6,
