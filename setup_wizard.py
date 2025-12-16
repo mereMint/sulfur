@@ -329,7 +329,7 @@ for attempt in range(1, max_attempts + 1):
         else:
             print(f"❌ Failed: {err}")
             if attempt < max_attempts:
-                print("Please try again with the correct root password.")
+                print("This may be a network or configuration issue. Please check your MySQL setup.")
         continue
 
 if not connected:
@@ -344,8 +344,8 @@ if not connected:
         print("Please start the MySQL/MariaDB server first:")
         print()
         print("  • Windows:")
-        print("    Get-Service MySQL84  # Check status")
-        print("    Start-Service MySQL84  # Start the service")
+        print("    Get-Service MySQL*  # or MariaDB - Check status")
+        print("    Start-Service MySQL*  # Start the service")
         print()
         print("  • Linux (systemd):")
         print("    sudo systemctl status mysql")
