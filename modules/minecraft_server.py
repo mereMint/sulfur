@@ -558,6 +558,18 @@ async def download_server_jar(server_type: str, version: str, progress_callback:
     Returns:
         Tuple of (success, path_or_error_message)
     """
+    # Validate version format to prevent command injection
+    # Minecraft versions follow patterns like: 1.21.4, 1.20.4, 24w14a (snapshots)
+    import re
+    version_pattern = re.compile(r'^[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]{1,2})?(-[a-zA-Z0-9]+)?$|^[0-9]{2}w[0-9]{2}[a-z]$')
+    if not version_pattern.match(version):
+        return False, f"Invalid version format: {version}. Expected format like '1.21.4' or '24w14a'"
+    
+    # Validate server type
+    valid_server_types = ['vanilla', 'paper', 'purpur', 'fabric']
+    if server_type not in valid_server_types:
+        return False, f"Invalid server type: {server_type}. Must be one of: {', '.join(valid_server_types)}"
+    
     os.makedirs(MC_SERVER_DIR, exist_ok=True)
     
     jar_path = os.path.join(MC_SERVER_DIR, "server.jar")

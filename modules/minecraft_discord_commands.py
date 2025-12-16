@@ -15,6 +15,9 @@ from discord.ext import tasks
 from typing import Optional, List
 from datetime import datetime, timezone
 import asyncio
+import json
+import io
+import re
 
 from modules.logger_utils import bot_logger as logger
 
@@ -1118,8 +1121,7 @@ def register_minecraft_commands(tree: app_commands.CommandTree, db_helpers, mine
             """Add a new VPN client."""
             await interaction.response.defer(ephemeral=True)
             
-            # Get server config
-            import json
+            # Get server config (json imported at module level)
             config_path = 'config/wireguard/vpn_config.json'
             
             try:

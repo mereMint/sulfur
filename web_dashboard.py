@@ -5105,14 +5105,17 @@ def database_backup_create():
         backup_filename = f"database_backup_{timestamp}.sql"
         backup_path = os.path.join(backup_dir, backup_filename)
         
-        # Use mysqldump to create backup
+        # Use mysqldump with environment variable for password (more secure than CLI arg)
+        env = os.environ.copy()
+        if DB_PASS:
+            env['MYSQL_PWD'] = DB_PASS
+        
         result = subprocess.run([
             'mysqldump',
             '-h', DB_HOST,
             '-u', DB_USER,
-            f'-p{DB_PASS}' if DB_PASS else '--skip-password',
             DB_NAME
-        ], capture_output=True, text=True)
+        ], capture_output=True, text=True, env=env)
         
         if result.returncode == 0:
             with open(backup_path, 'w', encoding='utf-8') as f:
@@ -5235,17 +5238,20 @@ def database_restore():
         if not os.path.exists(backup_path):
             return jsonify({'success': False, 'error': 'Backup file not found'}), 404
         
-        # Use mysql to restore
+        # Use mysql to restore with environment variable for password
         with open(backup_path, 'r', encoding='utf-8') as f:
             sql_content = f.read()
+        
+        env = os.environ.copy()
+        if DB_PASS:
+            env['MYSQL_PWD'] = DB_PASS
         
         result = subprocess.run([
             'mysql',
             '-h', DB_HOST,
             '-u', DB_USER,
-            f'-p{DB_PASS}' if DB_PASS else '',
             DB_NAME
-        ], input=sql_content, capture_output=True, text=True)
+        ], input=sql_content, capture_output=True, text=True, env=env)
         
         if result.returncode == 0:
             return jsonify({'success': True, 'message': 'Database restored successfully'})
@@ -5271,13 +5277,17 @@ def database_export():
         return jsonify({'error': 'Database not connected'}), 503
     
     try:
+        # Use environment variable for password (more secure)
+        env = os.environ.copy()
+        if DB_PASS:
+            env['MYSQL_PWD'] = DB_PASS
+        
         result = subprocess.run([
             'mysqldump',
             '-h', DB_HOST,
             '-u', DB_USER,
-            f'-p{DB_PASS}' if DB_PASS else '--skip-password',
             DB_NAME
-        ], capture_output=True, text=True)
+        ], capture_output=True, text=True, env=env)
         
         if result.returncode == 0:
             # Create in-memory file

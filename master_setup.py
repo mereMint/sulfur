@@ -734,8 +734,7 @@ def import_database(db_host: str, db_user: str, db_pass: str, db_name: str, inpu
             cmd.append(f'-p{db_pass}')
         cmd.append(db_name)
         
-        # Run with SQL input
-        import subprocess
+        # Run with SQL input (subprocess already imported at module level)
         result = subprocess.run(cmd, input=sql_content, capture_output=True, text=True)
         
         if result.returncode == 0:
