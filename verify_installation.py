@@ -225,14 +225,16 @@ def check_termux_specific():
     print_info("Checking Termux packages...")
     all_installed = True
     
+    # Get installed packages once
+    result = subprocess.run(
+        ["pkg", "list-installed"],
+        capture_output=True,
+        text=True
+    )
+    installed_packages = result.stdout
+    
     for pkg in packages:
-        result = subprocess.run(
-            ["pkg", "list-installed"],
-            capture_output=True,
-            text=True
-        )
-        
-        if pkg in result.stdout:
+        if pkg in installed_packages:
             print_success(f"{pkg}")
         else:
             print_error(f"{pkg} - NOT INSTALLED")
