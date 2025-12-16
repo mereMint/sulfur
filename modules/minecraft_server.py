@@ -139,94 +139,51 @@ SERVER_TYPES = {
     }
 }
 
-# Supported modpacks with their mod lists
-# These will be auto-installed on server and synced to clients via AutoModpack
+# Supported modpacks - Download from Modrinth or CurseForge
+# These are pre-built modpacks that will be downloaded and auto-synced to clients
 MODPACKS = {
-    "raspberry_flavoured": {
-        "name": "Raspberry Flavoured",
-        "description": "Lightweight vanilla+ experience with quality of life improvements",
-        "server_type": "fabric",
-        "minecraft_version": "1.21.4",
-        "mods": [
-            # Performance
-            {"name": "lithium", "modrinth_id": "gvQqBUqZ"},
-            {"name": "ferritecore", "modrinth_id": "uXXizFIs"},
-            {"name": "krypton", "modrinth_id": "fQEb0iXm"},
-            # Quality of Life
-            {"name": "sodium", "modrinth_id": "AANobbMI"},  # Client-side but good to have
-            {"name": "modmenu", "modrinth_id": "mOgUt4GM"},
-            {"name": "appleskin", "modrinth_id": "EsAfCjCV"},
-            {"name": "roughly-enough-items", "modrinth_id": "nfn13YXA"},
-            {"name": "jade", "modrinth_id": "nvQzSEkH"},
-            {"name": "journeymap", "modrinth_id": "lfHFW1mp"},
-            # Gameplay Tweaks
-            {"name": "graves", "modrinth_id": "yn9u3ypm"},
-            {"name": "tree-harvester", "modrinth_id": "gvQqBUqZ"},
-        ],
-        "world_folder": "world_raspberry_flavoured",
-        "config_overrides": {}
-    },
     "melatonin": {
         "name": "Melatonin",
         "description": "Maximum performance and chill vibes - optimized for low-end hardware",
+        "source": "modrinth",
+        "modrinth_id": "melatonin",  # https://modrinth.com/modpack/melatonin
+        "curseforge_id": None,
         "server_type": "fabric",
-        "minecraft_version": "1.21.4",
-        "mods": [
-            # Heavy Performance Optimization
-            {"name": "lithium", "modrinth_id": "gvQqBUqZ"},
-            {"name": "ferritecore", "modrinth_id": "uXXizFIs"},
-            {"name": "krypton", "modrinth_id": "fQEb0iXm"},
-            {"name": "starlight", "modrinth_id": "H8CaAYZC"},
-            {"name": "c2me", "modrinth_id": "VSNURh3q"},
-            {"name": "sodium", "modrinth_id": "AANobbMI"},
-            {"name": "iris", "modrinth_id": "YL57xq9U"},
-            {"name": "entityculling", "modrinth_id": "NNAgCjsB"},
-            {"name": "memoryleakfix", "modrinth_id": "NRjRiSSD"},
-            # Minimal QoL
-            {"name": "modmenu", "modrinth_id": "mOgUt4GM"},
-            {"name": "appleskin", "modrinth_id": "EsAfCjCV"},
-        ],
         "world_folder": "world_melatonin",
         "config_overrides": {
             "view-distance": 8,
             "simulation-distance": 6
         }
     },
-    "homestead": {
-        "name": "Homestead",
-        "description": "Cozy survival and building focused - farms, decoration, and exploration",
+    "raspberry_flavoured": {
+        "name": "Raspberry Flavoured",
+        "description": "Lightweight vanilla+ experience with quality of life improvements",
+        "source": "curseforge",
+        "modrinth_id": None,
+        "curseforge_id": "raspberry-flavoured",  # https://www.curseforge.com/minecraft/modpacks/raspberry-flavoured
+        "curseforge_project_id": 857292,  # Numeric project ID for API
         "server_type": "fabric",
-        "minecraft_version": "1.21.4",
-        "mods": [
-            # Performance Base
-            {"name": "lithium", "modrinth_id": "gvQqBUqZ"},
-            {"name": "ferritecore", "modrinth_id": "uXXizFIs"},
-            {"name": "krypton", "modrinth_id": "fQEb0iXm"},
-            # Building & Decoration
-            {"name": "supplementaries", "modrinth_id": "fFEIiSDQ"},
-            {"name": "another-furniture", "modrinth_id": "ulloLmqG"},
-            {"name": "chipped", "modrinth_id": "BAscRYKm"},
-            # Farming & Nature
-            {"name": "farmers-delight", "modrinth_id": "R2OftAxM"},
-            {"name": "naturalist", "modrinth_id": "F8BQNPWX"},
-            # QoL
-            {"name": "sodium", "modrinth_id": "AANobbMI"},
-            {"name": "modmenu", "modrinth_id": "mOgUt4GM"},
-            {"name": "appleskin", "modrinth_id": "EsAfCjCV"},
-            {"name": "roughly-enough-items", "modrinth_id": "nfn13YXA"},
-            {"name": "jade", "modrinth_id": "nvQzSEkH"},
-            {"name": "journeymap", "modrinth_id": "lfHFW1mp"},
-            {"name": "graves", "modrinth_id": "yn9u3ypm"},
-        ],
+        "world_folder": "world_raspberry_flavoured",
+        "config_overrides": {}
+    },
+    "homestead": {
+        "name": "Homestead Cozy",
+        "description": "Cozy survival and building focused - farms, decoration, and exploration",
+        "source": "curseforge",
+        "modrinth_id": None,
+        "curseforge_id": "homestead-cozy",  # https://www.curseforge.com/minecraft/modpacks/homestead-cozy
+        "curseforge_project_id": 916222,  # Numeric project ID for API
+        "server_type": "fabric",
         "world_folder": "world_homestead",
         "config_overrides": {}
     },
     "vanilla": {
         "name": "Vanilla",
         "description": "Pure Minecraft experience with no mods",
+        "source": None,
+        "modrinth_id": None,
+        "curseforge_id": None,
         "server_type": "vanilla",
-        "minecraft_version": "1.21.4",
-        "mods": [],
         "world_folder": "world",
         "config_overrides": {}
     }
@@ -1534,11 +1491,11 @@ async def clear_current_mods() -> bool:
 
 async def install_modpack(modpack_name: str, minecraft_version: str = None) -> Dict:
     """
-    Install a modpack by downloading all its mods.
+    Install a modpack by downloading it from Modrinth or CurseForge.
     
     Args:
         modpack_name: The modpack to install
-        minecraft_version: The Minecraft version (uses modpack default if None)
+        minecraft_version: The Minecraft version (auto-detected from modpack if None)
         
     Returns:
         Result dictionary
@@ -1546,59 +1503,414 @@ async def install_modpack(modpack_name: str, minecraft_version: str = None) -> D
     result = {
         'success': False,
         'modpack': modpack_name,
-        'mods_installed': [],
-        'mods_failed': [],
+        'source': None,
+        'version': None,
+        'files_installed': [],
         'errors': []
     }
     
     modpack = MODPACKS.get(modpack_name)
     if not modpack:
+        logger.error(f"Unknown modpack: {modpack_name}")
         result['errors'].append(f"Unknown modpack: {modpack_name}")
         return result
     
-    if minecraft_version is None:
-        minecraft_version = modpack.get('minecraft_version', '1.21.4')
+    if modpack_name == 'vanilla':
+        logger.info("Vanilla modpack selected - no mods to install")
+        result['success'] = True
+        result['source'] = 'vanilla'
+        return result
     
-    server_type = modpack.get('server_type', 'fabric')
+    source = modpack.get('source')
+    logger.info(f"Installing modpack '{modpack['name']}' from {source}...")
     
-    # Ensure mods directory exists
+    # Ensure directories exist
     os.makedirs(MC_MODS_DIR, exist_ok=True)
+    os.makedirs(MC_CONFIG_DIR, exist_ok=True)
     
-    logger.info(f"Installing modpack '{modpack['name']}' with {len(modpack.get('mods', []))} mods...")
-    
-    # Download each mod
-    for mod in modpack.get('mods', []):
-        mod_name = mod.get('name', 'unknown')
+    try:
+        if source == 'modrinth':
+            result = await download_modpack_from_modrinth(modpack, minecraft_version, result)
+        elif source == 'curseforge':
+            result = await download_modpack_from_curseforge(modpack, minecraft_version, result)
+        else:
+            result['errors'].append(f"Unknown modpack source: {source}")
+            return result
         
-        try:
-            if 'modrinth_id' in mod:
-                mod_info = await get_mod_download_url(mod['modrinth_id'], minecraft_version, server_type)
-                if mod_info:
-                    success, path = await download_mod(mod_info)
-                    if success:
-                        result['mods_installed'].append(mod_name)
-                        logger.info(f"✅ Installed: {mod_name}")
-                    else:
-                        result['mods_failed'].append(mod_name)
-                        result['errors'].append(f"Failed to download {mod_name}: {path}")
-                else:
-                    result['mods_failed'].append(mod_name)
-                    result['errors'].append(f"No compatible version for {mod_name}")
-            else:
-                result['mods_failed'].append(mod_name)
-                result['errors'].append(f"No modrinth_id for {mod_name}")
-                
-        except Exception as e:
-            result['mods_failed'].append(mod_name)
-            result['errors'].append(f"Error installing {mod_name}: {e}")
-    
-    result['success'] = len(result['mods_failed']) == 0
-    
-    # Update state
-    update_state('current_modpack', modpack_name)
-    update_state('modpack_installed_at', datetime.now(timezone.utc).isoformat())
+        if result['success']:
+            # Update state
+            update_state('current_modpack', modpack_name)
+            update_state('modpack_installed_at', datetime.now(timezone.utc).isoformat())
+            update_state('modpack_version', result.get('version'))
+            logger.info(f"✅ Successfully installed modpack '{modpack['name']}'")
+        
+    except Exception as e:
+        logger.error(f"Failed to install modpack '{modpack_name}': {e}")
+        result['errors'].append(str(e))
     
     return result
+
+
+async def download_modpack_from_modrinth(modpack: Dict, minecraft_version: str, result: Dict) -> Dict:
+    """
+    Download a modpack from Modrinth.
+    
+    Args:
+        modpack: Modpack configuration
+        minecraft_version: Target Minecraft version (optional)
+        result: Result dictionary to update
+        
+    Returns:
+        Updated result dictionary
+    """
+    modrinth_id = modpack.get('modrinth_id')
+    if not modrinth_id:
+        result['errors'].append("No Modrinth ID configured for this modpack")
+        return result
+    
+    result['source'] = 'modrinth'
+    
+    try:
+        import aiohttp
+        
+        headers = {
+            "User-Agent": "SulfurBot/1.0 (github.com/mereMint/sulfur)"
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            # Get project info
+            logger.info(f"Fetching modpack info from Modrinth: {modrinth_id}")
+            project_url = f"{MODRINTH_API}/project/{modrinth_id}"
+            
+            async with session.get(project_url, headers=headers) as response:
+                if response.status != 200:
+                    result['errors'].append(f"Modrinth API error: {response.status}")
+                    logger.error(f"Modrinth API returned {response.status} for {modrinth_id}")
+                    return result
+                project_data = await response.json()
+            
+            logger.info(f"Found modpack: {project_data.get('title')}")
+            
+            # Get versions
+            versions_url = f"{MODRINTH_API}/project/{modrinth_id}/version"
+            params = {"loaders": '["fabric"]'}
+            if minecraft_version:
+                params["game_versions"] = f'["{minecraft_version}"]'
+            
+            async with session.get(versions_url, params=params, headers=headers) as response:
+                if response.status != 200:
+                    result['errors'].append(f"Failed to get modpack versions: {response.status}")
+                    return result
+                versions = await response.json()
+            
+            if not versions:
+                logger.warning(f"No compatible versions found, trying without version filter")
+                # Try without version filter
+                async with session.get(versions_url, headers=headers) as response:
+                    versions = await response.json()
+            
+            if not versions:
+                result['errors'].append("No versions found for this modpack")
+                return result
+            
+            # Get latest version
+            latest = versions[0]
+            result['version'] = latest.get('version_number')
+            logger.info(f"Latest version: {result['version']} for MC {latest.get('game_versions', [])}")
+            
+            # Download the modpack mrpack file
+            files = latest.get('files', [])
+            mrpack_file = next((f for f in files if f.get('filename', '').endswith('.mrpack')), None)
+            
+            if not mrpack_file:
+                result['errors'].append("No .mrpack file found in modpack")
+                return result
+            
+            mrpack_url = mrpack_file.get('url')
+            mrpack_filename = mrpack_file.get('filename')
+            
+            logger.info(f"Downloading modpack: {mrpack_filename}")
+            
+            # Download mrpack file
+            mrpack_path = os.path.join(MC_SERVER_DIR, mrpack_filename)
+            async with session.get(mrpack_url, headers=headers) as response:
+                if response.status != 200:
+                    result['errors'].append(f"Failed to download modpack: {response.status}")
+                    return result
+                
+                with open(mrpack_path, 'wb') as f:
+                    f.write(await response.read())
+            
+            logger.info(f"Downloaded modpack to {mrpack_path}")
+            
+            # Extract and install modpack
+            install_success = await extract_and_install_mrpack(mrpack_path, result)
+            
+            if install_success:
+                result['success'] = True
+            
+            # Clean up mrpack file
+            if os.path.exists(mrpack_path):
+                os.remove(mrpack_path)
+            
+    except ImportError:
+        result['errors'].append("aiohttp not installed - cannot download modpacks")
+        logger.error("aiohttp not installed")
+    except Exception as e:
+        result['errors'].append(f"Error downloading from Modrinth: {e}")
+        logger.error(f"Error downloading from Modrinth: {e}")
+    
+    return result
+
+
+async def download_modpack_from_curseforge(modpack: Dict, minecraft_version: str, result: Dict) -> Dict:
+    """
+    Download a modpack from CurseForge.
+    
+    Note: CurseForge requires an API key for direct downloads. 
+    We'll provide instructions for manual download or use alternative methods.
+    
+    Args:
+        modpack: Modpack configuration
+        minecraft_version: Target Minecraft version (optional)
+        result: Result dictionary to update
+        
+    Returns:
+        Updated result dictionary
+    """
+    curseforge_id = modpack.get('curseforge_id')
+    project_id = modpack.get('curseforge_project_id')
+    
+    if not curseforge_id:
+        result['errors'].append("No CurseForge ID configured for this modpack")
+        return result
+    
+    result['source'] = 'curseforge'
+    
+    # CurseForge API requires an API key
+    cf_api_key = os.environ.get('CURSEFORGE_API_KEY')
+    
+    if not cf_api_key:
+        logger.warning("No CurseForge API key found, providing manual download instructions")
+        result['errors'].append(
+            f"CurseForge requires manual download. Please download from: "
+            f"https://www.curseforge.com/minecraft/modpacks/{curseforge_id}/files "
+            f"and extract server files to {MC_SERVER_DIR}"
+        )
+        result['manual_download_url'] = f"https://www.curseforge.com/minecraft/modpacks/{curseforge_id}/files"
+        return result
+    
+    try:
+        import aiohttp
+        
+        headers = {
+            "Accept": "application/json",
+            "x-api-key": cf_api_key
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            # Get mod files
+            logger.info(f"Fetching modpack info from CurseForge: {project_id}")
+            files_url = f"https://api.curseforge.com/v1/mods/{project_id}/files"
+            
+            async with session.get(files_url, headers=headers) as response:
+                if response.status != 200:
+                    result['errors'].append(f"CurseForge API error: {response.status}")
+                    logger.error(f"CurseForge API returned {response.status}")
+                    return result
+                data = await response.json()
+            
+            files = data.get('data', [])
+            if not files:
+                result['errors'].append("No files found for this modpack")
+                return result
+            
+            # Filter for server pack if available, otherwise get latest
+            server_files = [f for f in files if 'server' in f.get('fileName', '').lower()]
+            target_file = server_files[0] if server_files else files[0]
+            
+            result['version'] = target_file.get('displayName', target_file.get('fileName'))
+            logger.info(f"Latest version: {result['version']}")
+            
+            download_url = target_file.get('downloadUrl')
+            if not download_url:
+                # CurseForge sometimes doesn't provide direct download URL
+                file_id = target_file.get('id')
+                result['errors'].append(
+                    f"Direct download not available. Please download manually from: "
+                    f"https://www.curseforge.com/minecraft/modpacks/{curseforge_id}/files/{file_id}"
+                )
+                result['manual_download_url'] = f"https://www.curseforge.com/minecraft/modpacks/{curseforge_id}/files/{file_id}"
+                return result
+            
+            filename = target_file.get('fileName')
+            logger.info(f"Downloading modpack: {filename}")
+            
+            # Download file
+            modpack_path = os.path.join(MC_SERVER_DIR, filename)
+            async with session.get(download_url, headers=headers) as response:
+                if response.status != 200:
+                    result['errors'].append(f"Failed to download: {response.status}")
+                    return result
+                
+                with open(modpack_path, 'wb') as f:
+                    f.write(await response.read())
+            
+            logger.info(f"Downloaded modpack to {modpack_path}")
+            
+            # Extract modpack
+            if filename.endswith('.zip'):
+                install_success = await extract_modpack_zip(modpack_path, result)
+            else:
+                result['errors'].append(f"Unknown file format: {filename}")
+                return result
+            
+            if install_success:
+                result['success'] = True
+            
+            # Clean up
+            if os.path.exists(modpack_path):
+                os.remove(modpack_path)
+            
+    except ImportError:
+        result['errors'].append("aiohttp not installed - cannot download modpacks")
+    except Exception as e:
+        result['errors'].append(f"Error downloading from CurseForge: {e}")
+        logger.error(f"Error downloading from CurseForge: {e}")
+    
+    return result
+
+
+async def extract_and_install_mrpack(mrpack_path: str, result: Dict) -> bool:
+    """
+    Extract and install a Modrinth modpack (.mrpack file).
+    
+    Args:
+        mrpack_path: Path to the .mrpack file
+        result: Result dictionary to update
+        
+    Returns:
+        True if successful
+    """
+    import zipfile
+    
+    try:
+        logger.info(f"Extracting modpack from {mrpack_path}")
+        
+        with zipfile.ZipFile(mrpack_path, 'r') as zf:
+            # Read modrinth.index.json
+            try:
+                index_data = json.loads(zf.read('modrinth.index.json'))
+            except KeyError:
+                result['errors'].append("Invalid mrpack: missing modrinth.index.json")
+                return False
+            
+            logger.info(f"Modpack: {index_data.get('name')} v{index_data.get('versionId')}")
+            
+            # Extract overrides (configs, etc.)
+            for item in zf.namelist():
+                if item.startswith('overrides/') or item.startswith('server-overrides/'):
+                    # Remove the prefix
+                    if item.startswith('overrides/'):
+                        dest_path = item[len('overrides/'):]
+                    else:
+                        dest_path = item[len('server-overrides/'):]
+                    
+                    if dest_path:
+                        full_dest = os.path.join(MC_SERVER_DIR, dest_path)
+                        
+                        if item.endswith('/'):
+                            os.makedirs(full_dest, exist_ok=True)
+                        else:
+                            os.makedirs(os.path.dirname(full_dest), exist_ok=True)
+                            with open(full_dest, 'wb') as f:
+                                f.write(zf.read(item))
+                            result['files_installed'].append(dest_path)
+                            logger.debug(f"Extracted: {dest_path}")
+            
+            # Download mods from files list
+            files = index_data.get('files', [])
+            logger.info(f"Downloading {len(files)} mod files...")
+            
+            import aiohttp
+            headers = {"User-Agent": "SulfurBot/1.0 (github.com/mereMint/sulfur)"}
+            
+            async with aiohttp.ClientSession() as session:
+                for file_info in files:
+                    file_path = file_info.get('path', '')
+                    downloads = file_info.get('downloads', [])
+                    
+                    if not downloads:
+                        logger.warning(f"No download URL for {file_path}")
+                        continue
+                    
+                    download_url = downloads[0]
+                    full_path = os.path.join(MC_SERVER_DIR, file_path)
+                    
+                    # Create directory if needed
+                    os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                    
+                    # Download file
+                    try:
+                        async with session.get(download_url, headers=headers) as response:
+                            if response.status == 200:
+                                with open(full_path, 'wb') as f:
+                                    f.write(await response.read())
+                                result['files_installed'].append(file_path)
+                                logger.info(f"Downloaded: {os.path.basename(file_path)}")
+                            else:
+                                logger.warning(f"Failed to download {file_path}: {response.status}")
+                    except Exception as e:
+                        logger.error(f"Error downloading {file_path}: {e}")
+        
+        logger.info(f"Installed {len(result['files_installed'])} files from modpack")
+        return True
+        
+    except Exception as e:
+        result['errors'].append(f"Failed to extract modpack: {e}")
+        logger.error(f"Failed to extract modpack: {e}")
+        return False
+
+
+async def extract_modpack_zip(zip_path: str, result: Dict) -> bool:
+    """
+    Extract a standard modpack zip file.
+    
+    Args:
+        zip_path: Path to the zip file
+        result: Result dictionary to update
+        
+    Returns:
+        True if successful
+    """
+    import zipfile
+    
+    try:
+        logger.info(f"Extracting modpack from {zip_path}")
+        
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            # Extract all files to server directory
+            for item in zf.namelist():
+                # Skip directories
+                if item.endswith('/'):
+                    continue
+                
+                full_dest = os.path.join(MC_SERVER_DIR, item)
+                os.makedirs(os.path.dirname(full_dest), exist_ok=True)
+                
+                with open(full_dest, 'wb') as f:
+                    f.write(zf.read(item))
+                
+                result['files_installed'].append(item)
+                logger.debug(f"Extracted: {item}")
+        
+        logger.info(f"Extracted {len(result['files_installed'])} files from modpack")
+        return True
+        
+    except Exception as e:
+        result['errors'].append(f"Failed to extract modpack: {e}")
+        logger.error(f"Failed to extract modpack: {e}")
+        return False
 
 
 async def switch_modpack(
@@ -1678,37 +1990,45 @@ async def switch_modpack(
                 shutil.rmtree(world_path)
                 result['steps'].append(f"  Removed {world_dir}")
     
-    # Step 4: Install new modpack mods (if not vanilla)
+    # Step 4: Install new modpack (if not vanilla)
     new_modpack_config = MODPACKS.get(new_modpack)
-    if new_modpack != 'vanilla' and new_modpack_config.get('mods'):
-        result['steps'].append(f"Installing mods for '{new_modpack}'...")
+    if new_modpack != 'vanilla' and new_modpack_config.get('source'):
+        result['steps'].append(f"Downloading and installing modpack '{new_modpack}'...")
         
-        minecraft_version = config.get('minecraft_version', new_modpack_config.get('minecraft_version', '1.21.4'))
+        minecraft_version = config.get('minecraft_version')
         install_result = await install_modpack(new_modpack, minecraft_version)
         
         result['mods_installed'] = install_result.get('success', False)
         result['mods_details'] = {
-            'installed': install_result.get('mods_installed', []),
-            'failed': install_result.get('mods_failed', [])
+            'files_installed': install_result.get('files_installed', []),
+            'version': install_result.get('version'),
+            'source': install_result.get('source')
         }
         
         if result['mods_installed']:
-            result['steps'].append(f"✅ Installed {len(install_result.get('mods_installed', []))} mods")
+            files_count = len(install_result.get('files_installed', []))
+            result['steps'].append(f"✅ Installed modpack ({files_count} files)")
+            logger.info(f"Modpack installed successfully: {files_count} files")
         else:
-            failed_count = len(install_result.get('mods_failed', []))
-            result['steps'].append(f"⚠️ Some mods failed to install ({failed_count} failed)")
+            result['steps'].append(f"⚠️ Modpack installation had issues")
             result['errors'].extend(install_result.get('errors', []))
+            for error in install_result.get('errors', []):
+                logger.error(f"Modpack error: {error}")
         
-        # Step 5: Install AutoModpack for mod syncing
-        result['steps'].append("Setting up AutoModpack for automatic mod syncing...")
-        automodpack_result = await download_automodpack(minecraft_version, 'fabric')
-        if automodpack_result.get('success'):
-            result['steps'].append("✅ AutoModpack configured - clients will auto-download mods!")
-        else:
-            result['steps'].append(f"⚠️ AutoModpack setup failed: {automodpack_result.get('error')}")
+        # Step 5: Install AutoModpack for mod syncing (if not already in modpack)
+        if not any('automodpack' in f.lower() for f in install_result.get('files_installed', [])):
+            result['steps'].append("Setting up AutoModpack for automatic mod syncing...")
+            automodpack_result = await download_automodpack(minecraft_version or '1.21.4', 'fabric')
+            if automodpack_result.get('success'):
+                result['steps'].append("✅ AutoModpack configured - clients will auto-download mods!")
+                logger.info("AutoModpack configured successfully")
+            else:
+                result['steps'].append(f"⚠️ AutoModpack setup failed: {automodpack_result.get('error')}")
+                logger.warning(f"AutoModpack setup failed: {automodpack_result.get('error')}")
     else:
         result['steps'].append("Vanilla mode - no mods to install")
         result['mods_installed'] = True
+        logger.info("Switched to vanilla mode")
     
     # Step 6: Apply modpack config overrides
     config_overrides = new_modpack_config.get('config_overrides', {})

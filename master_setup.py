@@ -467,9 +467,9 @@ def setup_minecraft_server(plat: str) -> bool:
     
     setup_options = [
         "Standard Server (Choose server type manually)",
-        "🍓 Raspberry Flavoured (Vanilla+ with QoL improvements)",
-        "😴 Melatonin (Maximum performance, minimal mods)",
-        "🏠 Homestead (Cozy survival - farms, building, decoration)"
+        "🍓 Raspberry Flavoured - CurseForge (Vanilla+ with QoL)",
+        "😴 Melatonin - Modrinth (Maximum performance)",
+        "🏠 Homestead Cozy - CurseForge (Farms, building, decoration)"
     ]
     
     setup_choice = ask_choice("Select setup type:", setup_options, default=0)
@@ -503,35 +503,30 @@ def setup_minecraft_server(plat: str) -> bool:
         selected_modpack = modpack_map.get(setup_choice)
         server_type = 'fabric'  # All modpacks use Fabric
         
-        print_success(f"Selected modpack: {selected_modpack.replace('_', ' ').title()}")
-        print_info("Server type: Fabric (required for modpacks)")
-        print_info("Minecraft version: 1.21.4")
-        print()
-        print("📦 This modpack includes:")
-        
-        modpack_descriptions = {
-            'raspberry_flavoured': [
-                "  • Performance mods (Lithium, Ferritecore)",
-                "  • Quality of life (JourneyMap, Jade, REI)",
-                "  • Gameplay tweaks (Graves, AppleSkin)"
-            ],
-            'melatonin': [
-                "  • Heavy performance optimization",
-                "  • Sodium + Iris for shaders",
-                "  • Memory leak fixes",
-                "  • Minimal QoL additions"
-            ],
-            'homestead': [
-                "  • Farmer's Delight (cooking & farming)",
-                "  • Supplementaries (decorations)",
-                "  • Another Furniture (furniture)",
-                "  • Naturalist (animals & nature)",
-                "  • Full QoL mod suite"
-            ]
+        modpack_sources = {
+            'raspberry_flavoured': 'CurseForge',
+            'melatonin': 'Modrinth',
+            'homestead': 'CurseForge'
         }
         
-        for line in modpack_descriptions.get(selected_modpack, []):
-            print(line)
+        print_success(f"Selected modpack: {selected_modpack.replace('_', ' ').title()}")
+        print_info(f"Source: {modpack_sources.get(selected_modpack, 'Unknown')}")
+        print_info("Server type: Fabric (required for modpacks)")
+        print()
+        print("📦 Modpack will be downloaded from:")
+        
+        modpack_urls = {
+            'raspberry_flavoured': "  https://www.curseforge.com/minecraft/modpacks/raspberry-flavoured",
+            'melatonin': "  https://modrinth.com/modpack/melatonin",
+            'homestead': "  https://www.curseforge.com/minecraft/modpacks/homestead-cozy"
+        }
+        
+        print(modpack_urls.get(selected_modpack, ""))
+        print()
+        
+        if modpack_sources.get(selected_modpack) == 'CurseForge':
+            print_warning("CurseForge modpacks require an API key for automatic download.")
+            print_info("Set CURSEFORGE_API_KEY in .env or download manually.")
         
         print()
         print_info("✨ AutoModpack will sync all mods to players automatically!")

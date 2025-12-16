@@ -76,16 +76,30 @@ Sulfur Bot includes full Minecraft server management with:
 
 ### Pre-Configured Modpacks
 
-| Modpack | Description | Best For |
-|---------|-------------|----------|
-| 🍓 **Raspberry Flavoured** | Vanilla+ with JourneyMap, Jade, REI, Graves | Enhanced vanilla experience |
-| 😴 **Melatonin** | Maximum FPS, Sodium, Iris shaders | Low-end hardware, performance |
-| 🏠 **Homestead** | Farmer's Delight, furniture, decorations | Builders, farmers, cozy gameplay |
+Modpacks are downloaded directly from Modrinth or CurseForge - always getting the latest version!
+
+| Modpack | Source | Description | Best For |
+|---------|--------|-------------|----------|
+| 🍓 **Raspberry Flavoured** | [CurseForge](https://www.curseforge.com/minecraft/modpacks/raspberry-flavoured) | Vanilla+ with QoL improvements | Enhanced vanilla experience |
+| 😴 **Melatonin** | [Modrinth](https://modrinth.com/modpack/melatonin) | Maximum FPS, performance optimized | Low-end hardware |
+| 🏠 **Homestead Cozy** | [CurseForge](https://www.curseforge.com/minecraft/modpacks/homestead-cozy) | Farming, building, cozy vibes | Builders, farmers |
 
 All modpacks include:
 - ✅ AutoModpack (players auto-download mods)
-- ✅ Performance optimizations
+- ✅ Automatic updates to latest version
 - ✅ World save/restore when switching
+
+### CurseForge API Key
+
+For CurseForge modpacks (Raspberry Flavoured, Homestead), you need an API key:
+
+1. Get a key from [CurseForge Console](https://console.curseforge.com/)
+2. Add to your `.env` file:
+   ```
+   CURSEFORGE_API_KEY=your_key_here
+   ```
+
+Without an API key, you'll need to download CurseForge modpacks manually.
 
 ### Manual Setup
 
@@ -96,10 +110,9 @@ All modpacks include:
        "minecraft": {
          "enabled": true,
          "server_type": "fabric",
-         "minecraft_version": "1.21.4",
          "modpack": {
            "enabled": true,
-           "name": "raspberry_flavoured",
+           "name": "melatonin",
            "auto_install": true
          }
        }
