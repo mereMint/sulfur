@@ -64,11 +64,28 @@ Sulfur Bot includes full Minecraft server management with:
    python master_setup.py --minecraft
    ```
 
-2. Follow the prompts to configure:
-   - Server type
-   - Minecraft version
-   - Memory allocation
-   - Schedule
+2. Choose your setup type:
+   - **Standard Server** - Choose server type (Paper, Purpur, Vanilla, Fabric)
+   - **🍓 Raspberry Flavoured** - Vanilla+ with quality of life improvements
+   - **😴 Melatonin** - Maximum performance, minimal mods
+   - **🏠 Homestead** - Cozy survival with farms, building, decoration
+
+3. Configure memory and schedule
+
+4. Start playing!
+
+### Pre-Configured Modpacks
+
+| Modpack | Description | Best For |
+|---------|-------------|----------|
+| 🍓 **Raspberry Flavoured** | Vanilla+ with JourneyMap, Jade, REI, Graves | Enhanced vanilla experience |
+| 😴 **Melatonin** | Maximum FPS, Sodium, Iris shaders | Low-end hardware, performance |
+| 🏠 **Homestead** | Farmer's Delight, furniture, decorations | Builders, farmers, cozy gameplay |
+
+All modpacks include:
+- ✅ AutoModpack (players auto-download mods)
+- ✅ Performance optimizations
+- ✅ World save/restore when switching
 
 ### Manual Setup
 
@@ -78,11 +95,13 @@ Sulfur Bot includes full Minecraft server management with:
      "modules": {
        "minecraft": {
          "enabled": true,
-         "server_type": "paper",
+         "server_type": "fabric",
          "minecraft_version": "1.21.4",
-         "memory_min": "1G",
-         "memory_max": "4G",
-         "port": 25565
+         "modpack": {
+           "enabled": true,
+           "name": "raspberry_flavoured",
+           "auto_install": true
+         }
        }
      }
    }
@@ -93,6 +112,38 @@ Sulfur Bot includes full Minecraft server management with:
 
 3. **Accept EULA**
    The bot automatically accepts the Minecraft EULA on first start.
+
+---
+
+## Switching Modpacks
+
+You can switch between modpacks at any time. The system automatically:
+1. ✅ Saves your current world
+2. ✅ Clears existing mods
+3. ✅ Loads saved world for new modpack (or generates new)
+4. ✅ Installs new modpack mods
+5. ✅ Configures AutoModpack
+
+### Via Discord
+```
+/mcmodpack switch modpack:homestead
+```
+
+### Via Command Line
+```python
+from modules.minecraft_server import switch_modpack
+result = await switch_modpack('homestead', config)
+```
+
+### World Management
+
+Each modpack has its own world save:
+- `minecraft_worlds/vanilla/` - Vanilla world
+- `minecraft_worlds/raspberry_flavoured/` - Raspberry Flavoured world
+- `minecraft_worlds/melatonin/` - Melatonin world
+- `minecraft_worlds/homestead/` - Homestead world
+
+Switching modpacks automatically swaps worlds!
 
 ---
 

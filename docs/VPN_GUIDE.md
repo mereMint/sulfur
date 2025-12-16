@@ -77,12 +77,29 @@ PostUp = iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
 ```
 This enables NAT for outbound internet access.
 
-### Security Note
+### Security & Privacy Considerations
 
-When using full tunnel mode:
-- The VPN server can see all your internet traffic
-- Only use with servers you trust
-- The server's internet connection quality affects your speed
+⚠️ **Important**: When using full tunnel mode, understand these implications:
+
+| Consideration | Details |
+|---------------|---------|
+| **Traffic Visibility** | The VPN server operator can see all your internet traffic |
+| **Data Retention** | Consider what logs the server keeps (Sulfur Bot logs connections) |
+| **Trust** | Only use with servers you personally control or fully trust |
+| **Speed** | Your connection speed is limited by the server's internet |
+| **Location** | Your apparent location is the server's location |
+
+**Best Practices:**
+1. **Self-host only** - Run the VPN server on hardware you control
+2. **Keep server secure** - Regular updates, strong passwords, firewall
+3. **Limit access** - Only add devices you own to the VPN
+4. **Monitor connections** - Check `wg show` regularly for unknown peers
+5. **Rotate keys** - Regenerate keys periodically (every 6-12 months)
+
+**What Sulfur Bot logs:**
+- Connection events (connect/disconnect times)
+- Peer public keys
+- No traffic content is logged
 
 ---
 

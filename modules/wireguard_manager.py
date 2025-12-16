@@ -165,18 +165,21 @@ def generate_server_config(
         post_down = "# Termux: See docs/TERMUX.md for non-root VPN setup"
     else:
         # Linux/Raspberry Pi - Full NAT support for routing all traffic
+        # Extract the network portion from server_address for restrictive rules
+        vpn_network = server_address.rsplit('.', 1)[0] + '.0/24'  # e.g., 10.0.0.0/24
+        
         post_up = f"""# Enable IP forwarding and NAT for full tunnel mode
 PostUp = sysctl -w net.ipv4.ip_forward=1
 PostUp = sysctl -w net.ipv6.conf.all.forwarding=1 2>/dev/null || true
-PostUp = iptables -t nat -A POSTROUTING -o {network_interface} -j MASQUERADE
-PostUp = iptables -A FORWARD -i %i -j ACCEPT
-PostUp = iptables -A FORWARD -o %i -j ACCEPT
+PostUp = iptables -t nat -A POSTROUTING -s {vpn_network} -o {network_interface} -j MASQUERADE
+PostUp = iptables -A FORWARD -i %i -s {vpn_network} -j ACCEPT
+PostUp = iptables -A FORWARD -o %i -d {vpn_network} -j ACCEPT
 PostUp = ip6tables -t nat -A POSTROUTING -o {network_interface} -j MASQUERADE 2>/dev/null || true"""
         
         post_down = f"""# Cleanup NAT rules
-PostDown = iptables -t nat -D POSTROUTING -o {network_interface} -j MASQUERADE
-PostDown = iptables -D FORWARD -i %i -j ACCEPT
-PostDown = iptables -D FORWARD -o %i -j ACCEPT
+PostDown = iptables -t nat -D POSTROUTING -s {vpn_network} -o {network_interface} -j MASQUERADE
+PostDown = iptables -D FORWARD -i %i -s {vpn_network} -j ACCEPT
+PostDown = iptables -D FORWARD -o %i -d {vpn_network} -j ACCEPT
 PostDown = ip6tables -t nat -D POSTROUTING -o {network_interface} -j MASQUERADE 2>/dev/null || true
 PostDown = sysctl -w net.ipv4.ip_forward=0 || true"""
     

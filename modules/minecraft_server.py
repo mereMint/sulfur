@@ -35,6 +35,7 @@ MC_BACKUPS_DIR = "minecraft_backups"
 MC_MODS_DIR = os.path.join(MC_SERVER_DIR, "mods")
 MC_CONFIG_DIR = os.path.join(MC_SERVER_DIR, "config")
 MC_WORLDS_DIR = os.path.join(MC_SERVER_DIR, "world")
+MC_WORLDS_STORAGE_DIR = "minecraft_worlds"  # Store worlds for different modpacks
 MC_PLUGINS_DIR = os.path.join(MC_SERVER_DIR, "plugins")
 MC_STATE_FILE = "config/minecraft_state.json"
 
@@ -138,28 +139,96 @@ SERVER_TYPES = {
     }
 }
 
-# Supported modpacks
+# Supported modpacks with their mod lists
+# These will be auto-installed on server and synced to clients via AutoModpack
 MODPACKS = {
     "raspberry_flavoured": {
         "name": "Raspberry Flavoured",
-        "description": "Lightweight vanilla+ experience",
+        "description": "Lightweight vanilla+ experience with quality of life improvements",
         "server_type": "fabric",
-        "modrinth_id": None,  # If available on Modrinth
-        "curseforge_id": None  # If available on CurseForge
+        "minecraft_version": "1.21.4",
+        "mods": [
+            # Performance
+            {"name": "lithium", "modrinth_id": "gvQqBUqZ"},
+            {"name": "ferritecore", "modrinth_id": "uXXizFIs"},
+            {"name": "krypton", "modrinth_id": "fQEb0iXm"},
+            # Quality of Life
+            {"name": "sodium", "modrinth_id": "AANobbMI"},  # Client-side but good to have
+            {"name": "modmenu", "modrinth_id": "mOgUt4GM"},
+            {"name": "appleskin", "modrinth_id": "EsAfCjCV"},
+            {"name": "roughly-enough-items", "modrinth_id": "nfn13YXA"},
+            {"name": "jade", "modrinth_id": "nvQzSEkH"},
+            {"name": "journeymap", "modrinth_id": "lfHFW1mp"},
+            # Gameplay Tweaks
+            {"name": "graves", "modrinth_id": "yn9u3ypm"},
+            {"name": "tree-harvester", "modrinth_id": "gvQqBUqZ"},
+        ],
+        "world_folder": "world_raspberry_flavoured",
+        "config_overrides": {}
     },
     "melatonin": {
         "name": "Melatonin",
-        "description": "Performance-focused modpack",
+        "description": "Maximum performance and chill vibes - optimized for low-end hardware",
         "server_type": "fabric",
-        "modrinth_id": None,
-        "curseforge_id": None
+        "minecraft_version": "1.21.4",
+        "mods": [
+            # Heavy Performance Optimization
+            {"name": "lithium", "modrinth_id": "gvQqBUqZ"},
+            {"name": "ferritecore", "modrinth_id": "uXXizFIs"},
+            {"name": "krypton", "modrinth_id": "fQEb0iXm"},
+            {"name": "starlight", "modrinth_id": "H8CaAYZC"},
+            {"name": "c2me", "modrinth_id": "VSNURh3q"},
+            {"name": "sodium", "modrinth_id": "AANobbMI"},
+            {"name": "iris", "modrinth_id": "YL57xq9U"},
+            {"name": "entityculling", "modrinth_id": "NNAgCjsB"},
+            {"name": "memoryleakfix", "modrinth_id": "NRjRiSSD"},
+            # Minimal QoL
+            {"name": "modmenu", "modrinth_id": "mOgUt4GM"},
+            {"name": "appleskin", "modrinth_id": "EsAfCjCV"},
+        ],
+        "world_folder": "world_melatonin",
+        "config_overrides": {
+            "view-distance": 8,
+            "simulation-distance": 6
+        }
     },
     "homestead": {
         "name": "Homestead",
-        "description": "Survival and building focused",
+        "description": "Cozy survival and building focused - farms, decoration, and exploration",
         "server_type": "fabric",
-        "modrinth_id": None,
-        "curseforge_id": None
+        "minecraft_version": "1.21.4",
+        "mods": [
+            # Performance Base
+            {"name": "lithium", "modrinth_id": "gvQqBUqZ"},
+            {"name": "ferritecore", "modrinth_id": "uXXizFIs"},
+            {"name": "krypton", "modrinth_id": "fQEb0iXm"},
+            # Building & Decoration
+            {"name": "supplementaries", "modrinth_id": "fFEIiSDQ"},
+            {"name": "another-furniture", "modrinth_id": "ulloLmqG"},
+            {"name": "chipped", "modrinth_id": "BAscRYKm"},
+            # Farming & Nature
+            {"name": "farmers-delight", "modrinth_id": "R2OftAxM"},
+            {"name": "naturalist", "modrinth_id": "F8BQNPWX"},
+            # QoL
+            {"name": "sodium", "modrinth_id": "AANobbMI"},
+            {"name": "modmenu", "modrinth_id": "mOgUt4GM"},
+            {"name": "appleskin", "modrinth_id": "EsAfCjCV"},
+            {"name": "roughly-enough-items", "modrinth_id": "nfn13YXA"},
+            {"name": "jade", "modrinth_id": "nvQzSEkH"},
+            {"name": "journeymap", "modrinth_id": "lfHFW1mp"},
+            {"name": "graves", "modrinth_id": "yn9u3ypm"},
+        ],
+        "world_folder": "world_homestead",
+        "config_overrides": {}
+    },
+    "vanilla": {
+        "name": "Vanilla",
+        "description": "Pure Minecraft experience with no mods",
+        "server_type": "vanilla",
+        "minecraft_version": "1.21.4",
+        "mods": [],
+        "world_folder": "world",
+        "config_overrides": {}
     }
 }
 
@@ -824,12 +893,14 @@ async def download_mod(mod_info: Dict, progress_callback: Callable = None) -> Tu
     
     # Check if already downloaded
     if os.path.exists(dest_path):
-        # Verify hash if available
+        # Verify hash if available (using buffered reading for large files)
         expected_hash = mod_info.get('sha512')
         if expected_hash:
+            sha512_hash = hashlib.sha512()
             with open(dest_path, 'rb') as f:
-                file_hash = hashlib.sha512(f.read()).hexdigest()
-            if file_hash == expected_hash:
+                for chunk in iter(lambda: f.read(8192), b''):
+                    sha512_hash.update(chunk)
+            if sha512_hash.hexdigest() == expected_hash:
                 logger.info(f"Mod {filename} already downloaded and verified")
                 return True, dest_path
         else:
@@ -1291,6 +1362,470 @@ async def setup_mods_on_install(config: Dict) -> Dict:
         result['success'] = False
     
     return result
+
+
+# ==============================================================================
+# Modpack Management
+# ==============================================================================
+
+def get_available_modpacks() -> Dict:
+    """
+    Get all available modpacks with their information.
+    
+    Returns:
+        Dictionary of modpack configurations
+    """
+    return MODPACKS.copy()
+
+
+def get_current_modpack() -> Optional[str]:
+    """
+    Get the currently active modpack.
+    
+    Returns:
+        Modpack name or None if vanilla
+    """
+    return _server_state.get('current_modpack', 'vanilla')
+
+
+async def save_current_world(modpack_name: str = None) -> Tuple[bool, str]:
+    """
+    Save the current world to the worlds storage directory.
+    
+    Args:
+        modpack_name: The modpack name to save as (uses current if None)
+        
+    Returns:
+        Tuple of (success, message)
+    """
+    if modpack_name is None:
+        modpack_name = get_current_modpack() or 'vanilla'
+    
+    # Ensure worlds storage directory exists
+    os.makedirs(MC_WORLDS_STORAGE_DIR, exist_ok=True)
+    
+    # Get the world folder for this modpack
+    modpack_config = MODPACKS.get(modpack_name, MODPACKS.get('vanilla'))
+    world_folder_name = modpack_config.get('world_folder', 'world')
+    
+    # Source world directories
+    source_worlds = []
+    for world_dir in ['world', 'world_nether', 'world_the_end']:
+        source_path = os.path.join(MC_SERVER_DIR, world_dir)
+        if os.path.exists(source_path):
+            source_worlds.append((world_dir, source_path))
+    
+    if not source_worlds:
+        return True, "No world to save"
+    
+    # Destination directory
+    dest_base = os.path.join(MC_WORLDS_STORAGE_DIR, modpack_name)
+    os.makedirs(dest_base, exist_ok=True)
+    
+    try:
+        for world_dir, source_path in source_worlds:
+            dest_path = os.path.join(dest_base, world_dir)
+            
+            # Remove existing backup if present
+            if os.path.exists(dest_path):
+                shutil.rmtree(dest_path)
+            
+            # Copy world to storage
+            shutil.copytree(source_path, dest_path)
+            logger.info(f"Saved {world_dir} to {dest_path}")
+        
+        # Record save time
+        state_file = os.path.join(dest_base, 'world_state.json')
+        with open(state_file, 'w') as f:
+            json.dump({
+                'modpack': modpack_name,
+                'saved_at': datetime.now(timezone.utc).isoformat(),
+                'worlds': [w[0] for w in source_worlds]
+            }, f, indent=2)
+        
+        return True, f"World saved for modpack '{modpack_name}'"
+        
+    except Exception as e:
+        logger.error(f"Failed to save world: {e}")
+        return False, str(e)
+
+
+async def load_world_for_modpack(modpack_name: str) -> Tuple[bool, str]:
+    """
+    Load a saved world for a specific modpack.
+    
+    Args:
+        modpack_name: The modpack to load world for
+        
+    Returns:
+        Tuple of (success, message)
+    """
+    saved_world_path = os.path.join(MC_WORLDS_STORAGE_DIR, modpack_name)
+    
+    if not os.path.exists(saved_world_path):
+        return False, f"No saved world found for '{modpack_name}'"
+    
+    try:
+        # Get list of saved worlds
+        state_file = os.path.join(saved_world_path, 'world_state.json')
+        if os.path.exists(state_file):
+            with open(state_file, 'r') as f:
+                state = json.load(f)
+            world_dirs = state.get('worlds', ['world'])
+        else:
+            world_dirs = ['world', 'world_nether', 'world_the_end']
+        
+        # Copy worlds to server directory
+        for world_dir in world_dirs:
+            source_path = os.path.join(saved_world_path, world_dir)
+            dest_path = os.path.join(MC_SERVER_DIR, world_dir)
+            
+            if os.path.exists(source_path):
+                # Remove current world
+                if os.path.exists(dest_path):
+                    shutil.rmtree(dest_path)
+                
+                # Copy saved world
+                shutil.copytree(source_path, dest_path)
+                logger.info(f"Loaded {world_dir} from {source_path}")
+        
+        return True, f"World loaded for modpack '{modpack_name}'"
+        
+    except Exception as e:
+        logger.error(f"Failed to load world: {e}")
+        return False, str(e)
+
+
+def has_saved_world(modpack_name: str) -> bool:
+    """
+    Check if there's a saved world for a modpack.
+    
+    Args:
+        modpack_name: The modpack name
+        
+    Returns:
+        True if a saved world exists
+    """
+    saved_world_path = os.path.join(MC_WORLDS_STORAGE_DIR, modpack_name)
+    return os.path.exists(saved_world_path) and os.path.isdir(saved_world_path)
+
+
+async def clear_current_mods() -> bool:
+    """
+    Remove all mods from the mods directory.
+    
+    Returns:
+        True if successful
+    """
+    if not os.path.exists(MC_MODS_DIR):
+        return True
+    
+    try:
+        for filename in os.listdir(MC_MODS_DIR):
+            if filename.endswith('.jar'):
+                file_path = os.path.join(MC_MODS_DIR, filename)
+                os.remove(file_path)
+                logger.info(f"Removed mod: {filename}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to clear mods: {e}")
+        return False
+
+
+async def install_modpack(modpack_name: str, minecraft_version: str = None) -> Dict:
+    """
+    Install a modpack by downloading all its mods.
+    
+    Args:
+        modpack_name: The modpack to install
+        minecraft_version: The Minecraft version (uses modpack default if None)
+        
+    Returns:
+        Result dictionary
+    """
+    result = {
+        'success': False,
+        'modpack': modpack_name,
+        'mods_installed': [],
+        'mods_failed': [],
+        'errors': []
+    }
+    
+    modpack = MODPACKS.get(modpack_name)
+    if not modpack:
+        result['errors'].append(f"Unknown modpack: {modpack_name}")
+        return result
+    
+    if minecraft_version is None:
+        minecraft_version = modpack.get('minecraft_version', '1.21.4')
+    
+    server_type = modpack.get('server_type', 'fabric')
+    
+    # Ensure mods directory exists
+    os.makedirs(MC_MODS_DIR, exist_ok=True)
+    
+    logger.info(f"Installing modpack '{modpack['name']}' with {len(modpack.get('mods', []))} mods...")
+    
+    # Download each mod
+    for mod in modpack.get('mods', []):
+        mod_name = mod.get('name', 'unknown')
+        
+        try:
+            if 'modrinth_id' in mod:
+                mod_info = await get_mod_download_url(mod['modrinth_id'], minecraft_version, server_type)
+                if mod_info:
+                    success, path = await download_mod(mod_info)
+                    if success:
+                        result['mods_installed'].append(mod_name)
+                        logger.info(f"✅ Installed: {mod_name}")
+                    else:
+                        result['mods_failed'].append(mod_name)
+                        result['errors'].append(f"Failed to download {mod_name}: {path}")
+                else:
+                    result['mods_failed'].append(mod_name)
+                    result['errors'].append(f"No compatible version for {mod_name}")
+            else:
+                result['mods_failed'].append(mod_name)
+                result['errors'].append(f"No modrinth_id for {mod_name}")
+                
+        except Exception as e:
+            result['mods_failed'].append(mod_name)
+            result['errors'].append(f"Error installing {mod_name}: {e}")
+    
+    result['success'] = len(result['mods_failed']) == 0
+    
+    # Update state
+    update_state('current_modpack', modpack_name)
+    update_state('modpack_installed_at', datetime.now(timezone.utc).isoformat())
+    
+    return result
+
+
+async def switch_modpack(
+    new_modpack: str,
+    config: Dict,
+    save_current: bool = True
+) -> Dict:
+    """
+    Switch from current modpack to a new one, handling world saves.
+    
+    Args:
+        new_modpack: The modpack to switch to
+        config: Minecraft configuration
+        save_current: Whether to save the current world before switching
+        
+    Returns:
+        Result dictionary with switch status
+    """
+    result = {
+        'success': False,
+        'previous_modpack': get_current_modpack(),
+        'new_modpack': new_modpack,
+        'world_saved': False,
+        'world_loaded': False,
+        'world_generated': False,
+        'mods_installed': False,
+        'steps': [],
+        'errors': []
+    }
+    
+    # Validate new modpack
+    if new_modpack not in MODPACKS:
+        result['errors'].append(f"Unknown modpack: {new_modpack}")
+        return result
+    
+    current_modpack = get_current_modpack()
+    
+    # Check if server is running
+    if is_server_running():
+        result['errors'].append("Cannot switch modpacks while server is running. Stop the server first.")
+        return result
+    
+    result['steps'].append(f"Switching from '{current_modpack}' to '{new_modpack}'...")
+    
+    # Step 1: Save current world
+    if save_current and current_modpack:
+        result['steps'].append(f"Saving current world for '{current_modpack}'...")
+        success, msg = await save_current_world(current_modpack)
+        result['world_saved'] = success
+        if success:
+            result['steps'].append(f"✅ {msg}")
+        else:
+            result['steps'].append(f"⚠️ Could not save world: {msg}")
+    
+    # Step 2: Clear current mods
+    result['steps'].append("Removing current mods...")
+    await clear_current_mods()
+    result['steps'].append("✅ Mods cleared")
+    
+    # Step 3: Load or generate world for new modpack
+    if has_saved_world(new_modpack):
+        result['steps'].append(f"Loading saved world for '{new_modpack}'...")
+        success, msg = await load_world_for_modpack(new_modpack)
+        result['world_loaded'] = success
+        if success:
+            result['steps'].append(f"✅ {msg}")
+        else:
+            result['steps'].append(f"⚠️ {msg}")
+    else:
+        result['steps'].append(f"No saved world for '{new_modpack}', will generate new world on first start")
+        result['world_generated'] = True
+        
+        # Clear existing world to trigger new world generation
+        for world_dir in ['world', 'world_nether', 'world_the_end']:
+            world_path = os.path.join(MC_SERVER_DIR, world_dir)
+            if os.path.exists(world_path):
+                shutil.rmtree(world_path)
+                result['steps'].append(f"  Removed {world_dir}")
+    
+    # Step 4: Install new modpack mods (if not vanilla)
+    new_modpack_config = MODPACKS.get(new_modpack)
+    if new_modpack != 'vanilla' and new_modpack_config.get('mods'):
+        result['steps'].append(f"Installing mods for '{new_modpack}'...")
+        
+        minecraft_version = config.get('minecraft_version', new_modpack_config.get('minecraft_version', '1.21.4'))
+        install_result = await install_modpack(new_modpack, minecraft_version)
+        
+        result['mods_installed'] = install_result.get('success', False)
+        result['mods_details'] = {
+            'installed': install_result.get('mods_installed', []),
+            'failed': install_result.get('mods_failed', [])
+        }
+        
+        if result['mods_installed']:
+            result['steps'].append(f"✅ Installed {len(install_result.get('mods_installed', []))} mods")
+        else:
+            failed_count = len(install_result.get('mods_failed', []))
+            result['steps'].append(f"⚠️ Some mods failed to install ({failed_count} failed)")
+            result['errors'].extend(install_result.get('errors', []))
+        
+        # Step 5: Install AutoModpack for mod syncing
+        result['steps'].append("Setting up AutoModpack for automatic mod syncing...")
+        automodpack_result = await download_automodpack(minecraft_version, 'fabric')
+        if automodpack_result.get('success'):
+            result['steps'].append("✅ AutoModpack configured - clients will auto-download mods!")
+        else:
+            result['steps'].append(f"⚠️ AutoModpack setup failed: {automodpack_result.get('error')}")
+    else:
+        result['steps'].append("Vanilla mode - no mods to install")
+        result['mods_installed'] = True
+    
+    # Step 6: Apply modpack config overrides
+    config_overrides = new_modpack_config.get('config_overrides', {})
+    if config_overrides:
+        result['steps'].append("Applying modpack configuration overrides...")
+        # Apply to server.properties
+        await apply_server_properties(config_overrides)
+        result['steps'].append("✅ Configuration applied")
+    
+    # Update state
+    update_state('current_modpack', new_modpack)
+    update_state('modpack_switched_at', datetime.now(timezone.utc).isoformat())
+    
+    result['success'] = True
+    result['steps'].append(f"✅ Successfully switched to '{new_modpack}'!")
+    result['steps'].append("Start the server to begin playing")
+    
+    return result
+
+
+async def apply_server_properties(overrides: Dict) -> bool:
+    """
+    Apply configuration overrides to server.properties.
+    
+    Args:
+        overrides: Dictionary of property overrides
+        
+    Returns:
+        True if successful
+    """
+    properties_path = os.path.join(MC_SERVER_DIR, 'server.properties')
+    
+    if not os.path.exists(properties_path):
+        return False
+    
+    try:
+        # Read current properties
+        with open(properties_path, 'r') as f:
+            lines = f.readlines()
+        
+        # Apply overrides
+        new_lines = []
+        applied = set()
+        
+        for line in lines:
+            if '=' in line and not line.strip().startswith('#'):
+                key = line.split('=')[0].strip()
+                if key in overrides:
+                    new_lines.append(f"{key}={overrides[key]}\n")
+                    applied.add(key)
+                else:
+                    new_lines.append(line)
+            else:
+                new_lines.append(line)
+        
+        # Add any overrides that weren't in the file
+        for key, value in overrides.items():
+            if key not in applied:
+                new_lines.append(f"{key}={value}\n")
+        
+        # Write back
+        with open(properties_path, 'w') as f:
+            f.writelines(new_lines)
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to apply server properties: {e}")
+        return False
+
+
+def list_saved_worlds() -> List[Dict]:
+    """
+    List all saved worlds for different modpacks.
+    
+    Returns:
+        List of world information dictionaries
+    """
+    worlds = []
+    
+    if not os.path.exists(MC_WORLDS_STORAGE_DIR):
+        return worlds
+    
+    for modpack_name in os.listdir(MC_WORLDS_STORAGE_DIR):
+        modpack_path = os.path.join(MC_WORLDS_STORAGE_DIR, modpack_name)
+        
+        if not os.path.isdir(modpack_path):
+            continue
+        
+        world_info = {
+            'modpack': modpack_name,
+            'display_name': MODPACKS.get(modpack_name, {}).get('name', modpack_name),
+            'path': modpack_path,
+            'saved_at': None,
+            'size_mb': 0
+        }
+        
+        # Get state info
+        state_file = os.path.join(modpack_path, 'world_state.json')
+        if os.path.exists(state_file):
+            try:
+                with open(state_file, 'r') as f:
+                    state = json.load(f)
+                world_info['saved_at'] = state.get('saved_at')
+            except (json.JSONDecodeError, IOError):
+                pass
+        
+        # Calculate size
+        total_size = 0
+        for root, dirs, files in os.walk(modpack_path):
+            for f in files:
+                total_size += os.path.getsize(os.path.join(root, f))
+        world_info['size_mb'] = round(total_size / 1024 / 1024, 2)
+        
+        worlds.append(world_info)
+    
+    return worlds
 
 def is_server_running() -> bool:
     """Check if the Minecraft server is currently running."""
