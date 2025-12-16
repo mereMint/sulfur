@@ -318,11 +318,46 @@ echo -e "${YELLOW}Step 4: Installing Python Dependencies${NC}"
 echo -e "${GRAY}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
+# Install system dependencies for PyNaCl on Termux
+if [ "$IS_TERMUX" = true ]; then
+    echo -e "${CYAN}Checking system dependencies for voice support...${NC}"
+    
+    # System packages needed for PyNaCl (voice support)
+    SYSTEM_DEPS=("libsodium" "clang")
+    MISSING_PKGS=()
+    
+    # Check each required package
+    for pkg_name in "${SYSTEM_DEPS[@]}"; do
+        if ! pkg list-installed 2>/dev/null | grep -q "^${pkg_name}"; then
+            MISSING_PKGS+=("$pkg_name")
+        fi
+    done
+    
+    if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
+        echo -e "${YELLOW}Installing required system packages: ${MISSING_PKGS[*]}${NC}"
+        echo -e "${GRAY}(This is needed for PyNaCl voice support)${NC}"
+        if pkg install -y "${MISSING_PKGS[@]}"; then
+            echo -e "${GREEN}✓ System packages installed${NC}"
+        else
+            echo -e "${YELLOW}⚠ Some system packages may have failed to install${NC}"
+            echo -e "${GRAY}  Voice features may not work without libsodium${NC}"
+        fi
+    else
+        echo -e "${GREEN}✓ All system packages are installed${NC}"
+    fi
+    echo ""
+fi
+
 echo -e "${CYAN}Upgrading pip...${NC}"
 $PYTHON_CMD -m pip install --upgrade pip --quiet
 
 echo -e "${CYAN}Installing dependencies from requirements.txt...${NC}"
 echo -e "${GRAY}(This may take a few minutes...)${NC}"
+
+# Set SODIUM_INSTALL=system to use system libsodium for PyNaCl
+# This prevents build failures on Termux where bundled libsodium configure fails
+export SODIUM_INSTALL=system
+
 pip install -r requirements.txt
 
 if [ $? -eq 0 ]; then
