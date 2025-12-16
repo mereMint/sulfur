@@ -851,7 +851,6 @@ def setup_database(plat: str) -> bool:
         db_pass = os.environ.get('DB_PASS', '')
         db_name = os.environ.get('DB_NAME', 'sulfur_bot')
         
-        import time
         timestamp = time.strftime('%Y%m%d_%H%M%S')
         backup_path = f"backups/database_backup_{timestamp}.sql"
         
