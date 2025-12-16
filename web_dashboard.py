@@ -199,7 +199,7 @@ def follow_log_file():
                     elif 'chat' in line_lower or 'conversation' in line_lower:
                         enhanced_line = '<span class="badge bg-info me-1">Chat</span>' + line
                     elif 'modpack' in line_lower or 'mrpack' in line_lower:
-                        enhanced_line = '<span class="badge bg-purple me-1" style="background-color: #9c27b0;">Modpack</span>' + line
+                        enhanced_line = '<span class="badge bg-dark me-1">Modpack</span>' + line
                     elif 'minecraft' in line_lower or 'server' in line_lower and 'start' in line_lower:
                         enhanced_line = '<span class="badge bg-success me-1">Minecraft</span>' + line
                     elif 'wireguard' in line_lower or 'vpn' in line_lower:

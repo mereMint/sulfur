@@ -1654,8 +1654,9 @@ async def download_modpack_from_modrinth(modpack: Dict, minecraft_version: str, 
                 os.remove(mrpack_path)
             
     except ImportError:
-        result['errors'].append("aiohttp not installed - cannot download modpacks")
-        logger.error("aiohttp not installed")
+        error_msg = "aiohttp library is required for modpack downloads. Install with: pip install aiohttp"
+        result['errors'].append(error_msg)
+        logger.error(error_msg)
     except Exception as e:
         result['errors'].append(f"Error downloading from Modrinth: {e}")
         logger.error(f"Error downloading from Modrinth: {e}")
@@ -1692,12 +1693,13 @@ async def download_modpack_from_curseforge(modpack: Dict, minecraft_version: str
     
     if not cf_api_key:
         logger.warning("No CurseForge API key found, providing manual download instructions")
+        manual_url = f"https://www.curseforge.com/minecraft/modpacks/{curseforge_id}/files"
         result['errors'].append(
-            f"CurseForge requires manual download. Please download from: "
-            f"https://www.curseforge.com/minecraft/modpacks/{curseforge_id}/files "
-            f"and extract server files to {MC_SERVER_DIR}"
+            f"CurseForge requires an API key for automatic download. "
+            f"Get one at https://console.curseforge.com/ and add CURSEFORGE_API_KEY to .env, "
+            f"or download manually from: {manual_url}"
         )
-        result['manual_download_url'] = f"https://www.curseforge.com/minecraft/modpacks/{curseforge_id}/files"
+        result['manual_download_url'] = manual_url
         return result
     
     try:
@@ -1773,7 +1775,9 @@ async def download_modpack_from_curseforge(modpack: Dict, minecraft_version: str
                 os.remove(modpack_path)
             
     except ImportError:
-        result['errors'].append("aiohttp not installed - cannot download modpacks")
+        error_msg = "aiohttp library is required for modpack downloads. Install with: pip install aiohttp"
+        result['errors'].append(error_msg)
+        logger.error(error_msg)
     except Exception as e:
         result['errors'].append(f"Error downloading from CurseForge: {e}")
         logger.error(f"Error downloading from CurseForge: {e}")
