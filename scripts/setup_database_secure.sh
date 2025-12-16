@@ -3,7 +3,7 @@
 # Sulfur Bot - Secure Database Setup Script
 # ==============================================================================
 # This script automatically sets up MariaDB/MySQL with strong security:
-# - Generates cryptographically secure passwords (32+ characters)
+# - Generates cryptographically secure passwords (48 characters)
 # - Creates database and user with proper permissions
 # - Stores credentials securely in config/database.json (0600 permissions)
 # - Prevents race conditions with file locking
@@ -96,7 +96,7 @@ trap release_lock EXIT INT TERM
 # ==============================================================================
 
 generate_secure_password() {
-    # Generate 32+ character cryptographically secure password
+    # Generate 48-character cryptographically secure password
     # Use openssl if available, otherwise /dev/urandom
     local password=""
     

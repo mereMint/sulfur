@@ -65,8 +65,10 @@ class DatabaseConfig:
         file_stat = config_path.stat()
         file_mode = stat.S_IMODE(file_stat.st_mode)
         
-        # Check if group or others can read (security risk)
-        if file_mode & (stat.S_IRGRP | stat.S_IWGRP | stat.S_IROTH | stat.S_IWOTH):
+        # Check if group or others can read/write/execute (security risk)
+        insecure_bits = (stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP |  # Group permissions
+                         stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH)   # Other permissions
+        if file_mode & insecure_bits:
             raise DatabaseConfigError(
                 f"Insecure permissions on {cls.CONFIG_FILE}\n"
                 f"Current: {oct(file_mode)}, Expected: 0600\n"

@@ -82,8 +82,11 @@ elif args.all:
     # Apply all migrations in order
     migration_files = sorted(migrations_dir.glob('*.sql'))
 else:
-    # Default: apply economy migration
-    migration_files = [Path('scripts/db_migrations/003_economy_and_shop.sql')]
+    # Default: prompt user or apply all pending
+    print_info("No migration file specified")
+    print_info("Use --all to apply all pending migrations")
+    print_info("Or specify a migration file: python apply_migration.py <file>")
+    sys.exit(1)
 
 print("============================================================================")
 print("  Sulfur Bot - Database Migration Tool")
