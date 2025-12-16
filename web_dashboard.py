@@ -4801,6 +4801,519 @@ def api_user_profile(user_id):
         return jsonify({'error': str(e)}), 500
 
 
+# ==============================================================================
+# Minecraft Server API Endpoints
+# ==============================================================================
+
+# Try to import minecraft_server module
+try:
+    from modules import minecraft_server
+    MINECRAFT_AVAILABLE = True
+except ImportError:
+    MINECRAFT_AVAILABLE = False
+    minecraft_server = None
+
+@app.route('/minecraft')
+def minecraft_dashboard():
+    """Renders the Minecraft server dashboard."""
+    if not MINECRAFT_AVAILABLE:
+        flash('Minecraft server module not available', 'warning')
+        return redirect(url_for('index'))
+    return render_template('minecraft.html')
+
+@app.route('/api/minecraft/status', methods=['GET'])
+def minecraft_status():
+    """Get Minecraft server status."""
+    if not MINECRAFT_AVAILABLE:
+        return jsonify({'error': 'Minecraft server module not available'}), 503
+    
+    try:
+        status = minecraft_server.get_server_status()
+        install_status = minecraft_server.get_installation_status()
+        
+        # Load config
+        config_path = 'config/config.json'
+        mc_config = {}
+        try:
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+                mc_config = config.get('modules', {}).get('minecraft', {})
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+        
+        # Get worlds and backups
+        worlds = minecraft_server.list_worlds()
+        backups = minecraft_server.list_backups()
+        
+        return jsonify({
+            'running': status.get('running', False),
+            'status': status.get('status', 'unknown'),
+            'pid': status.get('pid'),
+            'player_count': status.get('player_count', 0),
+            'players': status.get('players', []),
+            'uptime': status.get('uptime'),
+            'server_type': install_status.get('server_type'),
+            'version': install_status.get('server_version'),
+            'port': mc_config.get('port', 25565),
+            'max_players': mc_config.get('max_players', 20),
+            'worlds': worlds,
+            'backups': backups,
+            'last_backup': status.get('last_backup'),
+            'java_installed': install_status.get('java_installed'),
+            'java_version': install_status.get('java_version'),
+            'server_jar_exists': install_status.get('server_jar_exists')
+        })
+    except Exception as e:
+        logger.error(f"Error getting Minecraft status: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/minecraft/start', methods=['POST'])
+def minecraft_start():
+    """Start the Minecraft server."""
+    if not MINECRAFT_AVAILABLE:
+        return jsonify({'error': 'Minecraft server module not available'}), 503
+    
+    try:
+        # Load config
+        config_path = 'config/config.json'
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        mc_config = config.get('modules', {}).get('minecraft', {})
+        
+        success, message = run_async(minecraft_server.start_server(mc_config))
+        return jsonify({'success': success, 'message': message})
+    except Exception as e:
+        logger.error(f"Error starting Minecraft server: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/minecraft/stop', methods=['POST'])
+def minecraft_stop():
+    """Stop the Minecraft server."""
+    if not MINECRAFT_AVAILABLE:
+        return jsonify({'error': 'Minecraft server module not available'}), 503
+    
+    try:
+        success, message = run_async(minecraft_server.stop_server(notify_players=True))
+        return jsonify({'success': success, 'message': message})
+    except Exception as e:
+        logger.error(f"Error stopping Minecraft server: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/minecraft/restart', methods=['POST'])
+def minecraft_restart():
+    """Restart the Minecraft server."""
+    if not MINECRAFT_AVAILABLE:
+        return jsonify({'error': 'Minecraft server module not available'}), 503
+    
+    try:
+        config_path = 'config/config.json'
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        mc_config = config.get('modules', {}).get('minecraft', {})
+        
+        success, message = run_async(minecraft_server.restart_server(mc_config, notify_players=True))
+        return jsonify({'success': success, 'message': message})
+    except Exception as e:
+        logger.error(f"Error restarting Minecraft server: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/minecraft/command', methods=['POST'])
+def minecraft_command():
+    """Send a command to the Minecraft server."""
+    if not MINECRAFT_AVAILABLE:
+        return jsonify({'error': 'Minecraft server module not available'}), 503
+    
+    try:
+        data = request.get_json()
+        command = data.get('command', '').strip()
+        
+        if not command:
+            return jsonify({'success': False, 'error': 'No command provided'}), 400
+        
+        success = run_async(minecraft_server.send_command(command))
+        return jsonify({'success': success})
+    except Exception as e:
+        logger.error(f"Error sending Minecraft command: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/minecraft/console', methods=['GET'])
+def minecraft_console():
+    """Get recent console output."""
+    if not MINECRAFT_AVAILABLE:
+        return jsonify({'error': 'Minecraft server module not available'}), 503
+    
+    try:
+        lines = int(request.args.get('lines', 50))
+        output = minecraft_server.get_console_output(lines)
+        return jsonify({'lines': output})
+    except Exception as e:
+        logger.error(f"Error getting Minecraft console: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/minecraft/backup', methods=['POST'])
+def minecraft_backup():
+    """Create a server backup."""
+    if not MINECRAFT_AVAILABLE:
+        return jsonify({'error': 'Minecraft server module not available'}), 503
+    
+    try:
+        success, result = run_async(minecraft_server.create_backup())
+        return jsonify({'success': success, 'path': result if success else None, 'error': result if not success else None})
+    except Exception as e:
+        logger.error(f"Error creating Minecraft backup: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/minecraft/restore', methods=['POST'])
+def minecraft_restore():
+    """Restore a server backup."""
+    if not MINECRAFT_AVAILABLE:
+        return jsonify({'error': 'Minecraft server module not available'}), 503
+    
+    try:
+        data = request.get_json()
+        backup_path = data.get('path')
+        
+        if not backup_path:
+            return jsonify({'success': False, 'error': 'No backup path provided'}), 400
+        
+        success, message = run_async(minecraft_server.restore_backup(backup_path))
+        return jsonify({'success': success, 'message': message})
+    except Exception as e:
+        logger.error(f"Error restoring Minecraft backup: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/minecraft/world/<world_name>', methods=['DELETE'])
+def minecraft_delete_world(world_name):
+    """Delete a world."""
+    if not MINECRAFT_AVAILABLE:
+        return jsonify({'error': 'Minecraft server module not available'}), 503
+    
+    try:
+        success, message = run_async(minecraft_server.delete_world(world_name, create_backup=True))
+        return jsonify({'success': success, 'message': message})
+    except Exception as e:
+        logger.error(f"Error deleting Minecraft world: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/minecraft/whitelist', methods=['GET'])
+def minecraft_whitelist_get():
+    """Get the whitelist."""
+    if not MINECRAFT_AVAILABLE:
+        return jsonify({'error': 'Minecraft server module not available'}), 503
+    
+    try:
+        whitelist = minecraft_server.get_whitelist()
+        return jsonify({'whitelist': whitelist})
+    except Exception as e:
+        logger.error(f"Error getting Minecraft whitelist: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/minecraft/whitelist', methods=['POST'])
+def minecraft_whitelist_add():
+    """Add a player to the whitelist."""
+    if not MINECRAFT_AVAILABLE:
+        return jsonify({'error': 'Minecraft server module not available'}), 503
+    
+    try:
+        data = request.get_json()
+        username = data.get('username', '').strip()
+        
+        if not username:
+            return jsonify({'success': False, 'error': 'No username provided'}), 400
+        
+        success, message = run_async(minecraft_server.add_to_whitelist(username))
+        return jsonify({'success': success, 'message': message})
+    except Exception as e:
+        logger.error(f"Error adding to Minecraft whitelist: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/minecraft/config', methods=['GET', 'POST'])
+def minecraft_config():
+    """Get or update Minecraft configuration."""
+    config_path = 'config/config.json'
+    
+    try:
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        
+        if request.method == 'GET':
+            mc_config = config.get('modules', {}).get('minecraft', {})
+            return jsonify(mc_config)
+        
+        else:  # POST
+            data = request.get_json()
+            
+            if 'modules' not in config:
+                config['modules'] = {}
+            if 'minecraft' not in config['modules']:
+                config['modules']['minecraft'] = {}
+            
+            # Update config with provided values
+            mc_config = config['modules']['minecraft']
+            for key, value in data.items():
+                mc_config[key] = value
+            
+            with open(config_path, 'w') as f:
+                json.dump(config, f, indent=2)
+            
+            return jsonify({'success': True})
+            
+    except Exception as e:
+        logger.error(f"Error with Minecraft config: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/minecraft/download', methods=['POST'])
+def minecraft_download():
+    """Download/update the Minecraft server JAR."""
+    if not MINECRAFT_AVAILABLE:
+        return jsonify({'error': 'Minecraft server module not available'}), 503
+    
+    try:
+        config_path = 'config/config.json'
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        mc_config = config.get('modules', {}).get('minecraft', {})
+        
+        server_type = mc_config.get('server_type', 'paper')
+        version = mc_config.get('minecraft_version', '1.21.4')
+        
+        success, result = run_async(minecraft_server.download_server_jar(server_type, version))
+        return jsonify({'success': success, 'path': result if success else None, 'error': result if not success else None})
+    except Exception as e:
+        logger.error(f"Error downloading Minecraft server: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ==============================================================================
+# Database Backup/Export API Endpoints
+# ==============================================================================
+
+import io
+from flask import send_file
+
+@app.route('/api/database/backup', methods=['POST'])
+def database_backup_create():
+    """Create a database backup."""
+    if not db_helpers.db_pool:
+        return jsonify({'error': 'Database not connected'}), 503
+    
+    try:
+        backup_dir = 'backups'
+        os.makedirs(backup_dir, exist_ok=True)
+        
+        timestamp = time.strftime('%Y%m%d_%H%M%S')
+        backup_filename = f"database_backup_{timestamp}.sql"
+        backup_path = os.path.join(backup_dir, backup_filename)
+        
+        # Use mysqldump with environment variable for password (more secure than CLI arg)
+        env = os.environ.copy()
+        if DB_PASS:
+            env['MYSQL_PWD'] = DB_PASS
+        
+        result = subprocess.run([
+            'mysqldump',
+            '-h', DB_HOST,
+            '-u', DB_USER,
+            DB_NAME
+        ], capture_output=True, text=True, env=env)
+        
+        if result.returncode == 0:
+            with open(backup_path, 'w', encoding='utf-8') as f:
+                f.write(result.stdout)
+            
+            size_bytes = os.path.getsize(backup_path)
+            
+            return jsonify({
+                'success': True,
+                'filename': backup_filename,
+                'path': backup_path,
+                'size_bytes': size_bytes,
+                'size_mb': round(size_bytes / 1024 / 1024, 2)
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': result.stderr or 'mysqldump failed'
+            }), 500
+            
+    except FileNotFoundError:
+        return jsonify({
+            'success': False,
+            'error': 'mysqldump not found. Please install MySQL client tools.'
+        }), 500
+    except Exception as e:
+        logger.error(f"Error creating database backup: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/database/backups', methods=['GET'])
+def database_backup_list():
+    """List all database backups."""
+    try:
+        backup_dir = 'backups'
+        if not os.path.exists(backup_dir):
+            return jsonify({'backups': []})
+        
+        backups = []
+        for filename in os.listdir(backup_dir):
+            if filename.startswith('database_backup_') and filename.endswith('.sql'):
+                filepath = os.path.join(backup_dir, filename)
+                stat = os.stat(filepath)
+                backups.append({
+                    'filename': filename,
+                    'path': filepath,
+                    'size_bytes': stat.st_size,
+                    'size_mb': round(stat.st_size / 1024 / 1024, 2),
+                    'created': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stat.st_mtime))
+                })
+        
+        # Sort by creation time, newest first
+        backups.sort(key=lambda x: x['created'], reverse=True)
+        
+        return jsonify({'backups': backups})
+    except Exception as e:
+        logger.error(f"Error listing database backups: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/database/backup/download/<filename>')
+def database_backup_download(filename):
+    """Download a database backup file."""
+    try:
+        # Sanitize filename to prevent directory traversal
+        safe_filename = os.path.basename(filename)
+        if not safe_filename.startswith('database_backup_') or not safe_filename.endswith('.sql'):
+            return jsonify({'error': 'Invalid backup filename'}), 400
+        
+        backup_path = os.path.join('backups', safe_filename)
+        
+        if not os.path.exists(backup_path):
+            return jsonify({'error': 'Backup not found'}), 404
+        
+        return send_file(
+            backup_path,
+            mimetype='application/sql',
+            as_attachment=True,
+            download_name=safe_filename
+        )
+    except Exception as e:
+        logger.error(f"Error downloading database backup: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/database/backup/<filename>', methods=['DELETE'])
+def database_backup_delete(filename):
+    """Delete a database backup file."""
+    try:
+        # Sanitize filename
+        safe_filename = os.path.basename(filename)
+        if not safe_filename.startswith('database_backup_') or not safe_filename.endswith('.sql'):
+            return jsonify({'error': 'Invalid backup filename'}), 400
+        
+        backup_path = os.path.join('backups', safe_filename)
+        
+        if not os.path.exists(backup_path):
+            return jsonify({'error': 'Backup not found'}), 404
+        
+        os.remove(backup_path)
+        return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Error deleting database backup: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/database/restore', methods=['POST'])
+def database_restore():
+    """Restore a database from a backup file."""
+    if not db_helpers.db_pool:
+        return jsonify({'error': 'Database not connected'}), 503
+    
+    try:
+        data = request.get_json()
+        filename = data.get('filename')
+        
+        if not filename:
+            return jsonify({'success': False, 'error': 'No filename provided'}), 400
+        
+        # Sanitize filename
+        safe_filename = os.path.basename(filename)
+        backup_path = os.path.join('backups', safe_filename)
+        
+        if not os.path.exists(backup_path):
+            return jsonify({'success': False, 'error': 'Backup file not found'}), 404
+        
+        # Use mysql to restore with environment variable for password
+        with open(backup_path, 'r', encoding='utf-8') as f:
+            sql_content = f.read()
+        
+        env = os.environ.copy()
+        if DB_PASS:
+            env['MYSQL_PWD'] = DB_PASS
+        
+        result = subprocess.run([
+            'mysql',
+            '-h', DB_HOST,
+            '-u', DB_USER,
+            DB_NAME
+        ], input=sql_content, capture_output=True, text=True, env=env)
+        
+        if result.returncode == 0:
+            return jsonify({'success': True, 'message': 'Database restored successfully'})
+        else:
+            return jsonify({
+                'success': False,
+                'error': result.stderr or 'mysql restore failed'
+            }), 500
+            
+    except FileNotFoundError:
+        return jsonify({
+            'success': False,
+            'error': 'mysql client not found. Please install MySQL client tools.'
+        }), 500
+    except Exception as e:
+        logger.error(f"Error restoring database: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/database/export', methods=['GET'])
+def database_export():
+    """Export the entire database as a downloadable SQL file."""
+    if not db_helpers.db_pool:
+        return jsonify({'error': 'Database not connected'}), 503
+    
+    try:
+        # Use environment variable for password (more secure)
+        env = os.environ.copy()
+        if DB_PASS:
+            env['MYSQL_PWD'] = DB_PASS
+        
+        result = subprocess.run([
+            'mysqldump',
+            '-h', DB_HOST,
+            '-u', DB_USER,
+            DB_NAME
+        ], capture_output=True, text=True, env=env)
+        
+        if result.returncode == 0:
+            # Create in-memory file
+            buffer = io.BytesIO()
+            buffer.write(result.stdout.encode('utf-8'))
+            buffer.seek(0)
+            
+            timestamp = time.strftime('%Y%m%d_%H%M%S')
+            filename = f"sulfur_bot_export_{timestamp}.sql"
+            
+            return send_file(
+                buffer,
+                mimetype='application/sql',
+                as_attachment=True,
+                download_name=filename
+            )
+        else:
+            return jsonify({'error': result.stderr or 'mysqldump failed'}), 500
+            
+    except FileNotFoundError:
+        return jsonify({'error': 'mysqldump not found'}), 500
+    except Exception as e:
+        logger.error(f"Error exporting database: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     # Start the log following thread
     log_thread = threading.Thread(target=follow_log_file, daemon=True)
