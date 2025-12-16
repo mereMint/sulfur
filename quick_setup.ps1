@@ -108,13 +108,15 @@ OPENAI_API_KEY=""
 FOOTBALL_DATA_API_KEY=""
 
 # Database Configuration
-DB_HOST="localhost"
-DB_USER="sulfur_bot_user"
-DB_PASS=""
-DB_NAME="sulfur_bot"
+# IMPORTANT: Do not use quotes around these values unless the value itself contains spaces
+# DO NOT use empty quotes like DB_USER="" - either set a value or leave as DB_USER=sulfur_bot_user
+DB_HOST=localhost
+DB_USER=sulfur_bot_user
+DB_PASS=
+DB_NAME=sulfur_bot
 
 # Bot Settings (Optional)
-BOT_PREFIX="!"
+BOT_PREFIX=!
 "@
     
     $envContent | Out-File -FilePath ".env" -Encoding UTF8

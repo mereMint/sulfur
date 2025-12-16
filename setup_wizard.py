@@ -127,11 +127,49 @@ def validate_hostname(host):
     raise ValueError(f"Invalid hostname format: {host}")
 
 # Get database configuration from environment or use defaults
-DB_HOST = os.environ.get('DB_HOST', 'localhost')
-DB_USER = os.environ.get('DB_USER', 'sulfur_bot_user')
-DB_PASS = os.environ.get('DB_PASS', '')
-DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot')
-MYSQL_ROOT_PASSWORD = os.environ.get('MYSQL_ROOT_PASSWORD', '')  # Optional: provide to auto-provision
+# IMPORTANT: Ensure we NEVER have empty strings - always use defaults
+DB_HOST = os.environ.get('DB_HOST', 'localhost').strip() or 'localhost'
+DB_USER = os.environ.get('DB_USER', 'sulfur_bot_user').strip() or 'sulfur_bot_user'
+DB_PASS = os.environ.get('DB_PASS', '').strip()  # Empty password is OK
+DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot').strip() or 'sulfur_bot'
+MYSQL_ROOT_PASSWORD = os.environ.get('MYSQL_ROOT_PASSWORD', '').strip()  # Optional: provide to auto-provision
+
+# Validate credentials - never proceed with empty user or database name
+if not DB_USER:
+    print("\n" + "="*60)
+    print("ERROR: DB_USER is empty or not set")
+    print("="*60)
+    print("")
+    print("The DB_USER environment variable must have a value.")
+    print("It cannot be an empty string or contain only whitespace.")
+    print("")
+    print("Please check your .env file and ensure:")
+    print("  DB_USER=sulfur_bot_user")
+    print("")
+    print("Do NOT use:")
+    print("  DB_USER=\"\"  (empty quotes)")
+    print("  DB_USER=''   (empty quotes)")
+    print("  DB_USER=     (nothing after equals)")
+    print("")
+    sys.exit(1)
+
+if not DB_NAME:
+    print("\n" + "="*60)
+    print("ERROR: DB_NAME is empty or not set")
+    print("="*60)
+    print("")
+    print("The DB_NAME environment variable must have a value.")
+    print("It cannot be an empty string or contain only whitespace.")
+    print("")
+    print("Please check your .env file and ensure:")
+    print("  DB_NAME=sulfur_bot")
+    print("")
+    print("Do NOT use:")
+    print("  DB_NAME=\"\"  (empty quotes)")
+    print("  DB_NAME=''   (empty quotes)")
+    print("  DB_NAME=     (nothing after equals)")
+    print("")
+    sys.exit(1)
 
 # Quick mode: if DB already works with provided credentials, skip setup
 def quick_db_check():

@@ -1054,6 +1054,15 @@ def setup_env_file() -> bool:
             config['DISCORD_BOT_TOKEN'] = current
         else:
             print_warning("Discord Bot Token is required! (Press Ctrl+C to cancel)")
+    
+    # Database Configuration
+    print("\n--- Database Configuration ---")
+    print("(Press Enter to keep defaults)")
+    
+    # Set defaults - NEVER use empty strings
+    config['DB_HOST'] = input(f"Database Host [{existing.get('DB_HOST', 'localhost')}]: ").strip() or existing.get('DB_HOST', 'localhost')
+    config['DB_USER'] = input(f"Database User [{existing.get('DB_USER', 'sulfur_bot_user')}]: ").strip() or existing.get('DB_USER', 'sulfur_bot_user')
+    config['DB_PASS'] = input(f"Database Password (leave empty for no password) [{existing.get('DB_PASS', '')}]: ").strip() if existing.get('DB_PASS', '') else input(f"Database Password (leave empty for no password): ").strip()
     config['DB_NAME'] = input(f"Database Name [{existing.get('DB_NAME', 'sulfur_bot')}]: ").strip() or existing.get('DB_NAME', 'sulfur_bot')
     
     # AI API Keys

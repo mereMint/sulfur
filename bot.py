@@ -158,10 +158,60 @@ FOOTBALL_DATA_API_KEY = os.environ.get("FOOTBALL_DATA_API_KEY")  # Football-Data
 
 # --- NEW: Database Configuration ---
 # Set these as environment variables for security, or hardcode for testing.
-DB_HOST = os.environ.get("DB_HOST", "localhost")
-DB_USER = os.environ.get("DB_USER", "sulfur_bot_user")
-DB_PASS = os.environ.get("DB_PASS", "") # No password is set for this user
-DB_NAME = os.environ.get("DB_NAME", "sulfur_bot")
+# IMPORTANT: We strip and use defaults if empty to handle both missing and empty env vars
+DB_HOST = os.environ.get("DB_HOST", "localhost").strip() or "localhost"
+DB_USER = os.environ.get("DB_USER", "sulfur_bot_user").strip() or "sulfur_bot_user"
+DB_PASS = os.environ.get("DB_PASS", "").strip()  # Empty password is OK
+DB_NAME = os.environ.get("DB_NAME", "sulfur_bot").strip() or "sulfur_bot"
+
+# Validate database credentials - prevent connection with empty username/database
+if not DB_USER or DB_USER == "":
+    logger.critical("DB_USER is not set or is empty in .env file!")
+    logger.critical("Please set DB_USER in your .env file (e.g., DB_USER=sulfur_bot_user)")
+    logger.critical("Do NOT use DB_USER=\"\" or DB_USER= with empty string")
+    print("\n" + "="*70)
+    print("ERROR: Database Configuration Error")
+    print("="*70)
+    print("")
+    print("DB_USER environment variable is not set or is empty.")
+    print("")
+    print("To fix this issue:")
+    print("1. Open your .env file")
+    print("2. Ensure DB_USER is set to a valid username:")
+    print("   DB_USER=sulfur_bot_user")
+    print("3. Do NOT use empty quotes: DB_USER=\"\" or DB_USER=''")
+    print("4. Do NOT leave it blank: DB_USER=")
+    print("")
+    print("If you don't have a .env file, copy from .env.example:")
+    print("   cp .env.example .env")
+    print("   # Then edit .env with your credentials")
+    print("")
+    print("="*70)
+    exit(1)
+
+if not DB_NAME or DB_NAME == "":
+    logger.critical("DB_NAME is not set or is empty in .env file!")
+    logger.critical("Please set DB_NAME in your .env file (e.g., DB_NAME=sulfur_bot)")
+    logger.critical("Do NOT use DB_NAME=\"\" or DB_NAME= with empty string")
+    print("\n" + "="*70)
+    print("ERROR: Database Configuration Error")
+    print("="*70)
+    print("")
+    print("DB_NAME environment variable is not set or is empty.")
+    print("")
+    print("To fix this issue:")
+    print("1. Open your .env file")
+    print("2. Ensure DB_NAME is set to a valid database name:")
+    print("   DB_NAME=sulfur_bot")
+    print("3. Do NOT use empty quotes: DB_NAME=\"\" or DB_NAME=''")
+    print("4. Do NOT leave it blank: DB_NAME=")
+    print("")
+    print("If you don't have a .env file, copy from .env.example:")
+    print("   cp .env.example .env")
+    print("   # Then edit .env with your credentials")
+    print("")
+    print("="*70)
+    exit(1)
 
 # --- Constants ---
 # Discord message length limit is 2000 chars, we reserve some space for formatting
