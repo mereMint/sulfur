@@ -8,6 +8,14 @@
 
 set -e
 
+# Detect if stdin is a terminal (interactive mode)
+if [ -t 0 ]; then
+    INTERACTIVE=true
+else
+    INTERACTIVE=false
+    echo "Note: Running in non-interactive mode"
+fi
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -145,13 +153,25 @@ install_java() {
         JAVA_MAJOR=$(java -version 2>&1 | grep -oP 'version "?\K\d+' | head -1)
         if [ "$JAVA_MAJOR" -lt 17 ]; then
             echo -e "${YELLOW}⚠️  Java $JAVA_MAJOR found but Java 17+ recommended${NC}"
-            read -p "Install Java 21? [Y/n]: " install_java_choice
+            
+            if [ "$INTERACTIVE" = true ]; then
+                read -p "Install Java 21? [Y/n]: " install_java_choice
+            else
+                install_java_choice="n"
+                echo -e "${YELLOW}⏭️  Skipping Java 21 installation (non-interactive mode)${NC}"
+            fi
+            
             if [[ "$install_java_choice" != "n" && "$install_java_choice" != "N" ]]; then
                 install_java_21
             fi
         fi
     else
-        read -p "Install Java 21 for Minecraft server? [Y/n]: " install_java_choice
+        if [ "$INTERACTIVE" = true ]; then
+            read -p "Install Java 21 for Minecraft server? [Y/n]: " install_java_choice
+        else
+            install_java_choice="n"
+            echo -e "${YELLOW}⏭️  Skipping Java installation (non-interactive mode)${NC}"
+        fi
         if [[ "$install_java_choice" != "n" && "$install_java_choice" != "N" ]]; then
             install_java_21
         fi
@@ -187,7 +207,13 @@ install_wireguard() {
     if command -v wg &> /dev/null; then
         echo -e "${GREEN}✅ WireGuard found${NC}"
     else
-        read -p "Install WireGuard VPN? [y/N]: " install_wg_choice
+        if [ "$INTERACTIVE" = true ]; then
+            read -p "Install WireGuard VPN? [y/N]: " install_wg_choice
+        else
+            install_wg_choice="n"
+            echo -e "${YELLOW}⏭️  Skipping WireGuard installation (non-interactive mode)${NC}"
+        fi
+        
         if [[ "$install_wg_choice" == "y" || "$install_wg_choice" == "Y" ]]; then
             echo -e "${YELLOW}Installing WireGuard...${NC}"
             
@@ -269,7 +295,12 @@ run_setup_wizard() {
 
 # Create systemd service (optional)
 create_systemd_service() {
-    read -p "Create systemd service for auto-start? [y/N]: " create_service
+    if [ "$INTERACTIVE" = true ]; then
+        read -p "Create systemd service for auto-start? [y/N]: " create_service
+    else
+        create_service="n"
+        echo -e "${YELLOW}⏭️  Skipping systemd service creation (non-interactive mode)${NC}"
+    fi
     
     if [[ "$create_service" == "y" || "$create_service" == "Y" ]]; then
         CURRENT_DIR=$(pwd)
@@ -317,7 +348,13 @@ main() {
     echo -e "${GREEN}✅ Installation complete!${NC}"
     echo -e "${GREEN}════════════════════════════════════════════════════════════════${NC}"
     
-    read -p "Run the setup wizard now? [Y/n]: " run_wizard
+    if [ "$INTERACTIVE" = true ]; then
+        read -p "Run the setup wizard now? [Y/n]: " run_wizard
+    else
+        run_wizard="n"
+        echo -e "${YELLOW}⏭️  Skipping setup wizard (non-interactive mode)${NC}"
+        echo -e "${CYAN}Run later with: cd $(pwd) && source venv/bin/activate && python3 master_setup.py${NC}"
+    fi
     if [[ "$run_wizard" != "n" && "$run_wizard" != "N" ]]; then
         run_setup_wizard
     fi
