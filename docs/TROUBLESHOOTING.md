@@ -19,6 +19,34 @@ Solutions for common issues with Sulfur Bot.
 
 ## Installation Issues
 
+### "404: Not Found" when running one-command install
+
+**Error Message:**
+```
+irm : 404: Not Found
+curl: (22) The requested URL returned error: 404
+```
+
+**Cause:** This repository is private. Raw GitHub URLs (`raw.githubusercontent.com`) don't work with private repositories because they require public access.
+
+**Solution:**
+1. Clone the repository first (requires GitHub authentication):
+   ```bash
+   git clone https://github.com/mereMint/sulfur.git
+   cd sulfur
+   ```
+
+2. Then run the installer locally:
+   ```bash
+   # Linux/macOS/Termux
+   bash scripts/quickinstall.sh
+   
+   # Windows (PowerShell)
+   .\scripts\quickinstall.ps1
+   ```
+
+**Note:** The one-command install method (`irm ... | iex` or `curl ... | bash`) only works for public repositories.
+
 ### "Python not found"
 
 **Windows:**
