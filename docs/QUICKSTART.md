@@ -4,30 +4,42 @@ Get Sulfur Bot running in under 5 minutes!
 
 ---
 
-## One-Command Install
+## Quick Install
 
-### Linux / macOS / Termux
-```bash
-curl -sSL https://raw.githubusercontent.com/mereMint/sulfur/main/scripts/quickinstall.sh | bash
-```
-
-### Windows (PowerShell as Administrator)
-```powershell
-irm https://raw.githubusercontent.com/mereMint/sulfur/main/scripts/quickinstall.ps1 | iex
-```
-
----
-
-## Manual Quick Start
+> **Note:** This repository is private, so you need to clone it first before running the installer.
 
 ### Step 1: Clone Repository
+
+Make sure you have access to the repository and are authenticated with GitHub:
 
 ```bash
 git clone https://github.com/mereMint/sulfur.git
 cd sulfur
 ```
 
-### Step 2: Run Platform Installer
+### Step 2: Run Quick Installer
+
+**Linux / macOS / Termux:**
+```bash
+bash scripts/quickinstall.sh
+```
+
+**Windows (PowerShell as Administrator):**
+```powershell
+.\scripts\quickinstall.ps1
+```
+
+The quick installer will automatically:
+- ✅ Install all dependencies
+- ✅ Set up Python environment
+- ✅ Configure the database
+- ✅ Run the interactive setup wizard
+
+---
+
+## Alternative: Manual Setup
+
+If you prefer to run platform-specific installers:
 
 **Linux:**
 ```bash

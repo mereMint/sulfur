@@ -50,24 +50,34 @@ Use `/help` in Discord to see all available commands organized by category:
 
 ## 📋 Quick Start
 
-### 🚀 One-Command Install (Recommended)
+### 🚀 Quick Install (Recommended)
 
-The easiest way to get started! Copy and run one command:
+> **⚠️ Important:** This is a private repository. Make sure you have access and are authenticated with GitHub before proceeding.
+
+The easiest way to get started! Clone the repository and run the installer:
+
+**Step 1: Clone the repository**
+```bash
+git clone https://github.com/mereMint/sulfur.git
+cd sulfur
+```
+
+**Step 2: Run the quick installer**
 
 **Linux / macOS / Termux:**
 ```bash
-curl -sSL https://raw.githubusercontent.com/mereMint/sulfur/main/scripts/quickinstall.sh | bash
+bash scripts/quickinstall.sh
 ```
 
 **Windows (PowerShell as Administrator):**
 ```powershell
-irm https://raw.githubusercontent.com/mereMint/sulfur/main/scripts/quickinstall.ps1 | iex
+.\scripts\quickinstall.ps1
 ```
 
 This will automatically:
 - ✅ Install all dependencies
-- ✅ Clone the repository
 - ✅ Set up Python environment
+- ✅ Configure the database
 - ✅ Run the interactive setup wizard
 
 ### 📚 Documentation

@@ -1,9 +1,9 @@
 # ==============================================================================
-# Sulfur Bot - One-Command Quick Installer for Windows
+# Sulfur Bot - Quick Installer for Windows
 # ==============================================================================
-# Run this script with:
-#   irm https://raw.githubusercontent.com/mereMint/sulfur/main/scripts/quickinstall.ps1 | iex
-# Or:
+# This repository is private. Clone it first, then run:
+#   .\scripts\quickinstall.ps1
+# Or with execution policy bypass:
 #   Set-ExecutionPolicy Bypass -Scope Process; .\scripts\quickinstall.ps1
 # ==============================================================================
 

@@ -36,16 +36,19 @@ Welcome to the Sulfur Bot Wiki! This comprehensive documentation will help you i
 
 ---
 
-## 🚀 Quick Start (30 seconds)
+## 🚀 Quick Start
 
-### Linux/macOS/Termux
+> **Note:** This is a private repository. Make sure you have access and clone it first.
+
 ```bash
-curl -sSL https://raw.githubusercontent.com/mereMint/sulfur/main/scripts/quickinstall.sh | bash
-```
+# Clone the repository
+git clone https://github.com/mereMint/sulfur.git
+cd sulfur
 
-### Windows (PowerShell)
-```powershell
-irm https://raw.githubusercontent.com/mereMint/sulfur/main/scripts/quickinstall.ps1 | iex
+# Run the quick installer
+bash scripts/quickinstall.sh  # Linux/macOS/Termux
+# or
+.\scripts\quickinstall.ps1     # Windows (PowerShell)
 ```
 
 ---

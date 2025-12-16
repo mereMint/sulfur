@@ -1,11 +1,9 @@
 #!/bin/bash
 # ==============================================================================
-# Sulfur Bot - One-Command Quick Installer
+# Sulfur Bot - Quick Installer
 # ==============================================================================
-# Run this script with:
-#   curl -sSL https://raw.githubusercontent.com/mereMint/sulfur/main/scripts/quickinstall.sh | bash
-# Or:
-#   wget -qO- https://raw.githubusercontent.com/mereMint/sulfur/main/scripts/quickinstall.sh | bash
+# This repository is private. Clone it first, then run:
+#   bash scripts/quickinstall.sh
 # ==============================================================================
 
 set -e

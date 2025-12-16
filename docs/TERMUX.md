@@ -42,10 +42,17 @@ pkg update && pkg upgrade -y
 
 ## Installation
 
-### One-Command Install
+> **Note:** This repository is private. You need to authenticate with GitHub and clone it first.
+
+### Quick Install
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/mereMint/sulfur/main/scripts/quickinstall.sh | bash
+# Clone the repository (requires authentication)
+git clone https://github.com/mereMint/sulfur.git
+cd sulfur
+
+# Run the quick installer
+bash scripts/quickinstall.sh
 ```
 
 ### Manual Install
