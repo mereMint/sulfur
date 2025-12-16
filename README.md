@@ -609,7 +609,7 @@ Add the following configuration:
 ```ini
 [Interface]
 # Sulfur Bot WireGuard Server
-PrivateKey = <YOUR_SERVER_PRIVATE_KEY>
+PrivateKey = YOUR_SERVER_PRIVATE_KEY_HERE
 Address = 10.0.0.1/24
 ListenPort = 51820
 
@@ -624,7 +624,7 @@ PostDown = iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
 ```
 
 Replace:
-- `<YOUR_SERVER_PRIVATE_KEY>` with contents of `server_private.key`
+- `YOUR_SERVER_PRIVATE_KEY_HERE` (the entire placeholder) with contents of `server_private.key`
 - `eth0` with your actual network interface name (check with `ip link`)
 
 ##### 3.3: Set Permissions
@@ -684,7 +684,7 @@ Add at the end:
 ```ini
 [Peer]
 # Client 1 - Phone
-PublicKey = <CLIENT_PUBLIC_KEY>
+PublicKey = CLIENT_PUBLIC_KEY_HERE
 AllowedIPs = 10.0.0.2/32
 ```
 
@@ -694,16 +694,20 @@ Create `client1.conf`:
 
 ```ini
 [Interface]
-PrivateKey = <CLIENT_PRIVATE_KEY>
+PrivateKey = CLIENT_PRIVATE_KEY_HERE
 Address = 10.0.0.2/32
 DNS = 1.1.1.1, 8.8.8.8
 
 [Peer]
-PublicKey = <SERVER_PUBLIC_KEY>
+PublicKey = SERVER_PUBLIC_KEY_HERE
 Endpoint = your-server-ip:51820
+# Route all traffic through VPN (full tunnel)
+# For security, you may prefer to only route the VPN subnet: AllowedIPs = 10.0.0.0/24
 AllowedIPs = 0.0.0.0/0, ::/0
 PersistentKeepalive = 25
 ```
+
+> ⚠️ **Security Note**: Setting `AllowedIPs = 0.0.0.0/0, ::/0` routes ALL traffic through the VPN server. This means the VPN server can see all your internet traffic. Only use this if you trust the server. For accessing only the bot's web dashboard, use `AllowedIPs = 10.0.0.0/24` instead.
 
 ##### 4.4: Reload Server Config
 
