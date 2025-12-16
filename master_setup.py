@@ -1039,14 +1039,39 @@ def setup_wireguard_vpn(plat: str) -> bool:
         # Server setup
         print("\n--- VPN Server Configuration ---")
         
+        # Try to auto-detect local network IP
+        local_ip = None
+        try:
+            import socket
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+        except Exception:
+            pass
+        
         # Get server endpoint
-        print("Enter your server's public IP or domain name:")
-        print("(This is how clients will connect to you)")
-        endpoint = input("Endpoint: ").strip()
+        print("\nEnter your server's endpoint (how clients will connect to you):")
+        print_info("Options:")
+        print("  1. Your public IP (if you have port forwarding set up)")
+        print("  2. Your local network IP (for LAN-only access)")
+        print("  3. A DDNS hostname (e.g., myserver.duckdns.org)")
+        print()
+        
+        if local_ip:
+            print_success(f"Detected local IP: {local_ip}")
+            print_info(f"Use this for LAN-only access, or enter your public IP/domain for remote access")
+        
+        print()
+        endpoint = input(f"Endpoint [{local_ip or 'your.domain.com'}]: ").strip()
         
         if not endpoint:
-            print_error("Endpoint is required for server setup")
-            return False
+            if local_ip:
+                endpoint = local_ip
+                print_info(f"Using local IP: {endpoint} (LAN access only)")
+            else:
+                print_error("Endpoint is required for server setup")
+                return False
         
         # VPN network
         vpn_network = input("VPN Network [10.0.0.1/24]: ").strip() or "10.0.0.1/24"
@@ -1055,10 +1080,11 @@ def setup_wireguard_vpn(plat: str) -> bool:
         # Save server config
         server_config = {
             "role": "server",
-            "endpoint": endpoint,
+            "endpoint": f"{endpoint}:{vpn_port}",
             "address": vpn_network,
             "port": int(vpn_port),
-            "peers": []
+            "peers": [],
+            "auto_detected_ip": local_ip
         }
         
         with open('config/wireguard/vpn_config.json', 'w') as f:
@@ -1066,6 +1092,14 @@ def setup_wireguard_vpn(plat: str) -> bool:
         
         print_success("VPN server configuration saved")
         print_info("Generate keys and config by running the bot and using /vpn setup")
+        
+        # Helpful tips
+        if local_ip and endpoint == local_ip:
+            print()
+            print_info("💡 For remote access (outside your local network):")
+            print("   1. Set up port forwarding on your router (port 51820 UDP)")
+            print("   2. Use a DDNS service like DuckDNS or No-IP")
+            print("   3. Update the endpoint in config/wireguard/vpn_config.json")
         
     else:
         # Client setup
