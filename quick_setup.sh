@@ -320,8 +320,31 @@ echo ""
 
 # Install system dependencies for PyNaCl on Termux
 if [ "$IS_TERMUX" = true ]; then
-    echo -e "${CYAN}Installing system dependencies for voice support...${NC}"
-    pkg install -y libsodium clang 2>/dev/null || true
+    echo -e "${CYAN}Checking system dependencies for voice support...${NC}"
+    
+    # System packages needed for PyNaCl (voice support)
+    SYSTEM_DEPS=("libsodium" "clang")
+    MISSING_PKGS=()
+    
+    # Check each required package
+    for pkg_name in "${SYSTEM_DEPS[@]}"; do
+        if ! pkg list-installed 2>/dev/null | grep -q "^${pkg_name}"; then
+            MISSING_PKGS+=("$pkg_name")
+        fi
+    done
+    
+    if [ ${#MISSING_PKGS[@]} -gt 0 ]; then
+        echo -e "${YELLOW}Installing required system packages: ${MISSING_PKGS[*]}${NC}"
+        echo -e "${GRAY}(This is needed for PyNaCl voice support)${NC}"
+        if pkg install -y "${MISSING_PKGS[@]}"; then
+            echo -e "${GREEN}✓ System packages installed${NC}"
+        else
+            echo -e "${YELLOW}⚠ Some system packages may have failed to install${NC}"
+            echo -e "${GRAY}  Voice features may not work without libsodium${NC}"
+        fi
+    else
+        echo -e "${GREEN}✓ All system packages are installed${NC}"
+    fi
     echo ""
 fi
 
