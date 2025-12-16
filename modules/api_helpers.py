@@ -10,6 +10,19 @@ from modules.logger_utils import api_logger as logger
 GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 OPENAI_API_BASE_URL = "https://api.openai.com/v1/chat/completions"
 
+# Models that require 'max_completion_tokens' instead of 'max_tokens'
+# These are newer OpenAI models that use the updated API parameter
+MODELS_REQUIRING_MAX_COMPLETION_TOKENS = {
+    # GPT-5 series
+    "gpt-5-nano", "gpt-5-mini", "gpt-5", "gpt-5-turbo",
+    # GPT-4.1 series (new naming convention)
+    "gpt-4.1-nano", "gpt-4.1-mini", "gpt-4.1",
+    # o-series reasoning models (o1, o3, o4, etc.)
+    "o1", "o1-mini", "o1-preview",
+    "o3", "o3-mini",
+    "o4", "o4-mini",
+}
+
 # --- Model Pricing (USD per 1M tokens) ---
 # Used for calculating API usage costs
 MODEL_PRICING = {
@@ -48,6 +61,64 @@ def get_model_pricing(model_name: str) -> dict:
         dict with 'input' and 'output' prices per 1M tokens
     """
     return MODEL_PRICING.get(model_name, MODEL_PRICING["default"])
+
+
+def uses_max_completion_tokens(model_name: str) -> bool:
+    """
+    Check if a model requires 'max_completion_tokens' instead of 'max_tokens'.
+    
+    Newer OpenAI models (gpt-5-*, gpt-4.1-*, o1, o3, etc.) require the
+    'max_completion_tokens' parameter instead of the deprecated 'max_tokens'.
+    
+    Args:
+        model_name: The name of the AI model
+        
+    Returns:
+        True if the model requires 'max_completion_tokens', False otherwise
+    """
+    # Check exact match first
+    if model_name in MODELS_REQUIRING_MAX_COMPLETION_TOKENS:
+        return True
+    
+    # Check prefix patterns for future-proofing
+    prefixes_requiring_new_param = ('gpt-5', 'gpt-4.1', 'o1', 'o3', 'o4')
+    for prefix in prefixes_requiring_new_param:
+        if model_name.startswith(prefix):
+            return True
+    
+    return False
+
+
+def build_openai_payload(model_name: str, messages: list, max_tokens: int, temperature: float = None) -> dict:
+    """
+    Build a payload for OpenAI API calls with the correct token limit parameter.
+    
+    Args:
+        model_name: The name of the AI model
+        messages: List of message dictionaries
+        max_tokens: Maximum number of tokens to generate
+        temperature: Optional temperature setting (not used for reasoning models)
+        
+    Returns:
+        Dictionary payload for the OpenAI API
+    """
+    payload = {
+        "model": model_name,
+        "messages": messages,
+    }
+    
+    # Use the correct token limit parameter based on model
+    if uses_max_completion_tokens(model_name):
+        payload["max_completion_tokens"] = max_tokens
+    else:
+        payload["max_tokens"] = max_tokens
+    
+    # Add temperature if provided and model supports it
+    is_reasoning_model = model_name.startswith('o1') or model_name.startswith('o3') or model_name.startswith('o4')
+    if temperature is not None and not is_reasoning_model:
+        payload["temperature"] = temperature
+    
+    return payload
 
 
 def calculate_cost(model_name: str, input_tokens: int, output_tokens: int) -> float:
@@ -266,12 +337,8 @@ async def get_chat_response(history, user_prompt, user_display_name, system_prom
             content = item['parts'][0]['text']
             messages.append({"role": role, "content": content})
 
-        payload = {
-            "model": model,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens
-        }
+        # Build payload with correct token parameter for the model
+        payload = build_openai_payload(model, messages, max_tokens, temperature)
 
         try:
             async with aiohttp.ClientSession() as session:
@@ -382,10 +449,7 @@ async def get_relationship_summary_from_api(history, user_display_name, old_summ
             fallback_max_tokens = config.get('api', {}).get('openai', {}).get('utility_max_tokens', 150)
             headers = {"Authorization": f"Bearer {openai_key}"}
             messages = [{"role": "user", "content": prompt}]
-            payload_openai = {
-                "model": fallback_model, "messages": messages, 
-                "temperature": fallback_temperature, "max_tokens": fallback_max_tokens
-            }
+            payload_openai = build_openai_payload(fallback_model, messages, fallback_max_tokens, fallback_temperature)
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.post(OPENAI_API_BASE_URL, json=payload_openai, headers=headers, timeout=timeout) as response:
@@ -421,9 +485,7 @@ async def get_relationship_summary_from_api(history, user_display_name, old_summ
         # For OpenAI, the prompt is a simple user message.
         messages = [{"role": "user", "content": prompt}]
 
-        payload = {
-            "model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens
-        }
+        payload = build_openai_payload(model, messages, max_tokens, temperature)
 
         try:
             async with aiohttp.ClientSession() as session:
@@ -489,7 +551,7 @@ async def get_werwolf_tts_message(event_text, config, gemini_key, openai_key):
             fallback_max_tokens = config.get('api', {}).get('openai', {}).get('utility_max_tokens', 50)
             headers = {"Authorization": f"Bearer {openai_key}"}
             messages = [{"role": "user", "content": prompt}]
-            payload_openai = {"model": fallback_model, "messages": messages, "temperature": fallback_temperature, "max_tokens": fallback_max_tokens}
+            payload_openai = build_openai_payload(fallback_model, messages, fallback_max_tokens, fallback_temperature)
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.post(OPENAI_API_BASE_URL, json=payload_openai, headers=headers, timeout=timeout) as response:
@@ -521,7 +583,7 @@ async def get_werwolf_tts_message(event_text, config, gemini_key, openai_key):
         max_tokens = config.get('api', {}).get('openai', {}).get('utility_max_tokens', 50) # Short response
         headers = {"Authorization": f"Bearer {openai_key}"}
         messages = [{"role": "user", "content": prompt}]
-        payload = {"model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
+        payload = build_openai_payload(model, messages, max_tokens, temperature)
 
         try:
             async with aiohttp.ClientSession() as session:
@@ -583,7 +645,7 @@ async def get_random_names(count, db_helpers, config, gemini_key, openai_key):
                 fallback_max_tokens = config.get('api', {}).get('openai', {}).get('utility_max_tokens', 200)
                 headers = {"Authorization": f"Bearer {openai_key}"}
                 messages = [{"role": "user", "content": prompt}]
-                payload_openai = {"model": fallback_model, "messages": messages, "temperature": fallback_temperature, "max_tokens": fallback_max_tokens}
+                payload_openai = build_openai_payload(fallback_model, messages, fallback_max_tokens, fallback_temperature)
                 try:
                     async with aiohttp.ClientSession() as session:
                         async with session.post(OPENAI_API_BASE_URL, json=payload_openai, headers=headers, timeout=timeout) as response:
@@ -620,7 +682,7 @@ async def get_random_names(count, db_helpers, config, gemini_key, openai_key):
             max_tokens = config.get('api', {}).get('openai', {}).get('utility_max_tokens', 200)
             headers = {"Authorization": f"Bearer {openai_key}"}
             messages = [{"role": "user", "content": prompt}]
-            payload = {"model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
+            payload = build_openai_payload(model, messages, max_tokens, temperature)
 
             try:
                 async with aiohttp.ClientSession() as session:
@@ -703,7 +765,7 @@ async def get_wrapped_summary_from_api(user_display_name, stats, config, gemini_
             fallback_max_tokens = config.get('api', {}).get('openai', {}).get('utility_max_tokens', 100)
             headers = {"Authorization": f"Bearer {openai_key}"}
             messages = [{"role": "user", "content": prompt}]
-            payload_openai = {"model": fallback_model, "messages": messages, "temperature": fallback_temperature, "max_tokens": fallback_max_tokens}
+            payload_openai = build_openai_payload(fallback_model, messages, fallback_max_tokens, fallback_temperature)
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.post(OPENAI_API_BASE_URL, json=payload_openai, headers=headers, timeout=timeout) as response:
@@ -735,7 +797,7 @@ async def get_wrapped_summary_from_api(user_display_name, stats, config, gemini_
         max_tokens = config.get('api', {}).get('openai', {}).get('utility_max_tokens', 100)
         headers = {"Authorization": f"Bearer {openai_key}"}
         messages = [{"role": "user", "content": prompt}]
-        payload = {"model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
+        payload = build_openai_payload(model, messages, max_tokens, temperature)
 
         try:
             async with aiohttp.ClientSession() as session:
@@ -928,6 +990,7 @@ async def get_vision_analysis(image_url, prompt, config, gemini_key, openai_key)
         if is_quota_error and openai_key:
             logger.warning(f"[Vision Analysis] Gemini quota exhausted, falling back to OpenAI")
             fallback_vision_model = config.get('api', {}).get('openai', {}).get('vision_model', 'gpt-4o')
+            # Build vision payload with correct token parameter
             payload_openai = {
                 "model": fallback_vision_model,
                 "messages": [
@@ -942,8 +1005,12 @@ async def get_vision_analysis(image_url, prompt, config, gemini_key, openai_key)
                         ]
                     }
                 ],
-                "max_tokens": 1024
             }
+            # Use correct token parameter based on model
+            if uses_max_completion_tokens(fallback_vision_model):
+                payload_openai["max_completion_tokens"] = 1024
+            else:
+                payload_openai["max_tokens"] = 1024
             try:
                 async with aiohttp.ClientSession() as session:
                     headers = {"Authorization": f"Bearer {openai_key}", "Content-Type": "application/json"}
@@ -989,8 +1056,12 @@ async def get_vision_analysis(image_url, prompt, config, gemini_key, openai_key)
                     ]
                 }
             ],
-            "max_tokens": 1024
         }
+        # Use correct token parameter based on model
+        if uses_max_completion_tokens(vision_model):
+            payload["max_completion_tokens"] = 1024
+        else:
+            payload["max_tokens"] = 1024
         
         try:
             async with aiohttp.ClientSession() as session:
@@ -1073,12 +1144,7 @@ async def get_ai_response_with_model(prompt, model_name, config, gemini_key, ope
             if system_prompt:
                 messages.append({"role": "system", "content": system_prompt})
             messages.append({"role": "user", "content": prompt})
-            payload_openai = {
-                "model": fallback_model,
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": 8192
-            }
+            payload_openai = build_openai_payload(fallback_model, messages, 8192, temperature)
             try:
                 async with aiohttp.ClientSession() as session:
                     headers = {"Authorization": f"Bearer {openai_key}", "Content-Type": "application/json"}
@@ -1107,11 +1173,11 @@ async def get_ai_response_with_model(prompt, model_name, config, gemini_key, ope
         return response_text, error
         
     elif model_name.startswith('gpt') or model_name.startswith('o'):
-        # OpenAI models (including o1, o3 reasoning models)
+        # OpenAI models (including o1, o3, o4 reasoning models)
         messages = []
         
-        # o1 and o3 models don't support system prompts or temperature
-        is_reasoning_model = model_name.startswith('o1') or model_name.startswith('o3')
+        # o1, o3, o4 models don't support system prompts or temperature
+        is_reasoning_model = model_name.startswith('o1') or model_name.startswith('o3') or model_name.startswith('o4')
         
         if system_prompt and not is_reasoning_model:
             messages.append({"role": "system", "content": system_prompt})
@@ -1121,15 +1187,12 @@ async def get_ai_response_with_model(prompt, model_name, config, gemini_key, ope
         
         messages.append({"role": "user", "content": prompt})
         
-        payload = {
-            "model": model_name,
-            "messages": messages,
-            "max_tokens": 2048
-        }
-        
-        # Only add temperature for non-reasoning models
-        if not is_reasoning_model:
-            payload["temperature"] = temperature
+        # Build payload with correct token parameter for the model
+        # For reasoning models, don't pass temperature
+        if is_reasoning_model:
+            payload = build_openai_payload(model_name, messages, 2048, None)
+        else:
+            payload = build_openai_payload(model_name, messages, 2048, temperature)
         
         try:
             async with aiohttp.ClientSession() as session:

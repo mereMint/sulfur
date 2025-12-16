@@ -1018,6 +1018,58 @@ def initialize_database(max_retries=3, retry_delay=2):
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """)
         
+        # --- NEW: Minecraft Server Integration Tables ---
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS minecraft_players (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                discord_user_id BIGINT NOT NULL UNIQUE,
+                minecraft_username VARCHAR(255) NOT NULL,
+                whitelisted BOOLEAN DEFAULT FALSE,
+                first_joined TIMESTAMP NULL,
+                last_seen TIMESTAMP NULL,
+                playtime_minutes INT DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_discord_user_id (discord_user_id),
+                INDEX idx_minecraft_username (minecraft_username)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS minecraft_join_requests (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                discord_user_id BIGINT NOT NULL,
+                minecraft_username VARCHAR(255) NOT NULL,
+                status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
+                requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                processed_at TIMESTAMP NULL,
+                processed_by BIGINT NULL,
+                rejection_reason TEXT NULL,
+                INDEX idx_discord_user_id (discord_user_id),
+                INDEX idx_status (status),
+                INDEX idx_requested_at (requested_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """)
+        
+        # --- NEW: WireGuard VPN Client Management Tables ---
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS vpn_clients (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                discord_user_id BIGINT NOT NULL UNIQUE,
+                client_name VARCHAR(255) NOT NULL,
+                public_key VARCHAR(255) NOT NULL UNIQUE,
+                private_key TEXT NULL,
+                assigned_ip VARCHAR(45) NOT NULL,
+                preshared_key TEXT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_handshake TIMESTAMP NULL,
+                is_active BOOLEAN DEFAULT TRUE,
+                INDEX idx_discord_user_id (discord_user_id),
+                INDEX idx_public_key (public_key),
+                INDEX idx_is_active (is_active)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """)
+        
         cnx.commit()
 
         logger.info("Database tables checked/created successfully")
