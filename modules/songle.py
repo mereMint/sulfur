@@ -36,6 +36,11 @@ _audio_url_cache: Dict[int, str] = {}  # {song_id: youtube_url}
 _daily_song_cache: Dict[str, dict] = {}
 _last_cache_date: Optional[str] = None
 
+# ID offset for database songs to avoid conflicts with hardcoded songs (IDs 1-999)
+# Database songs will have IDs starting from 10000
+# This allows for up to 9999 hardcoded songs and effectively unlimited database songs
+DB_SONG_ID_OFFSET = 10000
+
 # Song database - expanded collection of popular songs across different genres and eras
 # For production, consider integrating with Spotify or Last.fm API
 SONG_DATABASE = [
@@ -264,7 +269,7 @@ async def initialize_songle_tables(db_helpers):
                     play_count INT DEFAULT 0,
                     added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     added_by BIGINT DEFAULT NULL,
-                    UNIQUE KEY unique_song (title, artist),
+                    UNIQUE KEY unique_song (title, artist, album),
                     INDEX idx_title (title),
                     INDEX idx_artist (artist),
                     INDEX idx_genre (genre),
@@ -483,9 +488,10 @@ async def get_songs_from_library(db_helpers, limit: int = 50) -> List[dict]:
             songs = cursor.fetchall()
             
             # Convert to format expected by SongleGame
+            # Use DB_SONG_ID_OFFSET to avoid ID conflicts with hardcoded songs
             return [
                 {
-                    'id': 10000 + song['id'],  # Offset ID to avoid conflicts with hardcoded songs
+                    'id': DB_SONG_ID_OFFSET + song['id'],
                     'title': song['title'],
                     'artist': song['artist'],
                     'year': song.get('year', 2020),
@@ -569,7 +575,7 @@ async def search_songs_combined(db_helpers, query: str) -> List[dict]:
                     
                     for song in cursor.fetchall():
                         results.append({
-                            'id': 10000 + song['id'],
+                            'id': DB_SONG_ID_OFFSET + song['id'],
                             'title': song['title'],
                             'artist': song['artist'],
                             'year': song.get('year', 2020),

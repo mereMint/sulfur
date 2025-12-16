@@ -1330,7 +1330,6 @@ async def before_generate_news():
     await client.wait_until_ready()
     # Wait 6 hours before the first news generation to avoid generating on startup
     # The loop will then continue every 6 hours after that
-    import asyncio
     logger.info("News generation scheduled - first article will be generated in 6 hours")
     await asyncio.sleep(6 * 60 * 60)  # Wait 6 hours before first generation
 
