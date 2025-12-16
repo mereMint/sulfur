@@ -108,13 +108,15 @@ OPENAI_API_KEY=""
 FOOTBALL_DATA_API_KEY=""
 
 # Database Configuration
-DB_HOST="localhost"
-DB_USER="sulfur_bot_user"
-DB_PASS=""
-DB_NAME="sulfur_bot"
+# IMPORTANT: Do not use quotes around these values unless the value itself contains spaces
+# DO NOT use empty quotes like DB_USER="" - either set a value or leave as DB_USER=sulfur_bot_user
+DB_HOST=localhost
+DB_USER=sulfur_bot_user
+DB_PASS=
+DB_NAME=sulfur_bot
 
 # Bot Settings (Optional)
-BOT_PREFIX="!"
+BOT_PREFIX=!
 "@
     
     $envContent | Out-File -FilePath ".env" -Encoding UTF8
@@ -144,9 +146,10 @@ BOT_PREFIX="!"
 # Verify .env has required fields
 Write-Host "Verifying .env configuration..." -ForegroundColor Cyan
 $envContent = Get-Content ".env" -Raw
-$hasDiscordToken = $envContent -match 'DISCORD_BOT_TOKEN=".+"'
-$hasGeminiKey = $envContent -match 'GEMINI_API_KEY=".+"'
-$hasOpenAIKey = $envContent -match 'OPENAI_API_KEY=".+"'
+# Match both quoted and unquoted non-empty values
+$hasDiscordToken = $envContent -match 'DISCORD_BOT_TOKEN="?.+?"?'
+$hasGeminiKey = $envContent -match 'GEMINI_API_KEY="?.+?"?'
+$hasOpenAIKey = $envContent -match 'OPENAI_API_KEY="?.+?"?'
 
 if (-not $hasDiscordToken) {
     Write-Host "✗ DISCORD_BOT_TOKEN not set in .env" -ForegroundColor Red
