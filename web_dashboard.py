@@ -954,6 +954,373 @@ def features_page():
     return render_template('features.html')
 
 
+# ============================================================
+# API Key Management Endpoints
+# ============================================================
+
+# API Keys that can be managed through the dashboard
+# Security note: These are environment variables, stored in .env file
+API_KEYS_CONFIG = {
+    'GEMINI_API_KEY': {
+        'name': 'Google Gemini API Key',
+        'description': 'Required for AI chat responses (Gemini provider)',
+        'get_url': 'https://aistudio.google.com/apikey',
+        'required': False,  # Not required if OpenAI is used
+        'category': 'AI'
+    },
+    'OPENAI_API_KEY': {
+        'name': 'OpenAI API Key',
+        'description': 'Required for AI chat responses (OpenAI provider)',
+        'get_url': 'https://platform.openai.com/api-keys',
+        'required': False,  # Not required if Gemini is used
+        'category': 'AI'
+    },
+    'LASTFM_API_KEY': {
+        'name': 'Last.fm API Key',
+        'description': 'Used for music track search, album info, and personalized recommendations',
+        'get_url': 'https://www.last.fm/api/account/create',
+        'required': False,
+        'category': 'Music'
+    },
+    'FOOTBALL_DATA_API_KEY': {
+        'name': 'Football-Data.org API Key',
+        'description': 'Required for sport betting on international leagues',
+        'get_url': 'https://www.football-data.org/client/register',
+        'required': False,
+        'category': 'Sports'
+    }
+}
+
+
+def _mask_api_key(key: str) -> str:
+    """Mask an API key for display, showing only first and last 4 chars."""
+    if not key or len(key) < 12:
+        return '***hidden***' if key else ''
+    return f"{key[:4]}...{key[-4:]}"
+
+
+def _read_env_file() -> dict:
+    """Read the .env file and parse key-value pairs."""
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+    env_values = {}
+    
+    if os.path.exists(env_path):
+        try:
+            with open(env_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    # Skip empty lines and comments
+                    if not line or line.startswith('#'):
+                        continue
+                    # Parse key=value
+                    if '=' in line:
+                        key, value = line.split('=', 1)
+                        key = key.strip()
+                        value = value.strip().strip('"').strip("'")
+                        env_values[key] = value
+        except Exception as e:
+            logger.error(f"Error reading .env file: {e}")
+    
+    return env_values
+
+
+def _format_env_value(key: str, value: str) -> str:
+    """Format a key-value pair for .env file, quoting if necessary."""
+    if value and any(c in value for c in ' "\'#='):
+        return f'{key}="{value}"\n'
+    return f'{key}={value}\n'
+
+
+def _write_env_file(env_values: dict) -> bool:
+    """Write key-value pairs back to the .env file, preserving comments and structure."""
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+    
+    try:
+        # Read existing file to preserve comments and structure
+        existing_lines = []
+        if os.path.exists(env_path):
+            with open(env_path, 'r', encoding='utf-8') as f:
+                existing_lines = f.readlines()
+        
+        # Update values in existing lines
+        updated_keys = set()
+        new_lines = []
+        
+        for line in existing_lines:
+            stripped = line.strip()
+            # Skip empty lines and comments - keep them as is
+            if not stripped or stripped.startswith('#'):
+                new_lines.append(line)
+                continue
+            
+            # Parse key=value
+            if '=' in stripped:
+                key = stripped.split('=', 1)[0].strip()
+                if key in env_values:
+                    # Update the value
+                    value = env_values[key]
+                    new_lines.append(_format_env_value(key, value))
+                    updated_keys.add(key)
+                else:
+                    new_lines.append(line)
+            else:
+                new_lines.append(line)
+        
+        # Add new keys that weren't in the file
+        for key, value in env_values.items():
+            if key not in updated_keys:
+                new_lines.append(_format_env_value(key, value))
+        
+        # Write the updated file
+        with open(env_path, 'w', encoding='utf-8') as f:
+            f.writelines(new_lines)
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error writing .env file: {e}")
+        return False
+
+
+@app.route('/api/api_keys', methods=['GET'])
+def api_get_api_keys():
+    """Get the list of configurable API keys with their status."""
+    try:
+        env_values = _read_env_file()
+        
+        api_keys = []
+        for key_name, config in API_KEYS_CONFIG.items():
+            # Get value from environment (runtime) or .env file
+            current_value = os.environ.get(key_name, '') or env_values.get(key_name, '')
+            
+            # Check if the key is configured (not empty and not placeholder)
+            is_configured = bool(current_value) and not current_value.startswith('your_')
+            
+            api_keys.append({
+                'key': key_name,
+                'name': config['name'],
+                'description': config['description'],
+                'get_url': config['get_url'],
+                'required': config['required'],
+                'category': config['category'],
+                'is_configured': is_configured,
+                'masked_value': _mask_api_key(current_value) if is_configured else None
+            })
+        
+        return jsonify({
+            'status': 'success',
+            'api_keys': api_keys
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting API keys: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/api_keys/<key_name>', methods=['POST'])
+def api_update_api_key(key_name):
+    """Update a specific API key."""
+    try:
+        # Validate key name
+        if key_name not in API_KEYS_CONFIG:
+            return jsonify({'status': 'error', 'message': f'Unknown API key: {key_name}'}), 400
+        
+        data = request.get_json()
+        new_value = data.get('value', '').strip()
+        
+        if not new_value:
+            return jsonify({'status': 'error', 'message': 'API key value cannot be empty'}), 400
+        
+        # Read current .env values
+        env_values = _read_env_file()
+        
+        # Update the value
+        env_values[key_name] = new_value
+        
+        # Write back to .env file
+        if not _write_env_file(env_values):
+            return jsonify({'status': 'error', 'message': 'Failed to write .env file'}), 500
+        
+        # Update the environment variable for the current process
+        os.environ[key_name] = new_value
+        
+        logger.info(f"API key '{key_name}' updated via dashboard")
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'{API_KEYS_CONFIG[key_name]["name"]} updated successfully. Changes take effect immediately for new requests.',
+            'key': key_name,
+            'is_configured': True,
+            'masked_value': _mask_api_key(new_value)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error updating API key: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/api_keys/<key_name>', methods=['DELETE'])
+def api_delete_api_key(key_name):
+    """Remove/clear a specific API key."""
+    try:
+        # Validate key name
+        if key_name not in API_KEYS_CONFIG:
+            return jsonify({'status': 'error', 'message': f'Unknown API key: {key_name}'}), 400
+        
+        # Read current .env values
+        env_values = _read_env_file()
+        
+        # Set to empty or placeholder
+        env_values[key_name] = ''
+        
+        # Write back to .env file
+        if not _write_env_file(env_values):
+            return jsonify({'status': 'error', 'message': 'Failed to write .env file'}), 500
+        
+        # Clear the environment variable for the current process
+        if key_name in os.environ:
+            del os.environ[key_name]
+        
+        logger.info(f"API key '{key_name}' cleared via dashboard")
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'{API_KEYS_CONFIG[key_name]["name"]} has been cleared.',
+            'key': key_name,
+            'is_configured': False
+        })
+        
+    except Exception as e:
+        logger.error(f"Error deleting API key: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/api_keys/validate/<key_name>', methods=['POST'])
+def api_validate_api_key(key_name):
+    """Validate that an API key is working correctly."""
+    try:
+        # Validate key name
+        if key_name not in API_KEYS_CONFIG:
+            return jsonify({'status': 'error', 'message': f'Unknown API key: {key_name}'}), 400
+        
+        # Get the current value
+        env_values = _read_env_file()
+        current_value = os.environ.get(key_name, '') or env_values.get(key_name, '')
+        
+        if not current_value or current_value.startswith('your_'):
+            return jsonify({
+                'status': 'error',
+                'message': 'API key is not configured',
+                'valid': False
+            }), 400
+        
+        # Run validation based on key type
+        validation_result = run_async(_validate_api_key_async(key_name, current_value))
+        
+        if validation_result['valid']:
+            return jsonify({
+                'status': 'success',
+                'message': validation_result.get('message', 'API key is valid'),
+                'valid': True
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': validation_result.get('message', 'API key validation failed'),
+                'valid': False
+            }), 400
+            
+    except Exception as e:
+        logger.error(f"Error validating API key: {e}")
+        return jsonify({'status': 'error', 'message': str(e), 'valid': False}), 500
+
+
+async def _validate_api_key_async(key_name: str, key_value: str) -> dict:
+    """
+    Validate an API key by making a test request to the respective service.
+    
+    Makes lightweight API calls to verify the key is valid and has proper permissions.
+    Each API service has a different validation endpoint:
+    - Gemini: Lists available models
+    - OpenAI: Lists available models
+    - Last.fm: Gets top artists chart (1 result)
+    - Football-Data.org: Lists available competitions
+    
+    Args:
+        key_name: The environment variable name (e.g., 'GEMINI_API_KEY')
+        key_value: The actual API key value to validate
+        
+    Returns:
+        dict with keys:
+            - 'valid': bool indicating if the key is valid
+            - 'message': str with success message or error description
+    """
+    import aiohttp
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            if key_name == 'GEMINI_API_KEY':
+                # Test Gemini API with a simple models list request
+                url = f"https://generativelanguage.googleapis.com/v1beta/models?key={key_value}"
+                async with session.get(url, timeout=10) as response:
+                    if response.status == 200:
+                        return {'valid': True, 'message': 'Gemini API key is valid'}
+                    elif response.status == 401 or response.status == 403:
+                        return {'valid': False, 'message': 'Invalid Gemini API key'}
+                    else:
+                        return {'valid': False, 'message': f'Gemini API error: HTTP {response.status}'}
+                        
+            elif key_name == 'OPENAI_API_KEY':
+                # Test OpenAI API with a models list request
+                url = "https://api.openai.com/v1/models"
+                headers = {'Authorization': f'Bearer {key_value}'}
+                async with session.get(url, headers=headers, timeout=10) as response:
+                    if response.status == 200:
+                        return {'valid': True, 'message': 'OpenAI API key is valid'}
+                    elif response.status == 401:
+                        return {'valid': False, 'message': 'Invalid OpenAI API key'}
+                    else:
+                        return {'valid': False, 'message': f'OpenAI API error: HTTP {response.status}'}
+                        
+            elif key_name == 'LASTFM_API_KEY':
+                # Test Last.fm API with a simple chart request
+                url = f"https://ws.audioscrobbler.com/2.0/?method=chart.gettopartists&api_key={key_value}&format=json&limit=1"
+                async with session.get(url, timeout=10) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        if 'error' in data:
+                            return {'valid': False, 'message': f"Last.fm API error: {data.get('message', 'Unknown error')}"}
+                        return {'valid': True, 'message': 'Last.fm API key is valid'}
+                    else:
+                        return {'valid': False, 'message': f'Last.fm API error: HTTP {response.status}'}
+                        
+            elif key_name == 'FOOTBALL_DATA_API_KEY':
+                # Test Football-Data.org API
+                url = "https://api.football-data.org/v4/competitions"
+                headers = {'X-Auth-Token': key_value}
+                async with session.get(url, headers=headers, timeout=10) as response:
+                    if response.status == 200:
+                        return {'valid': True, 'message': 'Football-Data.org API key is valid'}
+                    elif response.status == 401 or response.status == 403:
+                        return {'valid': False, 'message': 'Invalid Football-Data.org API key'}
+                    else:
+                        return {'valid': False, 'message': f'Football-Data.org API error: HTTP {response.status}'}
+            
+            else:
+                return {'valid': False, 'message': 'No validation available for this API key'}
+                
+    except asyncio.TimeoutError:
+        return {'valid': False, 'message': 'API validation request timed out'}
+    except Exception as e:
+        return {'valid': False, 'message': f'Validation error: {str(e)}'}
+
+
+@app.route('/api_keys', methods=['GET'])
+def api_keys_page():
+    """Renders the API key management page."""
+    return render_template('api_keys.html')
+
+
 @app.route('/api/wrapped_stats', methods=['GET'])
 def api_wrapped_stats():
     """API endpoint to get wrapped registration statistics."""

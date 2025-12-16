@@ -1099,7 +1099,9 @@ async def get_spotify_recently_played(user_id: int) -> Optional[List[dict]]:
 async def get_ai_curated_songs(user_id: int, username: str, count: int = 25) -> Optional[List[dict]]:
     """
     Get AI-curated song recommendations based on user's listening history.
-    Uses AI API to analyze taste profile and generate personalized recommendations.
+    
+    First tries Last.fm API for fast, free recommendations based on similar tracks.
+    Falls back to AI API if Last.fm is not configured or returns no results.
     
     Args:
         user_id: Discord user ID
@@ -1111,7 +1113,6 @@ async def get_ai_curated_songs(user_id: int, username: str, count: int = 25) -> 
     """
     try:
         from modules.db_helpers import get_unified_music_history
-        from modules.api_helpers import get_ai_response_with_model
         import json
         import os
         
@@ -1121,6 +1122,51 @@ async def get_ai_curated_songs(user_id: int, username: str, count: int = 25) -> 
         if not history or len(history) == 0:
             logger.info(f"No music history found for user {username}")
             return None
+        
+        # Try Last.fm API first (faster, free, no AI cost)
+        try:
+            from modules.lastfm_api import is_lastfm_configured, get_personalized_recommendations
+            
+            if is_lastfm_configured():
+                logger.info(f"Using Last.fm API for song recommendations for {username}")
+                
+                # Convert history to format expected by Last.fm helper
+                history_for_lastfm = [
+                    {'title': song['title'], 'artist': song['artist']}
+                    for song in history[:20]  # Top 20 most played
+                ]
+                
+                recommendations = await get_personalized_recommendations(
+                    user_history=history_for_lastfm,
+                    count=count,
+                    diversity_factor=0.3
+                )
+                
+                if recommendations and len(recommendations) > 0:
+                    # Convert to expected format
+                    curated_songs = []
+                    for song in recommendations[:count]:
+                        curated_songs.append({
+                            'title': song.get('title', '').strip(),
+                            'artist': song.get('artist', '').strip(),
+                            'url': None  # Will be searched on YouTube
+                        })
+                    
+                    if len(curated_songs) > 0:
+                        logger.info(f"Last.fm provided {len(curated_songs)} recommendations for {username}")
+                        return curated_songs
+                
+                logger.info("Last.fm returned no recommendations, falling back to AI")
+            else:
+                logger.debug("Last.fm not configured, using AI for recommendations")
+                
+        except ImportError:
+            logger.debug("Last.fm module not available, using AI for recommendations")
+        except Exception as e:
+            logger.warning(f"Last.fm recommendation failed: {e}, falling back to AI")
+        
+        # Fall back to AI recommendations
+        from modules.api_helpers import get_ai_response_with_model
         
         # Build context for AI from listening history
         history_context = []

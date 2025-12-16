@@ -426,6 +426,13 @@
       "voice_id": "de-DE-KillianNeural",
       "rate": "+0%",
       "pitch": "+0Hz"
+    },
+    "music": {
+      "use_lastfm": true,
+      "lastfm_recommendation_count": 25,
+      "lastfm_diversity_factor": 0.3,
+      "prefer_lastfm_over_ai": true,
+      "songle_genres": ["pop", "rock", "hip-hop", "electronic", "indie", "rnb", "alternative"]
     }
   }
 }

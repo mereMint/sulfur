@@ -213,6 +213,71 @@ function Test-Preflight {
     return $true
 }
 
+function Test-OptionalApiKeys {
+    Write-ColorLog 'Checking optional API keys...' 'Cyan' '[CONFIG] '
+    
+    $envPath = Join-Path $PSScriptRoot '.env'
+    if(-not (Test-Path $envPath)){
+        return
+    }
+    
+    $warnings = 0
+    $envLines = Get-Content -Path $envPath -ErrorAction SilentlyContinue
+    
+    # Helper function to extract key value
+    function Get-EnvValue {
+        param([string]$KeyName)
+        $line = $envLines | Where-Object { $_ -match "^\s*$KeyName\s*=" } | Select-Object -First 1
+        if($line){
+            return ($line -replace '^[^=]*=','').Trim().Trim('"','''')
+        }
+        return $null
+    }
+    
+    # Check for GEMINI_API_KEY or OPENAI_API_KEY (at least one is needed for AI)
+    $geminiKey = Get-EnvValue 'GEMINI_API_KEY'
+    $openaiKey = Get-EnvValue 'OPENAI_API_KEY'
+    
+    $geminiValid = -not [string]::IsNullOrWhiteSpace($geminiKey) -and $geminiKey -ne 'your_gemini_api_key_here'
+    $openaiValid = -not [string]::IsNullOrWhiteSpace($openaiKey) -and $openaiKey -ne 'your_openai_api_key_here'
+    
+    if(-not $geminiValid -and -not $openaiValid){
+        Write-ColorLog "No AI API key configured (GEMINI_API_KEY or OPENAI_API_KEY)" 'Yellow' '[CONFIG] '
+        Write-ColorLog "AI chat features will not work without an API key" 'Yellow' '[CONFIG] '
+        Write-ColorLog "  Get a free Gemini key: https://aistudio.google.com/apikey" 'White' '[CONFIG] '
+        $warnings++
+    }
+    
+    # Check for LASTFM_API_KEY (optional, for enhanced music features)
+    $lastfmKey = Get-EnvValue 'LASTFM_API_KEY'
+    $lastfmValid = -not [string]::IsNullOrWhiteSpace($lastfmKey) -and $lastfmKey -ne 'your_lastfm_api_key_here'
+    
+    if(-not $lastfmValid){
+        Write-ColorLog "LASTFM_API_KEY not configured (optional)" 'White' '[CONFIG] '
+        Write-ColorLog "  Last.fm API enhances music recommendations and Songle song variety" 'White' '[CONFIG] '
+        Write-ColorLog "  Get a free key: https://www.last.fm/api/account/create" 'White' '[CONFIG] '
+    } else {
+        Write-ColorLog "LASTFM_API_KEY is configured" 'Green' '[CONFIG] '
+    }
+    
+    # Check for FOOTBALL_DATA_API_KEY (optional, for sports betting)
+    $footballKey = Get-EnvValue 'FOOTBALL_DATA_API_KEY'
+    $footballValid = -not [string]::IsNullOrWhiteSpace($footballKey) -and $footballKey -ne 'your_football_data_api_key_here'
+    
+    if(-not $footballValid){
+        Write-ColorLog "FOOTBALL_DATA_API_KEY not configured (optional)" 'White' '[CONFIG] '
+        Write-ColorLog "  Required for international league betting (Premier League, La Liga, etc.)" 'White' '[CONFIG] '
+        Write-ColorLog "  German leagues work without this key (via OpenLigaDB)" 'White' '[CONFIG] '
+    } else {
+        Write-ColorLog "FOOTBALL_DATA_API_KEY is configured" 'Green' '[CONFIG] '
+    }
+    
+    if($warnings -gt 0){
+        Write-ColorLog "Some features may be limited. Configure API keys in .env or via the web dashboard" 'Yellow' '[CONFIG] '
+        Write-ColorLog "Web dashboard: http://localhost:5000/api_keys" 'White' '[CONFIG] '
+    }
+}
+
 function Update-BotStatus {
     param([string]$Status,[int]$BotProcessId=0)
     $statusData=@{status=$Status;timestamp=(Get-Date).ToUniversalTime().ToString('o')}
@@ -1254,6 +1319,9 @@ if(-not (Test-RequiredDependencies)){
 
 # Install optional dependencies for voice features
 Install-OptionalDependencies
+
+# Check optional API keys and show warnings (non-blocking)
+Test-OptionalApiKeys
 
 try {
     $script:webDashboardJob=Start-WebDashboard

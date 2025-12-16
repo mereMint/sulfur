@@ -510,8 +510,13 @@ async def get_songs_from_library(db_helpers, limit: int = 50) -> List[dict]:
 
 async def get_random_song_from_combined_library(db_helpers) -> dict:
     """
-    Get a random song from combined sources (hardcoded + database).
+    Get a random song from combined sources (hardcoded + database + Last.fm).
     This provides more variety for premium users.
+    
+    Priority order:
+    1. Last.fm API (if configured) - provides vast library of songs
+    2. Database song library (user-added songs)
+    3. Hardcoded SONG_DATABASE
     
     Args:
         db_helpers: Database helpers module
@@ -520,16 +525,50 @@ async def get_random_song_from_combined_library(db_helpers) -> dict:
         A random song dictionary
     """
     try:
+        all_songs = []
+        
+        # Try Last.fm API first for more variety (vast song library)
+        try:
+            from modules.lastfm_api import is_lastfm_configured, get_random_songs_for_songle
+            
+            if is_lastfm_configured():
+                # Get random songs from Last.fm across multiple genres
+                lastfm_songs = await get_random_songs_for_songle(count=30)
+                
+                if lastfm_songs and len(lastfm_songs) > 0:
+                    # Add unique songs from Last.fm
+                    for song in lastfm_songs:
+                        # Use hashlib for deterministic ID generation
+                        import hashlib
+                        song_key = f"{song.get('artist', '')}|{song.get('title', '')}"
+                        song_hash = int(hashlib.md5(song_key.encode()).hexdigest()[:8], 16)
+                        song_id = (song_hash % 100000) + 100000  # IDs from 100000-199999
+                        all_songs.append({
+                            'id': song_id,
+                            'title': song.get('title', 'Unknown'),
+                            'artist': song.get('artist', 'Unknown'),
+                            'year': song.get('year') or 2020,
+                            'genre': song.get('genre', 'Pop'),
+                            'album': song.get('album', 'Unknown'),
+                            'source': 'lastfm'
+                        })
+                    logger.info(f"Added {len(lastfm_songs)} songs from Last.fm for Songle variety")
+        except ImportError:
+            logger.debug("Last.fm module not available")
+        except Exception as e:
+            logger.warning(f"Last.fm song fetch failed: {e}")
+        
         # Get songs from database
         db_songs = await get_songs_from_library(db_helpers, limit=100)
-        
-        # Combine with hardcoded songs
-        all_songs = SONG_DATABASE.copy()
         all_songs.extend(db_songs)
+        
+        # Add hardcoded songs
+        all_songs.extend(SONG_DATABASE)
         
         if all_songs:
             song = random.choice(all_songs)
-            logger.info(f"Selected random song from combined library: {song.get('title')} by {song.get('artist')}")
+            source = song.get('source', 'hardcoded')
+            logger.info(f"Selected random song from combined library ({source}): {song.get('title')} by {song.get('artist')}")
             return song
         
         # Fallback to hardcoded if nothing available

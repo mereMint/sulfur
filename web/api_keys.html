@@ -1,0 +1,392 @@
+{% extends "layout.html" %}
+{% block title %}API Key Management{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-key"></i> API Key Management</h5>
+                <button class="btn btn-sm btn-secondary" onclick="refreshApiKeys()">
+                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                </button>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">
+                    Manage your API keys for external services. These keys are stored securely in your <code>.env</code> file.
+                    Changes take effect immediately for new requests.
+                </p>
+                
+                <div class="alert alert-info mb-4">
+                    <i class="bi bi-info-circle"></i>
+                    <strong>Security Note:</strong> API keys are sensitive credentials. Never share them publicly.
+                    Keys are masked for display and stored locally on your server.
+                </div>
+                
+                <div id="api-key-alert"></div>
+                
+                <div id="api-keys-loading" class="text-center py-4">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Loading API keys...</p>
+                </div>
+                
+                <div id="api-keys-container" style="display: none;">
+                    <!-- API keys will be loaded here -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit API Key Modal -->
+<div class="modal fade" id="editKeyModal" tabindex="-1" aria-labelledby="editKeyModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editKeyModalLabel">Update API Key</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted" id="editKeyDescription"></p>
+                <p class="small">
+                    <a href="#" id="editKeyGetUrl" target="_blank" class="text-info">
+                        <i class="bi bi-box-arrow-up-right"></i> Get your API key here
+                    </a>
+                </p>
+                <form id="editKeyForm">
+                    <input type="hidden" id="editKeyName" value="">
+                    <div class="mb-3">
+                        <label for="editKeyValue" class="form-label">API Key</label>
+                        <input type="password" class="form-control" id="editKeyValue" placeholder="Enter your API key" required>
+                        <div class="form-text">Your key will be masked after saving.</div>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="showKeyCheckbox">
+                        <label class="form-check-label" for="showKeyCheckbox">
+                            Show API key
+                        </label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveApiKey()">
+                    <i class="bi bi-save"></i> Save Key
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const categoryIcons = {
+    'AI': 'bi-robot',
+    'Music': 'bi-music-note-beamed',
+    'Sports': 'bi-trophy',
+    'Other': 'bi-gear'
+};
+
+const categoryColors = {
+    'AI': 'var(--lofi-purple)',
+    'Music': 'var(--lofi-pink)',
+    'Sports': 'var(--lofi-green)',
+    'Other': 'var(--text-muted)'
+};
+
+// UI timing constants
+const ALERT_AUTO_DISMISS_MS = 4000;
+const ALERT_FADE_MS = 150;
+
+async function loadApiKeys() {
+    const container = document.getElementById('api-keys-container');
+    const loading = document.getElementById('api-keys-loading');
+    
+    try {
+        const response = await fetch('/api/api_keys');
+        const data = await response.json();
+        
+        if (data.status !== 'success') {
+            throw new Error(data.message || 'Failed to load API keys');
+        }
+        
+        // Group API keys by category
+        const categories = {};
+        data.api_keys.forEach(key => {
+            const cat = key.category || 'Other';
+            if (!categories[cat]) {
+                categories[cat] = [];
+            }
+            categories[cat].push(key);
+        });
+        
+        // Build HTML
+        let html = '';
+        for (const [category, keys] of Object.entries(categories)) {
+            const icon = categoryIcons[category] || 'bi-folder';
+            const color = categoryColors[category] || 'var(--text-muted)';
+            
+            html += `
+                <div class="category-section mb-4">
+                    <h6 class="category-header" style="color: ${color};">
+                        <i class="bi ${icon}"></i> ${category}
+                    </h6>
+                    <div class="row">
+            `;
+            
+            keys.forEach(key => {
+                const statusClass = key.is_configured ? 'key-configured' : 'key-not-configured';
+                const statusBadge = key.is_configured 
+                    ? '<span class="badge bg-success"><i class="bi bi-check-circle"></i> Configured</span>'
+                    : '<span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle"></i> Not Configured</span>';
+                const maskedValue = key.masked_value || 'Not set';
+                const requiredBadge = key.required 
+                    ? '<span class="badge bg-danger ms-1">Required</span>' 
+                    : '<span class="badge bg-secondary ms-1">Optional</span>';
+                
+                html += `
+                    <div class="col-md-6 mb-3">
+                        <div class="card h-100 api-key-card ${statusClass}">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-start mb-2">
+                                    <div>
+                                        <h6 class="card-title mb-1">${key.name}</h6>
+                                        ${statusBadge}${requiredBadge}
+                                    </div>
+                                </div>
+                                <p class="card-text small text-muted mb-2">${key.description}</p>
+                                <p class="small mb-3">
+                                    <code class="key-value" id="value-${key.key}">${maskedValue}</code>
+                                </p>
+                                <div class="btn-group btn-group-sm" role="group">
+                                    <button type="button" class="btn btn-outline-primary" onclick="openEditModal('${key.key}', '${key.name}', '${key.description}', '${key.get_url}')">
+                                        <i class="bi bi-pencil"></i> Edit
+                                    </button>
+                                    <button type="button" class="btn btn-outline-info" onclick="validateApiKey('${key.key}')" ${!key.is_configured ? 'disabled' : ''}>
+                                        <i class="bi bi-check2-circle"></i> Validate
+                                    </button>
+                                    <button type="button" class="btn btn-outline-danger" onclick="clearApiKey('${key.key}')" ${!key.is_configured ? 'disabled' : ''}>
+                                        <i class="bi bi-trash"></i> Clear
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="card-footer bg-transparent small">
+                                <a href="${key.get_url}" target="_blank" class="text-decoration-none">
+                                    <i class="bi bi-box-arrow-up-right"></i> Get API key
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += `
+                    </div>
+                </div>
+            `;
+        }
+        
+        container.innerHTML = html;
+        loading.style.display = 'none';
+        container.style.display = 'block';
+        
+    } catch (error) {
+        loading.innerHTML = `
+            <div class="alert alert-danger">
+                <i class="bi bi-exclamation-triangle"></i> Error loading API keys: ${error.message}
+            </div>
+        `;
+    }
+}
+
+function openEditModal(keyName, name, description, getUrl) {
+    document.getElementById('editKeyModalLabel').textContent = `Update ${name}`;
+    document.getElementById('editKeyDescription').textContent = description;
+    document.getElementById('editKeyGetUrl').href = getUrl;
+    document.getElementById('editKeyName').value = keyName;
+    document.getElementById('editKeyValue').value = '';
+    document.getElementById('showKeyCheckbox').checked = false;
+    document.getElementById('editKeyValue').type = 'password';
+    
+    const modal = new bootstrap.Modal(document.getElementById('editKeyModal'));
+    modal.show();
+}
+
+async function saveApiKey() {
+    const keyName = document.getElementById('editKeyName').value;
+    const keyValue = document.getElementById('editKeyValue').value.trim();
+    
+    if (!keyValue) {
+        showAlert('danger', 'Please enter an API key value');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/api_keys/${keyName}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ value: keyValue })
+        });
+        
+        const data = await response.json();
+        
+        if (data.status !== 'success') {
+            throw new Error(data.message || 'Failed to save API key');
+        }
+        
+        // Close modal
+        const modal = bootstrap.Modal.getInstance(document.getElementById('editKeyModal'));
+        modal.hide();
+        
+        // Refresh the list
+        refreshApiKeys();
+        
+        showAlert('success', data.message);
+        
+    } catch (error) {
+        showAlert('danger', `Error saving API key: ${error.message}`);
+    }
+}
+
+async function validateApiKey(keyName) {
+    showAlert('info', `Validating ${keyName}...`);
+    
+    try {
+        const response = await fetch(`/api/api_keys/validate/${keyName}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.valid) {
+            showAlert('success', `<i class="bi bi-check-circle"></i> ${data.message}`);
+        } else {
+            showAlert('danger', `<i class="bi bi-x-circle"></i> ${data.message}`);
+        }
+        
+    } catch (error) {
+        showAlert('danger', `Error validating API key: ${error.message}`);
+    }
+}
+
+async function clearApiKey(keyName) {
+    if (!confirm(`Are you sure you want to clear this API key? Features using this key will stop working.`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/api_keys/${keyName}`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.status !== 'success') {
+            throw new Error(data.message || 'Failed to clear API key');
+        }
+        
+        // Refresh the list
+        refreshApiKeys();
+        
+        showAlert('success', data.message);
+        
+    } catch (error) {
+        showAlert('danger', `Error clearing API key: ${error.message}`);
+    }
+}
+
+function showAlert(type, message) {
+    const alertContainer = document.getElementById('api-key-alert');
+    alertContainer.innerHTML = `
+        <div class="alert alert-${type} alert-dismissible fade show" role="alert">
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    `;
+    
+    // Auto-dismiss after configured timeout
+    setTimeout(() => {
+        const alert = alertContainer.querySelector('.alert');
+        if (alert) {
+            alert.classList.remove('show');
+            setTimeout(() => alertContainer.innerHTML = '', ALERT_FADE_MS);
+        }
+    }, ALERT_AUTO_DISMISS_MS);
+}
+
+function refreshApiKeys() {
+    const container = document.getElementById('api-keys-container');
+    const loading = document.getElementById('api-keys-loading');
+    
+    container.style.display = 'none';
+    loading.style.display = 'block';
+    loading.innerHTML = `
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="mt-2">Loading API keys...</p>
+    `;
+    
+    loadApiKeys();
+}
+
+// Toggle password visibility
+document.addEventListener('DOMContentLoaded', function() {
+    document.getElementById('showKeyCheckbox').addEventListener('change', function() {
+        const input = document.getElementById('editKeyValue');
+        input.type = this.checked ? 'text' : 'password';
+    });
+    
+    loadApiKeys();
+});
+</script>
+
+<style>
+.category-header {
+    border-bottom: 2px solid;
+    padding-bottom: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.api-key-card {
+    transition: all 0.3s ease;
+    border: 1px solid var(--border-color);
+}
+
+.api-key-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px var(--card-shadow);
+}
+
+.key-configured {
+    border-left: 3px solid var(--success);
+}
+
+.key-not-configured {
+    border-left: 3px solid var(--warning);
+}
+
+.key-value {
+    background-color: var(--bg-secondary);
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.85rem;
+}
+
+.btn-group-sm .btn {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+}
+</style>
+{% endblock %}
