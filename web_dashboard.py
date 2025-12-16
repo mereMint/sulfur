@@ -1776,12 +1776,46 @@ def api_activity_stats():
                 games_count += int(result.get('count', 0))
             stats['today']['games'] = games_count
             
-            # Active users today - use ai_model_usage table instead of non-existent ai_conversation_history
+            # Active users today - count unique users from multiple sources
+            active_users_today = set()
+            
+            # Users who sent messages (tracked in user_stats)
             result = safe_db_query(cursor, """
-                SELECT COALESCE(SUM(call_count), 0) as count FROM ai_model_usage 
-                WHERE usage_date = CURDATE()
-            """)
-            stats['today']['active_users'] = result.get('count', 0) if result else 0
+                SELECT DISTINCT user_id FROM user_stats 
+                WHERE DATE(last_updated) = CURDATE()
+            """, fetch_all=True)
+            if result:
+                for row in result:
+                    if row and row.get('user_id'):
+                        active_users_today.add(row.get('user_id'))
+            
+            # Users who made transactions
+            result = safe_db_query(cursor, """
+                SELECT DISTINCT user_id FROM transaction_history 
+                WHERE DATE(created_at) = CURDATE()
+            """, fetch_all=True)
+            if result:
+                for row in result:
+                    if row and row.get('user_id'):
+                        active_users_today.add(row.get('user_id'))
+            
+            # Users who played games - use safe table list
+            game_tables = ['blackjack_games', 'roulette_games', 'mines_games']
+            for game_table in game_tables:
+                # Validate table name against allowlist
+                if game_table not in ['blackjack_games', 'roulette_games', 'mines_games']:
+                    continue
+                    
+                result = safe_db_query(cursor, """
+                    SELECT DISTINCT user_id FROM {} 
+                    WHERE DATE(played_at) = CURDATE()
+                """.format(game_table), fetch_all=True)
+                if result:
+                    for row in result:
+                        if row and row.get('user_id'):
+                            active_users_today.add(row.get('user_id'))
+            
+            stats['today']['active_users'] = len(active_users_today)
             
             # Total counts - use ai_model_usage table
             result = safe_db_query(cursor, "SELECT COALESCE(SUM(call_count), 0) as count FROM ai_model_usage")

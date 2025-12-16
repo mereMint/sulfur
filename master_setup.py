@@ -25,6 +25,10 @@ from getpass import getpass
 # Colors and Formatting (cross-platform)
 # ==============================================================================
 
+# Database startup timing constants (in seconds)
+DB_STARTUP_WAIT = 3          # Wait time after starting database server
+DB_CONNECTION_TIMEOUT = 2    # Timeout for connection attempts
+
 class Colors:
     """ANSI color codes for terminal output."""
     
@@ -179,23 +183,38 @@ def get_platform_name(plat: str) -> str:
     return names.get(plat, plat.title())
 
 
-def run_command(cmd: List[str], capture: bool = False, shell: bool = False) -> Tuple[int, str, str]:
-    """Run a command and return the result."""
+def run_command(cmd: List[str], capture: bool = False, shell: bool = False, quiet: bool = False) -> Tuple[int, str, str]:
+    """
+    Run a command and return the result.
+    
+    Args:
+        cmd: Command and arguments as a list
+        capture: Legacy parameter (now always captures unless quiet=True)
+        shell: If True, run command through shell
+        quiet: If True, suppress all output (no stdout/stderr capture)
+    
+    Returns:
+        Tuple of (return_code, stdout, stderr)
+    """
     try:
         if shell and isinstance(cmd, list):
             cmd = ' '.join(cmd)
         
+        stdout = subprocess.DEVNULL if quiet else subprocess.PIPE
+        stderr = subprocess.DEVNULL if quiet else subprocess.PIPE
+        
         result = subprocess.run(
             cmd,
-            capture_output=True,
+            stdout=stdout,
+            stderr=stderr,
             text=True,
             shell=shell
         )
-        return result.returncode, result.stdout, result.stderr
+        return result.returncode, result.stdout if not quiet else '', result.stderr if not quiet else ''
     except FileNotFoundError:
-        return 1, '', f'Command not found: {cmd[0] if isinstance(cmd, list) else cmd}'
+        return 1, '', '' if quiet else f'Command not found: {cmd[0] if isinstance(cmd, list) else cmd}'
     except Exception as e:
-        return 1, '', str(e)
+        return 1, '', '' if quiet else str(e)
 
 
 # ==============================================================================
@@ -304,6 +323,262 @@ def get_mysql_install_command(plat: str) -> str:
         'macos': 'brew install mariadb'
     }
     return commands.get(plat, 'Install MySQL or MariaDB manually')
+
+
+def install_mysql_mariadb(plat: str) -> bool:
+    """Install MySQL/MariaDB on the current platform."""
+    print_step("Installing MySQL/MariaDB...")
+    
+    if plat == 'termux':
+        # Termux installation
+        print_info("Installing MariaDB via pkg...")
+        code, out, err = run_command(['pkg', 'install', '-y', 'mariadb'])
+        
+        if code == 0:
+            print_success("MariaDB installed successfully")
+            
+            # Initialize database if needed
+            datadir = os.path.expandvars('$PREFIX/var/lib/mysql')
+            if not os.path.exists(datadir) or not os.listdir(datadir):
+                print_step("Initializing MariaDB database...")
+                code, out, err = run_command(['mysql_install_db'])
+                if code == 0:
+                    print_success("MariaDB initialized")
+                else:
+                    print_warning(f"Database initialization may have issues: {err}")
+            
+            return True
+        else:
+            print_error(f"Installation failed: {err}")
+            return False
+    
+    elif plat in ['linux', 'raspberrypi', 'wsl']:
+        # Debian/Ubuntu-based installation
+        print_info("Installing MariaDB via apt...")
+        
+        # Check if we have sudo
+        if os.getuid() != 0:
+            print_info("This requires sudo privileges...")
+        
+        # Update package list
+        print_step("Updating package list...")
+        code, out, err = run_command(['sudo', 'apt', 'update'])
+        if code != 0:
+            print_warning("Failed to update package list")
+        
+        # Install MariaDB
+        code, out, err = run_command([
+            'sudo', 'apt', 'install', '-y', 
+            'mariadb-server', 'mariadb-client'
+        ])
+        
+        if code == 0:
+            print_success("MariaDB installed successfully")
+            return True
+        else:
+            print_error(f"Installation failed: {err}")
+            print_info("You may need to install manually with: sudo apt install mariadb-server")
+            return False
+    
+    elif plat == 'macos':
+        # macOS installation via Homebrew
+        print_info("Installing MariaDB via Homebrew...")
+        
+        # Check if brew is installed
+        if not shutil.which('brew'):
+            print_error("Homebrew not found. Please install from https://brew.sh/")
+            return False
+        
+        code, out, err = run_command(['brew', 'install', 'mariadb'])
+        
+        if code == 0:
+            print_success("MariaDB installed successfully")
+            return True
+        else:
+            print_error(f"Installation failed: {err}")
+            return False
+    
+    elif plat == 'windows':
+        # Windows - provide instructions
+        print_warning("Automatic installation not supported on Windows")
+        print_info("Please install MariaDB or MySQL manually:")
+        print_info("  Option 1: Download MariaDB from https://mariadb.org/download/")
+        print_info("  Option 2: Download MySQL from https://dev.mysql.com/downloads/installer/")
+        print_info("  Option 3: Install XAMPP which includes MariaDB")
+        print_info("")
+        print_info("After installation, re-run this setup script.")
+        return False
+    
+    else:
+        print_warning(f"Automatic installation not supported for platform: {plat}")
+        print_info(f"Please install manually: {get_mysql_install_command(plat)}")
+        return False
+
+
+def ensure_mysql_running(plat: str) -> bool:
+    """Ensure MySQL/MariaDB server is running."""
+    print_step("Checking if MySQL/MariaDB server is running...")
+    
+    # Check if server is running by trying to connect
+    def is_server_running():
+        # Try connecting with mysql command
+        code, _, _ = run_command(['mysql', '-u', 'root', '-e', 'SELECT 1'], quiet=True)
+        if code == 0:
+            return True
+        
+        # Try with mariadb command
+        code, _, _ = run_command(['mariadb', '-u', 'root', '-e', 'SELECT 1'], quiet=True)
+        if code == 0:
+            return True
+        
+        # Try connecting to port 3306
+        try:
+            import socket
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(2)
+            result = sock.connect_ex(('localhost', 3306))
+            sock.close()
+            return result == 0
+        except:
+            return False
+    
+    if is_server_running():
+        print_success("MySQL/MariaDB server is running")
+        return True
+    
+    print_warning("MySQL/MariaDB server is not running")
+    print_step("Attempting to start server...")
+    
+    if plat == 'termux':
+        # Termux - use mysqld_safe
+        print_info("Starting MariaDB with mysqld_safe...")
+        
+        # Check if already running
+        code, out, _ = run_command(['pgrep', 'mysqld'], quiet=True)
+        if code == 0:
+            print_success("MariaDB is already running")
+            return True
+        
+        # Start in background
+        datadir = os.path.expandvars('$PREFIX/var/lib/mysql')
+        code, out, err = run_command([
+            'mysqld_safe', 
+            f'--datadir={datadir}',
+            '&'
+        ], quiet=True)
+        
+        # Wait a moment for server to start
+        print_info("Waiting for server to start...")
+        time.sleep(DB_STARTUP_WAIT)
+        
+        if is_server_running():
+            print_success("MariaDB started successfully")
+            print_info("To start on boot: Add 'mysqld_safe &' to your startup script")
+            return True
+        else:
+            print_error("Failed to start MariaDB")
+            print_info("Try manually: mysqld_safe --datadir=$PREFIX/var/lib/mysql &")
+            return False
+    
+    elif plat in ['linux', 'raspberrypi', 'wsl']:
+        # Linux - use systemctl or service
+        
+        # Try systemctl (systemd)
+        if shutil.which('systemctl'):
+            print_info("Starting MariaDB via systemctl...")
+            
+            # Try mariadb.service first
+            code, _, _ = run_command(['sudo', 'systemctl', 'start', 'mariadb'], quiet=True)
+            if code == 0:
+                time.sleep(DB_CONNECTION_TIMEOUT)
+                if is_server_running():
+                    print_success("MariaDB started successfully")
+                    
+                    # Enable on boot
+                    run_command(['sudo', 'systemctl', 'enable', 'mariadb'], quiet=True)
+                    print_info("MariaDB enabled to start on boot")
+                    return True
+            
+            # Try mysql.service
+            code, _, _ = run_command(['sudo', 'systemctl', 'start', 'mysql'], quiet=True)
+            if code == 0:
+                time.sleep(DB_CONNECTION_TIMEOUT)
+                if is_server_running():
+                    print_success("MySQL started successfully")
+                    
+                    # Enable on boot
+                    run_command(['sudo', 'systemctl', 'enable', 'mysql'], quiet=True)
+                    print_info("MySQL enabled to start on boot")
+                    return True
+        
+        # Try service command (SysV init)
+        elif shutil.which('service'):
+            print_info("Starting MySQL via service...")
+            code, _, _ = run_command(['sudo', 'service', 'mysql', 'start'], quiet=True)
+            if code == 0:
+                time.sleep(DB_CONNECTION_TIMEOUT)
+                if is_server_running():
+                    print_success("MySQL started successfully")
+                    return True
+            
+            code, _, _ = run_command(['sudo', 'service', 'mariadb', 'start'], quiet=True)
+            if code == 0:
+                time.sleep(DB_CONNECTION_TIMEOUT)
+                if is_server_running():
+                    print_success("MariaDB started successfully")
+                    return True
+        
+        print_error("Failed to start database server")
+        print_info("Try manually: sudo systemctl start mariadb")
+        return False
+    
+    elif plat == 'macos':
+        # macOS - use brew services
+        print_info("Starting MariaDB via Homebrew services...")
+        
+        code, _, _ = run_command(['brew', 'services', 'start', 'mariadb'])
+        if code == 0:
+            time.sleep(DB_CONNECTION_TIMEOUT)
+            if is_server_running():
+                print_success("MariaDB started successfully")
+                print_info("MariaDB will start automatically on boot")
+                return True
+        
+        print_error("Failed to start MariaDB")
+        print_info("Try manually: brew services start mariadb")
+        return False
+    
+    elif plat == 'windows':
+        # Windows - use net start or services
+        print_info("Starting MySQL/MariaDB service...")
+        
+        # Try MariaDB service
+        code, _, _ = run_command(['net', 'start', 'MariaDB'], quiet=True)
+        if code == 0:
+            time.sleep(DB_CONNECTION_TIMEOUT)
+            if is_server_running():
+                print_success("MariaDB started successfully")
+                return True
+        
+        # Try MySQL service
+        code, _, _ = run_command(['net', 'start', 'MySQL'], quiet=True)
+        if code == 0:
+            time.sleep(DB_CONNECTION_TIMEOUT)
+            if is_server_running():
+                print_success("MySQL started successfully")
+                return True
+        
+        print_error("Failed to start database service")
+        print_info("Please start MySQL/MariaDB manually:")
+        print_info("  - Open Services (services.msc)")
+        print_info("  - Find MySQL or MariaDB service")
+        print_info("  - Right-click and select Start")
+        print_info("  - Set to Automatic startup")
+        return False
+    
+    else:
+        print_warning(f"Automatic startup not supported for platform: {plat}")
+        return False
 
 
 def get_java_install_command(plat: str) -> str:
@@ -869,13 +1144,29 @@ def setup_database(plat: str) -> bool:
         print_warning("MySQL/MariaDB not found")
         print_info(f"Install command: {get_mysql_install_command(plat)}")
         
-        if plat == 'termux':
-            print_info("After installing, start with: mysqld_safe &")
-        
-        if not ask_yes_no("Continue with database setup anyway?", default=False):
-            return False
+        # Offer to install automatically
+        if ask_yes_no("Would you like to install MySQL/MariaDB now?", default=True):
+            print_step("Installing MySQL/MariaDB...")
+            if install_mysql_mariadb(plat):
+                print_success("MySQL/MariaDB installed successfully")
+                # Re-check after installation
+                mysql_ok, mysql_msg = check_mysql()
+                if mysql_ok:
+                    print_success(mysql_msg)
+            else:
+                print_error("Failed to install MySQL/MariaDB")
+                print_info("Please install manually and re-run setup")
+                return False
+        else:
+            if not ask_yes_no("Continue with database setup anyway?", default=False):
+                return False
     else:
         print_success(mysql_msg)
+    
+    # Ensure database server is running
+    if not ensure_mysql_running(plat):
+        print_warning("Database server may not be running")
+        print_info("Bot will attempt to connect, but may experience issues")
     
     # Check for existing backups
     backups = list_database_backups()

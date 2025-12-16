@@ -1875,6 +1875,117 @@ install_optional_dependencies
 # Start web dashboard
 start_web_dashboard || log_warning "Web Dashboard failed to start, continuing anyway..."
 
+# ==============================================================================
+# Minecraft Server Auto-Start Function
+# ==============================================================================
+
+start_minecraft_server() {
+    log_info "Checking Minecraft server auto-start configuration..."
+    
+    # Find Python
+    local python_exe="$PYTHON_CMD"
+    if [ -f "venv/bin/python" ]; then
+        python_exe="venv/bin/python"
+    fi
+    
+    # Check if Minecraft is enabled and boot_with_bot is true
+    if ! $python_exe -c "
+import json
+import sys
+try:
+    with open('config/config.json', 'r') as f:
+        config = json.load(f)
+    
+    # Check if minecraft feature is enabled
+    minecraft_enabled = config.get('features', {}).get('minecraft_server', False)
+    
+    # Check if boot_with_bot is enabled in minecraft config
+    boot_with_bot = config.get('modules', {}).get('minecraft', {}).get('boot_with_bot', False)
+    
+    if minecraft_enabled and boot_with_bot:
+        sys.exit(0)  # Start server
+    else:
+        sys.exit(1)  # Don't start server
+except Exception as e:
+    print(f'Error checking config: {e}')
+    sys.exit(1)
+" 2>>"$MAIN_LOG"; then
+        log_info "Minecraft server auto-start is enabled"
+        log_info "Starting Minecraft server..."
+        
+        # Start server using Python module
+        if $python_exe -c "
+import asyncio
+import json
+import os
+import sys
+from dotenv import load_dotenv
+
+# Load environment
+load_dotenv()
+
+# Import minecraft module
+try:
+    from modules import minecraft_server as mc
+    from modules.logger_utils import bot_logger as logger
+except ImportError as e:
+    print(f'ERROR: Failed to import minecraft_server module: {e}')
+    sys.exit(1)
+
+async def start_mc_server():
+    try:
+        # Load config
+        with open('config/config.json', 'r') as f:
+            config = json.load(f)
+        
+        mc_config = config.get('modules', {}).get('minecraft', {})
+        
+        # Check if server is already running
+        if mc.is_server_running():
+            print('Minecraft server is already running')
+            return True
+        
+        # Start the server
+        print('Starting Minecraft server...')
+        success, message = await mc.start_server(mc_config)
+        
+        if success:
+            print(f'Minecraft server started successfully: {message}')
+            return True
+        else:
+            print(f'Failed to start Minecraft server: {message}')
+            return False
+            
+    except Exception as e:
+        print(f'ERROR: Failed to start Minecraft server: {e}')
+        import traceback
+        traceback.print_exc()
+        return False
+
+# Run the async function
+try:
+    result = asyncio.run(start_mc_server())
+    sys.exit(0 if result else 1)
+except Exception as e:
+    print(f'ERROR: {e}')
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+" 2>>"$MAIN_LOG"; then
+            log_success "Minecraft server started successfully"
+        else
+            log_warning "Failed to start Minecraft server (check logs for details)"
+            log_info "You can start it manually via the web dashboard at http://localhost:5000/minecraft"
+        fi
+    else
+        log_info "Minecraft server auto-start is disabled (feature not enabled or boot_with_bot=false)"
+        log_info "Enable it in config.json: features.minecraft_server=true and modules.minecraft.boot_with_bot=true"
+    fi
+}
+
+# Start Minecraft server if configured
+start_minecraft_server || log_info "Minecraft server auto-start skipped"
+
 # Main loop
 while true; do
     # Start bot with retry logic
