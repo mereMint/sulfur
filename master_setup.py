@@ -901,12 +901,22 @@ def setup_database(plat: str) -> bool:
     print_step("Running MySQL setup wizard...")
     code, out, err = run_command([sys.executable, 'setup_wizard.py'])
     
+    # Always show the output from setup_wizard for debugging
+    if out:
+        print(out)
+    if err:
+        print(f"{Colors.YELLOW}{err}{Colors.RESET}")
+    
     if code != 0:
-        print_warning("Database setup may have encountered issues")
-        print_info("You can run 'python setup_wizard.py' manually later")
+        print_warning("Database setup wizard encountered an error")
+        print_info("Please review the error messages above")
+        print_info("You can run 'python setup_wizard.py' manually later to retry")
+        print_info("Make sure MySQL is installed and running before retrying")
         
         if not ask_yes_no("Continue anyway?", default=False):
             return False
+    else:
+        print_success("Database setup wizard completed successfully")
     
     # If importing, do the import
     if choice == 1:

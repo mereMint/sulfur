@@ -128,6 +128,7 @@ scenarios = [
 
 connected = False
 root_conn = None
+last_error = None
 
 for scenario_name, user, password in scenarios:
     if password is None:
@@ -146,25 +147,35 @@ for scenario_name, user, password in scenarios:
         connected = True
         break
     except mysql.connector.Error as err:
+        last_error = err
         if password == "":
             print("❌ Failed")
         else:
-            print(f"❌ Failed: {err}")
+            print(f"❌ Failed")
         continue
 
 if not connected:
     print_section("❌ Cannot Connect to MySQL")
     print()
-    print("Possible issues:")
-    print("  1. MySQL service not running")
-    print("     Fix: Get-Service MySQL84")
-    print("           Start-Service MySQL84")
+    print("Could not connect to MySQL as root. Possible issues:")
     print()
-    print("  2. Root password unknown")
-    print("     Fix: See MYSQL_PASSWORD_RESET.md for reset instructions")
+    print("  1. MySQL service not running")
+    print("     → Check if MySQL is running:")
+    print("       - Windows: Get-Service MySQL84")
+    print("       - Linux:   sudo systemctl status mysql")
+    print("       - Fix:     Start-Service MySQL84  /  sudo systemctl start mysql")
+    print()
+    print("  2. Incorrect root password")
+    print("     → If you forgot the root password, reset it:")
+    print("       - See: MYSQL_PASSWORD_RESET.md  (Windows)")
+    print("       - Or run: sudo mysql -u root")
+    print("       - Then: ALTER USER 'root'@'localhost' IDENTIFIED BY 'newpassword';")
     print()
     print("  3. MySQL not installed properly")
-    print("     Fix: Reinstall MySQL (see MYSQL_SETUP.md)")
+    print("     → Reinstall MySQL (see INSTALLATION_GUIDE.md)")
+    print()
+    if last_error:
+        print(f"Technical details: {last_error}")
     print()
     sys.exit(1)
 
@@ -238,24 +249,37 @@ try:
     # Test connection as bot user
     print("Testing bot user connection...", end=" ")
     try:
+        # Try with the password from the config
         test_conn = mysql.connector.connect(
             host=DB_HOST,
             user=DB_USER,
-            password=DB_PASS,
+            password=DB_PASS if DB_PASS else None,
             database=DB_NAME
         )
         test_conn.close()
         print("✅")
     except mysql.connector.Error as err:
-        print(f"❌ {err}")
+        print(f"⚠️ ")
         print()
-        print("Setup completed but connection test failed.")
-        print("You may need to adjust authentication settings.")
-        sys.exit(1)
+        print("Warning: Connection test failed, but database may have been created successfully.")
+        print(f"Error: {err}")
+        print()
+        print("This could happen if:")
+        print("  • The MySQL server needs a moment to initialize")
+        print("  • The password authentication method differs")
+        print("  • The user permissions weren't applied yet")
+        print()
+        print("Continuing anyway - the database should still work.")
+        print("If you experience connection issues later, you can:")
+        print("  1. Run this script again manually: python setup_wizard.py")
+        print("  2. Check MySQL logs for authentication errors")
+        print("  3. Verify the bot user was created: mysql -u root -p")
+        print("     Then run: SELECT user, host FROM mysql.user WHERE user='sulfur_bot_user';")
+        print()
     
-    print_header("✅ SETUP SUCCESSFUL!")
+    print_header("✅ SETUP COMPLETED!")
     
-    print("Database is ready for use!")
+    print("Database setup complete!")
     print()
     print("Configuration:")
     print(f"  Database: {DB_NAME}")
@@ -266,19 +290,41 @@ try:
     print("Next steps:")
     print("  1. python apply_migration.py    (creates tables)")
     print("  2. python check_status.py       (verify everything)")
-    print("  3. Add slash commands to bot.py (see TESTING_GUIDE.md)")
-    print("  4. python bot.py                (start the bot)")
+    print("  3. python bot.py                (start the bot)")
     print()
     
 except mysql.connector.Error as err:
-    print(f"\n❌ MySQL Error: {err}")
+    print(f"\n❌ MySQL Error: {err.errno} - {err.msg}")
     print()
-    print("Setup failed. Please check the error message above.")
-    print("For help, see MYSQL_SETUP.md or MYSQL_PASSWORD_RESET.md")
+    print("Database setup failed. Please check the error message above.")
+    print()
+    
+    if err.errno == 1045:
+        print("💡 Error 1045: Access denied")
+        print("   This usually means the root password is incorrect.")
+        print("   Try again with the correct password.")
+    elif err.errno == 1007:
+        print("💡 Error 1007: Database already exists")
+        print("   The database was already created. This is normal if you're")
+        print("   running setup_wizard.py again.")
+    elif err.errno == 1317:
+        print("💡 Error 1317: Query execution was interrupted")
+        print("   The MySQL server interrupted the query.")
+        print("   This might happen if the server is shutting down.")
+    else:
+        print("For help:")
+        print("  • Windows: See MYSQL_SETUP.md or MYSQL_PASSWORD_RESET.md")
+        print("  • Linux:   Check MySQL logs: journalctl -u mysql -n 50")
+        print("  • Termux:  Make sure MySQL is running: mysqld_safe &")
+    
+    print()
+    print("You can try running this script again later.")
     sys.exit(1)
 
 except Exception as e:
     print(f"\n❌ Unexpected error: {e}")
     import traceback
     traceback.print_exc()
+    print()
+    print("An unexpected error occurred. Please check the details above.")
     sys.exit(1)
