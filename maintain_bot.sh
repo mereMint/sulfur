@@ -99,9 +99,49 @@ else
     PYTHON_CMD="${PYTHON_CMD:-python3}"
 fi
 
-# Database credentials
+# Safe function to load database credentials from .env file
+# Only loads specific known-safe variables to prevent injection
+load_db_credentials() {
+    if [ ! -f ".env" ]; then
+        return 1
+    fi
+    
+    # Read each line and only export known database variables
+    # This is safer than using export $(grep ... | xargs)
+    while IFS='=' read -r key value; do
+        # Skip comments and empty lines
+        [[ "$key" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "$key" ]] && continue
+        
+        # Remove leading/trailing whitespace from key
+        key=$(echo "$key" | tr -d '[:space:]')
+        
+        # Only process known database variables
+        case "$key" in
+            DB_HOST|DB_USER|DB_PASS|DB_NAME)
+                # Remove surrounding quotes from value
+                value="${value#\"}"
+                value="${value%\"}"
+                value="${value#\'}"
+                value="${value%\'}"
+                # Remove trailing whitespace
+                value="${value%"${value##*[![:space:]]}"}"
+                # Export the variable
+                export "$key=$value"
+                ;;
+        esac
+    done < ".env"
+    return 0
+}
+
+# Load database credentials from .env if available
+load_db_credentials
+
+# Database credentials (use values from .env or defaults)
 DB_USER="${DB_USER:-sulfur_bot_user}"
 DB_NAME="${DB_NAME:-sulfur_bot}"
+DB_PASS="${DB_PASS:-}"
+DB_HOST="${DB_HOST:-localhost}"
 
 # Termux system dependencies for PyNaCl (voice support)
 TERMUX_SYSTEM_DEPS=("libsodium" "clang")
@@ -414,7 +454,7 @@ start_database_server() {
         fi
         
         # Try to start MySQL
-        if systemctl list-unit-files mysql.service &>/dev/null 2>&1; then
+        if systemctl list-unit-files mysql.service &>/dev/null; then
             log_db "Starting MySQL via systemctl..."
             if sudo systemctl start mysql 2>>"$MAIN_LOG"; then
                 sleep 2
@@ -426,7 +466,7 @@ start_database_server() {
         fi
         
         # Try to start MariaDB
-        if systemctl list-unit-files mariadb.service &>/dev/null 2>&1; then
+        if systemctl list-unit-files mariadb.service &>/dev/null; then
             log_db "Starting MariaDB via systemctl..."
             if sudo systemctl start mariadb 2>>"$MAIN_LOG"; then
                 sleep 2
@@ -496,11 +536,8 @@ ensure_database_user() {
         return 1
     fi
     
-    # Load credentials from .env if available
-    if [ -f ".env" ]; then
-        # shellcheck disable=SC2046
-        export $(grep -E '^(DB_HOST|DB_USER|DB_PASS|DB_NAME)=' .env | tr -d '"' | tr -d "'" | xargs)
-    fi
+    # Reload credentials from .env if available
+    load_db_credentials
     
     local db_user="${DB_USER:-sulfur_bot_user}"
     local db_name="${DB_NAME:-sulfur_bot}"
@@ -633,11 +670,8 @@ backup_database() {
     local backup_file="$BACKUP_DIR/sulfur_bot_backup_$(date +"%Y-%m-%d_%H-%M-%S").sql"
     local backup_success=false
     
-    # Load credentials from .env if available
-    if [ -f ".env" ]; then
-        # shellcheck disable=SC2046
-        export $(grep -E '^(DB_HOST|DB_USER|DB_PASS|DB_NAME)=' .env | tr -d '"' | tr -d "'" | xargs)
-    fi
+    # Reload credentials from .env if available
+    load_db_credentials
     
     local db_user="${DB_USER:-sulfur_bot_user}"
     local db_name="${DB_NAME:-sulfur_bot}"
@@ -742,11 +776,8 @@ run_mysql_query() {
         return 1
     fi
     
-    # Load credentials from .env if available
-    if [ -f ".env" ]; then
-        # shellcheck disable=SC2046
-        export $(grep -E '^(DB_HOST|DB_USER|DB_PASS|DB_NAME)=' .env | tr -d '"' | tr -d "'" | xargs)
-    fi
+    # Reload credentials from .env if available
+    load_db_credentials
     
     local db_user="${DB_USER:-sulfur_bot_user}"
     local db_name="${DB_NAME:-sulfur_bot}"
@@ -791,11 +822,8 @@ run_mysql_query_result() {
         return 1
     fi
     
-    # Load credentials from .env if available
-    if [ -f ".env" ]; then
-        # shellcheck disable=SC2046
-        export $(grep -E '^(DB_HOST|DB_USER|DB_PASS|DB_NAME)=' .env | tr -d '"' | tr -d "'" | xargs)
-    fi
+    # Reload credentials from .env if available
+    load_db_credentials
     
     local db_user="${DB_USER:-sulfur_bot_user}"
     local db_name="${DB_NAME:-sulfur_bot}"
@@ -848,11 +876,8 @@ run_mysql_file() {
         return 1
     fi
     
-    # Load credentials from .env if available
-    if [ -f ".env" ]; then
-        # shellcheck disable=SC2046
-        export $(grep -E '^(DB_HOST|DB_USER|DB_PASS|DB_NAME)=' .env | tr -d '"' | tr -d "'" | xargs)
-    fi
+    # Reload credentials from .env if available
+    load_db_credentials
     
     local db_user="${DB_USER:-sulfur_bot_user}"
     local db_name="${DB_NAME:-sulfur_bot}"
