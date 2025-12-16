@@ -168,6 +168,7 @@ cache/
 # Database configuration (may contain passwords)
 database.yml
 database.json
+config/database.json
 
 # ==============================================================================
 # IDE / EDITOR
