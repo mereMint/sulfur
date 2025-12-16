@@ -178,7 +178,15 @@ setup_repository() {
 # Setup Python virtual environment
 setup_python() {
     echo -e "${BLUE}🐍 Setting up Python environment...${NC}"
-    
+
+    # Ensure we're in the installation directory
+    if [ ! -f "requirements.txt" ]; then
+        echo -e "${RED}❌ Not in the correct directory (requirements.txt not found)${NC}"
+        echo -e "${YELLOW}Current directory: $(pwd)${NC}"
+        echo -e "${YELLOW}Expected directory: $INSTALL_DIR${NC}"
+        exit 1
+    fi
+
     # Determine python command
     if command -v python3 &> /dev/null; then
         PYTHON_CMD="python3"
@@ -188,38 +196,89 @@ setup_python() {
     
     # Check if venv module is available
     if ! $PYTHON_CMD -m venv --help >/dev/null 2>&1; then
-        echo -e "${YELLOW}⚠ Python venv module not available. Installing...${NC}"
-        
+        echo -e "${YELLOW}⚠ Python venv module not available.${NC}"
+
+        # In non-interactive mode, try to install automatically but don't fail if it doesn't work
+        if [ "$INTERACTIVE" = false ]; then
+            echo -e "${YELLOW}Attempting to install venv package (non-interactive mode)...${NC}"
+        else
+            echo -e "${YELLOW}Installing venv package...${NC}"
+        fi
+
         # Detect Linux distribution
         if [ -f /etc/debian_version ]; then
             # Debian/Ubuntu
             PYTHON_VERSION=$($PYTHON_CMD --version 2>&1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
             echo -e "${BLUE}Installing python${PYTHON_VERSION}-venv...${NC}"
             if command -v sudo &> /dev/null; then
-                sudo apt-get update -qq && sudo apt-get install -y python${PYTHON_VERSION}-venv python3-venv 2>/dev/null || {
-                    echo -e "${RED}Failed to install venv package${NC}"
-                    echo -e "${YELLOW}Please install manually: sudo apt install python3-venv${NC}"
-                    exit 1
-                }
+                # Try without password prompt in non-interactive mode
+                if [ "$INTERACTIVE" = false ]; then
+                    sudo -n apt-get update -qq 2>/dev/null && sudo -n apt-get install -y python${PYTHON_VERSION}-venv python3-venv 2>/dev/null || {
+                        echo -e "${RED}❌ Could not install venv package (no sudo access)${NC}"
+                        echo -e "${YELLOW}Please run: sudo apt install python3-venv${NC}"
+                        echo -e "${YELLOW}Then re-run this installer.${NC}"
+                        exit 1
+                    }
+                else
+                    sudo apt-get update -qq && sudo apt-get install -y python${PYTHON_VERSION}-venv python3-venv 2>/dev/null || {
+                        echo -e "${RED}Failed to install venv package${NC}"
+                        echo -e "${YELLOW}Please install manually: sudo apt install python3-venv${NC}"
+                        exit 1
+                    }
+                fi
+            else
+                echo -e "${RED}sudo not available${NC}"
+                echo -e "${YELLOW}Please install python3-venv package and re-run.${NC}"
+                exit 1
             fi
         elif [ -f /etc/redhat-release ]; then
             # RHEL/CentOS/Fedora
             echo -e "${BLUE}Installing python3-venv...${NC}"
             if command -v sudo &> /dev/null; then
-                sudo dnf install -y python3-venv 2>/dev/null || sudo yum install -y python3-venv 2>/dev/null || {
-                    echo -e "${RED}Failed to install venv package${NC}"
-                    exit 1
-                }
+                if [ "$INTERACTIVE" = false ]; then
+                    sudo -n dnf install -y python3-venv 2>/dev/null || sudo -n yum install -y python3-venv 2>/dev/null || {
+                        echo -e "${RED}❌ Could not install venv package (no sudo access)${NC}"
+                        echo -e "${YELLOW}Please run: sudo dnf install python3-venv${NC}"
+                        echo -e "${YELLOW}Then re-run this installer.${NC}"
+                        exit 1
+                    }
+                else
+                    sudo dnf install -y python3-venv 2>/dev/null || sudo yum install -y python3-venv 2>/dev/null || {
+                        echo -e "${RED}Failed to install venv package${NC}"
+                        exit 1
+                    }
+                fi
+            else
+                echo -e "${RED}sudo not available${NC}"
+                echo -e "${YELLOW}Please install python3-venv package and re-run.${NC}"
+                exit 1
             fi
         elif [ -f /etc/arch-release ]; then
             # Arch Linux
             echo -e "${BLUE}Installing python...${NC}"
             if command -v sudo &> /dev/null; then
-                sudo pacman -S --noconfirm python 2>/dev/null || {
-                    echo -e "${RED}Failed to install venv package${NC}"
-                    exit 1
-                }
+                if [ "$INTERACTIVE" = false ]; then
+                    sudo -n pacman -S --noconfirm python 2>/dev/null || {
+                        echo -e "${RED}❌ Could not install venv package (no sudo access)${NC}"
+                        echo -e "${YELLOW}Please run: sudo pacman -S python${NC}"
+                        echo -e "${YELLOW}Then re-run this installer.${NC}"
+                        exit 1
+                    }
+                else
+                    sudo pacman -S --noconfirm python 2>/dev/null || {
+                        echo -e "${RED}Failed to install venv package${NC}"
+                        exit 1
+                    }
+                fi
+            else
+                echo -e "${RED}sudo not available${NC}"
+                echo -e "${YELLOW}Please install python package and re-run.${NC}"
+                exit 1
             fi
+        else
+            echo -e "${RED}Could not detect distribution${NC}"
+            echo -e "${YELLOW}Please install python3-venv package manually and re-run.${NC}"
+            exit 1
         fi
     fi
     
@@ -236,12 +295,17 @@ setup_python() {
     source venv/bin/activate
     
     # Upgrade pip
-    pip install --upgrade pip
-    
+    echo -e "${BLUE}📦 Upgrading pip...${NC}"
+    pip install --upgrade pip --quiet
+
     # Install dependencies
     echo -e "${BLUE}📦 Installing dependencies...${NC}"
-    pip install -r requirements.txt
-    
+    if ! pip install -r requirements.txt; then
+        echo -e "${RED}❌ Failed to install Python dependencies${NC}"
+        echo -e "${YELLOW}Please check your internet connection and try again.${NC}"
+        exit 1
+    fi
+
     echo -e "${GREEN}✅ Python dependencies installed${NC}"
 }
 
