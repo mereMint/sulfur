@@ -268,6 +268,10 @@ install_dependencies() {
 setup_venv() {
     echo -e "\n${BLUE}🐍 Setting up Python virtual environment...${NC}"
     
+    # Get the repository root directory (parent of scripts directory)
+    REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    cd "$REPO_DIR"
+    
     # Check if venv module is available
     if ! python3 -m venv --help >/dev/null 2>&1; then
         echo -e "${YELLOW}⚠ Python venv module not available. Installing...${NC}"
@@ -305,8 +309,8 @@ setup_venv() {
         fi
     fi
     
-    if [ ! -d "venv" ]; then
-        if ! python3 -m venv venv; then
+    if [ ! -d "$REPO_DIR/venv" ]; then
+        if ! python3 -m venv "$REPO_DIR/venv"; then
             echo -e "${RED}✗ Failed to create virtual environment${NC}"
             exit 1
         fi
@@ -316,25 +320,32 @@ setup_venv() {
     fi
     
     # Activate and install dependencies
-    source venv/bin/activate
+    source "$REPO_DIR/venv/bin/activate"
     
     echo -e "${YELLOW}Installing Python dependencies...${NC}"
     pip install --upgrade pip
-    pip install -r requirements.txt
+    pip install -r "$REPO_DIR/requirements.txt"
     
     echo -e "${GREEN}✅ Python dependencies installed${NC}"
 }
 
 # Run the master setup wizard
 run_setup_wizard() {
+    # Get the repository root directory
+    REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    
     echo -e "\n${BLUE}🧙 Running setup wizard...${NC}"
     
-    source venv/bin/activate
+    source "$REPO_DIR/venv/bin/activate"
+    cd "$REPO_DIR"
     python3 master_setup.py
 }
 
 # Create systemd service (optional)
 create_systemd_service() {
+    # Get the repository root directory
+    REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    
     if [ "$INTERACTIVE" = true ]; then
         read -p "Create systemd service for auto-start? [y/N]: " create_service
     else
@@ -343,7 +354,6 @@ create_systemd_service() {
     fi
     
     if [[ "$create_service" == "y" || "$create_service" == "Y" ]]; then
-        CURRENT_DIR=$(pwd)
         CURRENT_USER=$(whoami)
         
         sudo tee /etc/systemd/system/sulfur-bot.service > /dev/null << EOF
@@ -354,8 +364,8 @@ After=network.target mariadb.service
 [Service]
 Type=simple
 User=$CURRENT_USER
-WorkingDirectory=$CURRENT_DIR
-ExecStart=$CURRENT_DIR/venv/bin/python $CURRENT_DIR/bot.py
+WorkingDirectory=$REPO_DIR
+ExecStart=$REPO_DIR/venv/bin/python $REPO_DIR/bot.py
 Restart=always
 RestartSec=10
 
@@ -388,12 +398,14 @@ main() {
     echo -e "${GREEN}✅ Installation complete!${NC}"
     echo -e "${GREEN}════════════════════════════════════════════════════════════════${NC}"
     
+    REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+    
     if [ "$INTERACTIVE" = true ]; then
         read -p "Run the setup wizard now? [Y/n]: " run_wizard
     else
         run_wizard="n"
         echo -e "${YELLOW}⏭️  Skipping setup wizard (non-interactive mode)${NC}"
-        echo -e "${CYAN}Run later with: cd $(pwd) && source venv/bin/activate && python3 master_setup.py${NC}"
+        echo -e "${CYAN}Run later with: cd $REPO_DIR && source venv/bin/activate && python3 master_setup.py${NC}"
     fi
     if [[ "$run_wizard" != "n" && "$run_wizard" != "N" ]]; then
         run_setup_wizard
@@ -402,10 +414,11 @@ main() {
     create_systemd_service
     
     echo -e "\n${CYAN}Next steps:${NC}"
-    echo "  1. Activate the virtual environment: source venv/bin/activate"
-    echo "  2. Run the setup wizard: python master_setup.py"
-    echo "  3. Start the bot: python bot.py"
-    echo "  4. Access the dashboard: http://localhost:5000"
+    echo "  1. Change to bot directory: cd $REPO_DIR"
+    echo "  2. Activate the virtual environment: source venv/bin/activate"
+    echo "  3. Run the setup wizard: python master_setup.py"
+    echo "  4. Start the bot: python bot.py"
+    echo "  5. Access the dashboard: http://localhost:5000"
 }
 
 # Run main
