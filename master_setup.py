@@ -292,6 +292,28 @@ def check_wireguard() -> Tuple[bool, str]:
 # Installation Functions
 # ==============================================================================
 
+def install_termux_build_deps() -> bool:
+    """
+    Install build dependencies required for compiling Python packages on Termux.
+    
+    This is needed for packages like PyNaCl that require native compilation.
+    The main issue is that the linker (ld) is not installed by default.
+    """
+    print_step("Installing Termux build dependencies...")
+    
+    # Install build essentials including binutils (provides ld linker)
+    packages = ['binutils', 'clang', 'make', 'pkg-config', 'libffi', 'openssl']
+    
+    for package in packages:
+        print_info(f"Installing {package}...")
+        code, out, err = run_command(['pkg', 'install', '-y', package], quiet=True)
+        if code != 0:
+            print_warning(f"Failed to install {package}: {err}")
+    
+    print_success("Build dependencies installed")
+    return True
+
+
 def install_python_dependencies() -> bool:
     """Install Python dependencies from requirements.txt."""
     print_step("Installing Python dependencies...")
@@ -299,6 +321,12 @@ def install_python_dependencies() -> bool:
     if not os.path.exists('requirements.txt'):
         print_error("requirements.txt not found")
         return False
+    
+    # On Termux, install build dependencies first
+    plat = detect_platform()
+    if plat == 'termux':
+        print_info("Termux detected - installing build dependencies first...")
+        install_termux_build_deps()
     
     code, out, err = run_command([
         sys.executable, '-m', 'pip', 'install', '-r', 'requirements.txt', '--upgrade'
@@ -309,6 +337,24 @@ def install_python_dependencies() -> bool:
         return True
     else:
         print_error(f"Failed to install dependencies: {err}")
+        
+        # Provide helpful hints for common errors
+        if 'PyNaCl' in err or 'pynacl' in err.lower():
+            print_info("PyNaCl build failed. Try installing libsodium:")
+            if plat == 'termux':
+                print_info("  pkg install libsodium")
+            elif plat in ['linux', 'raspberrypi', 'wsl']:
+                print_info("  sudo apt install libsodium-dev")
+            elif plat == 'macos':
+                print_info("  brew install libsodium")
+        
+        if 'no acceptable ld found' in err.lower() or 'linker' in err.lower():
+            print_info("Linker not found. Install build tools:")
+            if plat == 'termux':
+                print_info("  pkg install binutils clang")
+            elif plat in ['linux', 'raspberrypi', 'wsl']:
+                print_info("  sudo apt install build-essential")
+        
         return False
 
 

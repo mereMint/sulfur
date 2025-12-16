@@ -129,6 +129,9 @@ from modules import personality_evolution  # NEW: Personality evolution and lear
 from modules import advanced_ai  # NEW: Advanced AI reasoning and intelligence
 from modules import bot_mind  # Bot consciousness and mood system
 from modules import autonomous_behavior  # Autonomous behavior features
+from modules import minecraft_server  # Minecraft server management
+from modules import minecraft_discord_commands  # Minecraft Discord commands
+from modules import wireguard_manager  # WireGuard VPN management
 from modules.bot_enhancements import (
     handle_image_attachment,
     handle_unknown_emojis_in_message,
@@ -14406,6 +14409,20 @@ async def songle_info(interaction: discord.Interaction):
 
 # Register the songle command group
 tree.add_command(songle_group)
+
+# Register Minecraft and VPN commands
+# These provide /minecraft, /mcstart, /mcstop, /mcrestart, /mcstatus, /mcwhitelist, /vpn commands
+try:
+    minecraft_discord_commands.register_minecraft_commands(
+        tree=tree,
+        db_helpers=db_helpers,
+        minecraft_server=minecraft_server,
+        config=config,
+        wireguard_manager=wireguard_manager
+    )
+    print("  -> Minecraft and VPN commands registered")
+except Exception as e:
+    print(f"  -> Warning: Could not register Minecraft/VPN commands: {e}")
 
 
 class RussianRouletteView(discord.ui.View):
