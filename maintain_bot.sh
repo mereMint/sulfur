@@ -324,31 +324,69 @@ cleanup_orphans() {
 # Database Functions
 # ==============================================================================
 
+# Check if the database process (mysqld/mariadbd) is running
+is_database_process_running() {
+    if pgrep -x mysqld > /dev/null 2>&1 || pgrep -x mariadbd > /dev/null 2>&1; then
+        return 0
+    fi
+    return 1
+}
+
+# Get the MySQL/MariaDB client command
+get_mysql_client() {
+    if command -v mariadb &> /dev/null; then
+        echo "mariadb"
+    elif command -v mysql &> /dev/null; then
+        echo "mysql"
+    else
+        echo ""
+    fi
+}
+
 check_database_server() {
     log_db "Checking database server status..."
     
     # Try to connect to MySQL/MariaDB to verify it's running
-    local mysql_cmd=""
-    if command -v mysql &> /dev/null; then
-        mysql_cmd="mysql"
-    elif command -v mariadb &> /dev/null; then
-        mysql_cmd="mariadb"
-    else
+    local mysql_cmd
+    mysql_cmd=$(get_mysql_client)
+    if [ -z "$mysql_cmd" ]; then
         log_error "MySQL/MariaDB client not found"
         return 1
     fi
     
-    # Test connection
-    if [ -n "$DB_PASS" ]; then
+    # First, check if the database process is running at all
+    if ! is_database_process_running; then
+        log_warning "Database server process is not running"
+        return 1
+    fi
+    
+    # Test connection - try multiple methods in order of preference
+    # 1. Try with bot user and password (if password is set)
+    if [ -n "$DB_PASS" ] && [ "$(echo "$DB_PASS" | tr -d ' ')" != "" ]; then
         if $mysql_cmd -u "$DB_USER" -p"$DB_PASS" -e "SELECT 1;" &>/dev/null; then
-            log_success "Database server is running and accessible"
+            log_success "Database server is running and accessible (authenticated)"
             return 0
         fi
-    else
-        if $mysql_cmd -u "$DB_USER" -e "SELECT 1;" &>/dev/null; then
-            log_success "Database server is running and accessible"
+    fi
+    
+    # 2. Try with bot user without password (common in Termux setup)
+    if $mysql_cmd -u "$DB_USER" -e "SELECT 1;" &>/dev/null; then
+        log_success "Database server is running and accessible (bot user, no password)"
+        return 0
+    fi
+    
+    # 3. Try with root user without password (Termux default)
+    if [ "$IS_TERMUX" = true ]; then
+        if $mysql_cmd -u root -e "SELECT 1;" &>/dev/null; then
+            log_success "Database server is running and accessible (root, no password)"
             return 0
         fi
+    fi
+    
+    # 4. If process is running but we can't connect, it might still be initializing
+    if is_database_process_running; then
+        log_warning "Database process is running but not accepting connections yet"
+        return 1
     fi
     
     log_warning "Database server is not accessible"
@@ -358,9 +396,15 @@ check_database_server() {
 start_database_server() {
     log_db "Attempting to start database server..."
     
+    # If database process is already running, just wait for it to be ready
+    if is_database_process_running; then
+        log_info "Database process is already running, waiting for it to be ready..."
+        return 0  # Let the caller wait for readiness
+    fi
+    
     # Check which init system is in use
-    if command -v systemctl &> /dev/null; then
-        # systemd
+    if [ "$IS_TERMUX" != true ] && command -v systemctl &> /dev/null; then
+        # systemd (non-Termux Linux)
         if systemctl is-active --quiet mysql; then
             log_success "MySQL service is already running"
             return 0
@@ -370,7 +414,7 @@ start_database_server() {
         fi
         
         # Try to start MySQL
-        if systemctl list-unit-files mysql.service &>/dev/null; then
+        if systemctl list-unit-files mysql.service &>/dev/null 2>&1; then
             log_db "Starting MySQL via systemctl..."
             if sudo systemctl start mysql 2>>"$MAIN_LOG"; then
                 sleep 2
@@ -382,7 +426,7 @@ start_database_server() {
         fi
         
         # Try to start MariaDB
-        if systemctl list-unit-files mariadb.service &>/dev/null; then
+        if systemctl list-unit-files mariadb.service &>/dev/null 2>&1; then
             log_db "Starting MariaDB via systemctl..."
             if sudo systemctl start mariadb 2>>"$MAIN_LOG"; then
                 sleep 2
@@ -392,8 +436,8 @@ start_database_server() {
                 fi
             fi
         fi
-    elif command -v service &> /dev/null; then
-        # SysV init
+    elif [ "$IS_TERMUX" != true ] && command -v service &> /dev/null; then
+        # SysV init (non-Termux Linux)
         log_db "Starting MySQL via service..."
         if sudo service mysql start 2>>"$MAIN_LOG"; then
             sleep 2
@@ -402,25 +446,33 @@ start_database_server() {
         fi
     fi
     
-    # Try Termux-specific method
+    # Termux-specific method (or fallback for other environments)
     if [ "$IS_TERMUX" = true ]; then
         log_db "Attempting Termux-specific database start..."
-        if command -v mysqld_safe &> /dev/null; then
-            log_db "Starting mysqld_safe in background..."
-            mysqld_safe --datadir="$PREFIX/var/lib/mysql" &>>"$MAIN_LOG" &
-            sleep 3
-            if check_database_server; then
-                log_success "MySQL started via mysqld_safe"
-                return 0
+        
+        # Check if datadir exists and is initialized
+        local datadir="$PREFIX/var/lib/mysql"
+        if [ ! -d "$datadir/mysql" ]; then
+            log_warning "Database not initialized. Running mysql_install_db..."
+            if command -v mariadb-install-db &> /dev/null; then
+                mariadb-install-db --datadir="$datadir" 2>>"$MAIN_LOG" || true
+            elif command -v mysql_install_db &> /dev/null; then
+                mysql_install_db --datadir="$datadir" 2>>"$MAIN_LOG" || true
             fi
-        elif command -v mariadbd-safe &> /dev/null; then
+            sleep 2
+        fi
+        
+        # Start the database server
+        if command -v mariadbd-safe &> /dev/null; then
             log_db "Starting mariadbd-safe in background..."
-            mariadbd-safe --datadir="$PREFIX/var/lib/mysql" &>>"$MAIN_LOG" &
-            sleep 3
-            if check_database_server; then
-                log_success "MariaDB started via mariadbd-safe"
-                return 0
-            fi
+            mariadbd-safe --datadir="$datadir" 2>>"$MAIN_LOG" &
+            log_info "MariaDB starting, waiting for readiness..."
+            return 0  # Let caller wait for readiness
+        elif command -v mysqld_safe &> /dev/null; then
+            log_db "Starting mysqld_safe in background..."
+            mysqld_safe --datadir="$datadir" 2>>"$MAIN_LOG" &
+            log_info "MySQL starting, waiting for readiness..."
+            return 0  # Let caller wait for readiness
         fi
     fi
     
@@ -432,32 +484,140 @@ start_database_server() {
     return 1
 }
 
+# Initialize the database user and grants if they don't exist
+# This is especially important for Termux where the user might not have been created
+ensure_database_user() {
+    log_db "Ensuring database user exists..."
+    
+    local mysql_cmd
+    mysql_cmd=$(get_mysql_client)
+    if [ -z "$mysql_cmd" ]; then
+        log_warning "MySQL/MariaDB client not found, skipping user creation"
+        return 1
+    fi
+    
+    # Load credentials from .env if available
+    if [ -f ".env" ]; then
+        # shellcheck disable=SC2046
+        export $(grep -E '^(DB_HOST|DB_USER|DB_PASS|DB_NAME)=' .env | tr -d '"' | tr -d "'" | xargs)
+    fi
+    
+    local db_user="${DB_USER:-sulfur_bot_user}"
+    local db_name="${DB_NAME:-sulfur_bot}"
+    local db_pass="${DB_PASS:-}"
+    
+    # Try to connect as root (no password - Termux default)
+    local can_connect_root=false
+    if $mysql_cmd -u root -e "SELECT 1;" &>/dev/null; then
+        can_connect_root=true
+    fi
+    
+    if [ "$can_connect_root" = true ]; then
+        log_info "Connected as root, checking database and user..."
+        
+        # Create database if it doesn't exist
+        if ! $mysql_cmd -u root -e "USE $db_name;" &>/dev/null; then
+            log_info "Creating database '$db_name'..."
+            $mysql_cmd -u root -e "CREATE DATABASE IF NOT EXISTS $db_name CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>>"$MAIN_LOG"
+        fi
+        
+        # Create user if it doesn't exist (with or without password based on DB_PASS)
+        if [ -n "$db_pass" ] && [ "$(echo "$db_pass" | tr -d ' ')" != "" ]; then
+            log_info "Creating user '$db_user' with password..."
+            $mysql_cmd -u root -e "CREATE USER IF NOT EXISTS '$db_user'@'localhost' IDENTIFIED BY '$db_pass';" 2>>"$MAIN_LOG" || true
+            $mysql_cmd -u root -e "ALTER USER '$db_user'@'localhost' IDENTIFIED BY '$db_pass';" 2>>"$MAIN_LOG" || true
+        else
+            log_info "Creating user '$db_user' without password..."
+            $mysql_cmd -u root -e "CREATE USER IF NOT EXISTS '$db_user'@'localhost';" 2>>"$MAIN_LOG" || true
+        fi
+        
+        # Grant privileges
+        log_info "Granting privileges to '$db_user' on '$db_name'..."
+        $mysql_cmd -u root -e "GRANT ALL PRIVILEGES ON $db_name.* TO '$db_user'@'localhost';" 2>>"$MAIN_LOG" || true
+        $mysql_cmd -u root -e "FLUSH PRIVILEGES;" 2>>"$MAIN_LOG" || true
+        
+        log_success "Database user '$db_user' is ready"
+        return 0
+    else
+        log_warning "Cannot connect as root to create user. User must already exist."
+        return 1
+    fi
+}
+
 ensure_database_running() {
     log_db "Ensuring database server is running..."
     
-    # First check if it's already running
+    # First check if it's already running and accessible
     if check_database_server; then
         return 0
     fi
     
-    # If not running, try to start it
-    log_warning "Database server is not running, attempting to start..."
-    if start_database_server; then
-        # Verify it's now accessible
+    # If not accessible, try to start it
+    log_warning "Database server is not accessible, attempting to start..."
+    start_database_server
+    
+    # Wait for database to become ready (up to 30 seconds)
+    local max_wait=30
+    local wait_count=0
+    
+    log_info "Waiting up to ${max_wait}s for database to become ready..."
+    
+    while [ $wait_count -lt $max_wait ]; do
         sleep 1
+        wait_count=$((wait_count + 1))
+        
+        # Check if process is running
+        if ! is_database_process_running; then
+            # Process died, try to restart
+            log_warning "Database process not running, attempting restart..."
+            start_database_server
+            continue
+        fi
+        
+        # Check if we can connect
         if check_database_server; then
-            log_success "Database server started and verified"
+            log_success "Database server started and verified (after ${wait_count}s)"
+            
+            # Ensure the bot user exists
+            ensure_database_user
+            
             return 0
         fi
+        
+        # Show progress every 5 seconds
+        if [ $((wait_count % 5)) -eq 0 ]; then
+            log_info "Still waiting for database... (${wait_count}/${max_wait}s)"
+        fi
+    done
+    
+    # Final check
+    if check_database_server; then
+        log_success "Database server is now accessible"
+        ensure_database_user
+        return 0
     fi
     
-    log_error "Could not ensure database server is running"
+    log_error "Could not ensure database server is running after ${max_wait}s"
     log_warning "Bot may experience database connection issues"
+    log_info "Try starting the database manually:"
+    if [ "$IS_TERMUX" = true ]; then
+        log_info "  mysqld_safe &  # or mariadbd-safe &"
+        log_info "  sleep 10"
+        log_info "  Then restart the bot"
+    else
+        log_info "  sudo systemctl start mysql  # or mariadb"
+    fi
     return 1
 }
 
 backup_database() {
     log_db "Creating database backup..."
+    
+    # First, check if database is actually accessible
+    if ! check_database_server; then
+        log_warning "Database server not accessible, skipping backup"
+        return 1
+    fi
     
     # Check for mariadb-dump (Termux/newer MariaDB) or mysqldump
     local dump_cmd=""
@@ -471,44 +631,98 @@ backup_database() {
     fi
     
     local backup_file="$BACKUP_DIR/sulfur_bot_backup_$(date +"%Y-%m-%d_%H-%M-%S").sql"
+    local backup_success=false
+    
+    # Load credentials from .env if available
+    if [ -f ".env" ]; then
+        # shellcheck disable=SC2046
+        export $(grep -E '^(DB_HOST|DB_USER|DB_PASS|DB_NAME)=' .env | tr -d '"' | tr -d "'" | xargs)
+    fi
+    
+    local db_user="${DB_USER:-sulfur_bot_user}"
+    local db_name="${DB_NAME:-sulfur_bot}"
+    local db_pass="${DB_PASS:-}"
     
     # Check if password is actually set (not empty or just whitespace)
     local password_set=false
-    if [ -n "$DB_PASS" ] && [ "$(echo "$DB_PASS" | tr -d ' ')" != "" ]; then
+    if [ -n "$db_pass" ] && [ "$(echo "$db_pass" | tr -d ' ')" != "" ]; then
         password_set=true
     fi
     
-    # Try backup with password from environment if set
+    # Try multiple backup methods in order of preference
+    
+    # Method 1: Bot user with password
     if [ "$password_set" = true ]; then
-        # Use password if set
-        if $dump_cmd -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" > "$backup_file" 2>>"$MAIN_LOG"; then
+        log_db "Trying backup with bot user and password..."
+        if $dump_cmd -u "$db_user" -p"$db_pass" "$db_name" > "$backup_file" 2>>"$MAIN_LOG"; then
             log_success "Database backup created: $(basename "$backup_file")"
+            backup_success=true
         else
-            log_error "Database backup failed with password"
-            return 1
-        fi
-    else
-        # Try without password (for users with no password like sulfur_bot_user)
-        if $dump_cmd -u "$DB_USER" "$DB_NAME" > "$backup_file" 2>>"$MAIN_LOG"; then
-            log_success "Database backup created: $(basename "$backup_file")"
-        else
-            # If that fails, try using defaults-file for debian-sys-maint
-            if [ -f "/etc/mysql/debian.cnf" ] && $dump_cmd --defaults-file=/etc/mysql/debian.cnf "$DB_NAME" > "$backup_file" 2>>"$MAIN_LOG"; then
-                log_success "Database backup created using debian.cnf: $(basename "$backup_file")"
-            else
-                log_error "Database backup failed (tried no password and debian.cnf)"
-                log_info "Note: If you have no password for the database user, this is expected."
-                log_info "The bot will continue, but backups will need to be created manually."
-                return 1
-            fi
+            log_warning "Backup with password failed"
         fi
     fi
     
+    # Method 2: Bot user without password (common in Termux)
+    if [ "$backup_success" = false ]; then
+        log_db "Trying backup with bot user (no password)..."
+        if $dump_cmd -u "$db_user" "$db_name" > "$backup_file" 2>>"$MAIN_LOG"; then
+            log_success "Database backup created: $(basename "$backup_file")"
+            backup_success=true
+        else
+            log_warning "Backup with bot user (no password) failed"
+        fi
+    fi
+    
+    # Method 3: Root user without password (Termux default)
+    if [ "$backup_success" = false ] && [ "$IS_TERMUX" = true ]; then
+        log_db "Trying backup with root user (Termux default)..."
+        if $dump_cmd -u root "$db_name" > "$backup_file" 2>>"$MAIN_LOG"; then
+            log_success "Database backup created with root: $(basename "$backup_file")"
+            backup_success=true
+        else
+            log_warning "Backup with root user failed"
+        fi
+    fi
+    
+    # Method 4: debian.cnf (Linux systems)
+    if [ "$backup_success" = false ] && [ -f "/etc/mysql/debian.cnf" ]; then
+        log_db "Trying backup with debian.cnf..."
+        if $dump_cmd --defaults-file=/etc/mysql/debian.cnf "$db_name" > "$backup_file" 2>>"$MAIN_LOG"; then
+            log_success "Database backup created using debian.cnf: $(basename "$backup_file")"
+            backup_success=true
+        else
+            log_warning "Backup with debian.cnf failed"
+        fi
+    fi
+    
+    # Check if backup was successful
+    if [ "$backup_success" = false ]; then
+        log_error "Database backup failed with all methods"
+        log_info "The bot will continue, but automatic backups are not working."
+        log_info "To fix this, ensure the database user has proper permissions:"
+        if [ "$IS_TERMUX" = true ]; then
+            log_info "  mariadb -u root -e \"GRANT ALL ON sulfur_bot.* TO 'sulfur_bot_user'@'localhost'; FLUSH PRIVILEGES;\""
+        else
+            log_info "  mysql -u root -p -e \"GRANT ALL ON sulfur_bot.* TO 'sulfur_bot_user'@'localhost'; FLUSH PRIVILEGES;\""
+        fi
+        # Remove empty backup file
+        rm -f "$backup_file" 2>/dev/null
+        return 1
+    fi
+    
+    # Verify backup file is not empty
+    if [ ! -s "$backup_file" ]; then
+        log_warning "Backup file is empty, removing..."
+        rm -f "$backup_file"
+        return 1
+    fi
+    
     # Keep only last 10 backups
-    local backup_count=$(ls -1 "$BACKUP_DIR"/*.sql 2>/dev/null | wc -l)
+    local backup_count
+    backup_count=$(ls -1 "$BACKUP_DIR"/*.sql 2>/dev/null | wc -l)
     if [ "$backup_count" -gt 10 ]; then
         ls -1t "$BACKUP_DIR"/*.sql | tail -n +11 | xargs rm -f
-        log_warning "Cleaned up old backups (kept last 10)"
+        log_info "Cleaned up old backups (kept last 10)"
     fi
     
     return 0
@@ -518,27 +732,178 @@ backup_database() {
 # Database Migration Functions
 # ==============================================================================
 
+# Helper function to run a MySQL query with proper credentials
+run_mysql_query() {
+    local query="$1"
+    local mysql_cmd
+    mysql_cmd=$(get_mysql_client)
+    
+    if [ -z "$mysql_cmd" ]; then
+        return 1
+    fi
+    
+    # Load credentials from .env if available
+    if [ -f ".env" ]; then
+        # shellcheck disable=SC2046
+        export $(grep -E '^(DB_HOST|DB_USER|DB_PASS|DB_NAME)=' .env | tr -d '"' | tr -d "'" | xargs)
+    fi
+    
+    local db_user="${DB_USER:-sulfur_bot_user}"
+    local db_name="${DB_NAME:-sulfur_bot}"
+    local db_pass="${DB_PASS:-}"
+    
+    # Check if password is set
+    local password_set=false
+    if [ -n "$db_pass" ] && [ "$(echo "$db_pass" | tr -d ' ')" != "" ]; then
+        password_set=true
+    fi
+    
+    # Try bot user with password
+    if [ "$password_set" = true ]; then
+        if echo "$query" | $mysql_cmd -u "$db_user" -p"$db_pass" "$db_name" 2>>"$MAIN_LOG"; then
+            return 0
+        fi
+    fi
+    
+    # Try bot user without password
+    if echo "$query" | $mysql_cmd -u "$db_user" "$db_name" 2>>"$MAIN_LOG"; then
+        return 0
+    fi
+    
+    # Try root (Termux default)
+    if [ "$IS_TERMUX" = true ]; then
+        if echo "$query" | $mysql_cmd -u root "$db_name" 2>>"$MAIN_LOG"; then
+            return 0
+        fi
+    fi
+    
+    return 1
+}
+
+# Helper function to run a MySQL query and return the result
+run_mysql_query_result() {
+    local query="$1"
+    local mysql_cmd
+    mysql_cmd=$(get_mysql_client)
+    
+    if [ -z "$mysql_cmd" ]; then
+        echo ""
+        return 1
+    fi
+    
+    # Load credentials from .env if available
+    if [ -f ".env" ]; then
+        # shellcheck disable=SC2046
+        export $(grep -E '^(DB_HOST|DB_USER|DB_PASS|DB_NAME)=' .env | tr -d '"' | tr -d "'" | xargs)
+    fi
+    
+    local db_user="${DB_USER:-sulfur_bot_user}"
+    local db_name="${DB_NAME:-sulfur_bot}"
+    local db_pass="${DB_PASS:-}"
+    
+    # Check if password is set
+    local password_set=false
+    if [ -n "$db_pass" ] && [ "$(echo "$db_pass" | tr -d ' ')" != "" ]; then
+        password_set=true
+    fi
+    
+    # Try bot user with password
+    if [ "$password_set" = true ]; then
+        local result
+        result=$($mysql_cmd -u "$db_user" -p"$db_pass" "$db_name" -sN -e "$query" 2>>"$MAIN_LOG")
+        if [ $? -eq 0 ]; then
+            echo "$result"
+            return 0
+        fi
+    fi
+    
+    # Try bot user without password
+    local result
+    result=$($mysql_cmd -u "$db_user" "$db_name" -sN -e "$query" 2>>"$MAIN_LOG")
+    if [ $? -eq 0 ]; then
+        echo "$result"
+        return 0
+    fi
+    
+    # Try root (Termux default)
+    if [ "$IS_TERMUX" = true ]; then
+        result=$($mysql_cmd -u root "$db_name" -sN -e "$query" 2>>"$MAIN_LOG")
+        if [ $? -eq 0 ]; then
+            echo "$result"
+            return 0
+        fi
+    fi
+    
+    echo ""
+    return 1
+}
+
+# Helper function to run a SQL file
+run_mysql_file() {
+    local sql_file="$1"
+    local mysql_cmd
+    mysql_cmd=$(get_mysql_client)
+    
+    if [ -z "$mysql_cmd" ]; then
+        return 1
+    fi
+    
+    # Load credentials from .env if available
+    if [ -f ".env" ]; then
+        # shellcheck disable=SC2046
+        export $(grep -E '^(DB_HOST|DB_USER|DB_PASS|DB_NAME)=' .env | tr -d '"' | tr -d "'" | xargs)
+    fi
+    
+    local db_user="${DB_USER:-sulfur_bot_user}"
+    local db_name="${DB_NAME:-sulfur_bot}"
+    local db_pass="${DB_PASS:-}"
+    
+    # Check if password is set
+    local password_set=false
+    if [ -n "$db_pass" ] && [ "$(echo "$db_pass" | tr -d ' ')" != "" ]; then
+        password_set=true
+    fi
+    
+    # Try bot user with password
+    if [ "$password_set" = true ]; then
+        if $mysql_cmd -u "$db_user" -p"$db_pass" "$db_name" < "$sql_file" 2>>"$MAIN_LOG"; then
+            return 0
+        fi
+    fi
+    
+    # Try bot user without password
+    if $mysql_cmd -u "$db_user" "$db_name" < "$sql_file" 2>>"$MAIN_LOG"; then
+        return 0
+    fi
+    
+    # Try root (Termux default)
+    if [ "$IS_TERMUX" = true ]; then
+        if $mysql_cmd -u root "$db_name" < "$sql_file" 2>>"$MAIN_LOG"; then
+            return 0
+        fi
+    fi
+    
+    return 1
+}
+
 run_database_migrations() {
     log_db "Checking for pending database migrations..."
     
     # Check if migrations directory exists
     if [ ! -d "scripts/db_migrations" ]; then
-        log_warning "No migrations directory found, skipping"
+        log_info "No migrations directory found, skipping"
         return 0
     fi
     
     # Get MySQL command
-    local mysql_cmd=""
-    if command -v mysql &> /dev/null; then
-        mysql_cmd="mysql"
-    elif command -v mariadb &> /dev/null; then
-        mysql_cmd="mariadb"
-    else
+    local mysql_cmd
+    mysql_cmd=$(get_mysql_client)
+    if [ -z "$mysql_cmd" ]; then
         log_error "MySQL/MariaDB client not found, cannot run migrations"
         return 1
     fi
     
-    # Check if migration tracking table exists
+    # Create migration tracking table if it doesn't exist
     local create_tracking_table="
     CREATE TABLE IF NOT EXISTS schema_migrations (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -547,54 +912,32 @@ run_database_migrations() {
         INDEX idx_migration_name (migration_name)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;"
     
-    if [ -n "$DB_PASS" ]; then
-        echo "$create_tracking_table" | $mysql_cmd -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" 2>>"$MAIN_LOG"
-    else
-        echo "$create_tracking_table" | $mysql_cmd -u "$DB_USER" "$DB_NAME" 2>>"$MAIN_LOG"
-    fi
+    run_mysql_query "$create_tracking_table"
     
     # Find all .sql migration files
     local migrations_run=0
     for migration_file in scripts/db_migrations/*.sql; do
         if [ -f "$migration_file" ]; then
-            local migration_name=$(basename "$migration_file")
+            local migration_name
+            migration_name=$(basename "$migration_file")
             
             # Check if migration already applied
             local check_query="SELECT COUNT(*) FROM schema_migrations WHERE migration_name = '$migration_name'"
             local already_applied
-            
-            if [ -n "$DB_PASS" ]; then
-                already_applied=$($mysql_cmd -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" -sN -e "$check_query" 2>>"$MAIN_LOG")
-            else
-                already_applied=$($mysql_cmd -u "$DB_USER" "$DB_NAME" -sN -e "$check_query" 2>>"$MAIN_LOG")
-            fi
+            already_applied=$(run_mysql_query_result "$check_query")
             
             if [ "$already_applied" = "0" ]; then
                 log_db "Applying migration: $migration_name"
                 
                 # Run the migration
-                if [ -n "$DB_PASS" ]; then
-                    if $mysql_cmd -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" < "$migration_file" 2>>"$MAIN_LOG"; then
-                        # Mark as applied
-                        echo "INSERT INTO schema_migrations (migration_name) VALUES ('$migration_name')" | \
-                            $mysql_cmd -u "$DB_USER" -p"$DB_PASS" "$DB_NAME" 2>>"$MAIN_LOG"
-                        log_success "Migration applied: $migration_name"
-                        migrations_run=$((migrations_run + 1))
-                    else
-                        log_error "Failed to apply migration: $migration_name"
-                        log_warning "Check logs for details"
-                    fi
+                if run_mysql_file "$migration_file"; then
+                    # Mark as applied
+                    run_mysql_query "INSERT INTO schema_migrations (migration_name) VALUES ('$migration_name')"
+                    log_success "Migration applied: $migration_name"
+                    migrations_run=$((migrations_run + 1))
                 else
-                    if $mysql_cmd -u "$DB_USER" "$DB_NAME" < "$migration_file" 2>>"$MAIN_LOG"; then
-                        # Mark as applied
-                        echo "INSERT INTO schema_migrations (migration_name) VALUES ('$migration_name')" | \
-                            $mysql_cmd -u "$DB_USER" "$DB_NAME" 2>>"$MAIN_LOG"
-                        log_success "Migration applied: $migration_name"
-                        migrations_run=$((migrations_run + 1))
-                    else
-                        log_error "Failed to apply migration: $migration_name"
-                        log_warning "Check logs for details"
-                    fi
+                    log_error "Failed to apply migration: $migration_name"
+                    log_warning "Check logs for details"
                 fi
             fi
         fi
