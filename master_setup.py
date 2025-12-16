@@ -1428,7 +1428,10 @@ ListenPort = {listen_port}
                 f.write("   OR import the config file from Downloads/SulfurVPN/\n")
                 f.write("\n--- For Remote Access ---\n")
                 f.write(f"Forward UDP port {listen_port} on your router to {local_ip}\n")
+            os.chmod(info_file, 0o644)  # Readable by user, not sensitive data
             print_success(f"Server info saved to {info_file}")
+        except PermissionError as e:
+            print_warning(f"Could not save server info file (check file permissions): {e}")
         except Exception as e:
             print_warning(f"Could not save server info file: {e}")
     
