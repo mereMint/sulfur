@@ -671,33 +671,45 @@ async def play_song_clip(
             logger.warning(f"Could not find YouTube URL for: {song.get('title')} by {song.get('artist')}")
             return False
         
-        # Create song dict for lofi_player
-        song_data = {
-            'title': song.get('title', 'Unknown'),
-            'artist': song.get('artist', 'Unknown'),
-            'url': url,
-            'source': 'songle'
-        }
-        
         # Stop any current playback
         if voice_client.is_playing():
             voice_client.stop()
             await asyncio.sleep(0.2)
         
-        # Play the song clip (will be stopped after duration_seconds)
-        with yt_dlp.YoutubeDL(lofi_player.YDL_OPTIONS) as ydl:
-            info = await asyncio.to_thread(ydl.extract_info, url, download=False)
-            audio_url = lofi_player.extract_audio_url(info)
-            
-            if not audio_url:
-                logger.error("Could not extract audio URL for Songle clip")
-                return False
+        # Play the song clip with robust error handling
+        try:
+            with yt_dlp.YoutubeDL(lofi_player.YDL_OPTIONS) as ydl:
+                info = await asyncio.to_thread(ydl.extract_info, url, download=False)
+                if not info:
+                    logger.error(f"No info returned for URL: {url}")
+                    return False
+                audio_url = lofi_player.extract_audio_url(info)
+                
+                if not audio_url:
+                    logger.error("Could not extract audio URL for Songle clip")
+                    return False
+        except Exception as yt_error:
+            # Handle YouTube errors (video unavailable, etc.)
+            error_str = str(yt_error).lower()
+            if 'unavailable' in error_str or 'private' in error_str or 'removed' in error_str:
+                logger.warning(f"Video unavailable for song: {song.get('title')} - {yt_error}")
+            else:
+                logger.error(f"yt-dlp error for song: {song.get('title')} - {yt_error}")
+            return False
         
         # Create audio source
-        audio_source = discord.FFmpegPCMAudio(audio_url, **lofi_player.FFMPEG_OPTIONS)
+        try:
+            audio_source = discord.FFmpegPCMAudio(audio_url, **lofi_player.FFMPEG_OPTIONS)
+        except Exception as ffmpeg_error:
+            logger.error(f"FFmpeg error creating audio source: {ffmpeg_error}")
+            return False
         
         # Play the clip
-        voice_client.play(audio_source)
+        try:
+            voice_client.play(audio_source)
+        except Exception as play_error:
+            logger.error(f"Error playing audio: {play_error}")
+            return False
         
         # Wait for the clip duration, then stop
         await asyncio.sleep(duration_seconds)
