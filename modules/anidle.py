@@ -400,15 +400,33 @@ class AnidleGame:
         return False
     
     def create_embed(self, last_guess: Optional[dict] = None, embed_color: int = 0x00ff41) -> discord.Embed:
-        """Create an embed showing the current game state."""
+        """Create an enhanced embed showing the current game state with visual appeal."""
+        # Use gradient colors based on progress
+        progress_pct = self.attempts / self.MAX_GUESSES
+        if self.won:
+            embed_color = 0x00ff00  # Green for win
+        elif not self.is_active:
+            embed_color = 0xff4444  # Red for loss
+        elif progress_pct > 0.7:
+            embed_color = 0xff6b6b  # Warning red
+        elif progress_pct > 0.4:
+            embed_color = 0xffa500  # Orange
+        else:
+            embed_color = 0x00d4ff  # Cyan blue
+        
         embed = discord.Embed(
-            title="Anidle - Anime Guessing Game",
-            description=f"Guess the anime! Attempt {self.attempts}/{self.MAX_GUESSES}",
+            title="🎌 Anidle - Anime Guessing Game",
             color=embed_color
         )
         
+        # Progress bar
+        filled = int(self.attempts / self.MAX_GUESSES * 10)
+        empty = 10 - filled
+        progress_bar = "🟩" * (10 - filled) + "🟥" * filled
+        embed.description = f"**Attempt {self.attempts}/{self.MAX_GUESSES}** {progress_bar}\n\n_Guess the mystery anime!_"
+        
         if last_guess:
-            # Show last guess results
+            # Show last guess results with enhanced visuals
             year_emoji = self._get_status_emoji(last_guess['year']['status'])
             genre_emoji = self._get_status_emoji(last_guess['genres']['status'])
             theme_emoji = self._get_status_emoji(last_guess['themes']['status'])
@@ -416,19 +434,42 @@ class AnidleGame:
             source_emoji = self._get_status_emoji(last_guess['source']['status'])
             score_emoji = self._get_status_emoji(last_guess['score']['status'])
             
-            guess_text = f"**{last_guess['title']}**\n"
-            guess_text += f"{year_emoji} Year: {last_guess['year']['value'] or '?'}"
-            if last_guess['year']['status'] != 'correct':
-                guess_text += f" (Target is {'higher' if last_guess['year']['status'] == 'higher' else 'lower'})"
-            guess_text += f"\n{genre_emoji} Genres: {', '.join(last_guess['genres']['value'][:3]) or 'None'}"
-            if last_guess['genres']['matches']:
-                guess_text += f" (Matches: {', '.join(last_guess['genres']['matches'])})"
-            guess_text += f"\n{theme_emoji} Themes: {', '.join(last_guess['themes']['value'][:3]) or 'None'}"
-            guess_text += f"\n{studio_emoji} Studio: {', '.join(last_guess['studios']['value']) or 'Unknown'}"
-            guess_text += f"\n{source_emoji} Source: {last_guess['source']['value']}"
-            guess_text += f"\n{score_emoji} Score: {last_guess['score']['value'] or '?'}"
+            # Year direction arrow
+            year_arrow = ""
+            if last_guess['year']['status'] == 'higher':
+                year_arrow = " ⬆️"
+            elif last_guess['year']['status'] == 'lower':
+                year_arrow = " ⬇️"
             
-            embed.add_field(name="Last Guess", value=guess_text, inline=False)
+            # Score direction arrow
+            score_arrow = ""
+            if last_guess['score']['status'] == 'higher':
+                score_arrow = " ⬆️"
+            elif last_guess['score']['status'] == 'lower':
+                score_arrow = " ⬇️"
+            
+            guess_text = f"**🎬 {last_guess['title']}**\n\n"
+            guess_text += f"📅 **Year:** {last_guess['year']['value'] or '?'} {year_emoji}{year_arrow}\n"
+            
+            genres_display = ', '.join(last_guess['genres']['value'][:3]) or 'None'
+            if last_guess['genres']['matches']:
+                matches = ', '.join(last_guess['genres']['matches'])
+                guess_text += f"🏷️ **Genres:** {genres_display} {genre_emoji}\n   └─ ✨ Matches: `{matches}`\n"
+            else:
+                guess_text += f"🏷️ **Genres:** {genres_display} {genre_emoji}\n"
+            
+            themes_display = ', '.join(last_guess['themes']['value'][:3]) or 'None'
+            if last_guess['themes']['matches']:
+                matches = ', '.join(last_guess['themes']['matches'])
+                guess_text += f"🎭 **Themes:** {themes_display} {theme_emoji}\n   └─ ✨ Matches: `{matches}`\n"
+            else:
+                guess_text += f"🎭 **Themes:** {themes_display} {theme_emoji}\n"
+            
+            guess_text += f"🎬 **Studio:** {', '.join(last_guess['studios']['value']) or 'Unknown'} {studio_emoji}\n"
+            guess_text += f"📚 **Source:** {last_guess['source']['value']} {source_emoji}\n"
+            guess_text += f"⭐ **Score:** {last_guess['score']['value'] or '?'} {score_emoji}{score_arrow}"
+            
+            embed.add_field(name="📝 Last Guess", value=guess_text, inline=False)
             
             if last_guess.get('image_url'):
                 embed.set_thumbnail(url=last_guess['image_url'])
@@ -436,57 +477,75 @@ class AnidleGame:
         # Show hints based on progress
         hints = []
         if 'cover' in self.hints_shown:
-            hints.append("Cover image available (blurred)")
+            target = self.get_target_info()
+            if target['image_url']:
+                embed.set_image(url=target['image_url'])
+            hints.append("🖼️ Cover image revealed!")
         if 'synopsis' in self.hints_shown:
             target = self.get_target_info()
             synopsis = target['synopsis'][:200] + '...' if len(target['synopsis']) > 200 else target['synopsis']
-            hints.append(f"Synopsis: {synopsis}")
+            hints.append(f"📖 **Synopsis:** _{synopsis}_")
         if 'character' in self.hints_shown:
-            hints.append("Main character hint available")
+            hints.append("👤 Main character hint available")
         
         if hints:
-            embed.add_field(name="Hints", value="\n".join(hints), inline=False)
+            embed.add_field(name="💡 Hints Unlocked", value="\n".join(hints), inline=False)
         else:
             next_hint = ""
             if self.attempts < self.HINT_COVER_AT:
-                next_hint = f"Cover hint at {self.HINT_COVER_AT} guesses"
+                remaining = self.HINT_COVER_AT - self.attempts
+                next_hint = f"🖼️ Cover hint in `{remaining}` guesses"
             elif self.attempts < self.HINT_SYNOPSIS_AT:
-                next_hint = f"Synopsis hint at {self.HINT_SYNOPSIS_AT} guesses"
+                remaining = self.HINT_SYNOPSIS_AT - self.attempts
+                next_hint = f"📖 Synopsis hint in `{remaining}` guesses"
             elif self.attempts < self.HINT_CHARACTER_AT:
-                next_hint = f"Character hint at {self.HINT_CHARACTER_AT} guesses"
+                remaining = self.HINT_CHARACTER_AT - self.attempts
+                next_hint = f"👤 Character hint in `{remaining}` guesses"
             if next_hint:
-                embed.add_field(name="Next Hint", value=next_hint, inline=False)
+                embed.add_field(name="🔮 Next Hint", value=next_hint, inline=True)
+        
+        # Remaining guesses indicator
+        remaining = self.remaining_guesses
+        if remaining > 10:
+            lives_emoji = "💚"
+        elif remaining > 5:
+            lives_emoji = "💛"
+        else:
+            lives_emoji = "❤️"
+        embed.add_field(name=f"{lives_emoji} Remaining", value=f"`{remaining}` guesses left", inline=True)
         
         # Status
         if self.won:
             embed.color = 0x00ff00
-            embed.add_field(name="Result", value=f"Correct! You got it in {self.attempts} attempts!", inline=False)
             target = self.get_target_info()
+            win_text = f"🎉 **CORRECT!** 🎉\n\nYou guessed **{target['title']}** in `{self.attempts}` attempts!"
+            embed.add_field(name="🏆 Victory!", value=win_text, inline=False)
             if target['image_url']:
                 embed.set_image(url=target['image_url'])
         elif not self.is_active:
-            embed.color = 0xff0000
+            embed.color = 0xff4444
             target = self.get_target_info()
-            embed.add_field(name="Result", value=f"Game Over! The anime was: **{target['title']}**", inline=False)
+            lose_text = f"💔 **Game Over!**\n\nThe anime was: **{target['title']}**"
+            embed.add_field(name="😢 Better luck next time!", value=lose_text, inline=False)
             if target['image_url']:
                 embed.set_image(url=target['image_url'])
         
-        embed.set_footer(text="Use /anidle guess <anime name> to guess | /anidle paytable for hints info")
+        embed.set_footer(text="🎮 Use the buttons below to play!")
         
         return embed
     
     def _get_status_emoji(self, status: str) -> str:
-        """Get emoji for status. Using text-based indicators."""
+        """Get emoji for status with visual indicators."""
         if status == 'correct':
-            return '[OK]'
+            return '✅'
         elif status == 'partial':
-            return '[~]'
+            return '🟨'
         elif status == 'higher':
-            return '[UP]'
+            return '🔼'
         elif status == 'lower':
-            return '[DN]'
+            return '🔽'
         else:
-            return '[X]'
+            return '❌'
 
 
 async def search_anime(query: str) -> Optional[List[dict]]:
