@@ -297,13 +297,14 @@ REQUIRED_PACKAGES=(
     "curl"
     "build-essential"
     "binutils"
+    "pkg-config"
     "libsodium"
     "clang"
     "ffmpeg"
 )
 
 print_info "Installing required packages: ${REQUIRED_PACKAGES[*]}"
-print_info "Note: build-essential, binutils, libsodium, and clang are needed for PyNaCl voice support"
+print_info "Note: build-essential, binutils, pkg-config, libsodium, and clang are needed for PyNaCl voice support"
 print_info "Note: ffmpeg is required for Discord voice channel audio playback"
 pkg install -y "${REQUIRED_PACKAGES[@]}"
 

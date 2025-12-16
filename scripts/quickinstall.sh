@@ -147,11 +147,12 @@ install_packages() {
 install_termux_dependencies() {
     if [ "$PLATFORM" = "termux" ]; then
         echo -e "${BLUE}📦 Installing Termux build dependencies for PyNaCl...${NC}"
-        echo -e "${CYAN}   This includes: build-essential, binutils, libsodium, clang${NC}"
+        echo -e "${CYAN}   This includes: build-essential, binutils, pkg-config, libsodium, clang${NC}"
         
         pkg install -y \
             build-essential \
             binutils \
+            pkg-config \
             libsodium \
             clang \
             python \

@@ -164,12 +164,13 @@ install_wireguard() {
 install_dependencies() {
     echo -e "\n${BLUE}📦 Installing additional dependencies...${NC}"
     
-    # Note: build-essential, binutils, libsodium, and clang are required for PyNaCl
+    # Note: build-essential, binutils, pkg-config, libsodium, and clang are required for PyNaCl
     # PyNaCl (discord.py[voice] dependency) will use system libsodium instead of building from source
     echo -e "${CYAN}Installing build tools and libraries for PyNaCl compilation...${NC}"
     pkg install -y \
         build-essential \
         binutils \
+        pkg-config \
         libsodium \
         clang \
         ffmpeg \
