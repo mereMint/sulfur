@@ -43,7 +43,8 @@ def check_python_version():
     version = sys.version_info
     version_str = f"{version.major}.{version.minor}.{version.micro}"
     
-    if version.major >= 3 and version.minor >= 8:
+    # Check if version is 3.8 or higher (version tuple comparison)
+    if version >= (3, 8):
         print_success(f"Python {version_str} (✓ >= 3.8)")
         return True
     else:
@@ -262,11 +263,12 @@ def check_termux_specific():
         print_info("  pkg install " + " ".join(packages))
     
     # Check SODIUM_INSTALL variable
-    if "SODIUM_INSTALL" in os.environ:
-        if os.environ["SODIUM_INSTALL"] == "system":
+    sodium_install = os.environ.get('SODIUM_INSTALL')
+    if sodium_install:
+        if sodium_install == "system":
             print_success("SODIUM_INSTALL=system is set")
         else:
-            print_warning(f"SODIUM_INSTALL={os.environ['SODIUM_INSTALL']} (should be 'system')")
+            print_warning(f"SODIUM_INSTALL={sodium_install} (should be 'system')")
     else:
         print_warning("SODIUM_INSTALL not set")
         print_info("  export SODIUM_INSTALL=system")
