@@ -16,11 +16,22 @@
 param(
     [switch]$SkipPrerequisites,
     [switch]$SkipDatabase,
-    [switch]$SkipDependencies
+    [switch]$SkipDependencies,
+    [string]$InstallDir = ""
 )
 
 $ErrorActionPreference = 'Continue'
-$script:InstallPath = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# Determine installation path
+if ([string]::IsNullOrWhiteSpace($InstallDir)) {
+    $script:InstallPath = Split-Path -Parent $MyInvocation.MyCommand.Path
+} else {
+    # User specified a custom install directory
+    $script:InstallPath = $InstallDir
+    if (-not (Test-Path $script:InstallPath)) {
+        New-Item -ItemType Directory -Path $script:InstallPath -Force | Out-Null
+    }
+}
 Set-Location $script:InstallPath
 
 # Color scheme
@@ -123,6 +134,33 @@ Write-Host "  6. Creating shortcuts for easy access" -ForegroundColor Gray
 Write-Host ""
 Write-Host "Estimated time: 10-15 minutes (depending on download speeds)" -ForegroundColor DarkGray
 Write-Host ""
+
+# Ask for custom installation path if not already specified via parameter
+if ([string]::IsNullOrWhiteSpace($InstallDir)) {
+    Write-Host ""
+    Write-Host "Installation Path Configuration" -ForegroundColor $ColorPrompt
+    Write-Host "Current path: $script:InstallPath" -ForegroundColor Gray
+    Write-Host ""
+    
+    if (Read-YesNo "Use current directory as installation path?" -Default $true) {
+        Write-Success "Using current directory: $script:InstallPath"
+    } else {
+        $customPath = Read-Host "Enter custom installation path (or press Enter to cancel)"
+        if (-not [string]::IsNullOrWhiteSpace($customPath)) {
+            $customPath = $customPath.Trim().Trim('"').Trim("'")
+            if (-not (Test-Path $customPath)) {
+                Write-Info "Creating directory: $customPath"
+                New-Item -ItemType Directory -Path $customPath -Force | Out-Null
+            }
+            $script:InstallPath = $customPath
+            Set-Location $script:InstallPath
+            Write-Success "Installation path set to: $script:InstallPath"
+        } else {
+            Write-Info "Keeping current directory: $script:InstallPath"
+        }
+    }
+    Write-Host ""
+}
 
 if (!(Read-YesNo "Ready to begin?")) {
     Write-Host ""
@@ -641,17 +679,19 @@ if (Read-YesNo "Would you like to create desktop shortcuts?") {
     $WshShell = New-Object -comObject WScript.Shell
     $desktopPath = [Environment]::GetFolderPath("Desktop")
     
-    # Start Bot Shortcut
+    # Start Bot Shortcut - Now runs maintain_bot.ps1 directly for proper startup
     try {
         $shortcutPath = Join-Path $desktopPath "Start Sulfur Bot.lnk"
         $shortcut = $WshShell.CreateShortcut($shortcutPath)
         $shortcut.TargetPath = "powershell.exe"
-        $shortcut.Arguments = "-ExecutionPolicy Bypass -NoExit -File `"$(Join-Path $script:InstallPath 'start.ps1')`""
+        # Run maintain_bot.ps1 directly - this starts the database, web dashboard, and bot together
+        $shortcut.Arguments = "-ExecutionPolicy Bypass -NoExit -File `"$(Join-Path $script:InstallPath 'maintain_bot.ps1')`""
         $shortcut.WorkingDirectory = $script:InstallPath
-        $shortcut.Description = "Start Sulfur Discord Bot"
+        $shortcut.Description = "Start Sulfur Discord Bot with Database and Web Dashboard"
         $shortcut.IconLocation = "powershell.exe,0"
         $shortcut.Save()
         Write-Success "Created 'Start Sulfur Bot' shortcut on desktop"
+        Write-Info "This shortcut starts the bot with the maintenance script (includes database & web dashboard)"
     } catch {
         Write-Warning "Could not create start shortcut: $_"
     }

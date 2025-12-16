@@ -1,11 +1,20 @@
 """
 Interactive MySQL Setup Wizard for Sulfur Bot
 Handles multiple scenarios and provides step-by-step guidance
+
+Supports custom database configuration via .env file or command line arguments.
 """
 
 import sys
 import os
 from getpass import getpass
+
+# Try to load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # dotenv not available, will use defaults
 
 try:
     import mysql.connector
@@ -36,14 +45,23 @@ def print_section(text):
     print(f"  {text}")
     print('─' * 60)
 
+# Get database configuration from environment or use defaults
+DB_HOST = os.environ.get('DB_HOST', 'localhost')
+DB_USER = os.environ.get('DB_USER', 'sulfur_bot_user')
+DB_PASS = os.environ.get('DB_PASS', '')
+DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot')
+
 print_header("SULFUR BOT - MYSQL SETUP WIZARD")
 
 print("This wizard will help you set up the MySQL database for Sulfur Bot.")
 print()
-print("Current requirements:")
-print("  • Database: sulfur_bot")
-print("  • User: sulfur_bot_user")
-print("  • Password: (empty)")
+print("Current configuration (from .env or defaults):")
+print(f"  • Database Host: {DB_HOST}")
+print(f"  • Database Name: {DB_NAME}")
+print(f"  • Database User: {DB_USER}")
+print(f"  • Password: {'(set)' if DB_PASS else '(empty)'}")
+print()
+print("You can customize these values by editing the .env file.")
 print()
 
 # Check if MySQL is accessible
@@ -106,34 +124,40 @@ print_section("Step 2: Creating Database and User")
 try:
     cursor = root_conn.cursor()
     
-    # Create database
-    print("Creating database 'sulfur_bot'...", end=" ")
-    cursor.execute("CREATE DATABASE IF NOT EXISTS sulfur_bot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+    # Create database with configurable name
+    print(f"Creating database '{DB_NAME}'...", end=" ")
+    cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{DB_NAME}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
     print("✅")
     
     # Drop old user
-    print("Removing old user if exists...", end=" ")
-    cursor.execute("DROP USER IF EXISTS 'sulfur_bot_user'@'localhost'")
+    print(f"Removing old user '{DB_USER}' if exists...", end=" ")
+    cursor.execute(f"DROP USER IF EXISTS '{DB_USER}'@'{DB_HOST}'")
     print("✅")
     
-    # Create user
-    print("Creating user 'sulfur_bot_user'...", end=" ")
+    # Create user with configurable name and password
+    print(f"Creating user '{DB_USER}'...", end=" ")
     try:
-        cursor.execute("CREATE USER 'sulfur_bot_user'@'localhost' IDENTIFIED BY ''")
+        if DB_PASS:
+            cursor.execute(f"CREATE USER '{DB_USER}'@'{DB_HOST}' IDENTIFIED BY '{DB_PASS}'")
+        else:
+            cursor.execute(f"CREATE USER '{DB_USER}'@'{DB_HOST}' IDENTIFIED BY ''")
         print("✅")
     except mysql.connector.Error as err:
         # Try alternative authentication methods
         if "plugin" in str(err).lower():
             print()
             print("  ⚠️  Authentication plugin issue, trying alternative method...")
-            cursor.execute("CREATE USER 'sulfur_bot_user'@'localhost' IDENTIFIED WITH mysql_native_password BY ''")
+            if DB_PASS:
+                cursor.execute(f"CREATE USER '{DB_USER}'@'{DB_HOST}' IDENTIFIED WITH mysql_native_password BY '{DB_PASS}'")
+            else:
+                cursor.execute(f"CREATE USER '{DB_USER}'@'{DB_HOST}' IDENTIFIED WITH mysql_native_password BY ''")
             print("  ✅ User created with alternative method")
         else:
             raise
     
     # Grant privileges
     print("Granting privileges...", end=" ")
-    cursor.execute("GRANT ALL PRIVILEGES ON sulfur_bot.* TO 'sulfur_bot_user'@'localhost'")
+    cursor.execute(f"GRANT ALL PRIVILEGES ON `{DB_NAME}`.* TO '{DB_USER}'@'{DB_HOST}'")
     cursor.execute("FLUSH PRIVILEGES")
     print("✅")
     
@@ -146,10 +170,10 @@ try:
     print("Testing bot user connection...", end=" ")
     try:
         test_conn = mysql.connector.connect(
-            host='localhost',
-            user='sulfur_bot_user',
-            password='',
-            database='sulfur_bot'
+            host=DB_HOST,
+            user=DB_USER,
+            password=DB_PASS,
+            database=DB_NAME
         )
         test_conn.close()
         print("✅")
@@ -165,10 +189,10 @@ try:
     print("Database is ready for use!")
     print()
     print("Configuration:")
-    print("  Database: sulfur_bot")
-    print("  User: sulfur_bot_user")  
-    print("  Password: (empty)")
-    print("  Host: localhost")
+    print(f"  Database: {DB_NAME}")
+    print(f"  User: {DB_USER}")  
+    print(f"  Password: {'(set)' if DB_PASS else '(empty)'}")
+    print(f"  Host: {DB_HOST}")
     print()
     print("Next steps:")
     print("  1. python apply_migration.py    (creates tables)")

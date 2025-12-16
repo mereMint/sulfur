@@ -17,10 +17,40 @@
 # METHOD 3: Already have the repo cloned?
 #   cd sulfur && bash termux_quickstart.sh
 #
-# Usage: bash termux_quickstart.sh
+# Usage: bash termux_quickstart.sh [--install-dir /path/to/install]
+#
+# Options:
+#   --install-dir DIR   Custom installation directory (default: ~/sulfur)
+#   -h, --help          Show this help message
 
 # Note: We don't use 'set -e' because some commands may have warnings
 # that shouldn't stop the script (like apt warnings)
+
+# Parse command line arguments
+CUSTOM_INSTALL_DIR=""
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --install-dir|-d)
+            CUSTOM_INSTALL_DIR="$2"
+            shift 2
+            ;;
+        -h|--help)
+            echo "Sulfur Bot Termux Quick Start Script"
+            echo ""
+            echo "Usage: bash termux_quickstart.sh [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  --install-dir DIR   Custom installation directory (default: ~/sulfur)"
+            echo "  -h, --help          Show this help message"
+            echo ""
+            exit 0
+            ;;
+        *)
+            # Skip unknown options silently for backward compatibility
+            shift
+            ;;
+    esac
+done
 
 # Colors
 RED='\033[0;31m'
@@ -425,7 +455,13 @@ if [ -f "bot.py" ] && [ -f "web_dashboard.py" ]; then
     print_success "Already in repository directory: $REPO_DIR"
     print_info "Skipping clone step"
 else
-    REPO_DIR="$HOME/sulfur"
+    # Use custom install directory if provided, otherwise default to ~/sulfur
+    if [ -n "$CUSTOM_INSTALL_DIR" ]; then
+        REPO_DIR="$CUSTOM_INSTALL_DIR"
+        print_info "Using custom installation directory: $REPO_DIR"
+    else
+        REPO_DIR="$HOME/sulfur"
+    fi
 
     # Get GitHub username if not set
     if [ -z "$GITHUB_USER" ]; then
@@ -476,6 +512,9 @@ else
             cd "$REPO_DIR"
         fi
     else
+        # Create parent directory if needed
+        mkdir -p "$(dirname "$REPO_DIR")"
+        
         if [ "$SSH_READY" = true ]; then
             print_info "Cloning repository via SSH..."
             CLONE_URL="git@github.com:$GITHUB_USER/sulfur.git"
