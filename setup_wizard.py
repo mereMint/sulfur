@@ -107,7 +107,7 @@ if choice == "1":
             print()
             print_info("Next steps:")
             print("  1. Start the bot:  python bot.py")
-            print("  2. Access dashboard: http://localhost:5000")
+            print("  2. Access dashboard: http://localhost:5000 (default port)")
             print()
             sys.exit(0)
         else:

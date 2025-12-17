@@ -2,11 +2,11 @@
 -- Fix Detective Game and Add Trolly Problem Tables
 -- ============================================================
 -- This migration:
--- 1. Adds case_hash to detective_cases for uniqueness checking
--- 2. Adds cases_at_current_difficulty to detective_user_stats
--- 3. Creates trolly_responses table if it doesn't exist
--- 4. Creates trolly_problems table to store generated problems
--- 5. Adds problem_id column to trolly_responses for linking
+-- 1. Creates trolly_responses table if it doesn't exist
+-- 2. Adds case_hash to detective_cases for uniqueness checking
+-- 3. Adds cases_at_current_difficulty to detective_user_stats
+-- 4. Adds problem_id column to trolly_responses for linking
+-- 5. Creates trolly_problems table to store generated problems
 -- ============================================================
 
 -- Create trolly_responses table first if it doesn't exist
