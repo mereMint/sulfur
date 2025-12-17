@@ -4,9 +4,22 @@
 -- This migration:
 -- 1. Adds case_hash to detective_cases for uniqueness checking
 -- 2. Adds cases_at_current_difficulty to detective_user_stats
--- 3. Creates trolly_problems table to store generated problems
--- 4. Adds scenario_hash to trolly_problems for uniqueness
+-- 3. Creates trolly_responses table if it doesn't exist
+-- 4. Creates trolly_problems table to store generated problems
+-- 5. Adds problem_id column to trolly_responses for linking
 -- ============================================================
+
+-- Create trolly_responses table first if it doesn't exist
+CREATE TABLE IF NOT EXISTS trolly_responses (
+    response_id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    display_name VARCHAR(255) NOT NULL,
+    scenario_summary VARCHAR(255) NOT NULL,
+    chosen_option CHAR(1) NOT NULL,
+    responded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_user_id (user_id),
+    INDEX idx_responded_at (responded_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Use a stored procedure to safely add columns
 DELIMITER $$
