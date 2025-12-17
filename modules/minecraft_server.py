@@ -505,7 +505,6 @@ async def download_file(url: str, dest_path: str, progress_callback: Callable = 
         # Use aiohttp for async download if available
         try:
             import aiohttp
-            import time as time_module
             async with aiohttp.ClientSession() as session:
                 async with session.get(url) as response:
                     if response.status != 200:
@@ -514,37 +513,37 @@ async def download_file(url: str, dest_path: str, progress_callback: Callable = 
                     
                     total_size = int(response.headers.get('content-length', 0))
                     downloaded = 0
-                    start_time = time_module.time()
+                    start_time = time.time()
                     
                     with open(dest_path, 'wb') as f:
                         async for chunk in response.content.iter_chunked(8192):
                             f.write(chunk)
                             downloaded += len(chunk)
                             if progress_callback and total_size > 0:
-                                elapsed = time_module.time() - start_time
+                                elapsed = time.time() - start_time
                                 speed = downloaded / elapsed if elapsed > 0 else 0
                                 percent = (downloaded / total_size) * 100
                                 progress_callback(downloaded, total_size, speed, percent)
             return True
         except ImportError:
             # Fallback to urllib (sync) with progress callback support
-            import time as time_module
-            
             def _download():
-                start_time = time_module.time()
-                last_update = [0]  # Mutable to track state in nested function
+                start_time = time.time()
+                last_update_time = 0.0  # Track last update time using nonlocal-style pattern
                 
                 def reporthook(block_num, block_size, total_size):
                     """Progress hook for urllib.request.urlretrieve"""
+                    nonlocal last_update_time
+                    
                     if progress_callback and total_size > 0:
                         downloaded = block_num * block_size
                         # Clamp downloaded to total_size to avoid over 100%
                         downloaded = min(downloaded, total_size)
                         
                         # Update at most once per second to avoid excessive callbacks
-                        current_time = time_module.time()
-                        if current_time - last_update[0] >= 1.0 or downloaded >= total_size:
-                            last_update[0] = current_time
+                        current_time = time.time()
+                        if current_time - last_update_time >= 1.0 or downloaded >= total_size:
+                            last_update_time = current_time
                             elapsed = current_time - start_time
                             speed = downloaded / elapsed if elapsed > 0 else 0
                             percent = (downloaded / total_size) * 100
