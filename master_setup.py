@@ -2060,28 +2060,28 @@ def old_import_export_code():
         else:
             print_error(message)
             return False
-    
-    # Offer to create a backup of the current state
-    if ask_yes_no("\nCreate a backup of the current database?", default=True):
-        os.makedirs('backups', exist_ok=True)
-        
-        db_host = os.environ.get('DB_HOST', 'localhost')
-        db_user = os.environ.get('DB_USER', 'sulfur_bot_user')
-        db_pass = os.environ.get('DB_PASS', '')
-        db_name = os.environ.get('DB_NAME', 'sulfur_bot')
-        
-        timestamp = time.strftime('%Y%m%d_%H%M%S')
-        backup_path = f"backups/database_backup_{timestamp}.sql"
-        
-        print_step(f"Creating backup: {backup_path}")
-        success, message = export_database(db_host, db_user, db_pass, db_name, backup_path)
-        
-        if success:
-            print_success(message)
-        else:
-            print_warning(f"Backup failed: {message}")
-    
-    return True
+
+        # Offer to create a backup of the current state
+        if ask_yes_no("\nCreate a backup of the current database?", default=True):
+            os.makedirs('backups', exist_ok=True)
+
+            db_host = os.environ.get('DB_HOST', 'localhost')
+            db_user = os.environ.get('DB_USER', 'sulfur_bot_user')
+            db_pass = os.environ.get('DB_PASS', '')
+            db_name = os.environ.get('DB_NAME', 'sulfur_bot')
+
+            timestamp = time.strftime('%Y%m%d_%H%M%S')
+            backup_path = f"backups/database_backup_{timestamp}.sql"
+
+            print_step(f"Creating backup: {backup_path}")
+            success, message = export_database(db_host, db_user, db_pass, db_name, backup_path)
+
+            if success:
+                print_success(message)
+            else:
+                print_warning(f"Backup failed: {message}")
+
+        return True
 
 
 # ==============================================================================
