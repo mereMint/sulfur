@@ -1169,7 +1169,7 @@ def setup_minecraft_server(plat: str) -> bool:
     
     selected_modpack = None
     server_type = 'paper'
-    mc_version = '1.21.4'
+    mc_version = '1.21.11'  # Updated to latest stable version
     
     if setup_choice == 0:
         # Standard server selection
@@ -1184,8 +1184,8 @@ def setup_minecraft_server(plat: str) -> bool:
         server_type = ['paper', 'purpur', 'vanilla', 'fabric'][choice]
         
         # Choose Minecraft version
-        print("\nEnter Minecraft version (e.g., 1.21.4, 1.20.4):")
-        mc_version = input("Version [1.21.4]: ").strip() or "1.21.4"
+        print("\nEnter Minecraft version (e.g., 1.21.11, 1.20.6):")
+        mc_version = input("Version [1.21.11]: ").strip() or "1.21.11"
     else:
         # Modpack selected
         modpack_map = {

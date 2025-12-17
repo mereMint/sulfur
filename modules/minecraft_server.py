@@ -43,7 +43,7 @@ MC_STATE_FILE = "config/minecraft_state.json"
 DEFAULT_MC_CONFIG = {
     "enabled": True,
     "server_type": "paper",  # vanilla, paper, purpur, fabric
-    "minecraft_version": "1.21.4",
+    "minecraft_version": "1.21.11",  # Updated to latest stable version
     "memory_min": "1G",
     "memory_max": "4G",
     "port": 25565,
