@@ -84,28 +84,36 @@ WHERE language IS NULL OR language = '';
 SET @table_name = 'word_find_attempts';
 SET @column_name = 'game_type';
 
+-- Check if table exists first (may not exist yet - created in migration 011b)
+SET @attempts_table_exists = (
+    SELECT COUNT(*) 
+    FROM INFORMATION_SCHEMA.TABLES 
+    WHERE TABLE_SCHEMA = @db_name 
+    AND TABLE_NAME = @table_name
+);
+
 SET @query = IF(
-    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+    @attempts_table_exists > 0 AND (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
      WHERE TABLE_SCHEMA = @db_name 
      AND TABLE_NAME = @table_name 
      AND COLUMN_NAME = @column_name) = 0,
     'ALTER TABLE word_find_attempts ADD COLUMN game_type ENUM(''daily'', ''premium'') DEFAULT ''daily'' AFTER attempt_number',
-    'SELECT ''Column game_type already exists in word_find_attempts'' AS message'
+    'SELECT ''Table word_find_attempts does not exist or column game_type already exists'' AS message'
 );
 
 PREPARE stmt FROM @query;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
--- Add index for game_type queries if not exists
+-- Add index for game_type queries if table exists
 SET @index_name = 'idx_user_word_type';
 SET @query = IF(
-    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS 
+    @attempts_table_exists > 0 AND (SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS 
      WHERE TABLE_SCHEMA = @db_name 
      AND TABLE_NAME = @table_name 
      AND INDEX_NAME = @index_name) = 0,
     'ALTER TABLE word_find_attempts ADD INDEX idx_user_word_type (user_id, word_id, game_type)',
-    'SELECT ''Index idx_user_word_type already exists in word_find_attempts'' AS message'
+    'SELECT ''Table word_find_attempts does not exist or index idx_user_word_type already exists'' AS message'
 );
 
 PREPARE stmt FROM @query;
