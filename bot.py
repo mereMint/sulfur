@@ -1352,7 +1352,12 @@ async def on_ready():
             
             # Start schedule manager task
             def get_bot_config():
-                return config
+                """Reload config from disk to pick up changes from dashboard."""
+                try:
+                    with open('config/config.json', 'r', encoding='utf-8') as f:
+                        return json.load(f)
+                except Exception:
+                    return config  # Fallback to cached config on error
             
             asyncio.create_task(minecraft_server.schedule_manager_task(mc_config, get_bot_config))
             print("  -> Minecraft schedule manager started")

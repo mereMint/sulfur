@@ -5549,6 +5549,74 @@ def api_minecraft_status():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
+@app.route('/api/minecraft/modpacks', methods=['GET'])
+def api_get_modpacks():
+    """API endpoint to get available modpacks."""
+    if not MINECRAFT_AVAILABLE:
+        return jsonify({'status': 'error', 'message': 'Minecraft server module not available'}), 503
+    
+    try:
+        modpacks = minecraft_server.get_available_modpacks()
+        current_modpack = minecraft_server.get_current_modpack()
+        saved_worlds = minecraft_server.list_saved_worlds()
+        
+        # Convert to list format
+        modpacks_list = []
+        for name, config in modpacks.items():
+            has_saved_world = minecraft_server.has_saved_world(name)
+            modpacks_list.append({
+                'id': name,
+                'name': config.get('name', name),
+                'description': config.get('description', ''),
+                'server_type': config.get('server_type', 'fabric'),
+                'source': config.get('source'),
+                'has_saved_world': has_saved_world,
+                'is_current': name == current_modpack
+            })
+        
+        return jsonify({
+            'status': 'success',
+            'modpacks': modpacks_list,
+            'current': current_modpack,
+            'saved_worlds': saved_worlds
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting modpacks: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/minecraft/mods', methods=['GET'])
+def api_get_mods():
+    """API endpoint to get performance and optional mods configuration."""
+    if not MINECRAFT_AVAILABLE:
+        return jsonify({'status': 'error', 'message': 'Minecraft server module not available'}), 503
+    
+    try:
+        # Load config
+        with open('config/config.json', 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        
+        mc_config = config.get('modules', {}).get('minecraft', {})
+        
+        performance_mods = mc_config.get('performance_mods', {})
+        optional_mods = mc_config.get('optional_mods', {})
+        
+        return jsonify({
+            'status': 'success',
+            'performance_mods': {
+                'enabled': performance_mods.get('enabled', True),
+                'mods': performance_mods.get('mods', [])
+            },
+            'optional_mods': optional_mods,
+            'server_type': mc_config.get('server_type', 'paper')
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting mods config: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 @app.route('/api/minecraft/modpack/install', methods=['POST'])
 def api_install_modpack():
     """API endpoint to install a modpack."""
