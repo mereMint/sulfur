@@ -493,7 +493,8 @@ async def download_file(url: str, dest_path: str, progress_callback: Callable = 
     Args:
         url: The URL to download from
         dest_path: The destination file path
-        progress_callback: Optional callback for progress updates
+        progress_callback: Optional callback for progress updates.
+                          Called with (downloaded_bytes, total_bytes, speed_bps, percent)
         
     Returns:
         True if download was successful
@@ -504,6 +505,7 @@ async def download_file(url: str, dest_path: str, progress_callback: Callable = 
         # Use aiohttp for async download if available
         try:
             import aiohttp
+            import time as time_module
             async with aiohttp.ClientSession() as session:
                 async with session.get(url) as response:
                     if response.status != 200:
@@ -512,13 +514,17 @@ async def download_file(url: str, dest_path: str, progress_callback: Callable = 
                     
                     total_size = int(response.headers.get('content-length', 0))
                     downloaded = 0
+                    start_time = time_module.time()
                     
                     with open(dest_path, 'wb') as f:
                         async for chunk in response.content.iter_chunked(8192):
                             f.write(chunk)
                             downloaded += len(chunk)
                             if progress_callback and total_size > 0:
-                                progress_callback(downloaded / total_size)
+                                elapsed = time_module.time() - start_time
+                                speed = downloaded / elapsed if elapsed > 0 else 0
+                                percent = (downloaded / total_size) * 100
+                                progress_callback(downloaded, total_size, speed, percent)
             return True
         except ImportError:
             # Fallback to urllib (sync)
