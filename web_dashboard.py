@@ -229,11 +229,64 @@ def follow_log_file():
             print(f"[Web Dashboard] Unexpected error in follow_log_file: {e}")
             time.sleep(1)
 
+
+def stream_minecraft_console():
+    """Background thread to stream Minecraft console output via WebSocket."""
+    if not MINECRAFT_AVAILABLE:
+        return
+    
+    import time
+    last_line_count = 0
+    
+    while True:
+        try:
+            if minecraft_server.is_server_running():
+                # Get all console lines
+                lines = minecraft_server.get_console_output(1000)
+                
+                # Only send new lines
+                if len(lines) > last_line_count:
+                    new_lines = lines[last_line_count:]
+                    for line in new_lines:
+                        socketio.emit('minecraft_console', {'line': line}, namespace='/')
+                    last_line_count = len(lines)
+                else:
+                    last_line_count = len(lines)
+            else:
+                # Reset counter when server is not running
+                last_line_count = 0
+                    
+            time.sleep(0.5)  # Check twice per second for responsive console
+        except Exception as e:
+            logger.error(f"Error streaming Minecraft console: {e}")
+            time.sleep(2)
+
+
 @socketio.on('connect')
 def handle_connect():
     """Handles a new client connecting via WebSocket."""
     print("Client connected to WebSocket")
     emit('log_update', {'data': '--- Console stream connected ---\n'})
+
+@socketio.on('minecraft_console_connect')
+def handle_minecraft_console_connect():
+    """Handle Minecraft console stream connection."""
+    if not MINECRAFT_AVAILABLE:
+        emit('minecraft_console', {'error': 'Minecraft server module not available'})
+        return
+    
+    try:
+        # Send initial console output
+        lines = minecraft_server.get_console_output(50)
+        for line in lines:
+            emit('minecraft_console', {'line': line})
+    except Exception as e:
+        emit('minecraft_console', {'error': str(e)})
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """Handle client disconnection."""
+    print(f"[Web Dashboard] Client disconnected")
 
 @app.route('/')
 def index():
@@ -5640,6 +5693,12 @@ if __name__ == '__main__':
     log_thread = threading.Thread(target=follow_log_file, daemon=True)
     log_thread.start()
     print("[Web Dashboard] Log streaming thread started.")
+    
+    # Start Minecraft console streaming thread
+    if MINECRAFT_AVAILABLE:
+        mc_console_thread = threading.Thread(target=stream_minecraft_console, daemon=True)
+        mc_console_thread.start()
+        print("[Web Dashboard] Minecraft console streaming thread started.")
     
     # --- REFACTORED: Use SocketIO's built-in run method which works better with websockets ---
     # Note: host='0.0.0.0' allows access from network (required for Termux/Android access from other devices)
