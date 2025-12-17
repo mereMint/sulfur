@@ -171,6 +171,32 @@
             border-color: #4CAF50;
             background-color: rgba(76, 175, 80, 0.1);
         }
+        
+        /* Fix form label readability - ensure white/light text on dark backgrounds */
+        .form-label {
+            color: #eee !important;
+        }
+        
+        /* Ensure card body text is readable */
+        .card-body {
+            color: #eee;
+        }
+        
+        /* Fix select/input text color on dark backgrounds */
+        .form-select.bg-dark, 
+        .form-control.bg-dark {
+            color: #f8f9fa !important;
+        }
+        
+        /* Fix text-muted to be more visible */
+        .text-muted {
+            color: #a0a0a0 !important;
+        }
+        
+        /* Ensure h5, h6 headings are readable */
+        .card-body h5, .card-body h6 {
+            color: #fff;
+        }
     </style>
 </head>
 <body>
