@@ -532,7 +532,7 @@ async def download_file(url: str, dest_path: str, progress_callback: Callable = 
             # Fallback to urllib (sync) with progress callback support
             def _download():
                 start_time = time.time()
-                # Track last update time (will be captured by nested reporthook closure)
+                # Track last update time for throttling progress updates
                 last_update_time = 0.0
                 
                 def reporthook(block_num, block_size, total_size):
