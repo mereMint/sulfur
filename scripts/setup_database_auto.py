@@ -49,6 +49,27 @@ DB_NAME = os.environ.get("DB_NAME", "sulfur_bot")
 DB_USER = os.environ.get("DB_USER", "sulfur_bot_user")
 DB_HOST = os.environ.get("DB_HOST", "localhost")
 
+# MariaDB 10.4+ privilege bitmask constant
+# This grants: SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, RELOAD, SHUTDOWN,
+# PROCESS, FILE, REFERENCES, INDEX, ALTER, SHOW DATABASES, SUPER, CREATE TEMPORARY TABLES,
+# LOCK TABLES, EXECUTE, REPLICATION SLAVE, REPLICATION CLIENT, CREATE VIEW, SHOW VIEW,
+# CREATE ROUTINE, ALTER ROUTINE, CREATE USER, EVENT, TRIGGER
+MARIADB_ALL_PRIVILEGES_BITMASK = 1073741823
+
+# Validate database and user names to prevent SQL injection
+# Only allow alphanumeric characters and underscores
+def _validate_identifier(name: str, identifier_type: str) -> bool:
+    """Validate that an identifier contains only safe characters."""
+    import re
+    if not re.match(r'^[a-zA-Z0-9_]+$', name):
+        print_error(f"Invalid {identifier_type}: {name}")
+        print_error("Only alphanumeric characters and underscores are allowed.")
+        return False
+    if len(name) > 64:  # MySQL identifier max length
+        print_error(f"{identifier_type} too long (max 64 characters)")
+        return False
+    return True
+
 # Detect environment
 IS_TERMUX = os.path.exists("/data/data/com.termux")
 IS_WINDOWS = sys.platform == "win32"
@@ -191,6 +212,194 @@ def generate_secure_password(length: int = 48) -> str:
     """Generate a cryptographically secure password"""
     alphabet = string.ascii_letters + string.digits + "!@#$%^&*()-_=+"
     return ''.join(secrets.choice(alphabet) for _ in range(length))
+
+# ==============================================================================
+# Termux Skip-Grant-Tables Setup
+# ==============================================================================
+
+def setup_termux_with_skip_grant_tables() -> Tuple[bool, str]:
+    """
+    Set up MariaDB on Termux using skip-grant-tables mode.
+    
+    This approach:
+    1. Stops any running MariaDB instance
+    2. Starts MariaDB with --skip-grant-tables
+    3. Creates database and user via global_priv table
+    4. Restarts MariaDB normally
+    
+    Returns:
+        Tuple of (success, db_password or error message)
+    """
+    print_step("Using Termux skip-grant-tables approach...")
+    
+    # Validate DB_NAME and DB_USER before using them
+    if not _validate_identifier(DB_NAME, "database name"):
+        return False, f"Invalid database name: {DB_NAME}"
+    if not _validate_identifier(DB_USER, "username"):
+        return False, f"Invalid username: {DB_USER}"
+    
+    prefix = os.environ.get("PREFIX", "/data/data/com.termux/files/usr")
+    datadir = f"{prefix}/var/lib/mysql"
+    
+    # Generate password for bot user
+    db_password = generate_secure_password()
+    
+    try:
+        # Step 1: Stop any running MariaDB
+        print_info("Stopping any running MariaDB instance...")
+        subprocess.run(["pkill", "-9", "-f", "mariadbd"], 
+                      capture_output=True, check=False)
+        subprocess.run(["pkill", "-9", "-f", "mysqld"], 
+                      capture_output=True, check=False)
+        time.sleep(2)
+        
+        # Step 2: Initialize database if needed
+        if not os.path.exists(datadir) or not os.listdir(datadir):
+            print_info("Initializing MariaDB database...")
+            result = subprocess.run(["mysql_install_db"], 
+                                   capture_output=True, check=False)
+            if result.returncode != 0:
+                # Try mariadb-install-db
+                subprocess.run(["mariadb-install-db"], 
+                              capture_output=True, check=False)
+            time.sleep(2)
+        
+        # Step 3: Start MariaDB with skip-grant-tables
+        print_info("Starting MariaDB with skip-grant-tables...")
+        
+        # Find the correct daemon command
+        daemon_cmd = None
+        for cmd in ["mariadbd-safe", "mysqld_safe"]:
+            if shutil.which(cmd):
+                daemon_cmd = cmd
+                break
+        
+        if not daemon_cmd:
+            return False, "Could not find mariadbd-safe or mysqld_safe"
+        
+        # Start with skip-grant-tables
+        process = subprocess.Popen(
+            [daemon_cmd, "--skip-grant-tables", f"--datadir={datadir}"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        
+        # Wait for server to start
+        print_info("Waiting for server to start...")
+        for i in range(15):
+            time.sleep(1)
+            try:
+                # Try to connect without password
+                test_conn = mysql.connector.connect(
+                    host="localhost",
+                    user="root",
+                    password="",
+                    connection_timeout=2
+                )
+                test_conn.close()
+                print_success("MariaDB started with skip-grant-tables")
+                break
+            except MySQLError:
+                continue
+        else:
+            return False, "Failed to start MariaDB with skip-grant-tables"
+        
+        # Step 4: Set up database and user via global_priv
+        print_info("Setting up database and user...")
+        
+        conn = mysql.connector.connect(
+            host="localhost",
+            user="root",
+            password="",
+            charset='utf8mb4'
+        )
+        cursor = conn.cursor()
+        
+        # Create database (DB_NAME already validated)
+        cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{DB_NAME}` "
+                      f"CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
+        print_info(f"Database '{DB_NAME}' created")
+        
+        # Check what user management method to use
+        # MariaDB 10.4+ uses global_priv instead of mysql.user
+        cursor.execute("SHOW TABLES FROM mysql LIKE 'global_priv'")
+        uses_global_priv = cursor.fetchone() is not None
+        
+        if uses_global_priv:
+            # Use global_priv table (MariaDB 10.4+)
+            print_info("Using global_priv table (MariaDB 10.4+)...")
+            
+            # Use the defined constant for privileges
+            priv_json = f'{{"access":{MARIADB_ALL_PRIVILEGES_BITMASK}}}'
+            
+            # Use parameterized query for user insertion
+            # Note: MariaDB global_priv table requires specific column handling
+            cursor.execute("""
+                INSERT INTO mysql.global_priv (Host, User, Priv) 
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE Priv = VALUES(Priv)
+            """, ('localhost', DB_USER, priv_json))
+        else:
+            # Use traditional mysql.user table
+            print_info("Using mysql.user table (older MariaDB)...")
+            
+            # Drop existing user if exists
+            try:
+                cursor.execute(f"DROP USER IF EXISTS '{DB_USER}'@'localhost'")
+            except MySQLError:
+                pass
+            
+            # Create user (without password in skip-grant-tables mode)
+            cursor.execute(f"CREATE USER '{DB_USER}'@'localhost'")
+            cursor.execute(f"GRANT ALL PRIVILEGES ON `{DB_NAME}`.* TO '{DB_USER}'@'localhost'")
+        
+        cursor.execute("FLUSH PRIVILEGES")
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        print_success(f"User '{DB_USER}' created with full privileges")
+        
+        # Step 5: Restart MariaDB normally
+        print_info("Restarting MariaDB without skip-grant-tables...")
+        subprocess.run(["pkill", "-9", "-f", "mariadbd"], 
+                      capture_output=True, check=False)
+        subprocess.run(["pkill", "-9", "-f", "mysqld"], 
+                      capture_output=True, check=False)
+        time.sleep(2)
+        
+        # Start normally
+        process = subprocess.Popen(
+            [daemon_cmd, f"--datadir={datadir}"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        
+        # Wait for normal start
+        for i in range(15):
+            time.sleep(1)
+            try:
+                # Try to connect as the new user
+                test_conn = mysql.connector.connect(
+                    host="localhost",
+                    user=DB_USER,
+                    password="",  # Empty password in Termux
+                    database=DB_NAME,
+                    connection_timeout=2
+                )
+                test_conn.close()
+                print_success("MariaDB restarted successfully")
+                # Return empty password for Termux (no password auth)
+                return True, ""
+            except MySQLError:
+                continue
+        
+        return False, "Failed to restart MariaDB normally"
+        
+    except Exception as e:
+        print_error(f"Termux setup failed: {e}")
+        return False, str(e)
+
 
 # ==============================================================================
 # Database Setup
@@ -538,6 +747,7 @@ def main():
     print()
     print_step("Auto-detecting MySQL root credentials...")
     root_password = ""
+    use_skip_grant_tables = False
 
     # Try empty password first (most common in dev/termux)
     try:
@@ -566,14 +776,27 @@ def main():
             except MySQLError:
                 continue
         else:
-            # Couldn't auto-detect, ask user
-            print_warning("Could not auto-detect root password")
-            print_info("Enter MySQL root password (press Enter if no password):")
-            root_password = input("> ").strip()
+            # Couldn't auto-detect
+            if IS_TERMUX:
+                # On Termux, try skip-grant-tables approach
+                print_warning("Could not connect to MariaDB with root password")
+                print_info("Attempting Termux skip-grant-tables setup...")
+                use_skip_grant_tables = True
+            else:
+                # Ask user for password on other platforms
+                print_warning("Could not auto-detect root password")
+                print_info("Enter MySQL root password (press Enter if no password):")
+                root_password = input("> ").strip()
 
     # Step 4: Create database and user
     print()
-    success, db_password = create_database_and_user(root_password)
+    
+    if use_skip_grant_tables and IS_TERMUX:
+        # Use special Termux approach
+        success, db_password = setup_termux_with_skip_grant_tables()
+    else:
+        # Use standard approach
+        success, db_password = create_database_and_user(root_password)
     if not success:
         print_header("✗ Setup Failed")
         return 1

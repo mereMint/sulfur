@@ -1092,6 +1092,15 @@ def setup_env_file() -> bool:
     football_key = input(f"Football-Data.org API Key [{masked}]: ").strip()
     config['FOOTBALL_DATA_API_KEY'] = football_key if football_key else current
     
+    # CurseForge API Key (needed for modpack downloads)
+    print("\n--- Minecraft Server APIs ---")
+    print("CurseForge API Key is required to download CurseForge modpacks.")
+    print("Get one free at: https://console.curseforge.com/")
+    current = existing.get('CURSEFORGE_API_KEY', '')
+    masked = f"{current[:10]}..." if len(current) > 10 else "(not set)"
+    curseforge_key = input(f"CurseForge API Key [{masked}]: ").strip()
+    config['CURSEFORGE_API_KEY'] = curseforge_key if curseforge_key else current
+    
     # Write .env file
     try:
         with open(env_path, 'w') as f:
@@ -1113,7 +1122,10 @@ def setup_env_file() -> bool:
             
             f.write("# Optional APIs\n")
             f.write(f'LASTFM_API_KEY={config.get("LASTFM_API_KEY", "")}\n')
-            f.write(f'FOOTBALL_DATA_API_KEY={config.get("FOOTBALL_DATA_API_KEY", "")}\n')
+            f.write(f'FOOTBALL_DATA_API_KEY={config.get("FOOTBALL_DATA_API_KEY", "")}\n\n')
+            
+            f.write("# Minecraft Server APIs\n")
+            f.write(f'CURSEFORGE_API_KEY={config.get("CURSEFORGE_API_KEY", "")}\n')
         
         print_success("Configuration saved to .env")
         return True
@@ -1386,8 +1398,62 @@ def setup_minecraft_server(plat: str) -> bool:
     
     # Download server JAR
     if ask_yes_no("Download Minecraft server now?"):
-        print_step("This will be done when the bot starts or via the web dashboard.")
-        print_info("You can also run: python -c \"from modules import minecraft_server; ...\"")
+        print_step("Downloading Minecraft server...")
+        print_info(f"Server type: {server_type}, Version: {mc_version}")
+        
+        # Use asyncio to run the download
+        import asyncio
+        
+        async def do_download():
+            try:
+                # Import the minecraft_server module
+                from modules import minecraft_server
+                
+                def progress_callback(downloaded, total, speed, percent):
+                    if total > 0:
+                        mb_downloaded = downloaded / (1024 * 1024)
+                        mb_total = total / (1024 * 1024)
+                        print(f"\r  Downloading: {mb_downloaded:.1f}/{mb_total:.1f} MB ({percent:.0f}%)    ", end='', flush=True)
+                
+                success, result = await minecraft_server.download_server_jar(
+                    server_type=server_type,
+                    version=mc_version,
+                    progress_callback=progress_callback
+                )
+                
+                print()  # Newline after progress
+                
+                if success:
+                    print_success(f"Server downloaded to: {result}")
+                    
+                    # Accept EULA
+                    eula_path = os.path.join('minecraft_server', 'eula.txt')
+                    with open(eula_path, 'w') as f:
+                        f.write("# By changing the setting below to TRUE you agree to the Minecraft EULA\n")
+                        f.write("# https://account.mojang.com/documents/minecraft_eula\n")
+                        f.write("eula=true\n")
+                    print_success("Minecraft EULA accepted")
+                    return True
+                else:
+                    print_error(f"Download failed: {result}")
+                    return False
+                    
+            except ImportError as e:
+                print_error(f"Could not import minecraft_server module: {e}")
+                print_info("Make sure all dependencies are installed: pip install -r requirements.txt")
+                return False
+            except Exception as e:
+                print_error(f"Download error: {e}")
+                return False
+        
+        # Run the async download
+        try:
+            # In setup wizard context, we're not in an async environment
+            # Use asyncio.run() which creates a new event loop
+            asyncio.run(do_download())
+        except Exception as e:
+            print_error(f"Failed to download server: {e}")
+            print_info("You can download manually via the web dashboard or when the bot starts.")
     
     print_success("Minecraft server configured")
     return True
@@ -1619,19 +1685,60 @@ ListenPort = {listen_port}
                 print_info("Start manually with: sudo wg-quick up wg0")
     
     elif plat == 'termux':
-        # Termux-specific: VPN server runs on device, clients connect via WireGuard Android app
-        print_step("Configuring for Termux (non-rooted mode)...")
+        # Termux-specific: Export configuration for WireGuard Android app
+        print_step("Configuring for Termux + WireGuard Android App...")
         print()
-        print_info("📱 VPN on Termux (Non-Rooted Android):")
-        print("   Since Termux doesn't have root access, the VPN server configuration")
-        print("   has been saved for use with external VPN tools.")
+        
+        # Create export directory for Android (try multiple paths for different Android versions)
+        export_success = False
+        export_paths_tried = []
+        
+        # List of possible Android storage paths (ordered by preference)
+        android_paths = [
+            '/storage/emulated/0/Download/SulfurVPN',  # Standard Android path
+            os.path.expanduser('~/storage/downloads/SulfurVPN'),  # Termux shared storage
+            os.path.expandvars('$HOME/storage/downloads/SulfurVPN'),  # Alternative
+            'config/wireguard/export'  # Fallback to local config
+        ]
+        
+        for export_dir in android_paths:
+            try:
+                os.makedirs(export_dir, exist_ok=True)
+                export_path = os.path.join(export_dir, 'wg0.conf')
+                shutil.copy(server_conf_path, export_path)
+                os.chmod(export_path, 0o644)
+                print_success(f"VPN config exported to: {export_path}")
+                export_success = True
+                break
+            except Exception as e:
+                export_paths_tried.append(f"{export_dir}: {e}")
+                continue
+        
+        if not export_success:
+            print_warning("Could not export to Android storage:")
+            for path_error in export_paths_tried[:2]:  # Show first 2 errors
+                print(f"     {path_error}")
+            print_info("You can manually copy config/wireguard/wg0.conf to your Downloads folder")
+            print_info("Or run: termux-setup-storage to enable shared storage access")
+        
         print()
-        print_info("   For connecting OTHER devices to this server:")
-        print("   1. Install WireGuard app on the device you want to connect")
-        print("   2. Use /vpn addclient <device_name> in Discord")
-        print("   3. Scan the QR code or import the config file")
+        print_info("📱 Using WireGuard with the Official Android App:")
         print()
-        print_info("   Config saved to: config/wireguard/")
+        print("   OPTION 1: Import from File (Recommended)")
+        print("   ─────────────────────────────────────────")
+        print("   1. Install WireGuard from Play Store or F-Droid")
+        print("   2. Open WireGuard app → Tap '+' button")
+        print("   3. Select 'Import from file or archive'")
+        print("   4. Navigate to Downloads/SulfurVPN/wg0.conf")
+        print("   5. Tap the toggle to connect!")
+        print()
+        print("   OPTION 2: Scan QR Code (for other devices)")
+        print("   ──────────────────────────────────────────")
+        print("   1. Use /vpn addclient <device_name> in Discord")
+        print("   2. The bot will generate a QR code")
+        print("   3. Scan with WireGuard app on the target device")
+        print()
+        print_info("   ℹ️  Config files are saved to: Downloads/SulfurVPN/")
         print()
         
         # Export info file for easy reference
@@ -1643,10 +1750,11 @@ ListenPort = {listen_port}
                 f.write(f"Port: {listen_port} (UDP)\n")
                 f.write(f"Public Key: {public_key}\n")
                 f.write(f"\nSetup Date: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write("\n--- How to Connect Devices ---\n")
-                f.write("1. Use /vpn addclient <device_name> in Discord\n")
-                f.write("2. Scan the QR code with WireGuard app\n")
-                f.write("   OR import the config file from Downloads/SulfurVPN/\n")
+                f.write("\n--- Using with WireGuard Android App ---\n")
+                f.write("1. Open WireGuard app on your device\n")
+                f.write("2. Tap '+' then 'Import from file or archive'\n")
+                f.write("3. Go to Downloads/SulfurVPN/ and select the config file\n")
+                f.write("4. Tap the toggle to connect!\n")
                 f.write("\n--- For Remote Access ---\n")
                 f.write(f"Forward UDP port {listen_port} on your router to {local_ip}\n")
             os.chmod(info_file, 0o644)  # Readable by user, not sensitive data
@@ -1687,24 +1795,33 @@ def setup_wireguard_vpn(plat: str) -> bool:
         is_rooted = os.path.exists('/system/xbin/su') or os.path.exists('/system/bin/su')
         
         if not is_rooted:
-            print_warning("⚠️  VPN SERVER NOT AVAILABLE ON NON-ROOTED ANDROID")
+            print_info("📱 VPN on Non-Rooted Android (Termux)")
             print()
-            print("Termux on non-rooted Android CANNOT run a VPN server because:")
-            print("  • No access to kernel networking")
-            print("  • Cannot create TUN/TAP interfaces")
-            print("  • Cannot modify routing tables")
-            print("  • Cannot bind to privileged ports")
+            print("For VPN on non-rooted Android, you have two options:")
             print()
-            print("VPN server requires:")
-            print("  • Rooted Android device, OR")
-            print("  • Linux desktop/server, OR")
-            print("  • Raspberry Pi")
+            print("  OPTION 1: Use WireGuard Android App (Recommended)")
+            print("  ─────────────────────────────────────────────────")
+            print("  Install WireGuard from Play Store or F-Droid.")
+            print("  The setup will generate configs that you can import into the app.")
+            print("  This allows your Android device to connect to VPN servers.")
             print()
-            if not ask_yes_no("Skip VPN setup?", default=True):
-                print_info("Continuing anyway (you can set up VPN client to connect to external server)")
-            else:
+            print("  OPTION 2: Run VPN Server on Another Device")
+            print("  ───────────────────────────────────────────")
+            print("  Run the bot on a Linux server or Raspberry Pi to host the VPN.")
+            print("  Then connect your Android device using the WireGuard app.")
+            print()
+            
+            vpn_options = [
+                "Generate VPN configs for WireGuard Android app",
+                "Skip VPN setup for now"
+            ]
+            vpn_choice = ask_choice("Select VPN setup mode:", vpn_options, default=0)
+            
+            if vpn_choice == 1:
                 print_info("VPN setup skipped")
                 return True
+            else:
+                print_info("Continuing with VPN config generation for WireGuard Android app...")
     
     # Check WireGuard
     wg_ok, wg_msg = check_wireguard()
