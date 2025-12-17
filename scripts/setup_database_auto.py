@@ -507,20 +507,21 @@ def save_config(password: str) -> bool:
         # Track which variables were updated
         updated_vars = set()
         
-        # Update existing lines
+        # Update existing lines in a single pass
         for i, line in enumerate(env_lines):
             stripped = line.strip()
             # Skip comments and empty lines
             if not stripped or stripped.startswith('#'):
                 continue
             
-            # Check if this line sets a DB variable
-            for var_name in db_vars:
-                if stripped.startswith(f"{var_name}="):
+            # Check if this line sets a DB variable using startswith check
+            # Split on first '=' to get variable name
+            if '=' in stripped:
+                var_name = stripped.split('=', 1)[0]
+                if var_name in db_vars:
                     # Update this line
                     env_lines[i] = f'{var_name}={db_vars[var_name]}\n'
                     updated_vars.add(var_name)
-                    break
         
         # Add any variables that weren't in the file
         for var_name, var_value in db_vars.items():

@@ -284,3 +284,4 @@ docs/.doctrees/
 !docs/**
 !README.md
 !*.md
+test_database_setup.py

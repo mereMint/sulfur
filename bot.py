@@ -159,34 +159,39 @@ FOOTBALL_DATA_API_KEY = os.environ.get("FOOTBALL_DATA_API_KEY")  # Football-Data
 # --- NEW: Database Configuration ---
 # Priority: 1) database.json (created by setup wizard), 2) environment variables
 # IMPORTANT: We strip and use defaults if empty to handle both missing and empty env vars
-import json as _json
-from pathlib import Path as _Path
 
-_db_config_file = _Path("config/database.json")
-if _db_config_file.exists():
-    # Load from database.json (setup wizard configuration)
-    try:
-        with open(_db_config_file, 'r') as _f:
-            _db_config = _json.load(_f)
-        DB_HOST = _db_config.get("host", "localhost")
-        DB_USER = _db_config.get("user", "sulfur_bot_user")
-        DB_PASS = _db_config.get("password", "")
-        DB_NAME = _db_config.get("database", "sulfur_bot")
-        logger.info("Database configuration loaded from config/database.json")
-    except Exception as _e:
-        logger.warning(f"Failed to load database.json: {_e}, falling back to environment variables")
-        # Fall back to environment variables
-        DB_HOST = os.environ.get("DB_HOST", "localhost").strip() or "localhost"
-        DB_USER = os.environ.get("DB_USER", "sulfur_bot_user").strip() or "sulfur_bot_user"
-        DB_PASS = os.environ.get("DB_PASS", "").strip()  # Empty password is OK
-        DB_NAME = os.environ.get("DB_NAME", "sulfur_bot").strip() or "sulfur_bot"
-else:
+def _load_database_config():
+    """Load database configuration from database.json or .env"""
+    import json
+    from pathlib import Path
+    
+    db_config_file = Path("config/database.json")
+    if db_config_file.exists():
+        # Load from database.json (setup wizard configuration)
+        try:
+            with open(db_config_file, 'r') as f:
+                db_config = json.load(f)
+            logger.info("Database configuration loaded from config/database.json")
+            return (
+                db_config.get("host", "localhost"),
+                db_config.get("user", "sulfur_bot_user"),
+                db_config.get("password", ""),
+                db_config.get("database", "sulfur_bot")
+            )
+        except Exception as e:
+            logger.warning(f"Failed to load database.json: {e}, falling back to environment variables")
+    
     # Load from environment variables (.env file)
-    DB_HOST = os.environ.get("DB_HOST", "localhost").strip() or "localhost"
-    DB_USER = os.environ.get("DB_USER", "sulfur_bot_user").strip() or "sulfur_bot_user"
-    DB_PASS = os.environ.get("DB_PASS", "").strip()  # Empty password is OK
-    DB_NAME = os.environ.get("DB_NAME", "sulfur_bot").strip() or "sulfur_bot"
     logger.info("Database configuration loaded from environment variables (.env)")
+    return (
+        os.environ.get("DB_HOST", "localhost").strip() or "localhost",
+        os.environ.get("DB_USER", "sulfur_bot_user").strip() or "sulfur_bot_user",
+        os.environ.get("DB_PASS", "").strip(),
+        os.environ.get("DB_NAME", "sulfur_bot").strip() or "sulfur_bot"
+    )
+
+DB_HOST, DB_USER, DB_PASS, DB_NAME = _load_database_config()
+del _load_database_config  # Clean up namespace
 
 
 # Validate database credentials - prevent connection with empty username/database
