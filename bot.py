@@ -1046,6 +1046,17 @@ def parse_spotify_minutes_json(spotify_minutes_data) -> dict:
 @client.event
 async def on_ready():
     """Fires when the bot logs in."""
+    # --- NEW: Sync all guild members to database on startup ---
+    print("Syncing guild members to database...")
+    total_new = 0
+    total_updated = 0
+    for guild in client.guilds:
+        members_data = [(member.id, member.display_name) for member in guild.members if not member.bot]
+        new_count, updated_count = await db_helpers.sync_guild_members(members_data)
+        total_new += new_count
+        total_updated += updated_count
+    print(f"  -> Guild member sync complete: {total_new} new, {total_updated} updated profiles.")
+
     # --- NEW: Scan for existing Spotify sessions on startup ---
     print("Scanning for active Spotify sessions on startup...")
     initial_spotify_logs = 0

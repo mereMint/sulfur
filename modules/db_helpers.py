@@ -2192,6 +2192,68 @@ async def update_user_presence(user_id, display_name, status, activity_name):
         cursor.close()
         cnx.close()
 
+
+async def sync_guild_members(members_data: list):
+    """
+    Bulk sync Discord guild members to the players table.
+    Creates entries for new members, updates display names for existing ones.
+
+    Args:
+        members_data: List of tuples (discord_id, display_name)
+
+    Returns:
+        Tuple of (new_members_count, updated_members_count)
+    """
+    if not db_pool:
+        logger.warning("Database pool not available, cannot sync guild members")
+        return 0, 0
+
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return 0, 0
+
+    cursor = cnx.cursor()
+    new_count = 0
+    updated_count = 0
+
+    try:
+        # Use batch insert with ON DUPLICATE KEY UPDATE for efficiency
+        for discord_id, display_name in members_data:
+            try:
+                # Check if user exists first to count new vs updated
+                cursor.execute("SELECT discord_id FROM players WHERE discord_id = %s", (discord_id,))
+                existing = cursor.fetchone()
+
+                # Insert or update the player
+                cursor.execute("""
+                    INSERT INTO players (discord_id, display_name, last_seen)
+                    VALUES (%s, %s, CURRENT_TIMESTAMP)
+                    ON DUPLICATE KEY UPDATE
+                        display_name = VALUES(display_name)
+                """, (discord_id, display_name))
+
+                if existing:
+                    updated_count += 1
+                else:
+                    new_count += 1
+
+            except Exception as e:
+                logger.debug(f"Error syncing member {discord_id}: {e}")
+                continue
+
+        cnx.commit()
+        logger.info(f"Guild member sync complete: {new_count} new, {updated_count} updated")
+
+    except Exception as e:
+        logger.error(f"Error during guild member sync: {e}")
+        cnx.rollback()
+    finally:
+        cursor.close()
+        cnx.close()
+
+    return new_count, updated_count
+
+
 @db_operation("add_balance")
 async def add_balance(user_id, display_name, amount_to_add, config, stat_period=None):
     """Adds an amount to a user's balance, creating the user if they don't exist."""
