@@ -1689,17 +1689,37 @@ ListenPort = {listen_port}
         print_step("Configuring for Termux + WireGuard Android App...")
         print()
         
-        # Create export directory for Android
-        export_dir = '/storage/emulated/0/Download/SulfurVPN'
-        try:
-            os.makedirs(export_dir, exist_ok=True)
-            export_path = os.path.join(export_dir, 'wg0.conf')
-            shutil.copy(server_conf_path, export_path)
-            os.chmod(export_path, 0o644)
-            print_success(f"VPN config exported to: {export_path}")
-        except Exception as e:
-            print_warning(f"Could not export to Downloads: {e}")
+        # Create export directory for Android (try multiple paths for different Android versions)
+        export_success = False
+        export_paths_tried = []
+        
+        # List of possible Android storage paths (ordered by preference)
+        android_paths = [
+            '/storage/emulated/0/Download/SulfurVPN',  # Standard Android path
+            os.path.expanduser('~/storage/downloads/SulfurVPN'),  # Termux shared storage
+            os.path.expandvars('$HOME/storage/downloads/SulfurVPN'),  # Alternative
+            'config/wireguard/export'  # Fallback to local config
+        ]
+        
+        for export_dir in android_paths:
+            try:
+                os.makedirs(export_dir, exist_ok=True)
+                export_path = os.path.join(export_dir, 'wg0.conf')
+                shutil.copy(server_conf_path, export_path)
+                os.chmod(export_path, 0o644)
+                print_success(f"VPN config exported to: {export_path}")
+                export_success = True
+                break
+            except Exception as e:
+                export_paths_tried.append(f"{export_dir}: {e}")
+                continue
+        
+        if not export_success:
+            print_warning("Could not export to Android storage:")
+            for path_error in export_paths_tried[:2]:  # Show first 2 errors
+                print(f"     {path_error}")
             print_info("You can manually copy config/wireguard/wg0.conf to your Downloads folder")
+            print_info("Or run: termux-setup-storage to enable shared storage access")
         
         print()
         print_info("📱 Using WireGuard with the Official Android App:")
