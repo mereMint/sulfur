@@ -49,6 +49,13 @@
     "provider": "openai",
     "timeout": 30,
     "vision_model": "gemini-2.0-flash-exp",
+    "emoji_analysis": {
+      "model": "gemini-2.0-flash-exp",
+      "max_output_tokens": 100,
+      "temperature": 0.3,
+      "batch_size": 5,
+      "delay_between_calls": 2
+    },
     "gemini": {
       "model": "gemini-2.5-flash",
       "utility_model": "gemini-2.5-flash",

@@ -1231,23 +1231,30 @@ async def get_ai_response_with_model(prompt, model_name, config, gemini_key, ope
 
 async def get_emoji_description(emoji_name, emoji_url, config, gemini_key, openai_key):
     """
-    Generates a description and usage context for an emoji using vision AI.
+    Generates a MINIMAL description for an emoji using vision AI.
+    
+    OPTIMIZATION: Uses the cheapest model and minimal tokens to reduce API costs.
+    - Uses gemini-2.5-flash-lite (cheapest Gemini model) by default
+    - Concise prompt to minimize input tokens
+    - Short output format to minimize output tokens
     """
-    prompt = f"""Analyze this emoji named "{emoji_name}".
+    # Use ultra-short prompt to minimize token usage
+    prompt = f"""Emoji "{emoji_name}": Describe in 10 words or less. Return JSON: {{"description":"...","usage":"..."}}"""
     
-Provide:
-1. A brief description of what the emoji depicts (1-2 sentences)
-2. When and how this emoji should be used in conversation (2-3 examples)
-3. The emotional tone or context it conveys
-
-Format your response as JSON:
-{{
-    "description": "...",
-    "usage_context": "...",
-    "emotional_tone": "..."
-}}"""
+    # Override config to use the cheapest model for emoji analysis
+    emoji_config = config.copy()
+    if 'api' in emoji_config:
+        emoji_config['api'] = config['api'].copy()
+        # Use cheapest vision-capable model
+        emoji_config['api']['vision_model'] = 'gemini-2.0-flash-exp'  # Fast and cheap
+        if 'gemini' in emoji_config['api']:
+            emoji_config['api']['gemini'] = config['api']['gemini'].copy()
+            emoji_config['api']['gemini']['generation_config'] = {
+                'temperature': 0.3,  # Lower temp for consistent output
+                'maxOutputTokens': 100  # Minimal output tokens
+            }
     
-    response, error = await get_vision_analysis(emoji_url, prompt, config, gemini_key, openai_key)
+    response, error = await get_vision_analysis(emoji_url, prompt, emoji_config, gemini_key, openai_key)
     
     if error:
         return None, error
@@ -1256,7 +1263,16 @@ Format your response as JSON:
         # Try to parse the JSON response
         import json
         data = json.loads(response)
-        return data, None
+        # Map to expected format
+        return {
+            "description": data.get("description", "Custom emoji"),
+            "usage_context": data.get("usage", "General use"),
+            "emotional_tone": "Neutral"
+        }, None
     except json.JSONDecodeError:
-        # If not valid JSON, return the raw response
-        return {"description": response, "usage_context": "General use", "emotional_tone": "Neutral"}, None
+        # If not valid JSON, return the raw response (truncated)
+        return {
+            "description": response[:50] if response else "Custom emoji", 
+            "usage_context": "General use", 
+            "emotional_tone": "Neutral"
+        }, None
