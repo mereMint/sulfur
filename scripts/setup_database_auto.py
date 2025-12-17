@@ -329,8 +329,9 @@ def setup_termux_with_skip_grant_tables() -> Tuple[bool, str]:
             # Use global_priv table (MariaDB 10.4+)
             print_info("Using global_priv table (MariaDB 10.4+)...")
             
-            # Use the defined constant for privileges
-            priv_json = f'{{"access":{MARIADB_ALL_PRIVILEGES_BITMASK}}}'
+            # For Termux, use mysql_native_password with empty password
+            # This allows the bot to connect without a password while still being secure (localhost only)
+            priv_json = f'{{"access":{MARIADB_ALL_PRIVILEGES_BITMASK},"plugin":"mysql_native_password","authentication_string":""}}'
             
             # Use parameterized query for user insertion
             # Note: MariaDB global_priv table requires specific column handling
