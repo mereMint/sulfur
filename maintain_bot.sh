@@ -421,8 +421,23 @@ release_db_lock() {
 
 # Check if the database process (mysqld/mariadbd) is running
 is_database_process_running() {
+    # Check by exact process name first
     if pgrep -x mysqld > /dev/null 2>&1 || pgrep -x mariadbd > /dev/null 2>&1; then
         return 0
+    fi
+    # Also check by partial match (catches mariadbd, mysqld variants)
+    if pgrep -f "mariadbd" > /dev/null 2>&1 || pgrep -f "mysqld" > /dev/null 2>&1; then
+        return 0
+    fi
+    # Check if port 3306 is in use (most reliable method)
+    if command -v ss > /dev/null 2>&1; then
+        if ss -tlnp 2>/dev/null | grep -q ":3306 "; then
+            return 0
+        fi
+    elif command -v netstat > /dev/null 2>&1; then
+        if netstat -tlnp 2>/dev/null | grep -q ":3306 "; then
+            return 0
+        fi
     fi
     return 1
 }
@@ -591,6 +606,37 @@ start_database_server() {
                 release_db_lock
                 return 1
             }
+        fi
+
+        # TERMUX FIX: Check if port 3306 is in use but database check failed
+        # This catches zombie processes that hold the port
+        local port_in_use=false
+        if command -v ss > /dev/null 2>&1; then
+            if ss -tlnp 2>/dev/null | grep -q ":3306 "; then
+                port_in_use=true
+            fi
+        fi
+
+        if [ "$port_in_use" = true ]; then
+            log_warning "Port 3306 is in use but database check failed - zombie process detected"
+            log_info "Killing zombie MariaDB/MySQL processes..."
+
+            # Kill all mariadbd/mysqld processes
+            pkill -9 -f "mariadbd" 2>/dev/null || true
+            pkill -9 -f "mysqld" 2>/dev/null || true
+
+            # Wait for port to be released
+            sleep 3
+
+            # Verify port is now free
+            if command -v ss > /dev/null 2>&1; then
+                if ss -tlnp 2>/dev/null | grep -q ":3306 "; then
+                    log_warning "Port 3306 still in use after killing processes, waiting longer..."
+                    sleep 5
+                else
+                    log_success "Port 3306 is now free"
+                fi
+            fi
         fi
 
         # TERMUX FIX: Clean up stale socket file that can prevent startup

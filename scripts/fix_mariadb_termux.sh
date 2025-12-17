@@ -35,8 +35,31 @@ if ! command -v mariadbd &> /dev/null && ! command -v mariadbd-safe &> /dev/null
 fi
 echo -e "${GREEN}[OK]${NC} MariaDB is installed"
 
+# Function to check if database is running (multiple methods)
+is_db_running() {
+    # Check by process name
+    if pgrep -x mariadbd > /dev/null 2>&1 || pgrep -x mysqld > /dev/null 2>&1; then
+        return 0
+    fi
+    # Check by partial match
+    if pgrep -f "mariadbd" > /dev/null 2>&1 || pgrep -f "mysqld" > /dev/null 2>&1; then
+        return 0
+    fi
+    # Check if port 3306 is in use
+    if command -v ss > /dev/null 2>&1; then
+        if ss -tlnp 2>/dev/null | grep -q ":3306 "; then
+            return 0
+        fi
+    elif command -v netstat > /dev/null 2>&1; then
+        if netstat -tlnp 2>/dev/null | grep -q ":3306 "; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
 # Check if database is currently running
-if pgrep -x mariadbd > /dev/null 2>&1 || pgrep -x mysqld > /dev/null 2>&1; then
+if is_db_running; then
     echo -e "${GREEN}[OK]${NC} MariaDB is already running!"
     echo ""
     echo -e "${CYAN}Testing connection...${NC}"
@@ -45,7 +68,38 @@ if pgrep -x mariadbd > /dev/null 2>&1 || pgrep -x mysqld > /dev/null 2>&1; then
         exit 0
     else
         echo -e "${YELLOW}[WARN]${NC} Database running but not responding. May need more time."
-        exit 0
+        echo -e "${CYAN}Waiting 5 more seconds...${NC}"
+        sleep 5
+        if mariadb -u root -e "SELECT 1;" &>/dev/null; then
+            echo -e "${GREEN}[OK]${NC} Database is now accessible"
+            exit 0
+        else
+            echo -e "${YELLOW}[WARN]${NC} Database still not responding."
+            echo -e "${YELLOW}[INFO]${NC} Port 3306 may be held by a zombie process."
+            echo ""
+            echo -e "${CYAN}Showing processes on port 3306:${NC}"
+            if command -v ss > /dev/null 2>&1; then
+                ss -tlnp 2>/dev/null | grep ":3306 " | sed 's/^/  /'
+            fi
+            if command -v lsof > /dev/null 2>&1; then
+                lsof -i :3306 2>/dev/null | sed 's/^/  /'
+            fi
+            echo ""
+            echo -e "${YELLOW}[FIX]${NC} Try killing all MariaDB processes:"
+            echo "  pkill -9 -f mariadbd"
+            echo "  pkill -9 -f mysqld"
+            echo ""
+            read -p "Kill all MariaDB processes now? (y/N) " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                pkill -9 -f mariadbd 2>/dev/null || true
+                pkill -9 -f mysqld 2>/dev/null || true
+                sleep 2
+                echo -e "${GREEN}[OK]${NC} Processes killed. Continuing with startup..."
+            else
+                exit 1
+            fi
+        fi
     fi
 fi
 
@@ -157,6 +211,55 @@ if [ -f "$ERR_LOG" ]; then
     echo "----------------------------------------"
 else
     echo -e "${YELLOW}[INFO]${NC} No error log found (first run?)"
+fi
+
+# Check if port 3306 is in use (zombie process)
+echo ""
+echo -e "${CYAN}Checking if port 3306 is already in use...${NC}"
+PORT_IN_USE=false
+if command -v ss > /dev/null 2>&1; then
+    if ss -tlnp 2>/dev/null | grep -q ":3306 "; then
+        PORT_IN_USE=true
+    fi
+elif command -v netstat > /dev/null 2>&1; then
+    if netstat -tlnp 2>/dev/null | grep -q ":3306 "; then
+        PORT_IN_USE=true
+    fi
+fi
+
+if [ "$PORT_IN_USE" = true ]; then
+    echo -e "${RED}[ERROR]${NC} Port 3306 is already in use!"
+    echo -e "${YELLOW}[INFO]${NC} This is likely a zombie MariaDB process."
+    echo ""
+    echo -e "${CYAN}Finding processes using port 3306...${NC}"
+
+    # Try to find the process
+    if command -v ss > /dev/null 2>&1; then
+        ss -tlnp 2>/dev/null | grep ":3306 " | sed 's/^/  /'
+    fi
+
+    # Get PIDs of mariadbd/mysqld processes
+    MARIA_PIDS=$(pgrep -f "mariadbd" 2>/dev/null || true)
+    MYSQL_PIDS=$(pgrep -f "mysqld" 2>/dev/null || true)
+    ALL_PIDS="$MARIA_PIDS $MYSQL_PIDS"
+    ALL_PIDS=$(echo "$ALL_PIDS" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+
+    if [ -n "$ALL_PIDS" ] && [ "$ALL_PIDS" != " " ]; then
+        echo -e "${YELLOW}[INFO]${NC} Found MariaDB/MySQL PIDs: $ALL_PIDS"
+        echo -e "${YELLOW}[FIX]${NC} Killing zombie processes..."
+        for pid in $ALL_PIDS; do
+            if [ -n "$pid" ]; then
+                echo "  Killing PID $pid..."
+                kill -9 "$pid" 2>/dev/null || true
+            fi
+        done
+        sleep 3
+        echo -e "${GREEN}[OK]${NC} Zombie processes killed"
+    else
+        echo -e "${YELLOW}[WARN]${NC} Could not find process holding port 3306"
+        echo -e "${YELLOW}[INFO]${NC} Port may be in TIME_WAIT state, waiting 5 seconds..."
+        sleep 5
+    fi
 fi
 
 # Attempt to start MariaDB
