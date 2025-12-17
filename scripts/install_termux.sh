@@ -122,14 +122,37 @@ install_database() {
     fi
     
     # Check if MariaDB is running
-    if ! pgrep -x "mariadbd" > /dev/null; then
+    if ! pgrep -x "mariadbd" > /dev/null && ! pgrep -x "mysqld" > /dev/null; then
         echo -e "${YELLOW}Starting MariaDB...${NC}"
-        mysqld_safe &
-        sleep 3
+        
+        # Try different startup methods
+        PREFIX=${PREFIX:-/data/data/com.termux/files/usr}
+        DATADIR="$PREFIX/var/lib/mysql"
+        
+        if command -v mariadbd-safe &> /dev/null; then
+            mariadbd-safe --datadir="$DATADIR" &
+        elif command -v mysqld_safe &> /dev/null; then
+            mysqld_safe --datadir="$DATADIR" &
+        fi
+        
+        # Wait for server to start
+        echo -e "${CYAN}Waiting for MariaDB to start...${NC}"
+        for i in {1..15}; do
+            if mysql -u root -e "SELECT 1" &>/dev/null; then
+                break
+            fi
+            sleep 1
+        done
     fi
     
-    echo -e "${GREEN}✅ MariaDB is running${NC}"
-    echo -e "${CYAN}Note: Start MariaDB after reboot with: mysqld_safe &${NC}"
+    # Verify connection
+    if mysql -u root -e "SELECT 1" &>/dev/null; then
+        echo -e "${GREEN}✅ MariaDB is running and accessible${NC}"
+    else
+        echo -e "${YELLOW}⚠️  MariaDB may not be fully ready. Will configure during setup.${NC}"
+    fi
+    
+    echo -e "${CYAN}Note: Start MariaDB after reboot with: mariadbd-safe &${NC}"
 }
 
 # Install Java (for Minecraft server)

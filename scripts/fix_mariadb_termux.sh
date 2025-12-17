@@ -346,8 +346,61 @@ fi
 
 # If we get here, normal start failed - try recovery mode
 echo ""
-echo -e "${YELLOW}[INFO]${NC} Normal start failed. Trying InnoDB recovery mode..."
+echo -e "${YELLOW}[INFO]${NC} Normal start failed. Trying skip-grant-tables mode for user setup..."
 
+if command -v mariadbd-safe &> /dev/null; then
+    echo -e "${YELLOW}[INFO]${NC} Starting with --skip-grant-tables..."
+    mariadbd-safe --datadir="$DATADIR" --skip-grant-tables &
+
+    sleep 10
+
+    if pgrep -x mariadbd > /dev/null 2>&1; then
+        echo -e "${GREEN}[OK]${NC} MariaDB started in skip-grant-tables mode!"
+        
+        # Set up database and user via global_priv (MariaDB 10.4+)
+        echo -e "${CYAN}Setting up database and user...${NC}"
+        
+        # Check for global_priv table (MariaDB 10.4+)
+        if mariadb mysql -e "SELECT 1 FROM global_priv LIMIT 1;" &>/dev/null; then
+            # Use global_priv table
+            echo -e "${YELLOW}[INFO]${NC} Using global_priv table (MariaDB 10.4+)..."
+            mariadb mysql -e "INSERT INTO global_priv (Host, User, Priv) VALUES ('localhost', 'sulfur_bot_user', '{\"access\":1073741823}') ON DUPLICATE KEY UPDATE Priv='{\"access\":1073741823}';" || true
+        fi
+        
+        # Create database
+        mariadb -e "CREATE DATABASE IF NOT EXISTS sulfur_bot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" || true
+        
+        # Try standard GRANT (may work after skip-grant-tables)
+        mariadb -e "CREATE USER IF NOT EXISTS 'sulfur_bot_user'@'localhost';" || true
+        mariadb -e "GRANT ALL PRIVILEGES ON sulfur_bot.* TO 'sulfur_bot_user'@'localhost';" || true
+        mariadb -e "FLUSH PRIVILEGES;" || true
+        
+        echo -e "${GREEN}[OK]${NC} Database and user configured!"
+        
+        # Restart normally
+        echo -e "${CYAN}Restarting MariaDB normally...${NC}"
+        pkill -9 mariadbd 2>/dev/null || true
+        sleep 3
+        
+        mariadbd-safe --datadir="$DATADIR" &
+        sleep 5
+        
+        if mariadb -u sulfur_bot_user -e "USE sulfur_bot; SELECT 1;" &>/dev/null; then
+            echo -e "${GREEN}[SUCCESS]${NC} MariaDB is now running normally!"
+            echo -e "${CYAN}User 'sulfur_bot_user' can access the 'sulfur_bot' database.${NC}"
+            echo ""
+            echo -e "${CYAN}You can now run: python scripts/setup_database_auto.py${NC}"
+            exit 0
+        else
+            echo -e "${YELLOW}[WARN]${NC} User setup may need additional configuration."
+            echo -e "${CYAN}Try running: python scripts/setup_database_auto.py${NC}"
+        fi
+    else
+        echo -e "${YELLOW}[INFO]${NC} Skip-grant-tables mode failed. Trying InnoDB recovery..."
+    fi
+fi
+
+# Try InnoDB recovery mode as last resort
 if command -v mariadbd-safe &> /dev/null; then
     echo -e "${YELLOW}[INFO]${NC} Starting with --innodb-force-recovery=1..."
     mariadbd-safe --datadir="$DATADIR" --innodb-force-recovery=1 &
