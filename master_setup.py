@@ -1448,16 +1448,9 @@ def setup_minecraft_server(plat: str) -> bool:
         
         # Run the async download
         try:
-            # Check if there's already an event loop
-            try:
-                loop = asyncio.get_running_loop()
-                # We're already in an async context, use nest_asyncio or run directly
-                import nest_asyncio
-                nest_asyncio.apply()
-                asyncio.run(do_download())
-            except RuntimeError:
-                # No event loop running, safe to use asyncio.run
-                asyncio.run(do_download())
+            # In setup wizard context, we're not in an async environment
+            # Use asyncio.run() which creates a new event loop
+            asyncio.run(do_download())
         except Exception as e:
             print_error(f"Failed to download server: {e}")
             print_info("You can download manually via the web dashboard or when the bot starts.")

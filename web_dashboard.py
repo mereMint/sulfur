@@ -5644,10 +5644,19 @@ if __name__ == '__main__':
     # --- REFACTORED: Use SocketIO's built-in run method which works better with websockets ---
     # Note: host='0.0.0.0' allows access from network (required for Termux/Android access from other devices)
     print("[Web Dashboard] --- Starting Sulfur Bot Web Dashboard ---")
-    print("[Web Dashboard] --- Access it at http://localhost:5000 ---")
-    print("[Web Dashboard] --- Or from network: http://YOUR_IP:5000 ---")
     
+    # Detect local IP for display
     import socket
+    local_ip = None
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+    except Exception:
+        local_ip = "localhost"
+    
+    print(f"[Web Dashboard] --- Access it at http://localhost:5000 ---")
+    print(f"[Web Dashboard] --- Or from network: http://{local_ip}:5000 ---")
     
     def find_process_on_port(port):
         """Try to identify which process is using a port."""

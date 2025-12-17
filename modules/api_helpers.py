@@ -1251,8 +1251,9 @@ async def get_emoji_description(emoji_name, emoji_url, config, gemini_key, opena
     prompt = f'Emoji "{safe_emoji_name}": Describe in 10 words max. JSON: {{"description":"...","usage":"..."}}'
     
     # Get emoji analysis settings from config, with defaults
+    # Default to gemini-2.5-flash-lite which is the cheapest vision-capable model
     emoji_settings = config.get('api', {}).get('emoji_analysis', {})
-    emoji_model = emoji_settings.get('model', 'gemini-2.0-flash-exp')
+    emoji_model = emoji_settings.get('model', 'gemini-2.5-flash-lite')
     emoji_max_tokens = emoji_settings.get('max_output_tokens', 100)
     emoji_temperature = emoji_settings.get('temperature', 0.3)
     
