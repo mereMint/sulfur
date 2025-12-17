@@ -33,7 +33,7 @@
         }
         
         body { 
-            background: linear-gradient(135deg, #0f0f1e 0%, #1a1a2e 50%, #16213e 100%);
+            background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 50%, var(--bg-tertiary) 100%);
             background-attachment: fixed;
             color: var(--text-primary);
             min-height: 100vh;
@@ -55,6 +55,39 @@
                 radial-gradient(circle at 50% 20%, rgba(106, 155, 216, 0.05) 0%, transparent 50%);
             pointer-events: none;
             z-index: -1;
+        }
+        
+        /* Light theme specific styles */
+        [data-bs-theme="light"] {
+            --bg-primary: #f8f9fa;
+            --bg-secondary: #ffffff;
+            --bg-tertiary: #e9ecef;
+            --bg-card: #ffffff;
+            --text-primary: #212529;
+            --text-secondary: #6c757d;
+            --text-muted: #adb5bd;
+            --border-color: rgba(0, 0, 0, 0.125);
+            --card-shadow: rgba(0, 0, 0, 0.1);
+        }
+        
+        [data-bs-theme="light"] body::before {
+            background: 
+                radial-gradient(circle at 20% 50%, rgba(157, 132, 183, 0.15) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(244, 166, 215, 0.12) 0%, transparent 50%),
+                radial-gradient(circle at 50% 20%, rgba(106, 155, 216, 0.10) 0%, transparent 50%);
+        }
+        
+        [data-bs-theme="light"] .navbar {
+            background: rgba(255, 255, 255, 0.9) !important;
+        }
+        
+        [data-bs-theme="light"] .card {
+            background: var(--bg-card);
+            border-color: var(--border-color);
+        }
+        
+        [data-bs-theme="light"] .sidebar {
+            background: rgba(255, 255, 255, 0.9) !important;
         }
         
         /* Subtle grain texture */
@@ -845,6 +878,11 @@
                             <i class="bi bi-box"></i> Minecraft
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.path == '/vpn' %}active{% endif %}" href="/vpn">
+                            <i class="bi bi-shield-lock"></i> VPN
+                        </a>
+                    </li>
                     
                     <!-- Analytics Dropdown -->
                     <li class="nav-item dropdown">
@@ -971,22 +1009,13 @@
             const html = document.documentElement;
             const themeIcon = document.getElementById('theme-icon');
             
+            // Set the data-bs-theme attribute which triggers the CSS rules
+            html.setAttribute('data-bs-theme', themeName);
+            
             if (themeName === 'light') {
-                html.setAttribute('data-bs-theme', 'light');
                 if (themeIcon) themeIcon.className = 'bi bi-sun-fill';
-                // Light theme adjustments
-                document.body.style.setProperty('--bg-primary', '#f8f9fa');
-                document.body.style.setProperty('--bg-secondary', '#ffffff');
-                document.body.style.setProperty('--text-primary', '#212529');
-                document.body.style.setProperty('--text-secondary', '#6c757d');
             } else {
-                html.setAttribute('data-bs-theme', 'dark');
                 if (themeIcon) themeIcon.className = 'bi bi-moon-stars';
-                // Dark theme (default lofi colors)
-                document.body.style.setProperty('--bg-primary', '#0f0f1e');
-                document.body.style.setProperty('--bg-secondary', '#1a1a2e');
-                document.body.style.setProperty('--text-primary', '#e8e8f0');
-                document.body.style.setProperty('--text-secondary', '#a8a8b8');
             }
             
             localStorage.setItem('theme', themeName);

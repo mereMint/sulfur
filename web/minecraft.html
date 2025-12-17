@@ -602,7 +602,9 @@
             // Schedule mode change handler
             document.getElementById('config-schedule-mode').addEventListener('change', function() {
                 const hoursDiv = document.getElementById('schedule-hours');
-                hoursDiv.style.display = this.value === 'timed' ? 'flex' : 'none';
+                // Show hours for timed, weekdays_only, weekends_only, and custom modes
+                const showHours = ['timed', 'weekdays_only', 'weekends_only', 'custom'].includes(this.value);
+                hoursDiv.style.display = showHours ? 'flex' : 'none';
             });
             
             // Config form submission
