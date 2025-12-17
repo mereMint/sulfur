@@ -49,6 +49,27 @@ DB_NAME = os.environ.get("DB_NAME", "sulfur_bot")
 DB_USER = os.environ.get("DB_USER", "sulfur_bot_user")
 DB_HOST = os.environ.get("DB_HOST", "localhost")
 
+# MariaDB 10.4+ privilege bitmask constant
+# This grants: SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, RELOAD, SHUTDOWN,
+# PROCESS, FILE, REFERENCES, INDEX, ALTER, SHOW DATABASES, SUPER, CREATE TEMPORARY TABLES,
+# LOCK TABLES, EXECUTE, REPLICATION SLAVE, REPLICATION CLIENT, CREATE VIEW, SHOW VIEW,
+# CREATE ROUTINE, ALTER ROUTINE, CREATE USER, EVENT, TRIGGER
+MARIADB_ALL_PRIVILEGES_BITMASK = 1073741823
+
+# Validate database and user names to prevent SQL injection
+# Only allow alphanumeric characters and underscores
+def _validate_identifier(name: str, identifier_type: str) -> bool:
+    """Validate that an identifier contains only safe characters."""
+    import re
+    if not re.match(r'^[a-zA-Z0-9_]+$', name):
+        print_error(f"Invalid {identifier_type}: {name}")
+        print_error("Only alphanumeric characters and underscores are allowed.")
+        return False
+    if len(name) > 64:  # MySQL identifier max length
+        print_error(f"{identifier_type} too long (max 64 characters)")
+        return False
+    return True
+
 # Detect environment
 IS_TERMUX = os.path.exists("/data/data/com.termux")
 IS_WINDOWS = sys.platform == "win32"
@@ -211,6 +232,12 @@ def setup_termux_with_skip_grant_tables() -> Tuple[bool, str]:
     """
     print_step("Using Termux skip-grant-tables approach...")
     
+    # Validate DB_NAME and DB_USER before using them
+    if not _validate_identifier(DB_NAME, "database name"):
+        return False, f"Invalid database name: {DB_NAME}"
+    if not _validate_identifier(DB_USER, "username"):
+        return False, f"Invalid username: {DB_USER}"
+    
     prefix = os.environ.get("PREFIX", "/data/data/com.termux/files/usr")
     datadir = f"{prefix}/var/lib/mysql"
     
@@ -288,7 +315,7 @@ def setup_termux_with_skip_grant_tables() -> Tuple[bool, str]:
         )
         cursor = conn.cursor()
         
-        # Create database
+        # Create database (DB_NAME already validated)
         cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{DB_NAME}` "
                       f"CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
         print_info(f"Database '{DB_NAME}' created")
@@ -302,15 +329,16 @@ def setup_termux_with_skip_grant_tables() -> Tuple[bool, str]:
             # Use global_priv table (MariaDB 10.4+)
             print_info("Using global_priv table (MariaDB 10.4+)...")
             
-            # Full privileges as JSON (access bitmask for all privileges)
-            priv_json = '{"access":1073741823}'
+            # Use the defined constant for privileges
+            priv_json = f'{{"access":{MARIADB_ALL_PRIVILEGES_BITMASK}}}'
             
-            # Try to update existing user first
-            cursor.execute(f"""
+            # Use parameterized query for user insertion
+            # Note: MariaDB global_priv table requires specific column handling
+            cursor.execute("""
                 INSERT INTO mysql.global_priv (Host, User, Priv) 
-                VALUES ('localhost', '{DB_USER}', '{priv_json}')
-                ON DUPLICATE KEY UPDATE Priv = '{priv_json}'
-            """)
+                VALUES (%s, %s, %s)
+                ON DUPLICATE KEY UPDATE Priv = VALUES(Priv)
+            """, ('localhost', DB_USER, priv_json))
         else:
             # Use traditional mysql.user table
             print_info("Using mysql.user table (older MariaDB)...")

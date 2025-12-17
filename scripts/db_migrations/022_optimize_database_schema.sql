@@ -36,7 +36,8 @@ DROP TABLE IF EXISTS interaction_learnings;
 
 -- ============================================================================
 -- PART 3: Add Essential Performance Indexes (only if tables exist)
--- These use stored procedures to safely check table existence
+-- Note: We use a stored procedure approach for compatibility with MariaDB < 10.1
+-- which doesn't support CREATE INDEX IF NOT EXISTS. This approach works on all versions.
 -- ============================================================================
 
 DELIMITER $$

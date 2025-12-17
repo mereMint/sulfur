@@ -360,19 +360,30 @@ if command -v mariadbd-safe &> /dev/null; then
         # Set up database and user via global_priv (MariaDB 10.4+)
         echo -e "${CYAN}Setting up database and user...${NC}"
         
+        # MariaDB 10.4+ privilege bitmask for ALL PRIVILEGES
+        # This grants: SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, RELOAD, SHUTDOWN,
+        # PROCESS, FILE, REFERENCES, INDEX, ALTER, SHOW DATABASES, SUPER, CREATE TEMPORARY TABLES,
+        # LOCK TABLES, EXECUTE, REPLICATION SLAVE, REPLICATION CLIENT, CREATE VIEW, SHOW VIEW,
+        # CREATE ROUTINE, ALTER ROUTINE, CREATE USER, EVENT, TRIGGER
+        MARIADB_ALL_PRIVILEGES=1073741823
+        
+        # Database and user names (consistent with Python constants)
+        DB_NAME="${DB_NAME:-sulfur_bot}"
+        DB_USER="${DB_USER:-sulfur_bot_user}"
+        
         # Check for global_priv table (MariaDB 10.4+)
         if mariadb mysql -e "SELECT 1 FROM global_priv LIMIT 1;" &>/dev/null; then
             # Use global_priv table
             echo -e "${YELLOW}[INFO]${NC} Using global_priv table (MariaDB 10.4+)..."
-            mariadb mysql -e "INSERT INTO global_priv (Host, User, Priv) VALUES ('localhost', 'sulfur_bot_user', '{\"access\":1073741823}') ON DUPLICATE KEY UPDATE Priv='{\"access\":1073741823}';" || true
+            mariadb mysql -e "INSERT INTO global_priv (Host, User, Priv) VALUES ('localhost', '$DB_USER', '{\"access\":$MARIADB_ALL_PRIVILEGES}') ON DUPLICATE KEY UPDATE Priv='{\"access\":$MARIADB_ALL_PRIVILEGES}';" || true
         fi
         
         # Create database
-        mariadb -e "CREATE DATABASE IF NOT EXISTS sulfur_bot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" || true
+        mariadb -e "CREATE DATABASE IF NOT EXISTS $DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" || true
         
         # Try standard GRANT (may work after skip-grant-tables)
-        mariadb -e "CREATE USER IF NOT EXISTS 'sulfur_bot_user'@'localhost';" || true
-        mariadb -e "GRANT ALL PRIVILEGES ON sulfur_bot.* TO 'sulfur_bot_user'@'localhost';" || true
+        mariadb -e "CREATE USER IF NOT EXISTS '$DB_USER'@'localhost';" || true
+        mariadb -e "GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@'localhost';" || true
         mariadb -e "FLUSH PRIVILEGES;" || true
         
         echo -e "${GREEN}[OK]${NC} Database and user configured!"
@@ -385,9 +396,9 @@ if command -v mariadbd-safe &> /dev/null; then
         mariadbd-safe --datadir="$DATADIR" &
         sleep 5
         
-        if mariadb -u sulfur_bot_user -e "USE sulfur_bot; SELECT 1;" &>/dev/null; then
+        if mariadb -u "$DB_USER" -e "USE $DB_NAME; SELECT 1;" &>/dev/null; then
             echo -e "${GREEN}[SUCCESS]${NC} MariaDB is now running normally!"
-            echo -e "${CYAN}User 'sulfur_bot_user' can access the 'sulfur_bot' database.${NC}"
+            echo -e "${CYAN}User '$DB_USER' can access the '$DB_NAME' database.${NC}"
             echo ""
             echo -e "${CYAN}You can now run: python scripts/setup_database_auto.py${NC}"
             exit 0

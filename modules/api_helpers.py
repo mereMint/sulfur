@@ -1234,24 +1234,38 @@ async def get_emoji_description(emoji_name, emoji_url, config, gemini_key, opena
     Generates a MINIMAL description for an emoji using vision AI.
     
     OPTIMIZATION: Uses the cheapest model and minimal tokens to reduce API costs.
-    - Uses gemini-2.5-flash-lite (cheapest Gemini model) by default
+    - Reads settings from config['api']['emoji_analysis'] if available
+    - Falls back to gemini-2.0-flash-exp (cheap and fast)
     - Concise prompt to minimize input tokens
     - Short output format to minimize output tokens
     """
-    # Use ultra-short prompt to minimize token usage
-    prompt = f"""Emoji "{emoji_name}": Describe in 10 words or less. Return JSON: {{"description":"...","usage":"..."}}"""
+    import re
     
-    # Override config to use the cheapest model for emoji analysis
+    # Sanitize emoji_name to prevent prompt injection
+    # Only allow alphanumeric, underscores, and hyphens
+    safe_emoji_name = re.sub(r'[^a-zA-Z0-9_-]', '', emoji_name)[:50]
+    if not safe_emoji_name:
+        safe_emoji_name = "emoji"
+    
+    # Use ultra-short prompt to minimize token usage
+    prompt = f'Emoji "{safe_emoji_name}": Describe in 10 words max. JSON: {{"description":"...","usage":"..."}}'
+    
+    # Get emoji analysis settings from config, with defaults
+    emoji_settings = config.get('api', {}).get('emoji_analysis', {})
+    emoji_model = emoji_settings.get('model', 'gemini-2.0-flash-exp')
+    emoji_max_tokens = emoji_settings.get('max_output_tokens', 100)
+    emoji_temperature = emoji_settings.get('temperature', 0.3)
+    
+    # Override config to use the emoji analysis settings
     emoji_config = config.copy()
     if 'api' in emoji_config:
         emoji_config['api'] = config['api'].copy()
-        # Use cheapest vision-capable model
-        emoji_config['api']['vision_model'] = 'gemini-2.0-flash-exp'  # Fast and cheap
+        emoji_config['api']['vision_model'] = emoji_model
         if 'gemini' in emoji_config['api']:
             emoji_config['api']['gemini'] = config['api']['gemini'].copy()
             emoji_config['api']['gemini']['generation_config'] = {
-                'temperature': 0.3,  # Lower temp for consistent output
-                'maxOutputTokens': 100  # Minimal output tokens
+                'temperature': emoji_temperature,
+                'maxOutputTokens': emoji_max_tokens
             }
     
     response, error = await get_vision_analysis(emoji_url, prompt, emoji_config, gemini_key, openai_key)
