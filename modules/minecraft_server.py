@@ -527,9 +527,30 @@ async def download_file(url: str, dest_path: str, progress_callback: Callable = 
                                 progress_callback(downloaded, total_size, speed, percent)
             return True
         except ImportError:
-            # Fallback to urllib (sync)
+            # Fallback to urllib (sync) with progress callback support
+            import time as time_module
+            
             def _download():
-                urllib.request.urlretrieve(url, dest_path)
+                start_time = time_module.time()
+                last_update = [0]  # Mutable to track state in nested function
+                
+                def reporthook(block_num, block_size, total_size):
+                    """Progress hook for urllib.request.urlretrieve"""
+                    if progress_callback and total_size > 0:
+                        downloaded = block_num * block_size
+                        # Clamp downloaded to total_size to avoid over 100%
+                        downloaded = min(downloaded, total_size)
+                        
+                        # Update at most once per second to avoid excessive callbacks
+                        current_time = time_module.time()
+                        if current_time - last_update[0] >= 1.0 or downloaded >= total_size:
+                            last_update[0] = current_time
+                            elapsed = current_time - start_time
+                            speed = downloaded / elapsed if elapsed > 0 else 0
+                            percent = (downloaded / total_size) * 100
+                            progress_callback(downloaded, total_size, speed, percent)
+                
+                urllib.request.urlretrieve(url, dest_path, reporthook=reporthook)
             
             await asyncio.get_event_loop().run_in_executor(None, _download)
             return True
