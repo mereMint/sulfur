@@ -124,17 +124,50 @@ def start_mysql_server() -> bool:
             return False
 
     elif IS_TERMUX:
-        # Termux: Start mariadbd-safe in background
-        try:
-            subprocess.Popen(
-                ["mariadbd-safe", "--datadir=/data/data/com.termux/files/usr/var/lib/mysql"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
-            )
-            time.sleep(5)
-            return is_mysql_running()
-        except Exception:
-            return False
+        # Termux: Start mariadbd-safe or mysqld_safe in background
+        # Use $PREFIX environment variable for proper path
+        prefix = os.environ.get("PREFIX", "/data/data/com.termux/files/usr")
+        datadir = f"{prefix}/var/lib/mysql"
+        
+        # Try multiple startup commands in order of preference
+        startup_commands = [
+            ["mysqld_safe", f"--datadir={datadir}"],
+            ["mariadbd-safe", f"--datadir={datadir}"],
+            ["mysqld_safe"],  # Try without explicit datadir
+            ["mariadbd-safe"],
+        ]
+        
+        for cmd in startup_commands:
+            try:
+                # Check if the command exists
+                cmd_name = cmd[0]
+                which_result = subprocess.run(
+                    ["which", cmd_name],
+                    capture_output=True,
+                    check=False
+                )
+                if which_result.returncode != 0:
+                    continue  # Command not found, try next
+                
+                print_info(f"Starting with {cmd_name}...")
+                subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                
+                # Wait for server to start (up to 15 seconds)
+                for i in range(15):
+                    time.sleep(1)
+                    if is_mysql_running():
+                        return True
+                
+                # If we got here, the command ran but server didn't start
+                # Try next command
+            except Exception:
+                continue
+        
+        return False
 
     else:
         # Linux: Try systemctl
@@ -289,6 +322,73 @@ def test_connection() -> bool:
 # Migration Management
 # ==============================================================================
 
+def parse_sql_statements(sql_content: str) -> List[str]:
+    """
+    Parse SQL content into individual statements, properly handling DELIMITER blocks.
+    
+    This handles stored procedures that use custom delimiters like $$ or //.
+    """
+    statements = []
+    current_statement = []
+    in_delimiter_block = False
+    custom_delimiter = '$$'  # Default custom delimiter
+    
+    for line in sql_content.split('\n'):
+        stripped = line.strip()
+        upper_stripped = stripped.upper()
+        
+        # Handle DELIMITER commands
+        if upper_stripped.startswith('DELIMITER'):
+            parts = stripped.split()
+            if len(parts) >= 2:
+                new_delimiter = parts[1]
+                if new_delimiter == ';':
+                    # Ending delimiter block
+                    in_delimiter_block = False
+                else:
+                    # Starting delimiter block
+                    in_delimiter_block = True
+                    custom_delimiter = new_delimiter
+            continue
+        
+        # Skip empty lines and comments (but keep them in procedure bodies)
+        if not in_delimiter_block:
+            if not stripped or stripped.startswith('--') or stripped.startswith('#'):
+                continue
+            # Skip single-line multi-line comments
+            if stripped.startswith('/*') and stripped.endswith('*/'):
+                continue
+        
+        current_statement.append(line)
+        
+        # Check for statement end
+        if in_delimiter_block:
+            # In delimiter block, look for custom delimiter (e.g., $$, //)
+            if stripped.endswith(custom_delimiter):
+                # Remove the custom delimiter from the end
+                stmt = '\n'.join(current_statement)
+                stmt = stmt.rstrip()
+                if stmt.endswith(custom_delimiter):
+                    stmt = stmt[:-len(custom_delimiter)].rstrip()
+                if stmt.strip():
+                    statements.append(stmt)
+                current_statement = []
+        else:
+            # Normal mode, look for semicolon
+            if stripped.endswith(';'):
+                stmt = '\n'.join(current_statement)
+                if stmt.strip().rstrip(';').strip():
+                    statements.append(stmt)
+                current_statement = []
+    
+    # Handle any remaining statement
+    if current_statement:
+        stmt = '\n'.join(current_statement).strip()
+        if stmt:
+            statements.append(stmt)
+    
+    return statements
+
 def run_migrations() -> bool:
     """Run all database migrations"""
     print_step("Running database migrations...")
@@ -350,20 +450,11 @@ def run_migrations() -> bool:
                 with open(migration_file, 'r', encoding='utf-8') as f:
                     sql_content = f.read()
 
-                # Split into statements (simple approach)
-                statements = []
-                for statement in sql_content.split(';'):
-                    statement = statement.strip()
-                    if statement and not statement.startswith('--'):
-                        statements.append(statement)
+                # Parse SQL statements properly handling DELIMITER blocks
+                statements = parse_sql_statements(sql_content)
 
                 # Execute each statement
                 for statement in statements:
-                    # Skip DELIMITER commands
-                    if 'DELIMITER' in statement:
-                        continue
-                    # Handle stored procedures (replace $$ with ;)
-                    statement = statement.replace('$$', ';')
                     if statement.strip():
                         try:
                             cursor.execute(statement)
