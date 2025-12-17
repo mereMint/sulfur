@@ -150,35 +150,54 @@ def get_table_names(cursor) -> List[str]:
     return [row[0] for row in cursor.fetchall()]
 
 def parse_sql_statements(sql_content: str) -> List[str]:
-    """Parse SQL content into individual statements"""
+    """
+    Parse SQL content into individual statements, properly handling DELIMITER blocks.
+    
+    This handles stored procedures that use custom delimiters like $$ or //.
+    """
     statements = []
     current_statement = []
     in_delimiter_block = False
+    custom_delimiter = '$$'  # Default custom delimiter
 
     for line in sql_content.split('\n'):
         stripped = line.strip()
+        upper_stripped = stripped.upper()
 
         # Handle DELIMITER commands
-        if stripped.upper().startswith('DELIMITER'):
-            in_delimiter_block = not in_delimiter_block
+        if upper_stripped.startswith('DELIMITER'):
+            parts = stripped.split()
+            if len(parts) >= 2:
+                new_delimiter = parts[1]
+                if new_delimiter == ';':
+                    # Ending delimiter block
+                    in_delimiter_block = False
+                else:
+                    # Starting delimiter block
+                    in_delimiter_block = True
+                    custom_delimiter = new_delimiter
             continue
 
-        # Skip comments (both -- and # style)
-        if not stripped or stripped.startswith('--') or stripped.startswith('#'):
-            continue
-
-        # Skip multi-line comments (/* ... */)
-        if '/*' in stripped and '*/' in stripped:
-            continue
+        # Skip empty lines and comments (but keep them in procedure bodies)
+        if not in_delimiter_block:
+            if not stripped or stripped.startswith('--') or stripped.startswith('#'):
+                continue
+            # Skip single-line multi-line comments
+            if stripped.startswith('/*') and stripped.endswith('*/'):
+                continue
 
         current_statement.append(line)
 
         # Check for statement end
         if in_delimiter_block:
-            # In delimiter block, look for custom delimiter (usually $$)
-            if '$$' in stripped:
-                stmt = '\n'.join(current_statement).replace('$$', ';')
-                if stmt.strip().rstrip(';').strip():
+            # In delimiter block, look for custom delimiter (e.g., $$, //)
+            if stripped.endswith(custom_delimiter):
+                # Remove the custom delimiter from the end
+                stmt = '\n'.join(current_statement)
+                stmt = stmt.rstrip()
+                if stmt.endswith(custom_delimiter):
+                    stmt = stmt[:-len(custom_delimiter)].rstrip()
+                if stmt.strip():
                     statements.append(stmt)
                 current_statement = []
         else:
