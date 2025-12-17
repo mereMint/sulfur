@@ -2850,6 +2850,11 @@ async def get_minecraft_uuid(username: str) -> Optional[str]:
     Returns:
         UUID string with dashes, or None if not found
     """
+    
+    def format_uuid(uuid_no_dashes: str) -> str:
+        """Format a 32-char UUID string with dashes."""
+        return f"{uuid_no_dashes[:8]}-{uuid_no_dashes[8:12]}-{uuid_no_dashes[12:16]}-{uuid_no_dashes[16:20]}-{uuid_no_dashes[20:]}"
+    
     try:
         import aiohttp
         url = f"https://api.mojang.com/users/profiles/minecraft/{username}"
@@ -2860,9 +2865,7 @@ async def get_minecraft_uuid(username: str) -> Optional[str]:
                     data = await response.json()
                     uuid_no_dashes = data.get('id', '')
                     if uuid_no_dashes and len(uuid_no_dashes) == 32:
-                        # Format UUID with dashes: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-                        uuid_formatted = f"{uuid_no_dashes[:8]}-{uuid_no_dashes[8:12]}-{uuid_no_dashes[12:16]}-{uuid_no_dashes[16:20]}-{uuid_no_dashes[20:]}"
-                        return uuid_formatted
+                        return format_uuid(uuid_no_dashes)
                 elif response.status == 404:
                     logger.warning(f"Minecraft username '{username}' not found in Mojang API")
                 else:
@@ -2877,8 +2880,7 @@ async def get_minecraft_uuid(username: str) -> Optional[str]:
                     data = json.loads(response.read().decode())
                     uuid_no_dashes = data.get('id', '')
                     if uuid_no_dashes and len(uuid_no_dashes) == 32:
-                        uuid_formatted = f"{uuid_no_dashes[:8]}-{uuid_no_dashes[8:12]}-{uuid_no_dashes[12:16]}-{uuid_no_dashes[16:20]}-{uuid_no_dashes[20:]}"
-                        return uuid_formatted
+                        return format_uuid(uuid_no_dashes)
         except Exception as e:
             logger.error(f"Error fetching UUID with urllib: {e}")
     except Exception as e:

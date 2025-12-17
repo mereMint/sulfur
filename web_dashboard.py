@@ -5601,6 +5601,12 @@ def api_get_mods():
         
         performance_mods = mc_config.get('performance_mods', {})
         optional_mods = mc_config.get('optional_mods', {})
+        server_type = mc_config.get('server_type', 'paper')
+        
+        # Get available performance mods from minecraft_server module
+        available_performance_mods = []
+        if server_type in minecraft_server.PERFORMANCE_MODS:
+            available_performance_mods = [m.get('name', '') for m in minecraft_server.PERFORMANCE_MODS.get(server_type, [])]
         
         return jsonify({
             'status': 'success',
@@ -5609,7 +5615,8 @@ def api_get_mods():
                 'mods': performance_mods.get('mods', [])
             },
             'optional_mods': optional_mods,
-            'server_type': mc_config.get('server_type', 'paper')
+            'server_type': server_type,
+            'available_performance_mods': available_performance_mods
         })
         
     except Exception as e:

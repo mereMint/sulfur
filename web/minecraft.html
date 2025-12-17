@@ -634,37 +634,45 @@
         }
         
         function updateModsList(data) {
-            // Update performance mods list
+            // Update performance mods list using server-provided data
             const perfModsList = document.getElementById('performance-mods-list');
-            if (data.performance_mods && data.performance_mods.mods) {
-                const mods = ['lithium', 'ferritecore', 'starlight', 'krypton', 'c2me', 'spark'];
-                perfModsList.innerHTML = mods.map(mod => {
-                    const isEnabled = data.performance_mods.mods.includes(mod);
-                    return `
-                        <button class="mod-toggle ${isEnabled ? 'active' : ''}" onclick="toggleMod('${mod}')">
-                            <i class="bi bi-${isEnabled ? 'check-circle-fill text-success' : 'circle'}"></i>
-                            ${mod.charAt(0).toUpperCase() + mod.slice(1)}
-                        </button>
-                    `;
-                }).join('');
+            if (data.performance_mods) {
+                // Use the available mods from server config
+                const availableMods = data.available_performance_mods || ['lithium', 'ferritecore', 'starlight', 'krypton', 'c2me', 'spark'];
+                const enabledMods = data.performance_mods.mods || [];
+                
+                if (availableMods.length === 0 && enabledMods.length === 0) {
+                    perfModsList.innerHTML = '<p class="text-muted">No performance mods configured</p>';
+                } else {
+                    // Show enabled mods first
+                    const allMods = [...new Set([...enabledMods, ...availableMods])];
+                    perfModsList.innerHTML = allMods.map(mod => {
+                        const isEnabled = enabledMods.includes(mod);
+                        return `
+                            <button class="mod-toggle ${isEnabled ? 'active' : ''}" onclick="toggleMod('${mod}')">
+                                <i class="bi bi-${isEnabled ? 'check-circle-fill text-success' : 'circle'}"></i>
+                                ${mod.charAt(0).toUpperCase() + mod.slice(1)}
+                            </button>
+                        `;
+                    }).join('');
+                }
             } else {
                 perfModsList.innerHTML = '<p class="text-muted">No performance mods configured</p>';
             }
             
-            // Update optional mods list
+            // Update optional mods list using server-provided data
             const optModsList = document.getElementById('optional-mods-list');
-            if (data.optional_mods) {
-                const optMods = [
-                    { key: 'simple_voice_chat', name: 'Simple Voice Chat', desc: 'Proximity voice chat' }
-                ];
-                optModsList.innerHTML = optMods.map(mod => {
-                    const modConfig = data.optional_mods[mod.key] || {};
+            if (data.optional_mods && Object.keys(data.optional_mods).length > 0) {
+                // Display all optional mods from server
+                optModsList.innerHTML = Object.entries(data.optional_mods).map(([key, modConfig]) => {
                     const isEnabled = modConfig.enabled || false;
+                    const modName = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                    const requiresClientMod = modConfig.requires_client_mod || false;
                     return `
-                        <button class="mod-toggle ${isEnabled ? 'active' : ''}" onclick="toggleOptionalMod('${mod.key}')">
+                        <button class="mod-toggle ${isEnabled ? 'active' : ''}" onclick="toggleOptionalMod('${key}')">
                             <i class="bi bi-${isEnabled ? 'check-circle-fill text-success' : 'circle'}"></i>
-                            <strong>${mod.name}</strong>
-                            <small class="text-muted d-block">${mod.desc}</small>
+                            <strong>${modName}</strong>
+                            ${requiresClientMod ? '<span class="badge bg-warning ms-1">Client mod required</span>' : ''}
                         </button>
                     `;
                 }).join('');
