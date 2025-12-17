@@ -269,7 +269,7 @@ def apply_migration(migration_file: Path, force: bool = False) -> Tuple[bool, st
             except mysql.connector.Error as err:
                 preview = ' '.join(statement.split()[:5])
 
-                # Check if error is due to already existing object
+                # Check if error is due to already existing object or non-critical issues
                 error_msg = str(err).lower()
                 if any(keyword in error_msg for keyword in [
                     'already exists',
@@ -278,9 +278,14 @@ def apply_migration(migration_file: Path, force: bool = False) -> Tuple[bool, st
                     'duplicate entry',
                     'table already exists',
                     'database already exists',
-                    'index already exists'
+                    'index already exists',
+                    "doesn't exist",
+                    'does not exist',
+                    'unknown column',
+                    'can\'t drop',
+                    'column not found'
                 ]):
-                    print(f"  [{i}/{len(statements)}] ⚠ {preview} (already exists, skipping)")
+                    print(f"  [{i}/{len(statements)}] ⚠ {preview} (already exists or not found, skipping)")
                     continue
                 else:
                     # Fatal error - rollback and report

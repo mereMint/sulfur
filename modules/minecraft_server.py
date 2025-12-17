@@ -2213,11 +2213,35 @@ async def start_server(config: Dict) -> Tuple[bool, str]:
     
     java_path = _get_java_path()
     
+    # Get server configuration
+    server_type = config.get('server_type', 'paper')
+    minecraft_version = config.get('minecraft_version', '1.21.4')
+    
     # Check for server JAR
     jar_path = _server_state.get('server_jar_path', os.path.join(MC_SERVER_DIR, "server.jar"))
     
+    # Check if we need to download the server JAR
+    need_download = False
     if not os.path.exists(jar_path):
-        return False, f"Server JAR not found at {jar_path}. Run setup first."
+        logger.info(f"Server JAR not found at {jar_path}, will download")
+        need_download = True
+    else:
+        # Check if version matches - download if version mismatch
+        stored_version = _server_state.get('server_version')
+        stored_type = _server_state.get('server_jar_type')
+        
+        if stored_version != minecraft_version or stored_type != server_type:
+            logger.info(f"Server version mismatch: {stored_type}/{stored_version} -> {server_type}/{minecraft_version}")
+            need_download = True
+    
+    # Auto-download server JAR if needed
+    if need_download:
+        logger.info(f"Downloading {server_type} server {minecraft_version}...")
+        success, result = await download_server_jar(server_type, minecraft_version)
+        if not success:
+            return False, f"Failed to download server JAR: {result}"
+        jar_path = result
+        logger.info(f"Server JAR downloaded to {jar_path}")
     
     # Create eula.txt if it doesn't exist
     eula_path = os.path.join(MC_SERVER_DIR, "eula.txt")
@@ -2816,6 +2840,55 @@ def get_whitelist() -> List[Dict]:
         return []
 
 
+async def get_minecraft_uuid(username: str) -> Optional[str]:
+    """
+    Get the UUID for a Minecraft username from Mojang API.
+    
+    Args:
+        username: The Minecraft username
+        
+    Returns:
+        UUID string with dashes, or None if not found
+    """
+    
+    def format_uuid(uuid_no_dashes: str) -> str:
+        """Format a 32-char UUID string with dashes."""
+        return f"{uuid_no_dashes[:8]}-{uuid_no_dashes[8:12]}-{uuid_no_dashes[12:16]}-{uuid_no_dashes[16:20]}-{uuid_no_dashes[20:]}"
+    
+    try:
+        import aiohttp
+        url = f"https://api.mojang.com/users/profiles/minecraft/{username}"
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=10) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    uuid_no_dashes = data.get('id', '')
+                    if uuid_no_dashes and len(uuid_no_dashes) == 32:
+                        return format_uuid(uuid_no_dashes)
+                elif response.status == 404:
+                    logger.warning(f"Minecraft username '{username}' not found in Mojang API")
+                else:
+                    logger.error(f"Mojang API error: {response.status}")
+    except ImportError:
+        # Fallback to urllib if aiohttp not available
+        try:
+            url = f"https://api.mojang.com/users/profiles/minecraft/{username}"
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=10) as response:
+                if response.status == 200:
+                    data = json.loads(response.read().decode())
+                    uuid_no_dashes = data.get('id', '')
+                    if uuid_no_dashes and len(uuid_no_dashes) == 32:
+                        return format_uuid(uuid_no_dashes)
+        except Exception as e:
+            logger.error(f"Error fetching UUID with urllib: {e}")
+    except Exception as e:
+        logger.error(f"Error fetching UUID for {username}: {e}")
+    
+    return None
+
+
 async def add_to_whitelist(minecraft_username: str) -> Tuple[bool, str]:
     """
     Add a player to the whitelist.
@@ -2841,15 +2914,22 @@ async def add_to_whitelist(minecraft_username: str) -> Tuple[bool, str]:
             if entry.get('name', '').lower() == minecraft_username.lower():
                 return False, f"{minecraft_username} is already whitelisted"
         
-        # Add to whitelist (we'd need UUID lookup for proper entry)
+        # Fetch UUID from Mojang API
+        player_uuid = await get_minecraft_uuid(minecraft_username)
+        
+        if not player_uuid:
+            return False, f"Could not find Minecraft account for '{minecraft_username}'. Make sure the username is correct and the player has a valid Minecraft account."
+        
+        # Add to whitelist with proper UUID
         whitelist.append({
             "name": minecraft_username,
-            "uuid": ""  # UUID would need to be fetched from Mojang API
+            "uuid": player_uuid
         })
         
         try:
             with open(whitelist_path, 'w') as f:
                 json.dump(whitelist, f, indent=2)
+            logger.info(f"Added {minecraft_username} (UUID: {player_uuid}) to whitelist")
             return True, f"Added {minecraft_username} to whitelist"
         except IOError as e:
             return False, f"Failed to update whitelist: {e}"

@@ -1337,6 +1337,47 @@ async def on_ready():
         check_config_reload_task.start()
         print("  -> Config hot-reload task started")
     
+    # --- NEW: Start Minecraft server schedule manager ---
+    if config.get('features', {}).get('minecraft_server', False):
+        mc_config = config.get('modules', {}).get('minecraft', {})
+        if mc_config.get('enabled', True):
+            print("Initializing Minecraft server manager...")
+            
+            # Initialize Minecraft database tables
+            try:
+                await minecraft_server.initialize_minecraft_tables(db_helpers)
+                print("  -> Minecraft database tables initialized")
+            except Exception as e:
+                logger.warning(f"Could not initialize Minecraft tables: {e}")
+            
+            # Start schedule manager task
+            def get_bot_config():
+                """Reload config from disk to pick up changes from dashboard."""
+                try:
+                    with open('config/config.json', 'r', encoding='utf-8') as f:
+                        return json.load(f)
+                except Exception:
+                    return config  # Fallback to cached config on error
+            
+            asyncio.create_task(minecraft_server.schedule_manager_task(mc_config, get_bot_config))
+            print("  -> Minecraft schedule manager started")
+            
+            # Auto-start server if boot_with_bot is enabled
+            if mc_config.get('boot_with_bot', False) and minecraft_server.should_server_be_running(mc_config):
+                try:
+                    success, message = await minecraft_server.start_server(mc_config)
+                    if success:
+                        print(f"  -> Minecraft server started: {message}")
+                    else:
+                        print(f"  -> Minecraft server failed to start: {message}")
+                except Exception as e:
+                    print(f"  -> Error starting Minecraft server: {e}")
+            
+            # Start backup manager task
+            if mc_config.get('backups', {}).get('enabled', True):
+                asyncio.create_task(minecraft_server.backup_manager_task(mc_config))
+                print("  -> Minecraft backup manager started")
+    
 
 @tasks.loop(minutes=15)
 async def update_presence_task():
@@ -4309,10 +4350,32 @@ class AdminGroup(app_commands.Group):
         await interaction.response.defer(ephemeral=True)
 
         try:
-            # Get the local IP address of the machine running the bot
-            hostname = socket.gethostname()
-            # This gets the primary local IP address
-            local_ip = socket.gethostbyname(hostname)
+            local_ip = None
+            
+            # Method 1: Try getting hostname-based IP
+            try:
+                hostname = socket.gethostname()
+                local_ip = socket.gethostbyname(hostname)
+                # Skip localhost addresses - they won't work from other devices
+                if local_ip.startswith('127.'):
+                    local_ip = None
+            except Exception:
+                pass
+            
+            # Method 2: Try UDP socket trick (works even without internet)
+            if not local_ip:
+                try:
+                    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+                        # This doesn't actually send data, just determines the route
+                        s.connect(("8.8.8.8", 80))
+                        local_ip = s.getsockname()[0]
+                except Exception:
+                    pass
+            
+            # Fallback to localhost
+            if not local_ip:
+                local_ip = "localhost"
+            
             dashboard_url = f"http://{local_ip}:5000"
             
             message = (

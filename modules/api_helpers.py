@@ -1258,9 +1258,12 @@ async def get_emoji_description(emoji_name, emoji_url, config, gemini_key, opena
     emoji_temperature = emoji_settings.get('temperature', 0.3)
     
     # Override config to use the emoji analysis settings
+    # IMPORTANT: Force provider to 'gemini' for emoji analysis to use gemini-2.5-flash-lite
     emoji_config = config.copy()
     if 'api' in emoji_config:
         emoji_config['api'] = config['api'].copy()
+        # Force Gemini provider for emoji analysis regardless of main config
+        emoji_config['api']['provider'] = 'gemini'
         emoji_config['api']['vision_model'] = emoji_model
         if 'gemini' in emoji_config['api']:
             emoji_config['api']['gemini'] = config['api']['gemini'].copy()
