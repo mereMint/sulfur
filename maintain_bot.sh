@@ -364,6 +364,24 @@ cleanup_orphans() {
 # Database Functions
 # ==============================================================================
 
+# Database lock file for preventing race conditions
+DB_LOCK_FILE="/tmp/sulfur_db_start.lock"
+
+# Acquire database startup lock
+acquire_db_lock() {
+    exec 201>"$DB_LOCK_FILE"
+    if ! flock -n 201; then
+        return 1
+    fi
+    return 0
+}
+
+# Release database startup lock
+release_db_lock() {
+    flock -u 201 2>/dev/null || true
+    rm -f "$DB_LOCK_FILE" 2>/dev/null || true
+}
+
 # Check if the database process (mysqld/mariadbd) is running
 is_database_process_running() {
     if pgrep -x mysqld > /dev/null 2>&1 || pgrep -x mariadbd > /dev/null 2>&1; then
@@ -436,10 +454,31 @@ check_database_server() {
 start_database_server() {
     log_db "Attempting to start database server..."
     
-    # If database process is already running, just wait for it to be ready
+    # Acquire lock to prevent race conditions
+    if ! acquire_db_lock; then
+        log_warning "Another process is already starting the database, waiting..."
+        local wait_count=0
+        while [ $wait_count -lt 10 ] && ! acquire_db_lock; do
+            sleep 1
+            wait_count=$((wait_count + 1))
+        done
+        
+        if ! acquire_db_lock; then
+            log_warning "Could not acquire database startup lock after 10s"
+            # Check if database is now running (the other process may have started it)
+            if is_database_process_running; then
+                log_success "Database is now running (started by another process)"
+                return 0
+            fi
+            return 1
+        fi
+    fi
+    
+    # Double-check database is not already running (race condition prevention)
     if is_database_process_running; then
-        log_info "Database process is already running, waiting for it to be ready..."
-        return 0  # Let the caller wait for readiness
+        log_success "Database process is already running"
+        release_db_lock
+        return 0
     fi
     
     # Check which init system is in use
@@ -447,9 +486,11 @@ start_database_server() {
         # systemd (non-Termux Linux)
         if systemctl is-active --quiet mysql; then
             log_success "MySQL service is already running"
+            release_db_lock
             return 0
         elif systemctl is-active --quiet mariadb; then
             log_success "MariaDB service is already running"
+            release_db_lock
             return 0
         fi
         
@@ -460,6 +501,7 @@ start_database_server() {
                 sleep 2
                 if systemctl is-active --quiet mysql; then
                     log_success "MySQL service started successfully"
+                    release_db_lock
                     return 0
                 fi
             fi
@@ -472,6 +514,7 @@ start_database_server() {
                 sleep 2
                 if systemctl is-active --quiet mariadb; then
                     log_success "MariaDB service started successfully"
+                    release_db_lock
                     return 0
                 fi
             fi
@@ -482,6 +525,7 @@ start_database_server() {
         if sudo service mysql start 2>>"$MAIN_LOG"; then
             sleep 2
             log_success "MySQL service started"
+            release_db_lock
             return 0
         fi
     fi
@@ -502,25 +546,29 @@ start_database_server() {
             sleep 2
         fi
         
-        # Start the database server
+        # Start the database server (note: changed from mysqld_safe to mariadbd-safe)
         if command -v mariadbd-safe &> /dev/null; then
             log_db "Starting mariadbd-safe in background..."
             mariadbd-safe --datadir="$datadir" 2>>"$MAIN_LOG" &
             log_info "MariaDB starting, waiting for readiness..."
+            release_db_lock
             return 0  # Let caller wait for readiness
         elif command -v mysqld_safe &> /dev/null; then
-            log_db "Starting mysqld_safe in background..."
+            # Fallback to mysqld_safe for older installations
+            log_db "Starting mysqld_safe in background (deprecated, consider using mariadbd-safe)..."
             mysqld_safe --datadir="$datadir" 2>>"$MAIN_LOG" &
             log_info "MySQL starting, waiting for readiness..."
+            release_db_lock
             return 0  # Let caller wait for readiness
         fi
     fi
     
+    release_db_lock
     log_error "Failed to start database server"
     log_warning "Please start the database server manually:"
     log_info "  - Systemd: sudo systemctl start mysql (or mariadb)"
     log_info "  - SysV: sudo service mysql start"
-    log_info "  - Termux: mysqld_safe &"
+    log_info "  - Termux: mariadbd-safe &  (or mysqld_safe &)"
     return 1
 }
 

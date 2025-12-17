@@ -1214,13 +1214,48 @@ def setup_minecraft_server(plat: str) -> bool:
     
     # Memory allocation
     print("\n--- Memory Configuration ---")
+    
+    # Detect available RAM
+    available_ram_mb = None
+    if plat == 'termux':
+        try:
+            # Get available memory on Android
+            with open('/proc/meminfo', 'r') as f:
+                for line in f:
+                    if line.startswith('MemAvailable:'):
+                        available_ram_mb = int(line.split()[1]) // 1024
+                        break
+            
+            if available_ram_mb:
+                # Safe maximum is 40% of available RAM or 2GB, whichever is smaller
+                safe_max_mb = min(int(available_ram_mb * 0.4), 2048)
+                safe_max = f"{safe_max_mb}M"
+                
+                print(f"ℹ️  Detected RAM: {available_ram_mb}MB available")
+                print(f"ℹ️  Safe maximum: {safe_max_mb}MB (40% of available)")
+                print()
+                print("⚠️  Note: Android may kill the app if using too much RAM")
+                print("   Start with lower values and increase gradually")
+                print()
+        except Exception:
+            pass
+    
     print("Recommended RAM allocation:")
-    print("  - Raspberry Pi: 1G-2G")
-    print("  - Desktop/Server: 4G-8G")
-    print("  - Termux: 1G-2G")
+    if plat == 'termux':
+        print("  - Android/Termux: 512M-1G (start low!)")
+    else:
+        print("  - Raspberry Pi: 1G-2G")
+        print("  - Desktop/Server: 4G-8G")
+    print()
     
     mem_min = input("Minimum RAM [1G]: ").strip() or "1G"
-    mem_max = input("Maximum RAM [4G]: ").strip() or "4G"
+    
+    # Provide smart default for max RAM
+    if plat == 'termux' and available_ram_mb:
+        suggested_max = f"{min(int(available_ram_mb * 0.4), 2048)}M"
+        mem_max = input(f"Maximum RAM [{suggested_max}]: ").strip() or suggested_max
+    else:
+        mem_max = input("Maximum RAM [4G]: ").strip() or "4G"
     
     # Schedule configuration
     print("\n--- Server Schedule ---")
@@ -1644,6 +1679,31 @@ ListenPort = {listen_port}
 def setup_wireguard_vpn(plat: str) -> bool:
     """Set up WireGuard VPN."""
     print_section("WireGuard VPN Setup")
+    
+    # Check if running on non-rooted Termux (Android)
+    if plat == 'termux':
+        # Check if rooted
+        is_rooted = os.path.exists('/system/xbin/su') or os.path.exists('/system/bin/su')
+        
+        if not is_rooted:
+            print_warning("⚠️  VPN SERVER NOT AVAILABLE ON NON-ROOTED ANDROID")
+            print()
+            print("Termux on non-rooted Android CANNOT run a VPN server because:")
+            print("  • No access to kernel networking")
+            print("  • Cannot create TUN/TAP interfaces")
+            print("  • Cannot modify routing tables")
+            print("  • Cannot bind to privileged ports")
+            print()
+            print("VPN server requires:")
+            print("  • Rooted Android device, OR")
+            print("  • Linux desktop/server, OR")
+            print("  • Raspberry Pi")
+            print()
+            if not ask_yes_no("Skip VPN setup?", default=True):
+                print_info("Continuing anyway (you can set up VPN client to connect to external server)")
+            else:
+                print_info("VPN setup skipped")
+                return True
     
     # Check WireGuard
     wg_ok, wg_msg = check_wireguard()
