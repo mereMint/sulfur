@@ -24,7 +24,7 @@ import hashlib
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, List, Tuple, Callable
 from collections import deque
-from modules.logger_utils import bot_logger as logger
+from modules.logger_utils import minecraft_logger as logger
 
 # ==============================================================================
 # Configuration Constants
@@ -2288,6 +2288,25 @@ async def start_server(config: Dict) -> Tuple[bool, str]:
     try:
         _console_buffer.clear()
         
+        # Log the command being executed
+        logger.info(f"Starting Minecraft server with command:")
+        logger.info(f"  Java: {java_path}")
+        logger.info(f"  Memory: {memory_min} - {memory_max}")
+        logger.info(f"  JAR: {jar_path}")
+        logger.info(f"  Working directory: {MC_SERVER_DIR}")
+        
+        # Verify JAR file exists
+        if not os.path.exists(jar_path):
+            error_msg = f"Server JAR file not found: {jar_path}"
+            logger.error(error_msg)
+            return False, error_msg
+        
+        # Verify working directory exists
+        if not os.path.exists(MC_SERVER_DIR):
+            error_msg = f"Server directory not found: {MC_SERVER_DIR}"
+            logger.error(error_msg)
+            return False, error_msg
+        
         _server_process = await asyncio.create_subprocess_exec(
             *java_args,
             stdin=asyncio.subprocess.PIPE,
@@ -2301,13 +2320,25 @@ async def start_server(config: Dict) -> Tuple[bool, str]:
         
         update_state('started_at', datetime.now(timezone.utc).isoformat())
         update_state('status', 'starting')
+        update_state('memory_min', memory_min)
+        update_state('memory_max', memory_max)
         
         logger.info(f"Minecraft server started with PID {_server_process.pid}")
         
         return True, f"Server started with PID {_server_process.pid}"
         
+    except FileNotFoundError as e:
+        error_msg = f"Java executable not found: {e}"
+        logger.error(error_msg)
+        return False, error_msg
+    except PermissionError as e:
+        error_msg = f"Permission denied when starting server: {e}"
+        logger.error(error_msg)
+        return False, error_msg
     except Exception as e:
         logger.error(f"Failed to start Minecraft server: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return False, str(e)
 
 
@@ -2405,16 +2436,23 @@ async def _read_console_output():
     """Read and buffer console output from the server."""
     global _server_process, _console_buffer
     
+    logger.info("Started reading Minecraft server console output")
+    
     while is_server_running():
         try:
             line = await _server_process.stdout.readline()
             if not line:
+                logger.warning("Console output stream ended (empty line received)")
                 break
             
             decoded_line = line.decode('utf-8', errors='replace').strip()
             if decoded_line:
                 timestamp = datetime.now(timezone.utc).strftime('%H:%M:%S')
-                _console_buffer.append(f"[{timestamp}] {decoded_line}")
+                formatted_line = f"[{timestamp}] {decoded_line}"
+                _console_buffer.append(formatted_line)
+                
+                # Log all console output to the minecraft log file
+                logger.info(f"[Console] {decoded_line}")
                 
                 # Parse server events
                 await _parse_console_line(decoded_line)
@@ -2432,6 +2470,7 @@ async def _read_console_output():
             break
     
     # Server stopped
+    logger.info("Minecraft server console output ended")
     update_state('status', 'stopped')
 
 
@@ -3045,6 +3084,8 @@ def get_server_status() -> Dict:
         'players': get_player_list(),
         'uptime': None,
         'memory_usage': None,
+        'memory_min': _server_state.get('memory_min', '1G'),
+        'memory_max': _server_state.get('memory_max', '4G'),
         'server_type': _server_state.get('server_jar_type'),
         'version': _server_state.get('server_version'),
         'last_backup': _server_state.get('last_backup'),

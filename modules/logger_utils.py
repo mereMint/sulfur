@@ -132,6 +132,8 @@ session_timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
 bot_log_file = f'logs/bot_{session_timestamp}.log'
 web_log_file = f'logs/web_{session_timestamp}.log'
 session_log_file = f'logs/session_{session_timestamp}.log'
+minecraft_log_file = f'logs/minecraft_{session_timestamp}.log'
+vpn_log_file = f'logs/vpn_{session_timestamp}.log'
 
 bot_logger = setup_logger('Bot', log_file=bot_log_file)
 db_logger = setup_logger('Database', log_file=bot_log_file)  # DB logs go to bot log
@@ -139,3 +141,5 @@ api_logger = setup_logger('API', log_file=bot_log_file)  # API logs go to bot lo
 web_logger = setup_logger('WebDashboard', log_file=web_log_file)
 voice_logger = setup_logger('VoiceManager', log_file=bot_log_file)
 game_logger = setup_logger('WerwolfGame', log_file=bot_log_file)
+minecraft_logger = setup_logger('Minecraft', log_file=minecraft_log_file)
+vpn_logger = setup_logger('VPN', log_file=vpn_log_file)

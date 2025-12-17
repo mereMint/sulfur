@@ -16,7 +16,7 @@ import shutil
 import json
 import base64
 from typing import Optional, Dict, Tuple, List
-from modules.logger_utils import bot_logger as logger
+from modules.logger_utils import vpn_logger as logger
 
 # WireGuard configuration defaults
 WG_INTERFACE = "wg0"
