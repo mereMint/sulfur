@@ -5719,8 +5719,13 @@ def api_switch_modpack():
 
 
 # ============================================================
-# VPN Status Endpoints
+# VPN Dashboard and Endpoints
 # ============================================================
+
+@app.route('/vpn')
+def vpn_dashboard():
+    """Renders the VPN dashboard."""
+    return render_template('vpn.html')
 
 @app.route('/api/vpn/status', methods=['GET'])
 def api_vpn_status():
