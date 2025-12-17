@@ -373,13 +373,22 @@ acquire_db_lock() {
     # Clean up stale lock file if it exists and is older than 60 seconds
     # This handles cases where the lock file was left behind by a crashed process
     if [ -f "$DB_LOCK_FILE" ]; then
+        local current_time
+        current_time=$(date +%s)
+        local lock_mtime
         local lock_age=0
+        
         if [ "$(uname)" = "Darwin" ]; then
             # macOS
-            lock_age=$(( $(date +%s) - $(stat -f %m "$DB_LOCK_FILE" 2>/dev/null || echo 0) ))
+            lock_mtime=$(stat -f %m "$DB_LOCK_FILE" 2>/dev/null)
         else
             # Linux/Termux
-            lock_age=$(( $(date +%s) - $(stat -c %Y "$DB_LOCK_FILE" 2>/dev/null || echo 0) ))
+            lock_mtime=$(stat -c %Y "$DB_LOCK_FILE" 2>/dev/null)
+        fi
+        
+        # Only calculate age if we successfully got the mtime
+        if [ -n "$lock_mtime" ] && [ "$lock_mtime" -gt 0 ] 2>/dev/null; then
+            lock_age=$((current_time - lock_mtime))
         fi
         
         if [ "$lock_age" -gt 60 ]; then
