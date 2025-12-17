@@ -4,7 +4,24 @@ This guide explains how to set up the database for Sulfur Bot with multiple opti
 
 ## Quick Start (Recommended)
 
-The **fastest and easiest** way to set up the database:
+### Interactive Setup Wizard
+
+The **easiest** way to set up the database with guided options:
+
+```bash
+python setup_wizard.py
+```
+
+This wizard provides:
+- 📋 Interactive menu to choose setup method
+- 🔧 Automated Python Setup (Recommended) - Fully automated, cross-platform
+- 🔐 Secure Bash Setup - Advanced security options for production
+- ✓ Automatic migration execution
+- ✓ Clear progress feedback
+
+### Direct Automated Setup
+
+For a completely automated setup without prompts:
 
 ```bash
 python scripts/setup_database_auto.py
