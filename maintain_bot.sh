@@ -571,32 +571,117 @@ start_database_server() {
     if [ "$IS_TERMUX" = true ]; then
         log_db "Attempting Termux-specific database start..."
         
+        # Ensure PREFIX is set (Termux environment variable)
+        if [ -z "$PREFIX" ]; then
+            log_warning "PREFIX not set, trying default Termux path..."
+            PREFIX="/data/data/com.termux/files/usr"
+        fi
+        
         # Check if datadir exists and is initialized
         local datadir="$PREFIX/var/lib/mysql"
+        log_info "Using datadir: $datadir"
+        
+        # Create datadir if it doesn't exist
+        if [ ! -d "$datadir" ]; then
+            log_info "Creating datadir: $datadir"
+            mkdir -p "$datadir" 2>>"$MAIN_LOG" || {
+                log_error "Failed to create datadir: $datadir"
+                release_db_lock
+                return 1
+            }
+        fi
+        
         if [ ! -d "$datadir/mysql" ]; then
             log_warning "Database not initialized. Running mysql_install_db..."
             if command -v mariadb-install-db &> /dev/null; then
-                mariadb-install-db --datadir="$datadir" 2>>"$MAIN_LOG" || true
+                log_info "Running: mariadb-install-db --datadir=$datadir"
+                if ! mariadb-install-db --datadir="$datadir" 2>>"$MAIN_LOG"; then
+                    log_warning "mariadb-install-db returned non-zero, checking if it worked anyway..."
+                fi
             elif command -v mysql_install_db &> /dev/null; then
-                mysql_install_db --datadir="$datadir" 2>>"$MAIN_LOG" || true
+                log_info "Running: mysql_install_db --datadir=$datadir"
+                if ! mysql_install_db --datadir="$datadir" 2>>"$MAIN_LOG"; then
+                    log_warning "mysql_install_db returned non-zero, checking if it worked anyway..."
+                fi
+            else
+                log_error "No database initialization command found (mariadb-install-db or mysql_install_db)"
+                log_warning "Install MariaDB: pkg install mariadb"
+                release_db_lock
+                return 1
             fi
-            sleep 2
+            sleep 3
+            
+            # Verify initialization succeeded
+            if [ ! -d "$datadir/mysql" ]; then
+                log_error "Database initialization failed - $datadir/mysql does not exist"
+                log_warning "Try manually: mariadb-install-db --datadir=$datadir"
+                release_db_lock
+                return 1
+            fi
+            log_success "Database initialized successfully"
         fi
         
-        # Start the database server (note: changed from mysqld_safe to mariadbd-safe)
+        # Start the database server
+        local db_started=false
+        
+        # Try mariadbd-safe first (newer Termux MariaDB)
         if command -v mariadbd-safe &> /dev/null; then
             log_db "Starting mariadbd-safe in background..."
-            mariadbd-safe --datadir="$datadir" 2>>"$MAIN_LOG" &
-            log_info "MariaDB starting, waiting for readiness..."
-            release_db_lock
-            return 0  # Let caller wait for readiness
-        elif command -v mysqld_safe &> /dev/null; then
-            # Fallback to mysqld_safe for older installations
-            log_db "Starting mysqld_safe in background (deprecated, consider using mariadbd-safe)..."
-            mysqld_safe --datadir="$datadir" 2>>"$MAIN_LOG" &
-            log_info "MySQL starting, waiting for readiness..."
-            release_db_lock
-            return 0  # Let caller wait for readiness
+            log_info "Command: mariadbd-safe --datadir=$datadir"
+            
+            # Use nohup to ensure the process survives and capture any early errors
+            nohup mariadbd-safe --datadir="$datadir" >>"$MAIN_LOG" 2>&1 &
+            local db_pid=$!
+            log_info "MariaDB starting with PID: $db_pid"
+            
+            # Wait a moment and verify the process started
+            sleep 3
+            if kill -0 "$db_pid" 2>/dev/null || is_database_process_running; then
+                log_success "MariaDB process started"
+                db_started=true
+            else
+                log_warning "mariadbd-safe process died immediately"
+                log_warning "Check the log for errors: tail -50 $MAIN_LOG"
+            fi
+        fi
+        
+        # Fallback to mysqld_safe for older installations
+        if [ "$db_started" = false ] && command -v mysqld_safe &> /dev/null; then
+            log_db "Starting mysqld_safe in background (fallback)..."
+            log_info "Command: mysqld_safe --datadir=$datadir"
+            
+            nohup mysqld_safe --datadir="$datadir" >>"$MAIN_LOG" 2>&1 &
+            local db_pid=$!
+            log_info "MySQL starting with PID: $db_pid"
+            
+            # Wait a moment and verify the process started
+            sleep 3
+            if kill -0 "$db_pid" 2>/dev/null || is_database_process_running; then
+                log_success "MySQL process started"
+                db_started=true
+            else
+                log_warning "mysqld_safe process died immediately"
+            fi
+        fi
+        
+        # Check if any database binary is available
+        if [ "$db_started" = false ]; then
+            if ! command -v mariadbd-safe &> /dev/null && ! command -v mysqld_safe &> /dev/null; then
+                log_error "No database server found (mariadbd-safe or mysqld_safe)"
+                log_warning "Install MariaDB on Termux: pkg install mariadb"
+            fi
+        fi
+        
+        release_db_lock
+        
+        if [ "$db_started" = true ]; then
+            log_info "Database starting, waiting for readiness..."
+            return 0  # Let caller wait for full readiness
+        else
+            log_error "Failed to start database server on Termux"
+            log_warning "Try manually: mariadbd-safe &"
+            log_warning "Or check logs: tail -100 $MAIN_LOG"
+            return 1
         fi
     fi
     
