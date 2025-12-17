@@ -1631,14 +1631,38 @@ apply_updates() {
 from modules.db_helpers import init_db_pool, initialize_database, apply_pending_migrations
 import os
 import sys
+import json
+from pathlib import Path
 from dotenv import load_dotenv
 
 try:
     load_dotenv()
-    DB_HOST = os.environ.get('DB_HOST', 'localhost')
-    DB_USER = os.environ.get('DB_USER', 'sulfur_bot_user')
-    DB_PASS = os.environ.get('DB_PASS', '')
-    DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot')
+    
+    # Priority: 1) database.json (created by setup wizard), 2) environment variables
+    db_config_file = Path('config/database.json')
+    if db_config_file.exists():
+        # Load from database.json
+        try:
+            with open(db_config_file, 'r') as f:
+                db_config = json.load(f)
+            DB_HOST = db_config.get('host', 'localhost')
+            DB_USER = db_config.get('user', 'sulfur_bot_user')
+            DB_PASS = db_config.get('password', '')
+            DB_NAME = db_config.get('database', 'sulfur_bot')
+            print(f'Loaded database config from database.json')
+        except Exception as e:
+            print(f'Warning: Failed to load database.json: {e}, falling back to environment variables')
+            # Fall back to environment variables
+            DB_HOST = os.environ.get('DB_HOST', 'localhost')
+            DB_USER = os.environ.get('DB_USER', 'sulfur_bot_user')
+            DB_PASS = os.environ.get('DB_PASS', '')
+            DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot')
+    else:
+        # Load from environment variables
+        DB_HOST = os.environ.get('DB_HOST', 'localhost')
+        DB_USER = os.environ.get('DB_USER', 'sulfur_bot_user')
+        DB_PASS = os.environ.get('DB_PASS', '')
+        DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot')
 
     # Initialize database pool with retry logic
     print(f'Initializing database pool: {DB_USER}@{DB_HOST}/{DB_NAME}')
@@ -2479,14 +2503,38 @@ initialize_database_with_retry() {
 from modules.db_helpers import init_db_pool, initialize_database, apply_pending_migrations
 import os
 import sys
+import json
+from pathlib import Path
 from dotenv import load_dotenv
 
 try:
     load_dotenv()
-    DB_HOST = os.environ.get('DB_HOST', 'localhost')
-    DB_USER = os.environ.get('DB_USER', 'sulfur_bot_user')
-    DB_PASS = os.environ.get('DB_PASS', '')
-    DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot')
+    
+    # Priority: 1) database.json (created by setup wizard), 2) environment variables
+    db_config_file = Path('config/database.json')
+    if db_config_file.exists():
+        # Load from database.json
+        try:
+            with open(db_config_file, 'r') as f:
+                db_config = json.load(f)
+            DB_HOST = db_config.get('host', 'localhost')
+            DB_USER = db_config.get('user', 'sulfur_bot_user')
+            DB_PASS = db_config.get('password', '')
+            DB_NAME = db_config.get('database', 'sulfur_bot')
+            print(f'Loaded database config from database.json')
+        except Exception as e:
+            print(f'Warning: Failed to load database.json: {e}, falling back to environment variables')
+            # Fall back to environment variables
+            DB_HOST = os.environ.get('DB_HOST', 'localhost')
+            DB_USER = os.environ.get('DB_USER', 'sulfur_bot_user')
+            DB_PASS = os.environ.get('DB_PASS', '')
+            DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot')
+    else:
+        # Load from environment variables
+        DB_HOST = os.environ.get('DB_HOST', 'localhost')
+        DB_USER = os.environ.get('DB_USER', 'sulfur_bot_user')
+        DB_PASS = os.environ.get('DB_PASS', '')
+        DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot')
 
     # Initialize database pool with retry logic
     print(f'Attempting to initialize database pool: {DB_USER}@{DB_HOST}/{DB_NAME}')

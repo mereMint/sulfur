@@ -456,7 +456,7 @@ def create_database_and_user(root_password: str = "") -> Tuple[bool, str]:
 # ==============================================================================
 
 def save_config(password: str) -> bool:
-    """Save database configuration to JSON file"""
+    """Save database configuration to JSON file and update .env"""
     print_step(f"Saving configuration to {CONFIG_FILE}...")
 
     try:
@@ -485,6 +485,57 @@ def save_config(password: str) -> bool:
         CONFIG_FILE.chmod(0o600)
 
         print_success("Configuration saved with secure permissions (600)")
+        
+        # Also update .env file for compatibility with scripts
+        print_step("Updating .env file with database credentials...")
+        env_file = PROJECT_ROOT / ".env"
+        
+        # Read existing .env content
+        env_lines = []
+        if env_file.exists():
+            with open(env_file, 'r') as f:
+                env_lines = f.readlines()
+        
+        # Update or add database credentials
+        db_vars = {
+            'DB_HOST': DB_HOST,
+            'DB_USER': DB_USER,
+            'DB_PASS': password,
+            'DB_NAME': DB_NAME
+        }
+        
+        # Track which variables were updated
+        updated_vars = set()
+        
+        # Update existing lines in a single pass
+        for i, line in enumerate(env_lines):
+            stripped = line.strip()
+            # Skip comments and empty lines
+            if not stripped or stripped.startswith('#'):
+                continue
+            
+            # Check if this line sets a DB variable using startswith check
+            # Split on first '=' to get variable name
+            if '=' in stripped:
+                var_name = stripped.split('=', 1)[0]
+                if var_name in db_vars:
+                    # Update this line
+                    env_lines[i] = f'{var_name}={db_vars[var_name]}\n'
+                    updated_vars.add(var_name)
+        
+        # Add any variables that weren't in the file
+        for var_name, var_value in db_vars.items():
+            if var_name not in updated_vars:
+                env_lines.append(f'{var_name}={var_value}\n')
+        
+        # Write back to .env
+        with open(env_file, 'w') as f:
+            f.writelines(env_lines)
+        
+        # Set secure permissions on .env
+        env_file.chmod(0o600)
+        
+        print_success(".env file updated with database credentials")
         return True
 
     except Exception as e:
