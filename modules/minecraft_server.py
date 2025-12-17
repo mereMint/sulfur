@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import time
 import re
+import traceback
 import zipfile
 import urllib.request
 import hashlib
@@ -2337,7 +2338,6 @@ async def start_server(config: Dict) -> Tuple[bool, str]:
         return False, error_msg
     except Exception as e:
         logger.error(f"Failed to start Minecraft server: {e}")
-        import traceback
         logger.error(traceback.format_exc())
         return False, str(e)
 
