@@ -235,7 +235,6 @@ def stream_minecraft_console():
     if not MINECRAFT_AVAILABLE:
         return
     
-    import time
     last_line_count = 0
     
     while True:
@@ -249,9 +248,9 @@ def stream_minecraft_console():
                     new_lines = lines[last_line_count:]
                     for line in new_lines:
                         socketio.emit('minecraft_console', {'line': line}, namespace='/')
-                    last_line_count = len(lines)
-                else:
-                    last_line_count = len(lines)
+                
+                # Update line count
+                last_line_count = len(lines)
             else:
                 # Reset counter when server is not running
                 last_line_count = 0
