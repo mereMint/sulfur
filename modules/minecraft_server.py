@@ -39,6 +39,9 @@ MC_WORLDS_STORAGE_DIR = "minecraft_worlds"  # Store worlds for different modpack
 MC_PLUGINS_DIR = os.path.join(MC_SERVER_DIR, "plugins")
 MC_STATE_FILE = "config/minecraft_state.json"
 
+# Download progress update interval (seconds)
+DOWNLOAD_PROGRESS_UPDATE_INTERVAL = 1.0
+
 # Default server configuration
 DEFAULT_MC_CONFIG = {
     "enabled": True,
@@ -493,7 +496,8 @@ async def download_file(url: str, dest_path: str, progress_callback: Callable = 
     Args:
         url: The URL to download from
         dest_path: The destination file path
-        progress_callback: Optional callback for progress updates
+        progress_callback: Optional callback for progress updates.
+                          Called with (downloaded_bytes, total_bytes, speed_bps, percent)
         
     Returns:
         True if download was successful
@@ -512,18 +516,44 @@ async def download_file(url: str, dest_path: str, progress_callback: Callable = 
                     
                     total_size = int(response.headers.get('content-length', 0))
                     downloaded = 0
+                    start_time = time.time()
                     
                     with open(dest_path, 'wb') as f:
                         async for chunk in response.content.iter_chunked(8192):
                             f.write(chunk)
                             downloaded += len(chunk)
                             if progress_callback and total_size > 0:
-                                progress_callback(downloaded / total_size)
+                                elapsed = time.time() - start_time
+                                speed = downloaded / elapsed if elapsed > 0 else 0
+                                percent = (downloaded / total_size) * 100
+                                progress_callback(downloaded, total_size, speed, percent)
             return True
         except ImportError:
-            # Fallback to urllib (sync)
+            # Fallback to urllib (sync) with progress callback support
             def _download():
-                urllib.request.urlretrieve(url, dest_path)
+                start_time = time.time()
+                # Track last update time for throttling progress updates
+                last_update_time = 0.0
+                
+                def reporthook(block_num, block_size, total_size):
+                    """Progress hook for urllib.request.urlretrieve"""
+                    nonlocal last_update_time
+                    
+                    if progress_callback and total_size > 0:
+                        downloaded = block_num * block_size
+                        # Clamp downloaded to total_size to avoid over 100%
+                        downloaded = min(downloaded, total_size)
+                        
+                        # Throttle updates to avoid excessive callbacks
+                        current_time = time.time()
+                        if current_time - last_update_time >= DOWNLOAD_PROGRESS_UPDATE_INTERVAL or downloaded >= total_size:
+                            last_update_time = current_time
+                            elapsed = current_time - start_time
+                            speed = downloaded / elapsed if elapsed > 0 else 0
+                            percent = (downloaded / total_size) * 100
+                            progress_callback(downloaded, total_size, speed, percent)
+                
+                urllib.request.urlretrieve(url, dest_path, reporthook=reporthook)
             
             await asyncio.get_event_loop().run_in_executor(None, _download)
             return True

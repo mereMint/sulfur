@@ -56,21 +56,29 @@ CREATE TABLE IF NOT EXISTS monthly_quest_completion (
     INDEX idx_user_month (user_id, completion_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Update ai_model_usage table if it doesn't have cost column
+-- Update ai_model_usage table if it exists and doesn't have cost column
 -- Use a stored procedure to safely add the column
 DELIMITER $$
 
 DROP PROCEDURE IF EXISTS add_cost_usd_column$$
 CREATE PROCEDURE add_cost_usd_column()
 BEGIN
-    IF NOT EXISTS (
-        SELECT * FROM information_schema.COLUMNS 
-        WHERE TABLE_SCHEMA = DATABASE() 
-        AND TABLE_NAME = 'ai_model_usage' 
-        AND COLUMN_NAME = 'cost_usd'
+    -- First check if the table exists
+    IF EXISTS (
+        SELECT * FROM information_schema.TABLES
+        WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'ai_model_usage'
     ) THEN
-        ALTER TABLE ai_model_usage 
-        ADD COLUMN cost_usd DECIMAL(10, 6) DEFAULT 0 AFTER output_tokens;
+        -- Table exists, check if column needs to be added
+        IF NOT EXISTS (
+            SELECT * FROM information_schema.COLUMNS 
+            WHERE TABLE_SCHEMA = DATABASE() 
+            AND TABLE_NAME = 'ai_model_usage' 
+            AND COLUMN_NAME = 'cost_usd'
+        ) THEN
+            ALTER TABLE ai_model_usage 
+            ADD COLUMN cost_usd DECIMAL(10, 6) DEFAULT 0 AFTER output_tokens;
+        END IF;
     END IF;
 END$$
 
