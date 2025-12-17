@@ -365,12 +365,39 @@ cleanup_orphans() {
 # ==============================================================================
 
 # Database lock file for preventing race conditions
-DB_LOCK_FILE="/tmp/sulfur_db_start.lock"
+# Use project directory for lock file to avoid /tmp permission issues (especially on Termux)
+DB_LOCK_FILE="$CONFIG_DIR/.db_start.lock"
 
 # Acquire database startup lock
 acquire_db_lock() {
-    exec 201>"$DB_LOCK_FILE"
-    if ! flock -n 201; then
+    # Clean up stale lock file if it exists and is older than 60 seconds
+    # This handles cases where the lock file was left behind by a crashed process
+    if [ -f "$DB_LOCK_FILE" ]; then
+        local lock_age=0
+        if [ "$(uname)" = "Darwin" ]; then
+            # macOS
+            lock_age=$(( $(date +%s) - $(stat -f %m "$DB_LOCK_FILE" 2>/dev/null || echo 0) ))
+        else
+            # Linux/Termux
+            lock_age=$(( $(date +%s) - $(stat -c %Y "$DB_LOCK_FILE" 2>/dev/null || echo 0) ))
+        fi
+        
+        if [ "$lock_age" -gt 60 ]; then
+            log_warning "Removing stale database lock file (age: ${lock_age}s)"
+            rm -f "$DB_LOCK_FILE" 2>/dev/null || true
+        fi
+    fi
+    
+    # Try to open file descriptor for lock file
+    # Redirect stderr to suppress error messages on failure
+    if ! exec 201>"$DB_LOCK_FILE" 2>/dev/null; then
+        log_warning "Cannot create lock file: $DB_LOCK_FILE"
+        # If we can't create the lock file, try to proceed anyway
+        # This is safer than blocking indefinitely
+        return 0
+    fi
+    
+    if ! flock -n 201 2>/dev/null; then
         return 1
     fi
     return 0
@@ -379,6 +406,7 @@ acquire_db_lock() {
 # Release database startup lock
 release_db_lock() {
     flock -u 201 2>/dev/null || true
+    exec 201>&- 2>/dev/null || true  # Close the file descriptor
     rm -f "$DB_LOCK_FILE" 2>/dev/null || true
 }
 
