@@ -5041,9 +5041,13 @@ def minecraft_status():
 def minecraft_start():
     """Start the Minecraft server."""
     if not MINECRAFT_AVAILABLE:
-        return jsonify({'error': 'Minecraft server module not available'}), 503
+        return jsonify({'success': False, 'error': 'Minecraft server module not available'}), 503
     
     try:
+        # Check if server is already running
+        if minecraft_server.is_server_running():
+            return jsonify({'success': False, 'message': 'Server is already running'})
+        
         # Load config
         config_path = 'config/config.json'
         with open(config_path, 'r') as f:
@@ -5051,6 +5055,12 @@ def minecraft_start():
         mc_config = config.get('modules', {}).get('minecraft', {})
         
         success, message = run_async(minecraft_server.start_server(mc_config))
+        
+        if success:
+            logger.info(f"Minecraft server started via dashboard: {message}")
+        else:
+            logger.error(f"Failed to start Minecraft server via dashboard: {message}")
+        
         return jsonify({'success': success, 'message': message})
     except Exception as e:
         logger.error(f"Error starting Minecraft server: {e}")
@@ -5060,10 +5070,20 @@ def minecraft_start():
 def minecraft_stop():
     """Stop the Minecraft server."""
     if not MINECRAFT_AVAILABLE:
-        return jsonify({'error': 'Minecraft server module not available'}), 503
+        return jsonify({'success': False, 'error': 'Minecraft server module not available'}), 503
     
     try:
+        # Check if server is running
+        if not minecraft_server.is_server_running():
+            return jsonify({'success': False, 'message': 'Server is not running'})
+        
         success, message = run_async(minecraft_server.stop_server(notify_players=True))
+        
+        if success:
+            logger.info(f"Minecraft server stopped via dashboard: {message}")
+        else:
+            logger.error(f"Failed to stop Minecraft server via dashboard: {message}")
+        
         return jsonify({'success': success, 'message': message})
     except Exception as e:
         logger.error(f"Error stopping Minecraft server: {e}")
@@ -5073,7 +5093,7 @@ def minecraft_stop():
 def minecraft_restart():
     """Restart the Minecraft server."""
     if not MINECRAFT_AVAILABLE:
-        return jsonify({'error': 'Minecraft server module not available'}), 503
+        return jsonify({'success': False, 'error': 'Minecraft server module not available'}), 503
     
     try:
         config_path = 'config/config.json'
@@ -5082,6 +5102,12 @@ def minecraft_restart():
         mc_config = config.get('modules', {}).get('minecraft', {})
         
         success, message = run_async(minecraft_server.restart_server(mc_config, notify_players=True))
+        
+        if success:
+            logger.info(f"Minecraft server restarted via dashboard: {message}")
+        else:
+            logger.error(f"Failed to restart Minecraft server via dashboard: {message}")
+        
         return jsonify({'success': success, 'message': message})
     except Exception as e:
         logger.error(f"Error restarting Minecraft server: {e}")
