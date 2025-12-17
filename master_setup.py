@@ -1931,82 +1931,91 @@ def import_database(db_host: str, db_user: str, db_pass: str, db_name: str, inpu
 
 
 def setup_database(plat: str) -> bool:
-    """Set up the database with import/export options."""
+    """Set up the database automatically with import/export options."""
     print_section("Database Setup")
-    
+
+    # Check if database is already configured
+    config_file = Path('config/database.json')
+    if config_file.exists():
+        print_success("Database configuration found")
+        print_info("Database appears to be already configured")
+        if ask_yes_no("Skip database setup?", default=True):
+            print_success("Database setup skipped")
+            return True
+        # Otherwise continue with reconfiguration
+
     # Check MySQL
     mysql_ok, mysql_msg = check_mysql()
     if not mysql_ok:
         print_warning("MySQL/MariaDB not found")
         print_info(f"Install command: {get_mysql_install_command(plat)}")
-        
-        # Offer to install automatically
-        if ask_yes_no("Would you like to install MySQL/MariaDB now?", default=True):
-            print_step("Installing MySQL/MariaDB...")
-            if install_mysql_mariadb(plat):
-                print_success("MySQL/MariaDB installed successfully")
-                # Re-check after installation
-                mysql_ok, mysql_msg = check_mysql()
-                if mysql_ok:
-                    print_success(mysql_msg)
-            else:
-                print_error("Failed to install MySQL/MariaDB")
-                print_info("Please install manually and re-run setup")
-                return False
+
+        # Auto-install without asking
+        print_step("Installing MySQL/MariaDB automatically...")
+        if install_mysql_mariadb(plat):
+            print_success("MySQL/MariaDB installed successfully")
+            # Re-check after installation
+            mysql_ok, mysql_msg = check_mysql()
+            if mysql_ok:
+                print_success(mysql_msg)
         else:
-            if not ask_yes_no("Continue with database setup anyway?", default=False):
-                return False
+            print_error("Failed to install MySQL/MariaDB")
+            print_warning("You may need to install manually")
+            # Continue anyway, automated setup might still work
     else:
         print_success(mysql_msg)
-    
+
     # Ensure database server is running
     if not ensure_mysql_running(plat):
         print_warning("Database server may not be running")
-        print_info("Bot will attempt to connect, but may experience issues")
-    
-    # Check for existing backups
-    backups = list_database_backups()
-    
-    # Database setup options
-    print("\n--- Database Options ---")
-    db_options = [
-        "Create new empty database",
-        "Import from existing backup file",
-        "Skip database setup"
-    ]
-    
-    if backups:
-        print(f"\n{Colors.CYAN}Found {len(backups)} existing backup(s){Colors.RESET}")
-    
-    choice = ask_choice("Select database setup option:", db_options, default=0)
-    
-    if choice == 2:
-        print_info("Database setup skipped")
-        return True
-    
-    # Run the MySQL setup wizard first to create database and user
-    print_step("Running MySQL setup wizard...")
-    code, out, err = run_command([sys.executable, 'setup_wizard.py'])
-    
-    # Always show the output from setup_wizard for debugging
+        print_info("Attempting to start...")
+        # Try to start again
+        time.sleep(2)
+        if not ensure_mysql_running(plat):
+            print_warning("Could not start database server automatically")
+            print_info("The automated setup will attempt to start it")
+
+    # Run the AUTOMATED setup script (no user prompts)
+    print()
+    print_step("Running automated database setup...")
+    print_info("This will:")
+    print_info("  ✓ Auto-detect root password")
+    print_info("  ✓ Create database and secure user")
+    print_info("  ✓ Run all migrations")
+    print_info("  ✓ No manual intervention required")
+    print()
+
+    setup_script = Path('scripts/setup_database_auto.py')
+    if not setup_script.exists():
+        print_warning("Automated setup script not found, using fallback...")
+        # Fallback to basic setup
+        code, out, err = run_command([sys.executable, 'setup_database.py'])
+    else:
+        # Run the fully automated setup
+        code, out, err = run_command([sys.executable, str(setup_script)])
+
+    # Show output
     if out:
         print(out)
-    if err:
+    if err and 'error' in err.lower():
         print(f"{Colors.YELLOW}{err}{Colors.RESET}")
-    
+
     if code != 0:
-        print_warning("Database setup wizard encountered an error")
-        print_info("Please review the error messages above")
-        print_info("You can run 'python setup_wizard.py' manually later to retry")
-        print_info("Make sure MySQL is installed and running before retrying")
-        
-        if not ask_yes_no("Continue anyway?", default=False):
-            return False
+        print_warning("Automated database setup encountered an error")
+        print_info("You can manually run: python scripts/setup_database_auto.py")
+        return False
     else:
-        print_success("Database setup wizard completed successfully")
-    
-    # If importing, do the import
-    if choice == 1:
+        print()
+        print_success("Database setup completed successfully!")
+        print_success("✓ Database configured")
+        print_success("✓ Migrations applied")
+        print_success("✓ Ready to use")
+        return True
+
+
+# Note: Database import/export features have been moved to separate utilities
+# Run 'python scripts/database_backup.py' for backup/restore operations
+def old_import_export_code():
         print_section("Import Database")
         
         if backups:

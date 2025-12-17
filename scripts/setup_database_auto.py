@@ -414,18 +414,15 @@ def main():
         if test_connection():
             print_success("Database is already configured and working!")
 
-            # Ask if want to run migrations
-            response = input("\nRun migrations? [Y/n]: ").strip().lower()
-            if response not in ['n', 'no']:
-                if run_migrations():
-                    print_header("✓ Setup Complete!")
-                    return 0
-                else:
-                    print_header("✗ Migration Failed")
-                    return 1
-            else:
+            # Automatically run migrations
+            print()
+            print_step("Running migrations automatically...")
+            if run_migrations():
                 print_header("✓ Setup Complete!")
                 return 0
+            else:
+                print_header("✗ Migration Failed")
+                return 1
         else:
             print_warning("Existing configuration doesn't work, reconfiguring...")
             CONFIG_FILE.unlink(missing_ok=True)
@@ -450,10 +447,42 @@ def main():
     else:
         print_success("MySQL/MariaDB is running")
 
-    # Step 3: Get root password
+    # Step 3: Try to connect with root (auto-detect password)
     print()
-    print_info("Enter MySQL root password (press Enter if no password):")
-    root_password = input("> ").strip()
+    print_step("Auto-detecting MySQL root credentials...")
+    root_password = ""
+
+    # Try empty password first (most common in dev/termux)
+    try:
+        test_conn = mysql.connector.connect(
+            host=DB_HOST,
+            user="root",
+            password="",
+            connection_timeout=2
+        )
+        test_conn.close()
+        print_success("Connected with empty root password")
+    except MySQLError:
+        # Try common default passwords
+        for pwd in ["root", "password", "mysql", "mariadb"]:
+            try:
+                test_conn = mysql.connector.connect(
+                    host=DB_HOST,
+                    user="root",
+                    password=pwd,
+                    connection_timeout=2
+                )
+                test_conn.close()
+                root_password = pwd
+                print_success(f"Connected with default root password")
+                break
+            except MySQLError:
+                continue
+        else:
+            # Couldn't auto-detect, ask user
+            print_warning("Could not auto-detect root password")
+            print_info("Enter MySQL root password (press Enter if no password):")
+            root_password = input("> ").strip()
 
     # Step 4: Create database and user
     print()
