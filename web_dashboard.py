@@ -229,11 +229,63 @@ def follow_log_file():
             print(f"[Web Dashboard] Unexpected error in follow_log_file: {e}")
             time.sleep(1)
 
+
+def stream_minecraft_console():
+    """Background thread to stream Minecraft console output via WebSocket."""
+    if not MINECRAFT_AVAILABLE:
+        return
+    
+    last_line_count = 0
+    
+    while True:
+        try:
+            if minecraft_server.is_server_running():
+                # Get all console lines
+                lines = minecraft_server.get_console_output(1000)
+                
+                # Only send new lines
+                if len(lines) > last_line_count:
+                    new_lines = lines[last_line_count:]
+                    for line in new_lines:
+                        socketio.emit('minecraft_console', {'line': line}, namespace='/')
+                
+                # Update line count
+                last_line_count = len(lines)
+            else:
+                # Reset counter when server is not running
+                last_line_count = 0
+                    
+            time.sleep(0.5)  # Check twice per second for responsive console
+        except Exception as e:
+            logger.error(f"Error streaming Minecraft console: {e}")
+            time.sleep(2)
+
+
 @socketio.on('connect')
 def handle_connect():
     """Handles a new client connecting via WebSocket."""
     print("Client connected to WebSocket")
     emit('log_update', {'data': '--- Console stream connected ---\n'})
+
+@socketio.on('minecraft_console_connect')
+def handle_minecraft_console_connect():
+    """Handle Minecraft console stream connection."""
+    if not MINECRAFT_AVAILABLE:
+        emit('minecraft_console', {'error': 'Minecraft server module not available'})
+        return
+    
+    try:
+        # Send initial console output
+        lines = minecraft_server.get_console_output(50)
+        for line in lines:
+            emit('minecraft_console', {'line': line})
+    except Exception as e:
+        emit('minecraft_console', {'error': str(e)})
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """Handle client disconnection."""
+    print(f"[Web Dashboard] Client disconnected")
 
 @app.route('/')
 def index():
@@ -4988,9 +5040,13 @@ def minecraft_status():
 def minecraft_start():
     """Start the Minecraft server."""
     if not MINECRAFT_AVAILABLE:
-        return jsonify({'error': 'Minecraft server module not available'}), 503
+        return jsonify({'success': False, 'error': 'Minecraft server module not available'}), 503
     
     try:
+        # Check if server is already running
+        if minecraft_server.is_server_running():
+            return jsonify({'success': False, 'message': 'Server is already running'})
+        
         # Load config
         config_path = 'config/config.json'
         with open(config_path, 'r') as f:
@@ -4998,6 +5054,12 @@ def minecraft_start():
         mc_config = config.get('modules', {}).get('minecraft', {})
         
         success, message = run_async(minecraft_server.start_server(mc_config))
+        
+        if success:
+            logger.info(f"Minecraft server started via dashboard: {message}")
+        else:
+            logger.error(f"Failed to start Minecraft server via dashboard: {message}")
+        
         return jsonify({'success': success, 'message': message})
     except Exception as e:
         logger.error(f"Error starting Minecraft server: {e}")
@@ -5007,10 +5069,20 @@ def minecraft_start():
 def minecraft_stop():
     """Stop the Minecraft server."""
     if not MINECRAFT_AVAILABLE:
-        return jsonify({'error': 'Minecraft server module not available'}), 503
+        return jsonify({'success': False, 'error': 'Minecraft server module not available'}), 503
     
     try:
+        # Check if server is running
+        if not minecraft_server.is_server_running():
+            return jsonify({'success': False, 'message': 'Server is not running'})
+        
         success, message = run_async(minecraft_server.stop_server(notify_players=True))
+        
+        if success:
+            logger.info(f"Minecraft server stopped via dashboard: {message}")
+        else:
+            logger.error(f"Failed to stop Minecraft server via dashboard: {message}")
+        
         return jsonify({'success': success, 'message': message})
     except Exception as e:
         logger.error(f"Error stopping Minecraft server: {e}")
@@ -5020,7 +5092,7 @@ def minecraft_stop():
 def minecraft_restart():
     """Restart the Minecraft server."""
     if not MINECRAFT_AVAILABLE:
-        return jsonify({'error': 'Minecraft server module not available'}), 503
+        return jsonify({'success': False, 'error': 'Minecraft server module not available'}), 503
     
     try:
         config_path = 'config/config.json'
@@ -5029,6 +5101,12 @@ def minecraft_restart():
         mc_config = config.get('modules', {}).get('minecraft', {})
         
         success, message = run_async(minecraft_server.restart_server(mc_config, notify_players=True))
+        
+        if success:
+            logger.info(f"Minecraft server restarted via dashboard: {message}")
+        else:
+            logger.error(f"Failed to restart Minecraft server via dashboard: {message}")
+        
         return jsonify({'success': success, 'message': message})
     except Exception as e:
         logger.error(f"Error restarting Minecraft server: {e}")
@@ -5640,6 +5718,12 @@ if __name__ == '__main__':
     log_thread = threading.Thread(target=follow_log_file, daemon=True)
     log_thread.start()
     print("[Web Dashboard] Log streaming thread started.")
+    
+    # Start Minecraft console streaming thread
+    if MINECRAFT_AVAILABLE:
+        mc_console_thread = threading.Thread(target=stream_minecraft_console, daemon=True)
+        mc_console_thread.start()
+        print("[Web Dashboard] Minecraft console streaming thread started.")
     
     # --- REFACTORED: Use SocketIO's built-in run method which works better with websockets ---
     # Note: host='0.0.0.0' allows access from network (required for Termux/Android access from other devices)

@@ -1,5 +1,7 @@
 # Minecraft Server Integration Guide
 
+**📖 Having issues?** See [docs/MINECRAFT_TROUBLESHOOTING.md](docs/MINECRAFT_TROUBLESHOOTING.md) for solutions to common problems.
+
 This guide explains how to set up and use the Minecraft server integration with the Sulfur Discord bot.
 
 ## Features
@@ -44,7 +46,7 @@ Edit `config/config.json` to enable the Minecraft feature:
     "minecraft": {
       "enabled": true,
       "server_type": "paper",
-      "minecraft_version": "1.21.4",
+      "minecraft_version": "1.21.11",
       "memory_min": "1G",
       "memory_max": "4G",
       "port": 25565,
@@ -60,7 +62,7 @@ Edit `config/config.json` to enable the Minecraft feature:
 
 - **enabled**: Enable/disable the Minecraft module
 - **server_type**: `vanilla`, `paper`, `purpur`, or `fabric`
-- **minecraft_version**: e.g., `1.21.4`, `1.20.4`
+- **minecraft_version**: e.g., `1.21.11`, `1.20.6`
 - **memory_min/max**: RAM allocation (e.g., `1G`, `2G`, `4G`)
 - **port**: Server port (default: 25565)
 - **max_players**: Maximum player count
@@ -99,7 +101,7 @@ The server JAR will be downloaded automatically on first start, or you can use t
 
 Or manually via Discord commands (if enabled):
 ```
-/minecraft setup server_type:paper version:1.21.4
+/minecraft setup server_type:paper version:1.21.11
 ```
 
 ## Usage
