@@ -74,18 +74,40 @@ log_step() {
 # ==============================================================================
 
 acquire_lock() {
-    exec 200>"$LOCK_FILE"
-    if ! flock -n 200; then
-        log_error "Another instance of this script is already running"
-        log_info "If you're sure no other instance is running, remove: $LOCK_FILE"
-        exit 1
+    # Simple PID-based locking (more portable than flock with file descriptors)
+    if [ -f "$LOCK_FILE" ]; then
+        local lock_pid
+        lock_pid=$(cat "$LOCK_FILE" 2>/dev/null || echo "")
+
+        if [ -n "$lock_pid" ] && kill -0 "$lock_pid" 2>/dev/null; then
+            log_error "Another instance of this script is already running (PID: $lock_pid)"
+            log_info "If you're sure no other instance is running, remove: $LOCK_FILE"
+            exit 1
+        else
+            # Stale lock file, remove it
+            rm -f "$LOCK_FILE" 2>/dev/null || true
+        fi
     fi
+
+    # Create lock file with our PID
+    echo $$ > "$LOCK_FILE" 2>/dev/null || {
+        log_error "Cannot create lock file: $LOCK_FILE"
+        log_info "Check permissions on /tmp directory"
+        exit 1
+    }
+
     log_success "Acquired setup lock"
 }
 
 release_lock() {
-    flock -u 200 2>/dev/null || true
-    rm -f "$LOCK_FILE" 2>/dev/null || true
+    # Only remove lock file if it contains our PID
+    if [ -f "$LOCK_FILE" ]; then
+        local lock_pid
+        lock_pid=$(cat "$LOCK_FILE" 2>/dev/null || echo "")
+        if [ "$lock_pid" = "$$" ]; then
+            rm -f "$LOCK_FILE" 2>/dev/null || true
+        fi
+    fi
 }
 
 # Trap to ensure lock is released on exit
