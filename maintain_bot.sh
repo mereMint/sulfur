@@ -105,17 +105,17 @@ load_db_credentials() {
     if [ ! -f ".env" ]; then
         return 1
     fi
-    
+
     # Read each line and only export known database variables
     # This is safer than using export $(grep ... | xargs)
     while IFS='=' read -r key value; do
         # Skip comments and empty lines
         [[ "$key" =~ ^[[:space:]]*# ]] && continue
         [[ -z "$key" ]] && continue
-        
+
         # Remove leading/trailing whitespace from key
         key=$(echo "$key" | tr -d '[:space:]')
-        
+
         # Only process known database variables
         case "$key" in
             DB_HOST|DB_USER|DB_PASS|DB_NAME)
@@ -156,7 +156,7 @@ log_message() {
     local message=$3
     local timestamp
     timestamp=$(date +"%Y-%m-%d %H:%M:%S")
-    
+
     echo -e "${color}[${timestamp}] ${prefix}${message}${NC}" | tee -a "$MAIN_LOG"
 }
 
@@ -177,7 +177,7 @@ log_update() { log_message "$YELLOW" "[UPDATE] " "$1"; }
 update_status() {
     local status=$1
     local pid=${2:-0}
-    
+
     cat > "$STATUS_FILE" <<EOF
 {
   "status": "$status",
@@ -193,7 +193,7 @@ EOF
 
 cleanup() {
     log_warning "Cleaning up..."
-    
+
     # Stop bot gracefully
     if [ -f "$BOT_PID_FILE" ]; then
         BOT_PID=$(cat "$BOT_PID_FILE")
@@ -201,7 +201,7 @@ cleanup() {
             log_bot "Sending graceful shutdown signal to bot (PID: $BOT_PID)..."
             # Send SIGTERM for graceful shutdown
             kill -TERM "$BOT_PID" 2>/dev/null
-            
+
             # Wait up to 5 seconds for graceful shutdown
             for i in {1..5}; do
                 if ! kill -0 "$BOT_PID" 2>/dev/null; then
@@ -210,7 +210,7 @@ cleanup() {
                 fi
                 sleep 1
             done
-            
+
             # Force kill if still running
             if kill -0 "$BOT_PID" 2>/dev/null; then
                 log_warning "Force stopping bot..."
@@ -219,7 +219,7 @@ cleanup() {
         fi
         rm -f "$BOT_PID_FILE"
     fi
-    
+
     # Also search for any bot.py processes that might have escaped
     if command -v pgrep >/dev/null 2>&1; then
         local bot_pids
@@ -232,7 +232,7 @@ cleanup() {
             done
         fi
     fi
-    
+
     # Stop web dashboard
     if [ -f "$WEB_PID_FILE" ]; then
         local web_pid
@@ -248,7 +248,7 @@ cleanup() {
         fi
         rm -f "$WEB_PID_FILE"
     fi
-    
+
     # Also search for any web_dashboard.py processes that might have escaped
     if command -v pgrep >/dev/null 2>&1; then
         local web_pids
@@ -261,7 +261,7 @@ cleanup() {
             done
         fi
     fi
-    
+
     # Final backup and commit
     if [ "$SKIP_BACKUP" != true ]; then
         backup_database
@@ -269,7 +269,7 @@ cleanup() {
         log_db "Skipping final backup due to SKIP_BACKUP=true"
     fi
     git_commit "chore: Auto-commit on shutdown"
-    
+
     update_status "Shutdown"
     log_success "Cleanup complete"
     exit 0
@@ -281,10 +281,10 @@ trap cleanup SIGINT SIGTERM
 # Kill orphaned python processes that originated in this project dir
 cleanup_orphans() {
     log_warning "Searching for orphaned Python processes..."
-    
+
     # Wait for any pending PID file writes to complete
     sleep 0.5
-    
+
     # Get current bot and web PIDs to exclude them
     local exclude_pids=""
     if [ -f "$BOT_PID_FILE" ]; then
@@ -296,7 +296,7 @@ cleanup_orphans() {
             exclude_pids="$exclude_pids $web_pid"
         fi
     fi
-    
+
     if command -v pgrep >/dev/null 2>&1; then
         # Match processes with this script directory in the command line
         local pids
@@ -316,7 +316,7 @@ cleanup_orphans() {
                     pids_to_kill="$pids_to_kill $pid"
                 fi
             done
-            
+
             if [ -n "$pids_to_kill" ]; then
                 log_warning "Killing orphaned PIDs:$pids_to_kill"
                 # shellcheck disable=SC2086
@@ -346,7 +346,7 @@ cleanup_orphans() {
                     pids_to_kill="$pids_to_kill $pid"
                 fi
             done
-            
+
             if [ -n "$pids_to_kill" ]; then
                 log_warning "Killing orphaned PIDs:$pids_to_kill"
                 # shellcheck disable=SC2086
@@ -377,7 +377,7 @@ acquire_db_lock() {
         current_time=$(date +%s)
         local lock_mtime
         local lock_age=0
-        
+
         if [ "$(uname)" = "Darwin" ]; then
             # macOS
             lock_mtime=$(stat -f %m "$DB_LOCK_FILE" 2>/dev/null)
@@ -385,18 +385,18 @@ acquire_db_lock() {
             # Linux/Termux
             lock_mtime=$(stat -c %Y "$DB_LOCK_FILE" 2>/dev/null)
         fi
-        
+
         # Only calculate age if we successfully got the mtime
         if [ -n "$lock_mtime" ] && [ "$lock_mtime" -gt 0 ] 2>/dev/null; then
             lock_age=$((current_time - lock_mtime))
         fi
-        
+
         if [ "$lock_age" -gt 60 ]; then
             log_warning "Removing stale database lock file (age: ${lock_age}s)"
             rm -f "$DB_LOCK_FILE" 2>/dev/null || true
         fi
     fi
-    
+
     # Try to open file descriptor for lock file
     # Redirect stderr to suppress error messages on failure
     if ! exec 201>"$DB_LOCK_FILE" 2>/dev/null; then
@@ -405,7 +405,7 @@ acquire_db_lock() {
         # This is safer than blocking indefinitely
         return 0
     fi
-    
+
     if ! flock -n 201 2>/dev/null; then
         return 1
     fi
@@ -440,7 +440,7 @@ get_mysql_client() {
 
 check_database_server() {
     log_db "Checking database server status..."
-    
+
     # Try to connect to MySQL/MariaDB to verify it's running
     local mysql_cmd
     mysql_cmd=$(get_mysql_client)
@@ -448,13 +448,13 @@ check_database_server() {
         log_error "MySQL/MariaDB client not found"
         return 1
     fi
-    
+
     # First, check if the database process is running at all
     if ! is_database_process_running; then
         log_warning "Database server process is not running"
         return 1
     fi
-    
+
     # Test connection - try multiple methods in order of preference
     # 1. Try with bot user and password (if password is set)
     if [ -n "$DB_PASS" ] && [ "$(echo "$DB_PASS" | tr -d ' ')" != "" ]; then
@@ -463,13 +463,13 @@ check_database_server() {
             return 0
         fi
     fi
-    
+
     # 2. Try with bot user without password (common in Termux setup)
     if $mysql_cmd -u "$DB_USER" -e "SELECT 1;" &>/dev/null; then
         log_success "Database server is running and accessible (bot user, no password)"
         return 0
     fi
-    
+
     # 3. Try with root user without password (Termux default)
     if [ "$IS_TERMUX" = true ]; then
         if $mysql_cmd -u root -e "SELECT 1;" &>/dev/null; then
@@ -477,20 +477,20 @@ check_database_server() {
             return 0
         fi
     fi
-    
+
     # 4. If process is running but we can't connect, it might still be initializing
     if is_database_process_running; then
         log_warning "Database process is running but not accepting connections yet"
         return 1
     fi
-    
+
     log_warning "Database server is not accessible"
     return 1
 }
 
 start_database_server() {
     log_db "Attempting to start database server..."
-    
+
     # Acquire lock to prevent race conditions
     if ! acquire_db_lock; then
         log_warning "Another process is already starting the database, waiting..."
@@ -499,7 +499,7 @@ start_database_server() {
             sleep 1
             wait_count=$((wait_count + 1))
         done
-        
+
         if ! acquire_db_lock; then
             log_warning "Could not acquire database startup lock after 10s"
             # Check if database is now running (the other process may have started it)
@@ -510,14 +510,14 @@ start_database_server() {
             return 1
         fi
     fi
-    
+
     # Double-check database is not already running (race condition prevention)
     if is_database_process_running; then
         log_success "Database process is already running"
         release_db_lock
         return 0
     fi
-    
+
     # Check which init system is in use
     if [ "$IS_TERMUX" != true ] && command -v systemctl &> /dev/null; then
         # systemd (non-Termux Linux)
@@ -530,7 +530,7 @@ start_database_server() {
             release_db_lock
             return 0
         fi
-        
+
         # Try to start MySQL
         if systemctl list-unit-files mysql.service &>/dev/null; then
             log_db "Starting MySQL via systemctl..."
@@ -543,7 +543,7 @@ start_database_server() {
                 fi
             fi
         fi
-        
+
         # Try to start MariaDB
         if systemctl list-unit-files mariadb.service &>/dev/null; then
             log_db "Starting MariaDB via systemctl..."
@@ -566,21 +566,23 @@ start_database_server() {
             return 0
         fi
     fi
-    
+
     # Termux-specific method (or fallback for other environments)
     if [ "$IS_TERMUX" = true ]; then
         log_db "Attempting Termux-specific database start..."
-        
+
         # Ensure PREFIX is set (Termux environment variable)
         if [ -z "$PREFIX" ]; then
             log_warning "PREFIX not set, trying default Termux path..."
             PREFIX="/data/data/com.termux/files/usr"
         fi
-        
+
         # Check if datadir exists and is initialized
         local datadir="$PREFIX/var/lib/mysql"
+        local socket_file="$datadir/mysql.sock"
+        local aria_log="$datadir/aria_log_control"
         log_info "Using datadir: $datadir"
-        
+
         # Create datadir if it doesn't exist
         if [ ! -d "$datadir" ]; then
             log_info "Creating datadir: $datadir"
@@ -590,7 +592,51 @@ start_database_server() {
                 return 1
             }
         fi
-        
+
+        # TERMUX FIX: Clean up stale socket file that can prevent startup
+        if [ -e "$socket_file" ]; then
+            if ! is_database_process_running; then
+                log_warning "Found stale socket file, removing: $socket_file"
+                rm -f "$socket_file" 2>/dev/null || true
+            fi
+        fi
+
+        # TERMUX FIX: Clean up stale aria log control file that can cause crashes
+        # This file can become corrupted after an unclean shutdown
+        if [ -f "$aria_log" ]; then
+            if ! is_database_process_running; then
+                log_warning "Found aria_log_control file, may cause issues after unclean shutdown"
+                log_info "Backing up and removing aria_log files to allow recovery..."
+                # Back up the aria files first
+                mkdir -p "$BACKUP_DIR/aria_backup_$(date +%Y%m%d_%H%M%S)" 2>/dev/null || true
+                cp "$datadir"/aria_log* "$BACKUP_DIR/aria_backup_$(date +%Y%m%d_%H%M%S)/" 2>/dev/null || true
+                # Remove aria log files to allow clean start
+                rm -f "$datadir"/aria_log* 2>/dev/null || true
+                log_success "Aria log files cleaned up"
+            fi
+        fi
+
+        # TERMUX FIX: Check for and remove stale PID file
+        local pid_file="$datadir/$(hostname).pid"
+        if [ -f "$pid_file" ]; then
+            local old_pid=$(cat "$pid_file" 2>/dev/null)
+            if [ -n "$old_pid" ] && ! kill -0 "$old_pid" 2>/dev/null; then
+                log_warning "Found stale PID file, removing: $pid_file"
+                rm -f "$pid_file" 2>/dev/null || true
+            fi
+        fi
+
+        # TERMUX FIX: Check for ib_logfile corruption (common after unclean shutdown)
+        local ib_logfile0="$datadir/ib_logfile0"
+        if [ -f "$ib_logfile0" ]; then
+            # Check if file is zero-sized (corrupted)
+            local ib_size=$(stat -c%s "$ib_logfile0" 2>/dev/null || echo "0")
+            if [ "$ib_size" = "0" ]; then
+                log_warning "Found corrupted ib_logfile (zero size), removing..."
+                rm -f "$datadir"/ib_logfile* 2>/dev/null || true
+            fi
+        fi
+
         if [ ! -d "$datadir/mysql" ]; then
             log_warning "Database not initialized. Running mysql_install_db..."
             if command -v mariadb-install-db &> /dev/null; then
@@ -610,7 +656,7 @@ start_database_server() {
                 return 1
             fi
             sleep 3
-            
+
             # Verify initialization succeeded
             if [ ! -d "$datadir/mysql" ]; then
                 log_error "Database initialization failed - $datadir/mysql does not exist"
@@ -620,60 +666,120 @@ start_database_server() {
             fi
             log_success "Database initialized successfully"
         fi
-        
+
         # Start the database server
         local db_started=false
-        
+        local db_error_file="$LOG_DIR/mariadb_startup_error_$$.log"
+
         # Try mariadbd-safe first (newer Termux MariaDB)
         if command -v mariadbd-safe &> /dev/null; then
             log_db "Starting mariadbd-safe in background..."
-            log_info "Command: mariadbd-safe --datadir=$datadir"
-            
-            # Use nohup to ensure the process survives and capture any early errors
-            nohup mariadbd-safe --datadir="$datadir" >>"$MAIN_LOG" 2>&1 &
+            log_info "Command: mariadbd-safe --datadir=$datadir --skip-grant-tables"
+
+            # Use nohup and capture stderr separately for better error diagnosis
+            # --skip-grant-tables helps on first start or after recovery
+            nohup mariadbd-safe --datadir="$datadir" >"$db_error_file" 2>&1 &
             local db_pid=$!
             log_info "MariaDB starting with PID: $db_pid"
-            
-            # Wait a moment and verify the process started
-            sleep 3
+
+            # Wait a moment and verify the process started (give it more time on Termux)
+            sleep 5
             if kill -0 "$db_pid" 2>/dev/null || is_database_process_running; then
                 log_success "MariaDB process started"
                 db_started=true
+                # Append any startup messages to main log
+                cat "$db_error_file" >> "$MAIN_LOG" 2>/dev/null || true
             else
                 log_warning "mariadbd-safe process died immediately"
-                log_warning "Check the log for errors: tail -50 $MAIN_LOG"
+                # Show the actual error from MariaDB
+                if [ -s "$db_error_file" ]; then
+                    log_error "MariaDB startup error:"
+                    cat "$db_error_file" | head -50 | sed 's/^/  | /' | tee -a "$MAIN_LOG"
+                fi
+
+                # Check MariaDB's own error log
+                local mariadb_err="$datadir/$(hostname).err"
+                if [ -f "$mariadb_err" ]; then
+                    log_error "MariaDB error log (last 30 lines):"
+                    tail -30 "$mariadb_err" | sed 's/^/  | /' | tee -a "$MAIN_LOG"
+                fi
             fi
         fi
-        
+
         # Fallback to mysqld_safe for older installations
         if [ "$db_started" = false ] && command -v mysqld_safe &> /dev/null; then
             log_db "Starting mysqld_safe in background (fallback)..."
             log_info "Command: mysqld_safe --datadir=$datadir"
-            
-            nohup mysqld_safe --datadir="$datadir" >>"$MAIN_LOG" 2>&1 &
+
+            nohup mysqld_safe --datadir="$datadir" >"$db_error_file" 2>&1 &
             local db_pid=$!
             log_info "MySQL starting with PID: $db_pid"
-            
+
             # Wait a moment and verify the process started
-            sleep 3
+            sleep 5
             if kill -0 "$db_pid" 2>/dev/null || is_database_process_running; then
                 log_success "MySQL process started"
                 db_started=true
+                cat "$db_error_file" >> "$MAIN_LOG" 2>/dev/null || true
             else
                 log_warning "mysqld_safe process died immediately"
+                if [ -s "$db_error_file" ]; then
+                    log_error "MySQL startup error:"
+                    cat "$db_error_file" | head -30 | sed 's/^/  | /' | tee -a "$MAIN_LOG"
+                fi
             fi
         fi
-        
+
+        # Try direct mariadbd as last resort (without safe wrapper)
+        if [ "$db_started" = false ] && command -v mariadbd &> /dev/null; then
+            log_db "Trying direct mariadbd start (last resort)..."
+            log_info "Command: mariadbd --user=$(whoami) --datadir=$datadir --socket=$socket_file"
+
+            nohup mariadbd --user="$(whoami)" --datadir="$datadir" --socket="$socket_file" >"$db_error_file" 2>&1 &
+            local db_pid=$!
+            log_info "MariaDB direct starting with PID: $db_pid"
+
+            sleep 5
+            if kill -0 "$db_pid" 2>/dev/null || is_database_process_running; then
+                log_success "MariaDB (direct) process started"
+                db_started=true
+                cat "$db_error_file" >> "$MAIN_LOG" 2>/dev/null || true
+            else
+                log_warning "Direct mariadbd also failed"
+                if [ -s "$db_error_file" ]; then
+                    log_error "MariaDB direct startup error:"
+                    cat "$db_error_file" | head -30 | sed 's/^/  | /' | tee -a "$MAIN_LOG"
+                fi
+            fi
+        fi
+
+        # Clean up error file
+        rm -f "$db_error_file" 2>/dev/null || true
+
         # Check if any database binary is available
         if [ "$db_started" = false ]; then
-            if ! command -v mariadbd-safe &> /dev/null && ! command -v mysqld_safe &> /dev/null; then
-                log_error "No database server found (mariadbd-safe or mysqld_safe)"
+            if ! command -v mariadbd-safe &> /dev/null && ! command -v mysqld_safe &> /dev/null && ! command -v mariadbd &> /dev/null; then
+                log_error "No database server found (mariadbd-safe, mysqld_safe, or mariadbd)"
                 log_warning "Install MariaDB on Termux: pkg install mariadb"
+            else
+                # Database binary exists but won't start - provide recovery guidance
+                log_error "Database exists but won't start. Common fixes:"
+                log_info "  1. Check disk space: df -h"
+                log_info "  2. Force recovery: mariadbd-safe --innodb-force-recovery=1 &"
+                log_info "  3. Reset database: rm -rf $datadir && mariadb-install-db"
+                log_info "  4. Check permissions: ls -la $datadir"
+
+                # Check MariaDB's own error log one more time
+                local mariadb_err="$datadir/$(hostname).err"
+                if [ -f "$mariadb_err" ]; then
+                    log_warning "Full MariaDB error log path: $mariadb_err"
+                    log_warning "View it with: cat $mariadb_err"
+                fi
             fi
         fi
-        
+
         release_db_lock
-        
+
         if [ "$db_started" = true ]; then
             log_info "Database starting, waiting for readiness..."
             return 0  # Let caller wait for full readiness
@@ -681,10 +787,11 @@ start_database_server() {
             log_error "Failed to start database server on Termux"
             log_warning "Try manually: mariadbd-safe &"
             log_warning "Or check logs: tail -100 $MAIN_LOG"
+            log_warning "MariaDB error log: cat $datadir/$(hostname).err"
             return 1
         fi
     fi
-    
+
     release_db_lock
     log_error "Failed to start database server"
     log_warning "Please start the database server manually:"
@@ -698,36 +805,36 @@ start_database_server() {
 # This is especially important for Termux where the user might not have been created
 ensure_database_user() {
     log_db "Ensuring database user exists..."
-    
+
     local mysql_cmd
     mysql_cmd=$(get_mysql_client)
     if [ -z "$mysql_cmd" ]; then
         log_warning "MySQL/MariaDB client not found, skipping user creation"
         return 1
     fi
-    
+
     # Reload credentials from .env if available
     load_db_credentials
-    
+
     local db_user="${DB_USER:-sulfur_bot_user}"
     local db_name="${DB_NAME:-sulfur_bot}"
     local db_pass="${DB_PASS:-}"
-    
+
     # Try to connect as root (no password - Termux default)
     local can_connect_root=false
     if $mysql_cmd -u root -e "SELECT 1;" &>/dev/null; then
         can_connect_root=true
     fi
-    
+
     if [ "$can_connect_root" = true ]; then
         log_info "Connected as root, checking database and user..."
-        
+
         # Create database if it doesn't exist
         if ! $mysql_cmd -u root -e "USE $db_name;" &>/dev/null; then
             log_info "Creating database '$db_name'..."
             $mysql_cmd -u root -e "CREATE DATABASE IF NOT EXISTS $db_name CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>>"$MAIN_LOG"
         fi
-        
+
         # Create user if it doesn't exist (with or without password based on DB_PASS)
         if [ -n "$db_pass" ] && [ "$(echo "$db_pass" | tr -d ' ')" != "" ]; then
             log_info "Creating user '$db_user' with password..."
@@ -737,12 +844,12 @@ ensure_database_user() {
             log_info "Creating user '$db_user' without password..."
             $mysql_cmd -u root -e "CREATE USER IF NOT EXISTS '$db_user'@'localhost';" 2>>"$MAIN_LOG" || true
         fi
-        
+
         # Grant privileges
         log_info "Granting privileges to '$db_user' on '$db_name'..."
         $mysql_cmd -u root -e "GRANT ALL PRIVILEGES ON $db_name.* TO '$db_user'@'localhost';" 2>>"$MAIN_LOG" || true
         $mysql_cmd -u root -e "FLUSH PRIVILEGES;" 2>>"$MAIN_LOG" || true
-        
+
         log_success "Database user '$db_user' is ready"
         return 0
     else
@@ -753,26 +860,26 @@ ensure_database_user() {
 
 ensure_database_running() {
     log_db "Ensuring database server is running..."
-    
+
     # First check if it's already running and accessible
     if check_database_server; then
         return 0
     fi
-    
+
     # If not accessible, try to start it
     log_warning "Database server is not accessible, attempting to start..."
     start_database_server
-    
+
     # Wait for database to become ready (up to 30 seconds)
     local max_wait=30
     local wait_count=0
-    
+
     log_info "Waiting up to ${max_wait}s for database to become ready..."
-    
+
     while [ $wait_count -lt $max_wait ]; do
         sleep 1
         wait_count=$((wait_count + 1))
-        
+
         # Check if process is running
         if ! is_database_process_running; then
             # Process died, try to restart
@@ -780,30 +887,30 @@ ensure_database_running() {
             start_database_server
             continue
         fi
-        
+
         # Check if we can connect
         if check_database_server; then
             log_success "Database server started and verified (after ${wait_count}s)"
-            
+
             # Ensure the bot user exists
             ensure_database_user
-            
+
             return 0
         fi
-        
+
         # Show progress every 5 seconds
         if [ $((wait_count % 5)) -eq 0 ]; then
             log_info "Still waiting for database... (${wait_count}/${max_wait}s)"
         fi
     done
-    
+
     # Final check
     if check_database_server; then
         log_success "Database server is now accessible"
         ensure_database_user
         return 0
     fi
-    
+
     log_error "Could not ensure database server is running after ${max_wait}s"
     log_warning "Bot may experience database connection issues"
     log_info "Try starting the database manually:"
@@ -819,13 +926,13 @@ ensure_database_running() {
 
 backup_database() {
     log_db "Creating database backup..."
-    
+
     # First, check if database is actually accessible
     if ! check_database_server; then
         log_warning "Database server not accessible, skipping backup"
         return 1
     fi
-    
+
     # Check for mariadb-dump (Termux/newer MariaDB) or mysqldump
     local dump_cmd=""
     if command -v mariadb-dump &> /dev/null; then
@@ -836,25 +943,25 @@ backup_database() {
         log_warning "Neither mariadb-dump nor mysqldump found, skipping backup"
         return 1
     fi
-    
+
     local backup_file="$BACKUP_DIR/sulfur_bot_backup_$(date +"%Y-%m-%d_%H-%M-%S").sql"
     local backup_success=false
-    
+
     # Reload credentials from .env if available
     load_db_credentials
-    
+
     local db_user="${DB_USER:-sulfur_bot_user}"
     local db_name="${DB_NAME:-sulfur_bot}"
     local db_pass="${DB_PASS:-}"
-    
+
     # Check if password is actually set (not empty or just whitespace)
     local password_set=false
     if [ -n "$db_pass" ] && [ "$(echo "$db_pass" | tr -d ' ')" != "" ]; then
         password_set=true
     fi
-    
+
     # Try multiple backup methods in order of preference
-    
+
     # Method 1: Bot user with password
     if [ "$password_set" = true ]; then
         log_db "Trying backup with bot user and password..."
@@ -865,7 +972,7 @@ backup_database() {
             log_warning "Backup with password failed"
         fi
     fi
-    
+
     # Method 2: Bot user without password (common in Termux)
     if [ "$backup_success" = false ]; then
         log_db "Trying backup with bot user (no password)..."
@@ -876,7 +983,7 @@ backup_database() {
             log_warning "Backup with bot user (no password) failed"
         fi
     fi
-    
+
     # Method 3: Root user without password (Termux default)
     if [ "$backup_success" = false ] && [ "$IS_TERMUX" = true ]; then
         log_db "Trying backup with root user (Termux default)..."
@@ -887,7 +994,7 @@ backup_database() {
             log_warning "Backup with root user failed"
         fi
     fi
-    
+
     # Method 4: debian.cnf (Linux systems)
     if [ "$backup_success" = false ] && [ -f "/etc/mysql/debian.cnf" ]; then
         log_db "Trying backup with debian.cnf..."
@@ -898,7 +1005,7 @@ backup_database() {
             log_warning "Backup with debian.cnf failed"
         fi
     fi
-    
+
     # Check if backup was successful
     if [ "$backup_success" = false ]; then
         log_error "Database backup failed with all methods"
@@ -913,14 +1020,14 @@ backup_database() {
         rm -f "$backup_file" 2>/dev/null
         return 1
     fi
-    
+
     # Verify backup file is not empty
     if [ ! -s "$backup_file" ]; then
         log_warning "Backup file is empty, removing..."
         rm -f "$backup_file"
         return 1
     fi
-    
+
     # Keep only last 10 backups
     local backup_count
     backup_count=$(ls -1 "$BACKUP_DIR"/*.sql 2>/dev/null | wc -l)
@@ -928,7 +1035,7 @@ backup_database() {
         ls -1t "$BACKUP_DIR"/*.sql | tail -n +11 | xargs rm -f
         log_info "Cleaned up old backups (kept last 10)"
     fi
-    
+
     return 0
 }
 
@@ -941,43 +1048,43 @@ run_mysql_query() {
     local query="$1"
     local mysql_cmd
     mysql_cmd=$(get_mysql_client)
-    
+
     if [ -z "$mysql_cmd" ]; then
         return 1
     fi
-    
+
     # Reload credentials from .env if available
     load_db_credentials
-    
+
     local db_user="${DB_USER:-sulfur_bot_user}"
     local db_name="${DB_NAME:-sulfur_bot}"
     local db_pass="${DB_PASS:-}"
-    
+
     # Check if password is set
     local password_set=false
     if [ -n "$db_pass" ] && [ "$(echo "$db_pass" | tr -d ' ')" != "" ]; then
         password_set=true
     fi
-    
+
     # Try bot user with password
     if [ "$password_set" = true ]; then
         if echo "$query" | $mysql_cmd -u "$db_user" -p"$db_pass" "$db_name" 2>>"$MAIN_LOG"; then
             return 0
         fi
     fi
-    
+
     # Try bot user without password
     if echo "$query" | $mysql_cmd -u "$db_user" "$db_name" 2>>"$MAIN_LOG"; then
         return 0
     fi
-    
+
     # Try root (Termux default)
     if [ "$IS_TERMUX" = true ]; then
         if echo "$query" | $mysql_cmd -u root "$db_name" 2>>"$MAIN_LOG"; then
             return 0
         fi
     fi
-    
+
     return 1
 }
 
@@ -986,25 +1093,25 @@ run_mysql_query_result() {
     local query="$1"
     local mysql_cmd
     mysql_cmd=$(get_mysql_client)
-    
+
     if [ -z "$mysql_cmd" ]; then
         echo ""
         return 1
     fi
-    
+
     # Reload credentials from .env if available
     load_db_credentials
-    
+
     local db_user="${DB_USER:-sulfur_bot_user}"
     local db_name="${DB_NAME:-sulfur_bot}"
     local db_pass="${DB_PASS:-}"
-    
+
     # Check if password is set
     local password_set=false
     if [ -n "$db_pass" ] && [ "$(echo "$db_pass" | tr -d ' ')" != "" ]; then
         password_set=true
     fi
-    
+
     # Try bot user with password
     if [ "$password_set" = true ]; then
         local result
@@ -1014,7 +1121,7 @@ run_mysql_query_result() {
             return 0
         fi
     fi
-    
+
     # Try bot user without password
     local result
     result=$($mysql_cmd -u "$db_user" "$db_name" -sN -e "$query" 2>>"$MAIN_LOG")
@@ -1022,7 +1129,7 @@ run_mysql_query_result() {
         echo "$result"
         return 0
     fi
-    
+
     # Try root (Termux default)
     if [ "$IS_TERMUX" = true ]; then
         result=$($mysql_cmd -u root "$db_name" -sN -e "$query" 2>>"$MAIN_LOG")
@@ -1031,7 +1138,7 @@ run_mysql_query_result() {
             return 0
         fi
     fi
-    
+
     echo ""
     return 1
 }
@@ -1041,55 +1148,55 @@ run_mysql_file() {
     local sql_file="$1"
     local mysql_cmd
     mysql_cmd=$(get_mysql_client)
-    
+
     if [ -z "$mysql_cmd" ]; then
         return 1
     fi
-    
+
     # Reload credentials from .env if available
     load_db_credentials
-    
+
     local db_user="${DB_USER:-sulfur_bot_user}"
     local db_name="${DB_NAME:-sulfur_bot}"
     local db_pass="${DB_PASS:-}"
-    
+
     # Check if password is set
     local password_set=false
     if [ -n "$db_pass" ] && [ "$(echo "$db_pass" | tr -d ' ')" != "" ]; then
         password_set=true
     fi
-    
+
     # Try bot user with password
     if [ "$password_set" = true ]; then
         if $mysql_cmd -u "$db_user" -p"$db_pass" "$db_name" < "$sql_file" 2>>"$MAIN_LOG"; then
             return 0
         fi
     fi
-    
+
     # Try bot user without password
     if $mysql_cmd -u "$db_user" "$db_name" < "$sql_file" 2>>"$MAIN_LOG"; then
         return 0
     fi
-    
+
     # Try root (Termux default)
     if [ "$IS_TERMUX" = true ]; then
         if $mysql_cmd -u root "$db_name" < "$sql_file" 2>>"$MAIN_LOG"; then
             return 0
         fi
     fi
-    
+
     return 1
 }
 
 run_database_migrations() {
     log_db "Checking for pending database migrations..."
-    
+
     # Check if migrations directory exists
     if [ ! -d "scripts/db_migrations" ]; then
         log_info "No migrations directory found, skipping"
         return 0
     fi
-    
+
     # Get MySQL command
     local mysql_cmd
     mysql_cmd=$(get_mysql_client)
@@ -1097,7 +1204,7 @@ run_database_migrations() {
         log_error "MySQL/MariaDB client not found, cannot run migrations"
         return 1
     fi
-    
+
     # Create migration tracking table if it doesn't exist
     local create_tracking_table="
     CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -1106,24 +1213,24 @@ run_database_migrations() {
         applied_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_migration_name (migration_name)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;"
-    
+
     run_mysql_query "$create_tracking_table"
-    
+
     # Find all .sql migration files
     local migrations_run=0
     for migration_file in scripts/db_migrations/*.sql; do
         if [ -f "$migration_file" ]; then
             local migration_name
             migration_name=$(basename "$migration_file")
-            
+
             # Check if migration already applied
             local check_query="SELECT COUNT(*) FROM schema_migrations WHERE migration_name = '$migration_name'"
             local already_applied
             already_applied=$(run_mysql_query_result "$check_query")
-            
+
             if [ "$already_applied" = "0" ]; then
                 log_db "Applying migration: $migration_name"
-                
+
                 # Run the migration
                 if run_mysql_file "$migration_file"; then
                     # Mark as applied
@@ -1137,28 +1244,28 @@ run_database_migrations() {
             fi
         fi
     done
-    
+
     if [ $migrations_run -eq 0 ]; then
         log_info "No pending migrations found"
     else
         log_success "Applied $migrations_run migration(s)"
     fi
-    
+
     return 0
 }
 
 install_optional_dependencies() {
     log_info "Checking optional dependencies for advanced features..."
-    
+
     # Find Python
     local python_exe="$PYTHON_CMD"
     local pip_exe="$PYTHON_CMD -m pip"
-    
+
     if [ -f "venv/bin/python" ]; then
         python_exe="venv/bin/python"
         pip_exe="$python_exe -m pip"
     fi
-    
+
     # Check for edge-tts (voice TTS)
     if ! $python_exe -c "import edge_tts" &>/dev/null; then
         log_warning "edge-tts not installed (optional for voice features)"
@@ -1171,7 +1278,7 @@ install_optional_dependencies() {
     else
         log_success "edge-tts is installed"
     fi
-    
+
     # Check for SpeechRecognition (voice transcription)
     if ! $python_exe -c "import speech_recognition" &>/dev/null; then
         log_warning "SpeechRecognition not installed (optional for voice features)"
@@ -1184,7 +1291,7 @@ install_optional_dependencies() {
     else
         log_success "SpeechRecognition is installed"
     fi
-    
+
     log_info "Optional dependencies check complete"
 }
 
@@ -1194,71 +1301,71 @@ install_optional_dependencies() {
 
 git_commit() {
     local message=${1:-"chore: Auto-commit from maintenance script"}
-    
+
     # Skip commit if SKIP_COMMIT is enabled (default)
     if [ "$SKIP_COMMIT" = true ]; then
         log_git "Auto-commit disabled (SKIP_COMMIT=true). Bot should only pull from main."
         return 1
     fi
-    
+
     log_git "Checking for changes to commit..."
-    
+
     # Check if git user is configured
     local git_user=$(git config user.name 2>/dev/null || true)
     local git_email=$(git config user.email 2>/dev/null || true)
-    
+
     if [ -z "$git_user" ] || [ -z "$git_email" ]; then
         log_warning "Git user not configured, setting default values..."
         git config user.name "Sulfur Bot Maintenance" 2>>"$MAIN_LOG" || true
         git config user.email "sulfur-bot@localhost" 2>>"$MAIN_LOG" || true
     fi
-    
+
     # Check if there are any changes (excluding .gitignore'd files)
     local status_output
     status_output=$(git status --porcelain 2>&1)
-    
+
     if [ -z "$status_output" ]; then
         log_git "No changes to commit (all changes are in .gitignore)"
         return 1
     fi
-    
+
     # Show what will be committed (for debugging on Termux)
     log_warning "Changes detected, files to commit:"
     echo "$status_output" | head -10 | sed 's/^/  | /' | tee -a "$MAIN_LOG"
     if [ $(echo "$status_output" | wc -l) -gt 10 ]; then
         log_info "  ... and $(( $(echo "$status_output" | wc -l) - 10 )) more file(s)"
     fi
-    
+
     # Stage all changes (respects .gitignore)
     if ! git add -A 2>>"$MAIN_LOG"; then
         log_error "Git add failed - check permissions and .gitignore"
-        log_warning "Git add output:" 
+        log_warning "Git add output:"
         git add -A 2>&1 | tail -5 | sed 's/^/  | /' | tee -a "$MAIN_LOG"
         return 1
     fi
-    
+
     # Verify something was actually staged
     local staged_files
     staged_files=$(git diff --cached --name-only 2>&1)
-    
+
     if [ -z "$staged_files" ]; then
         log_git "No files staged for commit (all changes are in .gitignore)"
         log_info "Note: Logs, backups, and runtime files are excluded per .gitignore"
         return 1
     fi
-    
+
     log_info "Staged files for commit:"
     echo "$staged_files" | head -10 | sed 's/^/  | /' | tee -a "$MAIN_LOG"
-    
+
     # Commit changes
     if ! git commit -m "$message" >>"$MAIN_LOG" 2>&1; then
         log_error "Git commit failed"
         git status 2>&1 | tail -10 | sed 's/^/  | /' | tee -a "$MAIN_LOG"
         return 1
     fi
-    
+
     log_success "Changes committed locally"
-    
+
     # Try to push changes
     if git push >>"$MAIN_LOG" 2>&1; then
         log_success "Changes pushed to remote"
@@ -1267,7 +1374,7 @@ git_commit() {
         log_warning "Git push failed - commits are local only"
         log_warning "Reason: Network issue, credentials, or remote repository access"
         log_info "To manually push: git push"
-        
+
         # Show push error details for debugging (especially useful on Termux)
         local push_error
         push_error=$(git push 2>&1 | head -5)
@@ -1275,30 +1382,30 @@ git_commit() {
             log_info "Push error details:"
             echo "$push_error" | sed 's/^/  | /' | tee -a "$MAIN_LOG"
         fi
-        
+
         return 0  # Return success since commit succeeded, even if push failed
     fi
 }
 
 check_for_updates() {
     log_update "Checking for updates..."
-    
+
     git remote update &>>"$MAIN_LOG"
-    
+
     LOCAL=$(git rev-parse @)
     REMOTE=$(git rev-parse @{u})
-    
+
     if [ "$LOCAL" != "$REMOTE" ]; then
         # Check for update loop prevention
         local current_time
         current_time=$(date +%s)
         local time_since_update=$((current_time - LAST_UPDATE_TIME))
-        
+
         # Reset loop counter if enough time has passed
         if [ "$time_since_update" -gt "$UPDATE_LOOP_RESET_SECONDS" ]; then
             UPDATE_LOOP_COUNT=0
         fi
-        
+
         # Check if we're in an update loop
         if [ "$UPDATE_LOOP_COUNT" -ge "$MAX_UPDATE_LOOP_COUNT" ]; then
             log_warning "Update loop detected! Skipping update to prevent infinite loop."
@@ -1306,13 +1413,13 @@ check_for_updates() {
             log_warning "Waiting for loop reset period to pass..."
             return 1
         fi
-        
+
         # Check if we've already pulled this commit
         if [ "$REMOTE" = "$LAST_PULLED_COMMIT" ]; then
             log_warning "Already pulled commit $REMOTE, skipping to prevent loop"
             return 1
         fi
-        
+
         log_warning "Updates available!"
         return 0
     else
@@ -1322,13 +1429,13 @@ check_for_updates() {
 
 apply_updates() {
     log_update "Applying updates..."
-    
+
     update_status "Updating..."
-    
+
     # Track update loop prevention
     UPDATE_LOOP_COUNT=$((UPDATE_LOOP_COUNT + 1))
     LAST_UPDATE_TIME=$(date +%s)
-    
+
     # For public repos: Reset local changes instead of committing
     # This prevents merge conflicts and ensures we always use remote files
     if [ "$SKIP_COMMIT" = true ]; then
@@ -1336,32 +1443,32 @@ apply_updates() {
         if ! git diff-index --quiet HEAD -- 2>/dev/null; then
             log_warning "Local changes detected - stashing them before update"
             log_info "Changes will be discarded to use remote files (public repo mode)"
-            
+
             # Show what's being reset
             git status --short 2>&1 | head -5 | sed 's/^/  | /' | tee -a "$MAIN_LOG"
-            
+
             # Reset to match remote exactly
             git fetch origin >>"$MAIN_LOG" 2>&1
             git reset --hard origin/main >>"$MAIN_LOG" 2>&1 || git reset --hard origin/master >>"$MAIN_LOG" 2>&1
-            
+
             log_success "Local changes discarded - using remote files"
         fi
     else
         # Legacy mode: Commit local changes before update (only if explicitly enabled)
         git_commit "chore: Auto-commit before update"
     fi
-    
+
     # Check if this script is being updated
     git fetch &>>"$MAIN_LOG"
     CHANGED_FILES=$(git diff --name-only HEAD...origin/main 2>/dev/null || git diff --name-only HEAD...origin/master 2>/dev/null || echo "")
-    
+
     # Track the commit we're about to pull
     local REMOTE_COMMIT
     REMOTE_COMMIT=$(git rev-parse @{u} 2>/dev/null)
-    
+
     if echo "$CHANGED_FILES" | grep -q "maintain_bot.sh"; then
         log_update "Maintenance script will be updated - restarting..."
-        
+
         # For public repos, use hard reset to always match remote
         if [ "$SKIP_COMMIT" = true ]; then
             git reset --hard "$REMOTE_COMMIT" >>"$MAIN_LOG" 2>&1
@@ -1376,14 +1483,14 @@ apply_updates() {
                 fi
             fi
         fi
-        
+
         # Track the pulled commit
         LAST_PULLED_COMMIT="$REMOTE_COMMIT"
-        
+
         # Restart this script
         exec "$0" "$@"
     fi
-    
+
     # Normal update - use hard reset for public repos to avoid merge conflicts
     if [ "$SKIP_COMMIT" = true ]; then
         # Always use remote files - no merge conflicts
@@ -1405,7 +1512,7 @@ apply_updates() {
             fi
         fi
     fi
-    
+
     # Track the pulled commit to prevent update loops
     LAST_PULLED_COMMIT=$(git rev-parse @ 2>/dev/null)
     if [ -n "$LAST_PULLED_COMMIT" ]; then
@@ -1413,34 +1520,34 @@ apply_updates() {
     else
         log_update "Updated to latest commit"
     fi
-    
+
     # Update Python dependencies after code update
     log_update "Updating Python dependencies..."
-    
+
     # Check and install system dependencies first (Termux only)
     if [ "$IS_TERMUX" = true ]; then
         log_update "Checking system dependencies..."
         ensure_system_dependencies
     fi
-    
+
     local python_exe="$PYTHON_CMD"
     if [ -f "venv/bin/python" ]; then
         python_exe="venv/bin/python"
     fi
-    
+
     local venv_pip="venv/bin/pip"
     if [ -f "$venv_pip" ]; then
         # Update pip first
         $python_exe -m pip install --upgrade pip >>"$MAIN_LOG" 2>&1 || true
-        
+
         # Set SODIUM_INSTALL=system to use system libsodium for PyNaCl
         # This prevents build failures on Termux where bundled libsodium configure fails
         export SODIUM_INSTALL=system
-        
+
         # Install/update requirements
         if $venv_pip install -r requirements.txt >>"$MAIN_LOG" 2>&1; then
             log_success "Dependencies updated successfully"
-            
+
             # Update marker file
             local req_hash=$(md5sum requirements.txt 2>/dev/null | awk '{print $1}' || echo "unknown")
             echo "$req_hash" > ".last_requirements_install"
@@ -1459,21 +1566,21 @@ apply_updates() {
     else
         log_warning "venv/bin/pip not found, skipping dependency update"
     fi
-    
+
     # Initialize/update database tables after pulling updates
     log_update "Updating database tables and applying migrations..."
-    
+
     # Run database initialization and apply migrations with retry
     local db_attempt=1
     local db_max_attempts=5
     local db_success=false
-    
+
     while [ $db_attempt -le $db_max_attempts ]; do
         log_update "Database update attempt $db_attempt/$db_max_attempts..."
-        
+
         # Calculate adaptive wait time
         local wait_time=$((5 * db_attempt))
-        
+
         if "$python_exe" -c "
 from modules.db_helpers import init_db_pool, initialize_database, apply_pending_migrations
 import os
@@ -1486,21 +1593,21 @@ try:
     DB_USER = os.environ.get('DB_USER', 'sulfur_bot_user')
     DB_PASS = os.environ.get('DB_PASS', '')
     DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot')
-    
+
     # Initialize database pool with retry logic
     print(f'Initializing database pool: {DB_USER}@{DB_HOST}/{DB_NAME}')
     if not init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME):
         print('ERROR: Failed to initialize database pool')
         sys.exit(1)
     print('Database pool initialized')
-    
+
     # Create base tables with retry logic
     print('Initializing database tables...')
     if not initialize_database():
         print('ERROR: Failed to initialize database tables')
         sys.exit(1)
     print('Database tables initialized successfully')
-    
+
     # Apply any pending migrations
     print('Checking for pending migrations...')
     applied_count, errors = apply_pending_migrations()
@@ -1514,7 +1621,7 @@ try:
         print('Continuing despite migration errors...')
     else:
         print('All database migrations up to date')
-    
+
     sys.exit(0)
 except Exception as e:
     print(f'ERROR: Database update failed: {e}')
@@ -1527,27 +1634,27 @@ except Exception as e:
             break
         else
             log_warning "Database update attempt $db_attempt failed"
-            
+
             # Show last few lines of error from log
             if [ -f "$MAIN_LOG" ]; then
                 log_warning "Last error from database update:"
                 tail -n 5 "$MAIN_LOG" | sed 's/^/  | /' | tee -a "$MAIN_LOG"
             fi
-            
+
             if [ $db_attempt -lt $db_max_attempts ]; then
                 log_info "Retrying in $wait_time seconds..."
                 sleep $wait_time
             fi
         fi
-        
+
         db_attempt=$((db_attempt + 1))
     done
-    
+
     if [ "$db_success" = false ]; then
         log_error "Database update failed after $db_max_attempts attempts"
         log_warning "Bot may experience database issues. Check $MAIN_LOG for details"
     fi
-    
+
     log_success "Update complete"
     date -u +"%Y-%m-%dT%H:%M:%SZ" > "last_update.txt"
 }
@@ -1559,7 +1666,7 @@ except Exception as e:
 show_port_info() {
     local port=$1
     log_info "Checking port $port status..."
-    
+
     # Show which processes are using the port
     if command -v lsof >/dev/null 2>&1; then
         local port_info=$(lsof -i:$port 2>/dev/null)
@@ -1580,7 +1687,7 @@ show_port_info() {
             echo "$port_info" | sed 's/^/  | /' | tee -a "$MAIN_LOG"
         fi
     fi
-    
+
     # Also show if port is in TIME_WAIT state
     if command -v ss >/dev/null 2>&1; then
         local timewait=$(ss -tan 2>/dev/null | grep ":$port " | grep TIME-WAIT)
@@ -1592,7 +1699,7 @@ show_port_info() {
 
 check_port_available() {
     local port=$1
-    
+
     # Check if port is in use using multiple methods
     # Method 1: Try using lsof (if available)
     if command -v lsof >/dev/null 2>&1; then
@@ -1600,28 +1707,28 @@ check_port_available() {
             return 1  # Port is in use
         fi
     fi
-    
+
     # Method 2: Try using netstat (if available)
     if command -v netstat >/dev/null 2>&1; then
         if netstat -tuln 2>/dev/null | grep -q ":$port "; then
             return 1  # Port is in use
         fi
     fi
-    
+
     # Method 3: Try using ss (if available, more common on modern Linux)
     if command -v ss >/dev/null 2>&1; then
         if ss -tuln 2>/dev/null | grep -q ":$port "; then
             return 1  # Port is in use
         fi
     fi
-    
+
     # Method 4: Try to connect to the port (last resort)
     if command -v nc >/dev/null 2>&1; then
         if nc -z 127.0.0.1 $port 2>/dev/null; then
             return 1  # Port is in use
         fi
     fi
-    
+
     return 0  # Port is available
 }
 
@@ -1629,19 +1736,19 @@ free_port() {
     local port=$1
     local max_attempts=${2:-3}
     local attempt=1
-    
+
     log_warning "Attempting to free port $port..."
-    
+
     while [ $attempt -le $max_attempts ]; do
         local pids=""
-        
+
         # Try to find PIDs using the port
         if command -v lsof >/dev/null 2>&1; then
             pids=$(lsof -ti:$port 2>/dev/null)
         elif command -v fuser >/dev/null 2>&1; then
             pids=$(fuser $port/tcp 2>/dev/null | sed 's/^ *//')
         fi
-        
+
         if [ -n "$pids" ]; then
             if [ $attempt -eq 1 ]; then
                 log_warning "Found processes using port $port: $pids"
@@ -1650,7 +1757,7 @@ free_port() {
             else
                 log_warning "Attempt $attempt/$max_attempts: Processes still on port $port: $pids"
             fi
-            
+
             for pid in $pids; do
                 # Get process command for better logging
                 local proc_cmd=""
@@ -1659,23 +1766,23 @@ free_port() {
                 elif command -v ps >/dev/null 2>&1; then
                     proc_cmd=$(ps -p $pid -o comm= 2>/dev/null)
                 fi
-                
+
                 if [ -n "$proc_cmd" ]; then
                     log_info "  PID $pid: $proc_cmd"
                 fi
-                
+
                 # If this PID matches our web dashboard PID file, clean up the stale PID file
                 if [ -f "$WEB_PID_FILE" ] && [ "$(cat "$WEB_PID_FILE" 2>/dev/null)" = "$pid" ]; then
                     log_warning "  PID $pid matches web dashboard PID file - cleaning up stale reference"
                     rm -f "$WEB_PID_FILE"
                 fi
-                
+
                 # Try graceful shutdown first on first attempt, force kill on retries
                 if kill -0 "$pid" 2>/dev/null; then
                     if [ $attempt -eq 1 ]; then
                         log_info "  Sending TERM signal to PID $pid..."
                         kill -TERM "$pid" 2>/dev/null
-                        
+
                         # Wait up to 3 seconds for graceful shutdown
                         local wait_count=0
                         while [ $wait_count -lt 3 ]; do
@@ -1687,7 +1794,7 @@ free_port() {
                             wait_count=$((wait_count + 1))
                         done
                     fi
-                    
+
                     # Force kill if still running or on retry attempts
                     if kill -0 "$pid" 2>/dev/null; then
                         log_warning "  Force killing PID $pid..."
@@ -1696,18 +1803,18 @@ free_port() {
                     fi
                 fi
             done
-            
+
             # Wait for port to be released (exponential backoff)
             local wait_time=$((2 * attempt))
             log_info "Waiting ${wait_time}s for port to be released..."
             sleep $wait_time
-            
+
             # Check if port is now free
             if check_port_available $port; then
                 log_success "Port $port is now available"
                 return 0
             fi
-            
+
             # Not free yet, try again
             attempt=$((attempt + 1))
         else
@@ -1716,7 +1823,7 @@ free_port() {
                 log_warning "No processes found using port $port, but port still reports as in use"
                 log_info "Port might be in TIME-WAIT state, waiting..."
                 sleep $((2 * attempt))
-                
+
                 # Check again after waiting
                 if check_port_available $port; then
                     log_success "Port $port is now available"
@@ -1729,7 +1836,7 @@ free_port() {
             fi
         fi
     done
-    
+
     # Failed after all attempts
     log_error "Failed to free port $port after $max_attempts attempts"
     show_port_info $port
@@ -1738,7 +1845,7 @@ free_port() {
 
 start_web_dashboard() {
     log_web "Starting Web Dashboard..."
-    
+
     # Always clean up any stale PID file first
     if [ -f "$WEB_PID_FILE" ]; then
         local old_pid=$(cat "$WEB_PID_FILE" 2>/dev/null)
@@ -1747,7 +1854,7 @@ start_web_dashboard() {
             rm -f "$WEB_PID_FILE"
         fi
     fi
-    
+
     # Check if there are active processes using port 5000 (not just TIME_WAIT)
     local port_pids=""
     if command -v lsof >/dev/null 2>&1; then
@@ -1755,11 +1862,11 @@ start_web_dashboard() {
     elif command -v fuser >/dev/null 2>&1; then
         port_pids=$(fuser 5000/tcp 2>/dev/null | sed 's/^ *//')
     fi
-    
+
     if [ -n "$port_pids" ]; then
         log_warning "Port 5000 is in use by process(es): $port_pids"
         show_port_info 5000
-        
+
         # Try to free the port with up to 3 attempts
         if ! free_port 5000 3; then
             log_error "Failed to free port 5000 after multiple attempts."
@@ -1784,17 +1891,17 @@ start_web_dashboard() {
             log_success "Port 5000 is available"
         fi
     fi
-    
+
     # Find Python
     local python_exe="$PYTHON_CMD"
     if [ -f "venv/bin/python" ]; then
         python_exe="venv/bin/python"
     fi
-    
+
     # Quick validation - check if Flask is importable
     if ! "$python_exe" -c "import flask, flask_socketio" 2>/dev/null; then
         log_warning "Flask dependencies not installed, attempting to install..."
-        
+
         # Try to install Flask dependencies
         local pip_exe="$python_exe"
         if [ -f "venv/bin/pip" ]; then
@@ -1802,7 +1909,7 @@ start_web_dashboard() {
         else
             pip_exe="$python_exe -m pip"
         fi
-        
+
         # Capture output for better error visibility
         local pip_output_file="/tmp/sulfur_web_pip_install_$$.log"
         if $pip_exe install -r requirements.txt >"$pip_output_file" 2>&1; then
@@ -1817,7 +1924,7 @@ start_web_dashboard() {
             log_warning "Try manually: $python_exe -m pip install Flask Flask-SocketIO waitress"
             return 1
         fi
-        
+
         # Verify installation
         if ! "$python_exe" -c "import flask, flask_socketio" 2>/dev/null; then
             log_error "Flask dependencies still not available after installation"
@@ -1825,24 +1932,24 @@ start_web_dashboard() {
             return 1
         fi
     fi
-    
+
     # Verify web_dashboard.py exists
     if [ ! -f "web_dashboard.py" ]; then
         log_error "web_dashboard.py not found in current directory"
         return 1
     fi
-    
+
     # Start web dashboard in background
     log_info "Starting web dashboard process..."
     nohup "$python_exe" -u web_dashboard.py >> "$WEB_LOG" 2>&1 &
     local web_pid=$!
-    
+
     # Verify process started
     if [ -z "$web_pid" ]; then
         log_error "Failed to get web dashboard PID"
         return 1
     fi
-    
+
     # Wait a moment and verify process didn't die immediately
     sleep 1
     if ! kill -0 "$web_pid" 2>/dev/null; then
@@ -1850,14 +1957,14 @@ start_web_dashboard() {
         log_warning "Check web log for errors: tail -n 50 $WEB_LOG"
         return 1
     fi
-    
+
     echo "$web_pid" > "$WEB_PID_FILE"
     log_info "Web dashboard process started with PID: $web_pid"
-    
+
     # Wait for it to start
     local retries=0
     local max_retries=15
-    
+
     while [ $retries -lt $max_retries ]; do
         sleep 2
 
@@ -1865,7 +1972,7 @@ start_web_dashboard() {
         if curl -sf --max-time 2 -I http://127.0.0.1:5000 >/dev/null 2>&1 \
            || nc -z 127.0.0.1 5000 2>/dev/null; then
             log_success "Web Dashboard running at http://localhost:5000 (PID: $web_pid)"
-            
+
             # Show network access info for Termux users
             if [ "$IS_TERMUX" = true ]; then
                 # Try to get local IP address
@@ -1880,22 +1987,22 @@ start_web_dashboard() {
                     log_info "Access from network: http://${local_ip}:5000"
                 fi
             fi
-            
+
             WEB_RESTART_COUNT=0  # Reset counter on successful start
             return 0
         fi
-        
+
         # Check if process is still alive
         if ! kill -0 "$web_pid" 2>/dev/null; then
             log_error "Web Dashboard process died during startup (PID: $web_pid)"
-            
+
             # Check if it was due to port conflict
             if [ -f "$WEB_LOG" ]; then
                 if grep -q "Port 5000 is already in use" "$WEB_LOG" 2>/dev/null || \
                    grep -q "Address already in use" "$WEB_LOG" 2>/dev/null; then
                     log_error "Port 5000 conflict detected - this indicates a race condition or port cleanup failure"
                     show_port_info 5000
-                    
+
                     log_warning "Last 20 lines from web dashboard log:"
                     tail -n 20 "$WEB_LOG" | sed 's/^/  | /' | tee -a "$MAIN_LOG"
                 else
@@ -1903,18 +2010,18 @@ start_web_dashboard() {
                     tail -n 10 "$WEB_LOG" | sed 's/^/  | /' | tee -a "$MAIN_LOG"
                 fi
             fi
-            
+
             rm -f "$WEB_PID_FILE"
             return 1
         fi
-        
+
         retries=$((retries + 1))
         log_info "Waiting for web dashboard to respond... (attempt $retries/$max_retries)"
     done
-    
+
     log_warning "Web Dashboard start timeout - process running but not responding on port 5000"
     log_warning "Process PID: $web_pid, Check $WEB_LOG for details"
-    
+
     # Check if port is actually listening
     if check_port_available 5000; then
         log_error "Port 5000 is not being listened on by the web dashboard process"
@@ -1922,37 +2029,37 @@ start_web_dashboard() {
     else
         log_info "Port 5000 appears to be in use, but not responding to HTTP requests"
     fi
-    
+
     return 1
 }
 
 start_bot() {
     log_bot "Starting bot..."
-    
+
     update_status "Starting..."
-    
+
     # Find Python
     local python_exe="$PYTHON_CMD"
     if [ -f "venv/bin/python" ]; then
         python_exe="venv/bin/python"
     fi
-    
+
     # Verify bot.py exists
     if [ ! -f "bot.py" ]; then
         log_error "bot.py not found in current directory"
         return 1
     fi
-    
+
     # Start bot in background
     nohup "$python_exe" -u bot.py >> "$BOT_LOG" 2>&1 &
     local bot_pid=$!
-    
+
     # Verify process started
     if [ -z "$bot_pid" ]; then
         log_error "Failed to get bot PID"
         return 1
     fi
-    
+
     # Wait a moment and verify process is still running
     sleep 1
     if ! kill -0 "$bot_pid" 2>/dev/null; then
@@ -1960,7 +2067,7 @@ start_bot() {
         log_warning "Check bot log for errors: tail -n 50 $BOT_LOG"
         return 1
     fi
-    
+
     echo "$bot_pid" > "$BOT_PID_FILE"
     update_status "Running" "$bot_pid"
     log_success "Bot started (PID: $bot_pid)"
@@ -1974,7 +2081,7 @@ stop_bot() {
             log_bot "Sending graceful shutdown signal..."
             # Send SIGTERM for graceful shutdown
             kill -TERM "$bot_pid" 2>/dev/null
-            
+
             # Wait up to 5 seconds for graceful shutdown
             for i in {1..5}; do
                 if ! kill -0 "$bot_pid" 2>/dev/null; then
@@ -1983,7 +2090,7 @@ stop_bot() {
                 fi
                 sleep 1
             done
-            
+
             # Force kill if still running
             if kill -0 "$bot_pid" 2>/dev/null; then
                 log_warning "Force stopping bot..."
@@ -2059,14 +2166,14 @@ preflight_check() {
 # Check and warn about optional API keys
 check_optional_api_keys() {
     log_info "Checking optional API keys..."
-    
+
     local warnings=0
-    
+
     # Check for GEMINI_API_KEY or OPENAI_API_KEY (at least one is needed for AI)
     local gemini_key openai_key
     gemini_key=$(grep -E '^\s*GEMINI_API_KEY\s*=' .env 2>/dev/null | head -n1 | sed -E "s/^[^=]*=\s*//; s/^\"|\"$//g; s/^'|'\$//g")
     openai_key=$(grep -E '^\s*OPENAI_API_KEY\s*=' .env 2>/dev/null | head -n1 | sed -E "s/^[^=]*=\s*//; s/^\"|\"$//g; s/^'|'\$//g")
-    
+
     if [ -z "$gemini_key" ] || [ "$gemini_key" = "your_gemini_api_key_here" ]; then
         if [ -z "$openai_key" ] || [ "$openai_key" = "your_openai_api_key_here" ]; then
             log_warning "No AI API key configured (GEMINI_API_KEY or OPENAI_API_KEY)"
@@ -2075,11 +2182,11 @@ check_optional_api_keys() {
             warnings=$((warnings + 1))
         fi
     fi
-    
+
     # Check for LASTFM_API_KEY (optional, for enhanced music features)
     local lastfm_key
     lastfm_key=$(grep -E '^\s*LASTFM_API_KEY\s*=' .env 2>/dev/null | head -n1 | sed -E "s/^[^=]*=\s*//; s/^\"|\"$//g; s/^'|'\$//g")
-    
+
     if [ -z "$lastfm_key" ] || [ "$lastfm_key" = "your_lastfm_api_key_here" ]; then
         log_info "LASTFM_API_KEY not configured (optional)"
         log_info "  Last.fm API enhances music recommendations and Songle song variety"
@@ -2087,11 +2194,11 @@ check_optional_api_keys() {
     else
         log_success "LASTFM_API_KEY is configured"
     fi
-    
+
     # Check for FOOTBALL_DATA_API_KEY (optional, for sports betting)
     local football_key
     football_key=$(grep -E '^\s*FOOTBALL_DATA_API_KEY\s*=' .env 2>/dev/null | head -n1 | sed -E "s/^[^=]*=\s*//; s/^\"|\"$//g; s/^'|'\$//g")
-    
+
     if [ -z "$football_key" ] || [ "$football_key" = "your_football_data_api_key_here" ]; then
         log_info "FOOTBALL_DATA_API_KEY not configured (optional)"
         log_info "  Required for international league betting (Premier League, La Liga, etc.)"
@@ -2099,12 +2206,12 @@ check_optional_api_keys() {
     else
         log_success "FOOTBALL_DATA_API_KEY is configured"
     fi
-    
+
     if [ $warnings -gt 0 ]; then
         log_warning "Some features may be limited. Configure API keys in .env or via the web dashboard"
         log_info "Web dashboard: http://localhost:5000/api_keys"
     fi
-    
+
     return 0
 }
 
@@ -2114,12 +2221,12 @@ ensure_system_dependencies() {
     if [ "$IS_TERMUX" != true ]; then
         return 0
     fi
-    
+
     log_info "Checking system dependencies for Termux..."
-    
+
     # Use the global constant for required packages
     local missing_packages=()
-    
+
     # Check each package
     for pkg in "${TERMUX_SYSTEM_DEPS[@]}"; do
         if ! pkg list-installed 2>/dev/null | grep -q "^${pkg}"; then
@@ -2127,12 +2234,12 @@ ensure_system_dependencies() {
             log_warning "System package '$pkg' is not installed"
         fi
     done
-    
+
     # Install missing packages
     if [ ${#missing_packages[@]} -gt 0 ]; then
         log_info "Installing missing system packages: ${missing_packages[*]}"
         log_info "This is required for PyNaCl (voice support) to build successfully"
-        
+
         # Try to install packages
         if pkg install -y "${missing_packages[@]}" >>"$MAIN_LOG" 2>&1; then
             log_success "System packages installed successfully"
@@ -2144,7 +2251,7 @@ ensure_system_dependencies() {
     else
         log_success "All required system packages are installed"
     fi
-    
+
     return 0
 }
 
@@ -2170,12 +2277,12 @@ ensure_python_env() {
 
     # Always check and install/update requirements to catch new dependencies
     log_info "Checking and updating Python dependencies..."
-    
+
     # Create a marker file to track last requirements check
     local req_marker=".last_requirements_install"
     local req_hash=$(md5sum requirements.txt 2>/dev/null | awk '{print $1}' || echo "unknown")
     local need_install=false
-    
+
     # Check if requirements.txt changed or marker doesn't exist
     if [ ! -f "$req_marker" ]; then
         need_install=true
@@ -2186,20 +2293,20 @@ ensure_python_env() {
             need_install=true
         fi
     fi
-    
+
     # Also check if discord.py is missing (critical dependency)
     if ! $venv_python -c 'import discord' >/dev/null 2>&1; then
         log_warning "discord.py not found in venv; installing requirements..."
         need_install=true
     fi
-    
+
     # Install/update if needed
     if [ "$need_install" = true ]; then
         log_info "Installing Python dependencies from requirements.txt..."
-        
+
         # Set SODIUM_INSTALL=system to use system libsodium for PyNaCl
         export SODIUM_INSTALL=system
-        
+
         # Try normal install first
         if $venv_pip install -r requirements.txt >>"$MAIN_LOG" 2>&1; then
             log_success "Dependencies installed successfully"
@@ -2212,7 +2319,7 @@ ensure_python_env() {
             else
                 log_error "Failed to install Python dependencies after retry"
                 log_warning "Trying individual critical packages..."
-                
+
                 # Try to install critical packages individually
                 for pkg in "discord.py" "Flask" "Flask-SocketIO" "edge-tts" "mysql-connector-python"; do
                     if ! $venv_pip install "$pkg" >>"$MAIN_LOG" 2>&1; then
@@ -2221,7 +2328,7 @@ ensure_python_env() {
                         log_success "Installed $pkg"
                     fi
                 done
-                
+
                 # Don't save marker if installation failed
                 return 1
             fi
@@ -2232,28 +2339,28 @@ ensure_python_env() {
 
     # Final verification - check for all required packages
     local missing_packages=""
-    
+
     # Check for discord.py (required for bot)
     if ! $venv_python -c 'import discord' >/dev/null 2>&1; then
         missing_packages="${missing_packages}discord.py "
     fi
-    
+
     # Check for Flask dependencies (required for web dashboard)
     if ! $venv_python -c 'import flask' >/dev/null 2>&1; then
         missing_packages="${missing_packages}Flask "
     fi
-    
+
     if ! $venv_python -c 'import flask_socketio' >/dev/null 2>&1; then
         missing_packages="${missing_packages}Flask-SocketIO "
     fi
-    
+
     if [ -n "$missing_packages" ]; then
         log_error "Missing required packages: $missing_packages"
         log_warning "Attempting to install missing packages..."
-        
+
         # Set SODIUM_INSTALL=system to use system libsodium for PyNaCl
         export SODIUM_INSTALL=system
-        
+
         # Capture pip output for better error visibility
         local pip_output_file="/tmp/sulfur_pip_install_$$.log"
         if ! $venv_pip install -r requirements.txt >"$pip_output_file" 2>&1; then
@@ -2265,7 +2372,7 @@ ensure_python_env() {
             return 1
         fi
         rm -f "$pip_output_file"
-        
+
         # Verify again after installation
         if ! $venv_python -c 'import discord, flask, flask_socketio' >/dev/null 2>&1; then
             log_error "Package installation failed. Manual intervention required."
@@ -2273,7 +2380,7 @@ ensure_python_env() {
             return 1
         fi
     fi
-    
+
     log_success "Python environment ready (all required packages installed)"
     return 0
 }
@@ -2308,20 +2415,20 @@ ensure_database_running || log_warning "Database server check failed, continuing
 initialize_database_with_retry() {
     local max_retries=5
     local attempt=1
-    
+
     log_info "Initializing database and applying migrations..."
-    
+
     local python_exe="$PYTHON_CMD"
     if [ -f "venv/bin/python" ]; then
         python_exe="venv/bin/python"
     fi
-    
+
     while [ $attempt -le $max_retries ]; do
         log_info "Database initialization attempt $attempt/$max_retries..."
-        
+
         # Calculate adaptive wait time (exponential backoff)
         local wait_time=$((5 * attempt))
-        
+
         if "$python_exe" -c "
 from modules.db_helpers import init_db_pool, initialize_database, apply_pending_migrations
 import os
@@ -2334,21 +2441,21 @@ try:
     DB_USER = os.environ.get('DB_USER', 'sulfur_bot_user')
     DB_PASS = os.environ.get('DB_PASS', '')
     DB_NAME = os.environ.get('DB_NAME', 'sulfur_bot')
-    
+
     # Initialize database pool with retry logic
     print(f'Attempting to initialize database pool: {DB_USER}@{DB_HOST}/{DB_NAME}')
     if not init_db_pool(DB_HOST, DB_USER, DB_PASS, DB_NAME):
         print('ERROR: Failed to initialize database pool')
         sys.exit(1)
     print('Database pool initialized successfully')
-    
+
     # Create base tables with retry logic
     print('Attempting to initialize database tables...')
     if not initialize_database():
         print('ERROR: Failed to initialize database tables')
         sys.exit(1)
     print('Database tables initialized successfully')
-    
+
     # Apply any pending migrations
     print('Checking for pending migrations...')
     applied_count, errors = apply_pending_migrations()
@@ -2362,7 +2469,7 @@ try:
         print('Continuing despite migration errors...')
     else:
         print('All database migrations up to date')
-    
+
     sys.exit(0)
 except Exception as e:
     print(f'ERROR: Database initialization failed: {e}')
@@ -2374,22 +2481,22 @@ except Exception as e:
             return 0
         else
             log_warning "Database initialization attempt $attempt failed"
-            
+
             # Show last few lines of error from log
             if [ -f "$MAIN_LOG" ]; then
                 log_warning "Last error from database initialization:"
                 tail -n 5 "$MAIN_LOG" | sed 's/^/  | /' | tee -a "$MAIN_LOG"
             fi
-            
+
             if [ $attempt -lt $max_retries ]; then
                 log_info "Retrying in $wait_time seconds..."
                 sleep $wait_time
             fi
         fi
-        
+
         attempt=$((attempt + 1))
     done
-    
+
     log_error "Database initialization failed after $max_retries attempts"
     log_error "This indicates a serious problem with the database connection or configuration"
     log_warning "Bot will start anyway, but database features will be unavailable"
@@ -2419,13 +2526,13 @@ start_web_dashboard || log_warning "Web Dashboard failed to start, continuing an
 
 start_minecraft_server() {
     log_info "Checking Minecraft server auto-start configuration..."
-    
+
     # Find Python
     local python_exe="$PYTHON_CMD"
     if [ -f "venv/bin/python" ]; then
         python_exe="venv/bin/python"
     fi
-    
+
     # Check if Minecraft is enabled and boot_with_bot is true
     if ! $python_exe -c "
 import json
@@ -2433,13 +2540,13 @@ import sys
 try:
     with open('config/config.json', 'r') as f:
         config = json.load(f)
-    
+
     # Check if minecraft feature is enabled
     minecraft_enabled = config.get('features', {}).get('minecraft_server', False)
-    
+
     # Check if boot_with_bot is enabled in minecraft config
     boot_with_bot = config.get('modules', {}).get('minecraft', {}).get('boot_with_bot', False)
-    
+
     if minecraft_enabled and boot_with_bot:
         sys.exit(0)  # Start server
     else:
@@ -2450,7 +2557,7 @@ except Exception as e:
 " 2>>"$MAIN_LOG"; then
         log_info "Minecraft server auto-start is enabled"
         log_info "Starting Minecraft server..."
-        
+
         # Start server using Python module
         if $python_exe -c "
 import asyncio
@@ -2475,25 +2582,25 @@ async def start_mc_server():
         # Load config
         with open('config/config.json', 'r') as f:
             config = json.load(f)
-        
+
         mc_config = config.get('modules', {}).get('minecraft', {})
-        
+
         # Check if server is already running
         if mc.is_server_running():
             print('Minecraft server is already running')
             return True
-        
+
         # Start the server
         print('Starting Minecraft server...')
         success, message = await mc.start_server(mc_config)
-        
+
         if success:
             print(f'Minecraft server started successfully: {message}')
             return True
         else:
             print(f'Failed to start Minecraft server: {message}')
             return False
-            
+
     except Exception as e:
         print(f'ERROR: Failed to start Minecraft server: {e}')
         import traceback
@@ -2528,17 +2635,17 @@ start_minecraft_server || log_info "Minecraft server auto-start skipped"
 while true; do
     # Start bot with retry logic
     cleanup_orphans
-    
+
     # Initialize bot start time for crash detection
     BOT_START_TIME=$(date +%s)
-    
+
     start_attempts=0
     max_start_attempts=3
     while [ $start_attempts -lt $max_start_attempts ]; do
         if start_bot; then
             break
         fi
-        
+
         start_attempts=$((start_attempts + 1))
         if [ $start_attempts -lt $max_start_attempts ]; then
             log_warning "Bot start attempt $start_attempts failed, retrying in 10 seconds..."
@@ -2550,12 +2657,12 @@ while true; do
             sleep 60
         fi
     done
-    
+
     # Monitor bot
     while true; do
         sleep 1
         CHECK_COUNTER=$((CHECK_COUNTER + 1))
-        
+
         # Check if bot is still running
         if [ -f "$BOT_PID_FILE" ]; then
             BOT_PID=$(cat "$BOT_PID_FILE" 2>/dev/null)
@@ -2571,26 +2678,26 @@ while true; do
             log_warning "PID file disappeared"
             break
         fi
-        
+
         # Check for control flags
         if [ -f "stop.flag" ]; then
             log_warning "Stop flag detected"
             rm -f "stop.flag"
             cleanup
         fi
-        
+
         if [ -f "restart.flag" ]; then
             log_warning "Restart flag detected"
             rm -f "restart.flag"
             stop_bot
             break
         fi
-        
+
         # Periodic tasks
         if [ $((CHECK_COUNTER % COMMIT_INTERVAL)) -eq 0 ]; then
             git_commit "chore: Auto-commit database changes"
         fi
-        
+
         if [ $((CHECK_COUNTER % BACKUP_INTERVAL)) -eq 0 ]; then
             if [ "$SKIP_BACKUP" != true ]; then
                 backup_database
@@ -2598,10 +2705,10 @@ while true; do
                 log_db "Skipping scheduled backup due to SKIP_BACKUP=true"
             fi
         fi
-        
+
         if [ $((CHECK_COUNTER % CHECK_INTERVAL)) -eq 0 ]; then
             date -u +"%Y-%m-%dT%H:%M:%SZ" > "last_check.txt"
-            
+
             if check_for_updates; then
                 log_warning "Stopping bot for update..."
                 stop_bot
@@ -2609,7 +2716,7 @@ while true; do
                 break
             fi
         fi
-        
+
         # Check web dashboard with cooldown and retry limit
         if [ -f "$WEB_PID_FILE" ]; then
             WEB_PID=$(cat "$WEB_PID_FILE")
@@ -2617,7 +2724,7 @@ while true; do
                 # Web dashboard has stopped
                 current_time=$(date +%s)
                 time_since_last_restart=$((current_time - LAST_WEB_RESTART))
-                
+
                 # Check if we've hit the restart threshold
                 if [ $WEB_RESTART_COUNT -ge $WEB_RESTART_THRESHOLD ]; then
                     if [ $time_since_last_restart -lt 300 ]; then
@@ -2633,21 +2740,21 @@ while true; do
                         WEB_RESTART_COUNT=0
                     fi
                 fi
-                
+
                 # Only try to restart if under threshold and cooldown has passed
                 if [ $WEB_RESTART_COUNT -lt $WEB_RESTART_THRESHOLD ]; then
                     if [ $time_since_last_restart -ge $WEB_RESTART_COOLDOWN ]; then
                         log_warning "Web Dashboard stopped, restarting... (attempt $((WEB_RESTART_COUNT + 1))/$WEB_RESTART_THRESHOLD)"
-                        
+
                         # Clean up stale PID file before restart attempt
                         rm -f "$WEB_PID_FILE"
-                        
+
                         # Show the last error from web log before restarting
                         if [ -f "$WEB_LOG" ] && [ $WEB_RESTART_COUNT -gt 0 ]; then
                             log_warning "Last error from Web Dashboard log:"
                             tail -n 20 "$WEB_LOG" | grep -i -E "error|exception|traceback|failed|port.*in use" | tail -n 5 | sed 's/^/  | /' | tee -a "$MAIN_LOG"
                         fi
-                        
+
                         # CRITICAL: Add delay before restart to let port fully release
                         # This is especially important on Termux where socket cleanup is slower
                         # Adaptive delay based on environment
@@ -2658,10 +2765,10 @@ while true; do
                         fi
                         log_info "Waiting ${restart_delay}s for port cleanup before restart..."
                         sleep $restart_delay
-                        
+
                         LAST_WEB_RESTART=$current_time
                         WEB_RESTART_COUNT=$((WEB_RESTART_COUNT + 1))
-                        
+
                         if start_web_dashboard; then
                             log_success "Web Dashboard restarted successfully"
                         else
@@ -2680,7 +2787,7 @@ while true; do
             fi
         fi
     done
-    
+
     update_status "Stopped"
 
     # Crash-loop detection: if bot exits within QUICK_CRASH_SECONDS, increment; else reset
