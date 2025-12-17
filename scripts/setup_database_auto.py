@@ -18,6 +18,7 @@ import subprocess
 import json
 import secrets
 import string
+import shutil
 from pathlib import Path
 from typing import Optional, Tuple, List
 
@@ -139,14 +140,9 @@ def start_mysql_server() -> bool:
         
         for cmd in startup_commands:
             try:
-                # Check if the command exists
+                # Check if the command exists using shutil.which (more efficient, no subprocess)
                 cmd_name = cmd[0]
-                which_result = subprocess.run(
-                    ["which", cmd_name],
-                    capture_output=True,
-                    check=False
-                )
-                if which_result.returncode != 0:
+                if shutil.which(cmd_name) is None:
                     continue  # Command not found, try next
                 
                 print_info(f"Starting with {cmd_name}...")
