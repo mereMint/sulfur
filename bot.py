@@ -157,12 +157,37 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 FOOTBALL_DATA_API_KEY = os.environ.get("FOOTBALL_DATA_API_KEY")  # Football-Data.org API key
 
 # --- NEW: Database Configuration ---
-# Set these as environment variables for security, or hardcode for testing.
+# Priority: 1) database.json (created by setup wizard), 2) environment variables
 # IMPORTANT: We strip and use defaults if empty to handle both missing and empty env vars
-DB_HOST = os.environ.get("DB_HOST", "localhost").strip() or "localhost"
-DB_USER = os.environ.get("DB_USER", "sulfur_bot_user").strip() or "sulfur_bot_user"
-DB_PASS = os.environ.get("DB_PASS", "").strip()  # Empty password is OK
-DB_NAME = os.environ.get("DB_NAME", "sulfur_bot").strip() or "sulfur_bot"
+import json as _json
+from pathlib import Path as _Path
+
+_db_config_file = _Path("config/database.json")
+if _db_config_file.exists():
+    # Load from database.json (setup wizard configuration)
+    try:
+        with open(_db_config_file, 'r') as _f:
+            _db_config = _json.load(_f)
+        DB_HOST = _db_config.get("host", "localhost")
+        DB_USER = _db_config.get("user", "sulfur_bot_user")
+        DB_PASS = _db_config.get("password", "")
+        DB_NAME = _db_config.get("database", "sulfur_bot")
+        logger.info("Database configuration loaded from config/database.json")
+    except Exception as _e:
+        logger.warning(f"Failed to load database.json: {_e}, falling back to environment variables")
+        # Fall back to environment variables
+        DB_HOST = os.environ.get("DB_HOST", "localhost").strip() or "localhost"
+        DB_USER = os.environ.get("DB_USER", "sulfur_bot_user").strip() or "sulfur_bot_user"
+        DB_PASS = os.environ.get("DB_PASS", "").strip()  # Empty password is OK
+        DB_NAME = os.environ.get("DB_NAME", "sulfur_bot").strip() or "sulfur_bot"
+else:
+    # Load from environment variables (.env file)
+    DB_HOST = os.environ.get("DB_HOST", "localhost").strip() or "localhost"
+    DB_USER = os.environ.get("DB_USER", "sulfur_bot_user").strip() or "sulfur_bot_user"
+    DB_PASS = os.environ.get("DB_PASS", "").strip()  # Empty password is OK
+    DB_NAME = os.environ.get("DB_NAME", "sulfur_bot").strip() or "sulfur_bot"
+    logger.info("Database configuration loaded from environment variables (.env)")
+
 
 # Validate database credentials - prevent connection with empty username/database
 if not DB_USER:

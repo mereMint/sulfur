@@ -20,29 +20,37 @@ SET @db_name = DATABASE();
 SET @table_name = 'word_find_attempts';
 SET @column_name = 'game_type';
 
--- Check if column exists before adding
+-- Check if table exists first (may not exist yet - created in migration 011b)
+SET @table_exists = (
+    SELECT COUNT(*) 
+    FROM INFORMATION_SCHEMA.TABLES 
+    WHERE TABLE_SCHEMA = @db_name 
+    AND TABLE_NAME = @table_name
+);
+
+-- Only add column if table exists AND column doesn't exist
 SET @query = IF(
-    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+    @table_exists > 0 AND (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
      WHERE TABLE_SCHEMA = @db_name 
      AND TABLE_NAME = @table_name 
      AND COLUMN_NAME = @column_name) = 0,
     'ALTER TABLE word_find_attempts ADD COLUMN game_type ENUM(''daily'', ''premium'') DEFAULT ''daily'' AFTER attempt_number',
-    'SELECT ''Column game_type already exists'' AS message'
+    'SELECT ''Table word_find_attempts does not exist or column game_type already exists'' AS message'
 );
 
 PREPARE stmt FROM @query;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
--- Add index for game_type queries if not exists
+-- Add index for game_type queries if table and column exist
 SET @index_name = 'idx_user_word_type';
 SET @query = IF(
-    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS 
+    @table_exists > 0 AND (SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS 
      WHERE TABLE_SCHEMA = @db_name 
      AND TABLE_NAME = @table_name 
      AND INDEX_NAME = @index_name) = 0,
     'ALTER TABLE word_find_attempts ADD INDEX idx_user_word_type (user_id, word_id, game_type)',
-    'SELECT ''Index idx_user_word_type already exists'' AS message'
+    'SELECT ''Table word_find_attempts does not exist or index idx_user_word_type already exists'' AS message'
 );
 
 PREPARE stmt FROM @query;
@@ -53,15 +61,23 @@ DEALLOCATE PREPARE stmt;
 -- BACKWARDS COMPATIBLE: Keep old columns and add new ones
 SET @table_name = 'word_find_stats';
 
+-- Check if word_find_stats table exists
+SET @stats_table_exists = (
+    SELECT COUNT(*) 
+    FROM INFORMATION_SCHEMA.TABLES 
+    WHERE TABLE_SCHEMA = @db_name 
+    AND TABLE_NAME = @table_name
+);
+
 -- Add daily_games column
 SET @column_name = 'daily_games';
 SET @query = IF(
-    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+    @stats_table_exists > 0 AND (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
      WHERE TABLE_SCHEMA = @db_name 
      AND TABLE_NAME = @table_name 
      AND COLUMN_NAME = @column_name) = 0,
     'ALTER TABLE word_find_stats ADD COLUMN daily_games INT DEFAULT 0 AFTER user_id',
-    'SELECT ''Column daily_games already exists'' AS message'
+    'SELECT ''Table word_find_stats does not exist or column daily_games already exists'' AS message'
 );
 PREPARE stmt FROM @query;
 EXECUTE stmt;
@@ -70,12 +86,12 @@ DEALLOCATE PREPARE stmt;
 -- Add daily_wins column
 SET @column_name = 'daily_wins';
 SET @query = IF(
-    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+    @stats_table_exists > 0 AND (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
      WHERE TABLE_SCHEMA = @db_name 
      AND TABLE_NAME = @table_name 
      AND COLUMN_NAME = @column_name) = 0,
     'ALTER TABLE word_find_stats ADD COLUMN daily_wins INT DEFAULT 0',
-    'SELECT ''Column daily_wins already exists'' AS message'
+    'SELECT ''Table word_find_stats does not exist or column daily_wins already exists'' AS message'
 );
 PREPARE stmt FROM @query;
 EXECUTE stmt;
@@ -84,12 +100,12 @@ DEALLOCATE PREPARE stmt;
 -- Add daily_streak column
 SET @column_name = 'daily_streak';
 SET @query = IF(
-    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+    @stats_table_exists > 0 AND (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
      WHERE TABLE_SCHEMA = @db_name 
      AND TABLE_NAME = @table_name 
      AND COLUMN_NAME = @column_name) = 0,
     'ALTER TABLE word_find_stats ADD COLUMN daily_streak INT DEFAULT 0',
-    'SELECT ''Column daily_streak already exists'' AS message'
+    'SELECT ''Table word_find_stats does not exist or column daily_streak already exists'' AS message'
 );
 PREPARE stmt FROM @query;
 EXECUTE stmt;
@@ -98,12 +114,12 @@ DEALLOCATE PREPARE stmt;
 -- Add daily_best_streak column
 SET @column_name = 'daily_best_streak';
 SET @query = IF(
-    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+    @stats_table_exists > 0 AND (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
      WHERE TABLE_SCHEMA = @db_name 
      AND TABLE_NAME = @table_name 
      AND COLUMN_NAME = @column_name) = 0,
     'ALTER TABLE word_find_stats ADD COLUMN daily_best_streak INT DEFAULT 0',
-    'SELECT ''Column daily_best_streak already exists'' AS message'
+    'SELECT ''Table word_find_stats does not exist or column daily_best_streak already exists'' AS message'
 );
 PREPARE stmt FROM @query;
 EXECUTE stmt;
@@ -112,12 +128,12 @@ DEALLOCATE PREPARE stmt;
 -- Add daily_total_attempts column
 SET @column_name = 'daily_total_attempts';
 SET @query = IF(
-    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+    @stats_table_exists > 0 AND (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
      WHERE TABLE_SCHEMA = @db_name 
      AND TABLE_NAME = @table_name 
      AND COLUMN_NAME = @column_name) = 0,
     'ALTER TABLE word_find_stats ADD COLUMN daily_total_attempts INT DEFAULT 0',
-    'SELECT ''Column daily_total_attempts already exists'' AS message'
+    'SELECT ''Table word_find_stats does not exist or column daily_total_attempts already exists'' AS message'
 );
 PREPARE stmt FROM @query;
 EXECUTE stmt;
@@ -126,12 +142,12 @@ DEALLOCATE PREPARE stmt;
 -- Add premium_games column
 SET @column_name = 'premium_games';
 SET @query = IF(
-    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+    @stats_table_exists > 0 AND (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
      WHERE TABLE_SCHEMA = @db_name 
      AND TABLE_NAME = @table_name 
      AND COLUMN_NAME = @column_name) = 0,
     'ALTER TABLE word_find_stats ADD COLUMN premium_games INT DEFAULT 0',
-    'SELECT ''Column premium_games already exists'' AS message'
+    'SELECT ''Table word_find_stats does not exist or column premium_games already exists'' AS message'
 );
 PREPARE stmt FROM @query;
 EXECUTE stmt;
@@ -140,12 +156,12 @@ DEALLOCATE PREPARE stmt;
 -- Add premium_wins column
 SET @column_name = 'premium_wins';
 SET @query = IF(
-    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+    @stats_table_exists > 0 AND (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
      WHERE TABLE_SCHEMA = @db_name 
      AND TABLE_NAME = @table_name 
      AND COLUMN_NAME = @column_name) = 0,
     'ALTER TABLE word_find_stats ADD COLUMN premium_wins INT DEFAULT 0',
-    'SELECT ''Column premium_wins already exists'' AS message'
+    'SELECT ''Table word_find_stats does not exist or column premium_wins already exists'' AS message'
 );
 PREPARE stmt FROM @query;
 EXECUTE stmt;
@@ -154,26 +170,34 @@ DEALLOCATE PREPARE stmt;
 -- Add premium_total_attempts column
 SET @column_name = 'premium_total_attempts';
 SET @query = IF(
-    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
+    @stats_table_exists > 0 AND (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS 
      WHERE TABLE_SCHEMA = @db_name 
      AND TABLE_NAME = @table_name 
      AND COLUMN_NAME = @column_name) = 0,
     'ALTER TABLE word_find_stats ADD COLUMN premium_total_attempts INT DEFAULT 0',
-    'SELECT ''Column premium_total_attempts already exists'' AS message'
+    'SELECT ''Table word_find_stats does not exist or column premium_total_attempts already exists'' AS message'
 );
 PREPARE stmt FROM @query;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
--- Migrate existing data from old columns to new daily columns
+-- Migrate existing data from old columns to new daily columns (only if table exists)
 -- This preserves all existing statistics
-UPDATE word_find_stats 
-SET daily_games = COALESCE(total_games, 0),
-    daily_wins = COALESCE(total_wins, 0),
-    daily_streak = COALESCE(current_streak, 0),
-    daily_best_streak = COALESCE(best_streak, 0),
-    daily_total_attempts = COALESCE(total_attempts, 0)
-WHERE daily_games = 0 AND total_games > 0;
+SET @update_query = IF(
+    @stats_table_exists > 0,
+    'UPDATE word_find_stats 
+     SET daily_games = COALESCE(total_games, 0),
+         daily_wins = COALESCE(total_wins, 0),
+         daily_streak = COALESCE(current_streak, 0),
+         daily_best_streak = COALESCE(best_streak, 0),
+         daily_total_attempts = COALESCE(total_attempts, 0)
+     WHERE daily_games = 0 AND total_games > 0',
+    'SELECT ''Table word_find_stats does not exist, skipping data migration'' AS message'
+);
+
+PREPARE stmt FROM @update_query;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 -- Migration completed successfully
 -- Note: Old columns (total_games, total_wins, etc.) are kept for backwards compatibility
