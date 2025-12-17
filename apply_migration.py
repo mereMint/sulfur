@@ -76,17 +76,31 @@ else:
 
 # Determine which migrations to apply
 migrations_dir = Path('scripts/db_migrations')
+
+# Ensure migrations directory exists
+if not migrations_dir.exists():
+    print(f"ERROR: Migrations directory not found: {migrations_dir}")
+    print("Looking for migrations in scripts/db_migrations/")
+    sys.exit(1)
+
 if args.migration_file:
     migration_files = [Path(args.migration_file)]
 elif args.all:
     # Apply all migrations in order
     migration_files = sorted(migrations_dir.glob('*.sql'))
+    if not migration_files:
+        print(f"ERROR: No migration files found in {migrations_dir}")
+        sys.exit(1)
 else:
-    # Default: prompt user or apply all pending
-    print_info("No migration file specified")
-    print_info("Use --all to apply all pending migrations")
-    print_info("Or specify a migration file: python apply_migration.py <file>")
-    sys.exit(1)
+    # Default: apply all pending migrations
+    print("=" * 70)
+    print("No migration file specified - applying all pending migrations")
+    print("=" * 70)
+    print()
+    migration_files = sorted(migrations_dir.glob('*.sql'))
+    if not migration_files:
+        print(f"ERROR: No migration files found in {migrations_dir}")
+        sys.exit(1)
 
 print("============================================================================")
 print("  Sulfur Bot - Database Migration Tool")
@@ -140,21 +154,25 @@ def parse_sql_statements(sql_content: str) -> List[str]:
     statements = []
     current_statement = []
     in_delimiter_block = False
-    
+
     for line in sql_content.split('\n'):
         stripped = line.strip()
-        
+
         # Handle DELIMITER commands
-        if stripped.startswith('DELIMITER'):
+        if stripped.upper().startswith('DELIMITER'):
             in_delimiter_block = not in_delimiter_block
             continue
-        
-        # Skip comments and empty lines
-        if not stripped or stripped.startswith('--'):
+
+        # Skip comments (both -- and # style)
+        if not stripped or stripped.startswith('--') or stripped.startswith('#'):
             continue
-        
+
+        # Skip multi-line comments (/* ... */)
+        if '/*' in stripped and '*/' in stripped:
+            continue
+
         current_statement.append(line)
-        
+
         # Check for statement end
         if in_delimiter_block:
             # In delimiter block, look for custom delimiter (usually $$)
@@ -170,7 +188,13 @@ def parse_sql_statements(sql_content: str) -> List[str]:
                 if stmt.strip().rstrip(';').strip():
                     statements.append(stmt)
                 current_statement = []
-    
+
+    # Handle any remaining statement (in case file doesn't end with semicolon)
+    if current_statement:
+        stmt = '\n'.join(current_statement).strip()
+        if stmt:
+            statements.append(stmt)
+
     return statements
 
 def apply_migration(migration_file: Path, force: bool = False) -> Tuple[bool, str]:
@@ -216,24 +240,34 @@ def apply_migration(migration_file: Path, force: bool = False) -> Tuple[bool, st
         for i, statement in enumerate(statements, 1):
             try:
                 cursor.execute(statement)
-                
+
                 # Get preview of statement
                 preview = ' '.join(statement.split()[:5])
                 if len(preview) > 60:
                     preview = preview[:57] + "..."
                 print(f"  [{i}/{len(statements)}] ✓ {preview}")
-                
+
             except mysql.connector.Error as err:
                 preview = ' '.join(statement.split()[:5])
-                
+
                 # Check if error is due to already existing object
-                if 'already exists' in str(err).lower() or 'duplicate' in str(err).lower():
+                error_msg = str(err).lower()
+                if any(keyword in error_msg for keyword in [
+                    'already exists',
+                    'duplicate',
+                    'duplicate key',
+                    'duplicate entry',
+                    'table already exists',
+                    'database already exists',
+                    'index already exists'
+                ]):
                     print(f"  [{i}/{len(statements)}] ⚠ {preview} (already exists, skipping)")
                     continue
                 else:
                     # Fatal error - rollback and report
                     print(f"  [{i}/{len(statements)}] ✗ {preview}")
                     print(f"\nError: {err}")
+                    print(f"Error Code: {err.errno if hasattr(err, 'errno') else 'N/A'}")
                     print(f"\nFailed statement:")
                     print("─" * 60)
                     print(statement[:500])
