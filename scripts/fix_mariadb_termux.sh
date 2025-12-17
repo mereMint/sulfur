@@ -65,6 +65,38 @@ if is_db_running; then
     echo -e "${CYAN}Testing connection...${NC}"
     if mariadb -u root -e "SELECT 1;" &>/dev/null; then
         echo -e "${GREEN}[OK]${NC} Database is accessible"
+
+        # Check if sulfur_bot database exists
+        echo ""
+        echo -e "${CYAN}Checking if sulfur_bot database exists...${NC}"
+        if mariadb -u root -e "USE sulfur_bot;" &>/dev/null; then
+            echo -e "${GREEN}[OK]${NC} Database 'sulfur_bot' exists"
+        else
+            echo -e "${YELLOW}[WARN]${NC} Database 'sulfur_bot' does not exist"
+            echo -e "${YELLOW}[FIX]${NC} Creating database and user..."
+
+            mariadb -u root -e "CREATE DATABASE IF NOT EXISTS sulfur_bot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+            mariadb -u root -e "CREATE USER IF NOT EXISTS 'sulfur_bot_user'@'localhost';"
+            mariadb -u root -e "GRANT ALL PRIVILEGES ON sulfur_bot.* TO 'sulfur_bot_user'@'localhost';"
+            mariadb -u root -e "FLUSH PRIVILEGES;"
+
+            echo -e "${GREEN}[OK]${NC} Database 'sulfur_bot' and user created"
+        fi
+
+        # Check if user has proper permissions
+        echo ""
+        echo -e "${CYAN}Verifying user permissions...${NC}"
+        if mariadb -u sulfur_bot_user -e "USE sulfur_bot; SELECT 1;" &>/dev/null; then
+            echo -e "${GREEN}[OK]${NC} User 'sulfur_bot_user' can access the database"
+        else
+            echo -e "${YELLOW}[WARN]${NC} User 'sulfur_bot_user' cannot access database, fixing..."
+            mariadb -u root -e "GRANT ALL PRIVILEGES ON sulfur_bot.* TO 'sulfur_bot_user'@'localhost';"
+            mariadb -u root -e "FLUSH PRIVILEGES;"
+            echo -e "${GREEN}[OK]${NC} Permissions fixed"
+        fi
+
+        echo ""
+        echo -e "${GREEN}[SUCCESS]${NC} Database is ready! You can now run: bash maintain_bot.sh"
         exit 0
     else
         echo -e "${YELLOW}[WARN]${NC} Database running but not responding. May need more time."
