@@ -1532,12 +1532,12 @@ def api_all_leaderboards():
                         SELECT 
                             user_id,
                             p.display_name,
-                            SUM(won_amount) as total_won,
+                            SUM(payout) as total_won,
                             COUNT(*) as total_games
                         FROM (
-                            SELECT user_id, won_amount FROM blackjack_games WHERE result = 'win'
+                            SELECT user_id, payout FROM blackjack_games WHERE result = 'win'
                             UNION ALL
-                            SELECT user_id, payout as won_amount FROM roulette_games WHERE won = TRUE
+                            SELECT user_id, payout FROM roulette_games WHERE won = TRUE
                         ) as casino_wins
                         LEFT JOIN players p ON casino_wins.user_id = p.discord_id
                         GROUP BY user_id, p.display_name
@@ -1838,7 +1838,7 @@ def api_activity_stats():
             # Users who sent messages (tracked in user_stats)
             result = safe_db_query(cursor, """
                 SELECT DISTINCT user_id FROM user_stats 
-                WHERE DATE(last_updated) = CURDATE()
+                WHERE DATE(updated_at) = CURDATE()
             """, fetch_all=True)
             if result:
                 for row in result:
@@ -4835,7 +4835,7 @@ def api_user_profile(user_id):
                 SELECT 
                     COUNT(*) as games,
                     SUM(CASE WHEN result = 'win' THEN 1 ELSE 0 END) as wins,
-                    SUM(CASE WHEN result = 'win' THEN won_amount ELSE 0 END) as total_won
+                    SUM(CASE WHEN result = 'win' THEN payout ELSE 0 END) as total_won
                 FROM blackjack_games
                 WHERE user_id = %s
             """, params=(user_id,))
