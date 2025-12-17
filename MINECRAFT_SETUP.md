@@ -1,5 +1,7 @@
 # Minecraft Server Integration Guide
 
+**📖 Having issues?** See [docs/MINECRAFT_TROUBLESHOOTING.md](docs/MINECRAFT_TROUBLESHOOTING.md) for solutions to common problems.
+
 This guide explains how to set up and use the Minecraft server integration with the Sulfur Discord bot.
 
 ## Features
