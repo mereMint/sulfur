@@ -976,7 +976,11 @@
         
         // Socket events
         socket.on('minecraft_console', function(data) {
-            appendToConsole(data.line);
+            if (data.error) {
+                appendToConsole('[ERROR] ' + data.error);
+            } else if (data.line) {
+                appendToConsole(data.line);
+            }
         });
         
         socket.on('minecraft_status', function(data) {
