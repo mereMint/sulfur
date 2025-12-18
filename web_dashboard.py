@@ -5285,6 +5285,175 @@ def minecraft_download():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@app.route('/api/minecraft/bans', methods=['GET'])
+def minecraft_bans_list():
+    """Get list of banned players from banned-players.json."""
+    if not MINECRAFT_AVAILABLE:
+        return jsonify({'error': 'Minecraft server module not available', 'bans': []}), 503
+
+    try:
+        ban_file = os.path.join('minecraft_server', 'banned-players.json')
+        if os.path.exists(ban_file):
+            with open(ban_file, 'r') as f:
+                bans = json.load(f)
+            return jsonify({'bans': bans})
+        return jsonify({'bans': []})
+    except Exception as e:
+        logger.error(f"Error reading ban list: {e}")
+        return jsonify({'error': str(e), 'bans': []}), 500
+
+
+@app.route('/api/minecraft/ban', methods=['POST'])
+def minecraft_ban_player():
+    """Ban a player via server command."""
+    if not MINECRAFT_AVAILABLE:
+        return jsonify({'error': 'Minecraft server module not available'}), 503
+
+    try:
+        data = request.json
+        username = data.get('username', '').strip()
+        reason = data.get('reason', 'Banned by admin')
+        duration = data.get('duration', 'permanent')
+
+        if not username:
+            return jsonify({'success': False, 'error': 'Username required'})
+
+        # Build ban command
+        if duration == 'permanent':
+            cmd = f"ban {username} {reason}"
+        else:
+            # For temp bans, use ban-ip with duration if supported, or just regular ban
+            cmd = f"ban {username} {reason}"
+
+        if minecraft_server.is_server_running():
+            minecraft_server.send_command(cmd)
+            return jsonify({'success': True})
+        else:
+            # Server not running, add to banned-players.json directly
+            ban_file = os.path.join('minecraft_server', 'banned-players.json')
+            bans = []
+            if os.path.exists(ban_file):
+                with open(ban_file, 'r') as f:
+                    bans = json.load(f)
+
+            # Add new ban entry
+            import uuid
+            bans.append({
+                'uuid': str(uuid.uuid4()),
+                'name': username,
+                'created': time.strftime('%Y-%m-%d %H:%M:%S +0000'),
+                'source': 'Dashboard',
+                'reason': reason
+            })
+
+            with open(ban_file, 'w') as f:
+                json.dump(bans, f, indent=2)
+
+            return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Error banning player: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/minecraft/unban', methods=['POST'])
+def minecraft_unban_player():
+    """Unban a player via server command or file edit."""
+    if not MINECRAFT_AVAILABLE:
+        return jsonify({'error': 'Minecraft server module not available'}), 503
+
+    try:
+        data = request.json
+        username = data.get('username', '').strip()
+
+        if not username:
+            return jsonify({'success': False, 'error': 'Username required'})
+
+        if minecraft_server.is_server_running():
+            minecraft_server.send_command(f"pardon {username}")
+            return jsonify({'success': True})
+        else:
+            # Server not running, remove from banned-players.json
+            ban_file = os.path.join('minecraft_server', 'banned-players.json')
+            if os.path.exists(ban_file):
+                with open(ban_file, 'r') as f:
+                    bans = json.load(f)
+
+                bans = [b for b in bans if b.get('name', '').lower() != username.lower()]
+
+                with open(ban_file, 'w') as f:
+                    json.dump(bans, f, indent=2)
+
+            return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Error unbanning player: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/minecraft/player-stats', methods=['GET'])
+def minecraft_player_stats():
+    """Get Minecraft player statistics from database."""
+    try:
+        if not db_helpers.db_pool:
+            return jsonify({'stats': {}, 'players': []})
+
+        conn = db_helpers.get_db_connection()
+        if not conn:
+            return jsonify({'stats': {}, 'players': []})
+
+        cursor = conn.cursor(dictionary=True)
+
+        # Get aggregate stats
+        stats = {
+            'total_players': 0,
+            'total_playtime_minutes': 0,
+            'avg_session_minutes': 0,
+            'peak_players': 0
+        }
+
+        # Try to get player stats from minecraft_players table if it exists
+        try:
+            cursor.execute("""
+                SELECT COUNT(DISTINCT username) as total_players,
+                       COALESCE(SUM(playtime_minutes), 0) as total_playtime,
+                       COALESCE(AVG(playtime_minutes / NULLIF(sessions, 0)), 0) as avg_session,
+                       COALESCE(MAX(peak_concurrent), 0) as peak_players
+                FROM minecraft_players
+            """)
+            result = cursor.fetchone()
+            if result:
+                stats['total_players'] = result.get('total_players', 0) or 0
+                stats['total_playtime_minutes'] = int(result.get('total_playtime', 0) or 0)
+                stats['avg_session_minutes'] = int(result.get('avg_session', 0) or 0)
+                stats['peak_players'] = result.get('peak_players', 0) or 0
+        except Exception as e:
+            logger.debug(f"minecraft_players table not available: {e}")
+
+        # Get individual player stats
+        players = []
+        try:
+            cursor.execute("""
+                SELECT username, playtime_minutes, sessions, last_seen,
+                       CASE WHEN last_seen > DATE_SUB(NOW(), INTERVAL 5 MINUTE) THEN 1 ELSE 0 END as online
+                FROM minecraft_players
+                ORDER BY playtime_minutes DESC
+                LIMIT 50
+            """)
+            players = cursor.fetchall() or []
+        except Exception as e:
+            logger.debug(f"Could not fetch minecraft player list: {e}")
+
+        cursor.close()
+        conn.close()
+
+        return jsonify({
+            'stats': stats,
+            'players': players
+        })
+    except Exception as e:
+        logger.error(f"Error getting Minecraft player stats: {e}")
+        return jsonify({'stats': {}, 'players': [], 'error': str(e)}), 500
+
+
 # ==============================================================================
 # Database Backup/Export API Endpoints
 # ==============================================================================
