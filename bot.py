@@ -326,16 +326,41 @@ config = load_config()
 def is_feature_enabled(feature_name: str) -> bool:
     """
     Check if a feature is enabled in the config.
-    
+
     Args:
         feature_name: The name of the feature (e.g., 'music_player', 'games')
-    
+
     Returns:
         True if feature is enabled or not defined (default to enabled)
     """
     features = config.get('features', {})
     # Default to True if not specified
     return features.get(feature_name, True)
+
+
+def feature_check(feature_name: str):
+    """
+    Decorator to check if a feature is enabled before running a command.
+    Shows a user-friendly message if disabled instead of hiding the command.
+
+    Usage:
+        @tree.command(name="play")
+        @feature_check('music_player')
+        async def play_command(interaction, ...):
+            ...
+    """
+    async def predicate(interaction: discord.Interaction) -> bool:
+        if is_feature_enabled(feature_name):
+            return True
+        # Feature is disabled - send a message and fail the check
+        embed = discord.Embed(
+            title="❌ Feature Deaktiviert",
+            description=f"Dieses Feature ({feature_name}) ist derzeit deaktiviert.",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return False
+    return app_commands.check(predicate)
 
 # --- REFACTORED: Validate API keys after loading config ---
 key_error = check_api_keys(config)
