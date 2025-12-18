@@ -203,6 +203,12 @@
                 <button class="filter-btn" onclick="filterActivity('leveling')" data-filter="leveling">
                     <i class="bi bi-graph-up"></i> Leveling
                 </button>
+                <button class="filter-btn" onclick="filterActivity('music')" data-filter="music">
+                    <i class="bi bi-music-note-beamed"></i> Music
+                </button>
+                <button class="filter-btn" onclick="filterActivity('voice')" data-filter="voice">
+                    <i class="bi bi-mic"></i> Voice
+                </button>
                 <div class="ms-auto">
                     <button class="btn btn-sm btn-primary" onclick="refreshActivity()">
                         <i class="bi bi-arrow-clockwise"></i> Refresh
@@ -385,18 +391,28 @@
         const icons = {
             'ai_chat': 'bi-chat-dots',
             'transaction': 'bi-coin',
+            'stock_trade': 'bi-graph-up',
             'game_detective': 'bi-search',
             'game_werwolf': 'bi-moon',
-            'level_up': 'bi-graph-up-arrow'
+            'game_wordle': 'bi-pencil-square',
+            'game_blackjack': 'bi-suit-spade',
+            'game_roulette': 'bi-circle-half',
+            'game_mines': 'bi-exclamation-diamond',
+            'game_russian_roulette': 'bi-bullseye',
+            'level_up': 'bi-graph-up-arrow',
+            'music': 'bi-music-note-beamed',
+            'voice': 'bi-mic'
         };
         return icons[type] || 'bi-activity';
     }
-    
+
     function getActivityIconClass(type) {
         if (type.startsWith('ai')) return 'ai';
-        if (type === 'transaction') return 'economy';
+        if (type === 'transaction' || type === 'stock_trade') return 'economy';
         if (type.startsWith('game')) return 'game';
         if (type === 'level_up') return 'level';
+        if (type === 'music') return 'ai';  // Use teal color for music
+        if (type === 'voice') return 'level';  // Use green color for voice
         return '';
     }
     

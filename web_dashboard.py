@@ -1790,7 +1790,7 @@ def api_recent_activity():
             # Note: Consider adding composite index on (voice_minutes, updated_at) for performance
             if activity_type in ['all', 'voice']:
                 voice_activity = safe_db_query(cursor, """
-                    SELECT 
+                    SELECT
                         'voice' as activity_type,
                         user_id,
                         NULL as channel_id,
@@ -1804,6 +1804,74 @@ def api_recent_activity():
                     LIMIT %s
                 """, params=(limit,), default=[], fetch_all=True)
                 activities.extend(voice_activity or [])
+
+            # Get recent music listening activity
+            if activity_type in ['all', 'music']:
+                music_activity = safe_db_query(cursor, """
+                    SELECT
+                        'music' as activity_type,
+                        user_id,
+                        NULL as channel_id,
+                        CONCAT('Played: ', title, ' by ', artist) as preview,
+                        played_at as activity_time,
+                        'Music' as category
+                    FROM music_history
+                    WHERE played_at IS NOT NULL
+                    ORDER BY played_at DESC
+                    LIMIT %s
+                """, params=(limit,), default=[], fetch_all=True)
+                activities.extend(music_activity or [])
+
+            # Get recent Mines games
+            if activity_type in ['all', 'games']:
+                mines_activity = safe_db_query(cursor, """
+                    SELECT
+                        'game_mines' as activity_type,
+                        user_id,
+                        NULL as channel_id,
+                        CONCAT('Mines - Bet: ', bet_amount, ' | ', IF(won, CONCAT('Won ', payout), 'Lost')) as preview,
+                        played_at as activity_time,
+                        'Mines' as category
+                    FROM mines_games
+                    WHERE played_at IS NOT NULL
+                    ORDER BY played_at DESC
+                    LIMIT %s
+                """, params=(limit,), default=[], fetch_all=True)
+                activities.extend(mines_activity or [])
+
+            # Get recent Russian Roulette games
+            if activity_type in ['all', 'games']:
+                rr_activity = safe_db_query(cursor, """
+                    SELECT
+                        'game_russian_roulette' as activity_type,
+                        user_id,
+                        NULL as channel_id,
+                        CONCAT('Russian Roulette - ', IF(survived, CONCAT('Survived ', shots_survived, ' shots, won ', payout), 'Lost')) as preview,
+                        played_at as activity_time,
+                        'Russian Roulette' as category
+                    FROM russian_roulette_games
+                    WHERE played_at IS NOT NULL
+                    ORDER BY played_at DESC
+                    LIMIT %s
+                """, params=(limit,), default=[], fetch_all=True)
+                activities.extend(rr_activity or [])
+
+            # Get recent stock trades
+            if activity_type in ['all', 'economy']:
+                stock_activity = safe_db_query(cursor, """
+                    SELECT
+                        'stock_trade' as activity_type,
+                        user_id,
+                        NULL as channel_id,
+                        CONCAT(action, ' ', quantity, ' shares of ', symbol, ' @ ', price_per_share) as preview,
+                        traded_at as activity_time,
+                        'Stock Trading' as category
+                    FROM stock_trades
+                    WHERE traded_at IS NOT NULL
+                    ORDER BY traded_at DESC
+                    LIMIT %s
+                """, params=(limit,), default=[], fetch_all=True)
+                activities.extend(stock_activity or [])
             
             # Get user display names
             user_ids = list(set([a.get('user_id') for a in activities if a.get('user_id')]))
