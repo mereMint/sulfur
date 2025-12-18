@@ -647,6 +647,204 @@
             box-shadow: 0 12px 32px rgba(232, 165, 85, 0.2);
             border-color: var(--lofi-amber);
         }
+        
+        /* ========================================================
+           MOBILE RESPONSIVE STYLES
+           ======================================================== */
+        
+        /* Mobile: 0-767px */
+        @media (max-width: 767px) {
+            /* Navbar adjustments */
+            .navbar-brand {
+                font-size: 1.1rem;
+            }
+            
+            .nav-link {
+                padding: 0.5rem 1rem !important;
+                margin: 0.2rem 0;
+            }
+            
+            /* Reduce card padding on mobile */
+            .card {
+                margin-bottom: 1rem;
+            }
+            
+            .card-header {
+                padding: 0.75rem 1rem;
+                font-size: 1rem;
+            }
+            
+            .card-body {
+                padding: 1rem;
+            }
+            
+            /* Make tables horizontally scrollable */
+            .table-responsive {
+                border-radius: 12px;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+            
+            .table {
+                font-size: 0.85rem;
+                min-width: 600px;
+            }
+            
+            .table th,
+            .table td {
+                padding: 0.5rem;
+                white-space: nowrap;
+            }
+            
+            /* Adjust buttons for mobile */
+            .btn {
+                padding: 0.5rem 1rem;
+                font-size: 0.9rem;
+            }
+            
+            /* Stack buttons vertically on mobile */
+            .btn-group-vertical {
+                width: 100%;
+            }
+            
+            .btn-group-vertical .btn {
+                margin-bottom: 0.5rem;
+            }
+            
+            /* Reduce stat card padding */
+            .stat-card {
+                padding: 1rem;
+                margin-bottom: 1rem;
+            }
+            
+            /* Console height adjustment for mobile */
+            .console {
+                height: 40vh;
+                font-size: 0.85rem;
+                padding: 1rem;
+            }
+            
+            /* Form inputs */
+            .form-control,
+            .form-select {
+                font-size: 16px; /* Prevents zoom on iOS */
+                padding: 0.5rem 0.75rem;
+            }
+            
+            /* Adjust spacing */
+            .container,
+            .container-fluid {
+                padding-left: 1rem;
+                padding-right: 1rem;
+            }
+            
+            h1, .h1 {
+                font-size: 1.75rem;
+            }
+            
+            h2, .h2 {
+                font-size: 1.5rem;
+            }
+            
+            h3, .h3 {
+                font-size: 1.25rem;
+            }
+            
+            /* Modal adjustments */
+            .modal-dialog {
+                margin: 0.5rem;
+            }
+            
+            .modal-content {
+                border-radius: 12px;
+            }
+            
+            /* Badge sizing */
+            .badge {
+                font-size: 0.7rem;
+                padding: 0.4em 0.8em;
+            }
+            
+            /* Reduce hover effects on mobile (touch devices) */
+            .card:hover,
+            .stat-card:hover,
+            .hover-lift:hover {
+                transform: none;
+            }
+            
+            /* Touch-friendly tap targets */
+            a.btn, button.btn, .btn-link {
+                min-height: 44px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+            }
+            
+            /* Navigation links and interactive elements */
+            .nav-link, .dropdown-item, .list-group-item-action {
+                min-height: 44px;
+            }
+        }
+        
+        /* Tablet: 768px-991px */
+        @media (min-width: 768px) and (max-width: 991px) {
+            .navbar-brand {
+                font-size: 1.2rem;
+            }
+            
+            .card-body {
+                padding: 1.25rem;
+            }
+            
+            .table {
+                font-size: 0.875rem;
+            }
+            
+            .console {
+                height: 50vh;
+            }
+        }
+        
+        /* Small desktop: 992px-1199px */
+        @media (min-width: 992px) and (max-width: 1199px) {
+            .container {
+                max-width: 960px;
+            }
+        }
+        
+        /* Landscape phone orientation */
+        @media (max-height: 600px) and (orientation: landscape) {
+            .console {
+                height: 50vh;
+            }
+            
+            .navbar {
+                padding: 0.25rem 1rem;
+            }
+            
+            .card {
+                margin-bottom: 0.75rem;
+            }
+        }
+        
+        /* Print styles */
+        @media print {
+            .navbar,
+            .btn,
+            .sidebar {
+                display: none !important;
+            }
+            
+            .card {
+                break-inside: avoid;
+                page-break-inside: avoid;
+            }
+            
+            body {
+                background: white !important;
+                color: black !important;
+            }
+        }
 
         .stat-value {
             font-size: 2rem;

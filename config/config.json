@@ -45,6 +45,7 @@
     "minecraft_server": true,
     "wireguard_vpn": false
   },
+  "disabled_commands": [],
   "api": {
     "provider": "openai",
     "timeout": 30,

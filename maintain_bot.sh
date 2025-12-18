@@ -99,6 +99,88 @@ else
     PYTHON_CMD="${PYTHON_CMD:-python3}"
 fi
 
+# ============================================================================
+# Auto-install Java (Latest Version)
+# ============================================================================
+install_java() {
+    echo -e "${CYAN}Checking Java installation...${NC}"
+    
+    if command -v java &> /dev/null; then
+        JAVA_VERSION=$(java -version 2>&1 | head -n 1)
+        echo -e "${GREEN}✓ Java found: $JAVA_VERSION${NC}"
+    else
+        echo -e "${YELLOW}Java not found. Installing...${NC}"
+        
+        if [ "$IS_TERMUX" = true ]; then
+            # Termux: Install OpenJDK 17
+            pkg install -y openjdk-17
+        else
+            # Linux: Install default JRE/JDK
+            if command -v apt-get &> /dev/null; then
+                sudo apt-get update && sudo apt-get install -y default-jre default-jdk
+            elif command -v dnf &> /dev/null; then
+                sudo dnf install -y java-latest-openjdk
+            elif command -v pacman &> /dev/null; then
+                sudo pacman -Sy --noconfirm jre-openjdk jdk-openjdk
+            elif command -v yum &> /dev/null; then
+                sudo yum install -y java-latest-openjdk
+            else
+                echo -e "${RED}✗ Unable to install Java automatically. Please install manually.${NC}"
+                return 1
+            fi
+        fi
+        
+        if command -v java &> /dev/null; then
+            echo -e "${GREEN}✓ Java installed successfully${NC}"
+        else
+            echo -e "${YELLOW}⚠ Java installation may have failed${NC}"
+        fi
+    fi
+}
+
+# ============================================================================
+# Auto-install FFmpeg
+# ============================================================================
+install_ffmpeg() {
+    echo -e "${CYAN}Checking FFmpeg installation...${NC}"
+    
+    if command -v ffmpeg &> /dev/null; then
+        FFMPEG_VERSION=$(ffmpeg -version 2>&1 | head -n 1)
+        echo -e "${GREEN}✓ FFmpeg found: $FFMPEG_VERSION${NC}"
+    else
+        echo -e "${YELLOW}FFmpeg not found. Installing...${NC}"
+        
+        if [ "$IS_TERMUX" = true ]; then
+            # Termux: Install FFmpeg
+            pkg install -y ffmpeg
+        else
+            # Linux: Install FFmpeg
+            if command -v apt-get &> /dev/null; then
+                sudo apt-get update && sudo apt-get install -y ffmpeg
+            elif command -v dnf &> /dev/null; then
+                sudo dnf install -y ffmpeg
+            elif command -v pacman &> /dev/null; then
+                sudo pacman -Sy --noconfirm ffmpeg
+            elif command -v yum &> /dev/null; then
+                sudo yum install -y ffmpeg
+            else
+                echo -e "${RED}✗ Unable to install FFmpeg automatically. Please install manually.${NC}"
+                return 1
+            fi
+        fi
+        
+        if command -v ffmpeg &> /dev/null; then
+            echo -e "${GREEN}✓ FFmpeg installed successfully${NC}"
+        else
+            echo -e "${YELLOW}⚠ FFmpeg installation may have failed${NC}"
+        fi
+    fi
+}
+
+# Run installation checks
+install_java
+install_ffmpeg
+
 # Safe function to load database credentials from .env file
 # Only loads specific known-safe variables to prevent injection
 load_db_credentials() {
