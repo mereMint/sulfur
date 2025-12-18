@@ -1550,7 +1550,11 @@ def api_all_leaderboards():
             'werwolf': [],
             'economy': [],
             'wordle': [],
-            'casino': []
+            'casino': [],
+            'voice': [],
+            'messages': [],
+            'detective': [],
+            'stocks': []
         }
         
         # Level leaderboard
@@ -1604,7 +1608,7 @@ def api_all_leaderboards():
                     
                     # Casino leaderboard (by total winnings)
                     casino_lb = safe_db_query(cursor, """
-                        SELECT 
+                        SELECT
                             user_id,
                             p.display_name,
                             SUM(payout) as total_won,
@@ -1620,7 +1624,69 @@ def api_all_leaderboards():
                         LIMIT 20
                     """, fetch_all=True)
                     result['casino'] = casino_lb or []
-                    
+
+                    # Voice leaderboard (by total voice minutes)
+                    voice_lb = safe_db_query(cursor, """
+                        SELECT
+                            us.user_id,
+                            p.display_name,
+                            SUM(us.voice_minutes) as voice_minutes
+                        FROM user_stats us
+                        LEFT JOIN players p ON us.user_id = p.discord_id
+                        WHERE us.voice_minutes > 0
+                        GROUP BY us.user_id, p.display_name
+                        ORDER BY voice_minutes DESC
+                        LIMIT 20
+                    """, fetch_all=True)
+                    result['voice'] = voice_lb or []
+
+                    # Messages leaderboard (by total messages sent)
+                    messages_lb = safe_db_query(cursor, """
+                        SELECT
+                            us.user_id,
+                            p.display_name,
+                            SUM(us.messages_sent) as messages_sent
+                        FROM user_stats us
+                        LEFT JOIN players p ON us.user_id = p.discord_id
+                        WHERE us.messages_sent > 0
+                        GROUP BY us.user_id, p.display_name
+                        ORDER BY messages_sent DESC
+                        LIMIT 20
+                    """, fetch_all=True)
+                    result['messages'] = messages_lb or []
+
+                    # Detective leaderboard (by cases solved)
+                    detective_lb = safe_db_query(cursor, """
+                        SELECT
+                            dus.user_id,
+                            p.display_name,
+                            dus.cases_solved,
+                            dus.total_cases_played as total_cases
+                        FROM detective_user_stats dus
+                        LEFT JOIN players p ON dus.user_id = p.discord_id
+                        WHERE dus.total_cases_played > 0
+                        ORDER BY dus.cases_solved DESC, dus.total_cases_played ASC
+                        LIMIT 20
+                    """, fetch_all=True)
+                    result['detective'] = detective_lb or []
+
+                    # Stocks leaderboard (by portfolio value)
+                    stocks_lb = safe_db_query(cursor, """
+                        SELECT
+                            up.user_id,
+                            p.display_name,
+                            COUNT(DISTINCT up.stock_id) as total_trades,
+                            COALESCE(SUM(up.shares * s.current_price), 0) as volume
+                        FROM user_portfolios up
+                        LEFT JOIN players p ON up.user_id = p.discord_id
+                        LEFT JOIN stocks s ON up.stock_id = s.id
+                        WHERE up.shares > 0
+                        GROUP BY up.user_id, p.display_name
+                        ORDER BY volume DESC
+                        LIMIT 20
+                    """, fetch_all=True)
+                    result['stocks'] = stocks_lb or []
+
             except Exception as e:
                 logger.error(f"Error fetching leaderboard data: {e}")
             finally:

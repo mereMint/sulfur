@@ -38,6 +38,26 @@
                     <i class="bi bi-moon"></i> Werwolf
                 </button>
             </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="voice-tab" data-bs-toggle="pill" data-bs-target="#voice-pane" type="button" role="tab">
+                    <i class="bi bi-mic"></i> Voice
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="messages-tab" data-bs-toggle="pill" data-bs-target="#messages-pane" type="button" role="tab">
+                    <i class="bi bi-chat-dots"></i> Messages
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="detective-tab" data-bs-toggle="pill" data-bs-target="#detective-pane" type="button" role="tab">
+                    <i class="bi bi-search"></i> Detective
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="stocks-tab" data-bs-toggle="pill" data-bs-target="#stocks-pane" type="button" role="tab">
+                    <i class="bi bi-graph-up"></i> Stocks
+                </button>
+            </li>
         </ul>
     </div>
     <div class="card-body">
@@ -145,6 +165,86 @@
                         </thead>
                         <tbody id="werwolf-table">
                             <tr><td colspan="5" class="text-center text-muted">No data available</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Voice Leaderboard -->
+            <div class="tab-pane fade" id="voice-pane" role="tabpanel">
+                <h5 class="mb-3"><i class="bi bi-mic"></i> Voice Chat Champions</h5>
+                <div class="table-responsive">
+                    <table class="table table-dark table-striped table-hover">
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Player</th>
+                                <th>Voice Minutes</th>
+                                <th>Hours</th>
+                            </tr>
+                        </thead>
+                        <tbody id="voice-table">
+                            <tr><td colspan="4" class="text-center text-muted">No data available</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Messages Leaderboard -->
+            <div class="tab-pane fade" id="messages-pane" role="tabpanel">
+                <h5 class="mb-3"><i class="bi bi-chat-dots"></i> Most Active Chatters</h5>
+                <div class="table-responsive">
+                    <table class="table table-dark table-striped table-hover">
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Player</th>
+                                <th>Messages Sent</th>
+                            </tr>
+                        </thead>
+                        <tbody id="messages-table">
+                            <tr><td colspan="3" class="text-center text-muted">No data available</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Detective Leaderboard -->
+            <div class="tab-pane fade" id="detective-pane" role="tabpanel">
+                <h5 class="mb-3"><i class="bi bi-search"></i> Top Detectives</h5>
+                <div class="table-responsive">
+                    <table class="table table-dark table-striped table-hover">
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Player</th>
+                                <th>Cases Solved</th>
+                                <th>Total Cases</th>
+                                <th>Solve Rate</th>
+                            </tr>
+                        </thead>
+                        <tbody id="detective-table">
+                            <tr><td colspan="5" class="text-center text-muted">No data available</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Stocks Leaderboard -->
+            <div class="tab-pane fade" id="stocks-pane" role="tabpanel">
+                <h5 class="mb-3"><i class="bi bi-graph-up"></i> Top Traders</h5>
+                <div class="table-responsive">
+                    <table class="table table-dark table-striped table-hover">
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Player</th>
+                                <th>Total Trades</th>
+                                <th>Volume</th>
+                            </tr>
+                        </thead>
+                        <tbody id="stocks-table">
+                            <tr><td colspan="4" class="text-center text-muted">No data available</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -277,26 +377,115 @@
         tbody.innerHTML = html;
     }
     
+    function renderVoiceTable(data) {
+        const tbody = document.getElementById('voice-table');
+        if (!data || data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No data available</td></tr>';
+            return;
+        }
+
+        let html = '';
+        data.forEach((player, index) => {
+            const rank = index + 1;
+            const minutes = player.voice_minutes || 0;
+            const hours = (minutes / 60).toFixed(1);
+            html += `<tr>
+                <td>${getMedal(rank)} #${rank}</td>
+                <td>${player.display_name || 'Unknown'}</td>
+                <td>${formatNumber(minutes)} min</td>
+                <td>${hours}h</td>
+            </tr>`;
+        });
+        tbody.innerHTML = html;
+    }
+
+    function renderMessagesTable(data) {
+        const tbody = document.getElementById('messages-table');
+        if (!data || data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted">No data available</td></tr>';
+            return;
+        }
+
+        let html = '';
+        data.forEach((player, index) => {
+            const rank = index + 1;
+            html += `<tr>
+                <td>${getMedal(rank)} #${rank}</td>
+                <td>${player.display_name || 'Unknown'}</td>
+                <td><span class="badge bg-info">${formatNumber(player.messages_sent || 0)}</span></td>
+            </tr>`;
+        });
+        tbody.innerHTML = html;
+    }
+
+    function renderDetectiveTable(data) {
+        const tbody = document.getElementById('detective-table');
+        if (!data || data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No data available</td></tr>';
+            return;
+        }
+
+        let html = '';
+        data.forEach((player, index) => {
+            const rank = index + 1;
+            const solved = player.cases_solved || 0;
+            const total = player.total_cases || 0;
+            const rate = total > 0 ? ((solved / total) * 100).toFixed(1) : '0.0';
+            html += `<tr>
+                <td>${getMedal(rank)} #${rank}</td>
+                <td>${player.display_name || 'Unknown'}</td>
+                <td><span class="badge bg-success">${solved}</span></td>
+                <td>${total}</td>
+                <td>${rate}%</td>
+            </tr>`;
+        });
+        tbody.innerHTML = html;
+    }
+
+    function renderStocksTable(data) {
+        const tbody = document.getElementById('stocks-table');
+        if (!data || data.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No data available</td></tr>';
+            return;
+        }
+
+        let html = '';
+        data.forEach((player, index) => {
+            const rank = index + 1;
+            html += `<tr>
+                <td>${getMedal(rank)} #${rank}</td>
+                <td>${player.display_name || 'Unknown'}</td>
+                <td>${player.total_trades || 0}</td>
+                <td><span class="badge bg-warning text-dark">${formatNumber(player.volume || 0)} 🪙</span></td>
+            </tr>`;
+        });
+        tbody.innerHTML = html;
+    }
+
     function loadLeaderboards() {
         fetch('/api/leaderboard/all')
             .then(response => response.json())
             .then(data => {
                 document.getElementById('loading-spinner').style.display = 'none';
                 document.getElementById('leaderboardContent').style.display = 'block';
-                
+
                 renderLevelsTable(data.levels);
                 renderEconomyTable(data.economy);
                 renderWordleTable(data.wordle);
                 renderCasinoTable(data.casino);
                 renderWerwolfTable(data.werwolf);
+                renderVoiceTable(data.voice);
+                renderMessagesTable(data.messages);
+                renderDetectiveTable(data.detective);
+                renderStocksTable(data.stocks);
             })
             .catch(error => {
                 console.error('Error loading leaderboards:', error);
-                document.getElementById('loading-spinner').innerHTML = 
+                document.getElementById('loading-spinner').innerHTML =
                     '<div class="alert alert-danger">Error loading leaderboards. Please try again.</div>';
             });
     }
-    
+
     document.addEventListener('DOMContentLoaded', loadLeaderboards);
 </script>
 {% endblock %}
