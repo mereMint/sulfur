@@ -749,20 +749,36 @@
             
             // Update overview stats
             document.getElementById('total-games').textContent = totalGames.toLocaleString();
-            
+
             if (data.total_players) {
-                document.getElementById('total-players').textContent = 
+                document.getElementById('total-players').textContent =
                     data.total_players.toLocaleString();
             }
-            
+
             if (data.games_today) {
-                document.getElementById('games-today').textContent = 
+                document.getElementById('games-today').textContent =
                     data.games_today.toLocaleString();
             }
-            
+
             if (data.coins_wagered) {
-                document.getElementById('coins-wagered').textContent = 
+                document.getElementById('coins-wagered').textContent =
                     formatNumber(data.coins_wagered);
+            }
+
+            // Update Stock Trading stats
+            if (data.stocks) {
+                document.getElementById('stock-trades').textContent =
+                    (data.stocks.total_trades || 0).toLocaleString();
+                document.getElementById('stock-volume').textContent =
+                    formatNumber(data.stocks.total_volume || 0);
+            }
+
+            // Update Sport Betting stats
+            if (data.sportbet) {
+                document.getElementById('sportbet-games').textContent =
+                    (data.sportbet.total_bets || 0).toLocaleString();
+                document.getElementById('sportbet-wins').textContent =
+                    (data.sportbet.total_wins || 0).toLocaleString();
             }
             
         } catch (error) {

@@ -2281,7 +2281,7 @@ async def start_server(config: Dict) -> Tuple[bool, str]:
         '-XX:MaxTenuringThreshold=1',
         '-Dusing.aikars.flags=https://mcflags.emc.gs',
         '-Daikars.new.flags=true',
-        '-jar', jar_path,
+        '-jar', os.path.basename(jar_path),
         'nogui'
     ]
     
@@ -2293,7 +2293,7 @@ async def start_server(config: Dict) -> Tuple[bool, str]:
         logger.info(f"Starting Minecraft server with command:")
         logger.info(f"  Java: {java_path}")
         logger.info(f"  Memory: {memory_min} - {memory_max}")
-        logger.info(f"  JAR: {jar_path}")
+        logger.info(f"  JAR: {os.path.basename(jar_path)} (full path: {jar_path})")
         logger.info(f"  Working directory: {MC_SERVER_DIR}")
         
         # Verify JAR file exists

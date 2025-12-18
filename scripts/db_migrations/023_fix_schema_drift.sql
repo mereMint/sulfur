@@ -96,6 +96,35 @@ CREATE TABLE IF NOT EXISTS interaction_learnings (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================================
+-- Fix stocks table: Add category column if missing (referenced in code)
+-- ============================================================================
+
+CALL add_column_if_not_exists('stocks', 'category', 'VARCHAR(20) DEFAULT \'general\'');
+
+-- ============================================================================
+-- PART 6: Create Consolidated User Profiles View (moved from migration 022)
+-- ============================================================================
+-- This view provides a unified view of user data for the dashboard
+-- Must be created AFTER messages_sent and voice_minutes columns are added above
+
+CREATE OR REPLACE VIEW v_user_profiles AS
+SELECT
+    p.discord_id as user_id,
+    p.display_name,
+    COALESCE(p.level, 0) as level,
+    COALESCE(p.xp, 0) as xp,
+    COALESCE(p.balance, 0) as balance,
+    p.last_seen,
+    COALESCE(uc.equipped_color, '#00ff41') as equipped_color,
+    COALESCE(uc.language, 'de') as language,
+    (SELECT COUNT(*) FROM feature_unlocks fu WHERE fu.user_id = p.discord_id) as premium_features_unlocked,
+    (SELECT COALESCE(SUM(us.messages_sent), 0) FROM user_stats us WHERE us.user_id = p.discord_id) as total_messages,
+    (SELECT COALESCE(SUM(us.voice_minutes), 0) FROM user_stats us WHERE us.user_id = p.discord_id) as total_voice_minutes,
+    (SELECT COUNT(*) FROM music_history mh WHERE mh.user_id = p.discord_id) as songs_played
+FROM players p
+LEFT JOIN user_customization uc ON p.discord_id = uc.user_id;
+
+-- ============================================================================
 -- Cleanup helper procedure
 -- ============================================================================
 

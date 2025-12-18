@@ -2192,6 +2192,69 @@ async def update_user_presence(user_id, display_name, status, activity_name):
         cursor.close()
         cnx.close()
 
+
+async def sync_guild_members(members_data: list):
+    """
+    Bulk sync Discord guild members to the players table.
+    Creates entries for new members, updates display names and avatar URLs for existing ones.
+
+    Args:
+        members_data: List of tuples (discord_id, display_name, avatar_url)
+
+    Returns:
+        Tuple of (new_members_count, updated_members_count)
+    """
+    if not db_pool:
+        logger.warning("Database pool not available, cannot sync guild members")
+        return 0, 0
+
+    cnx = db_pool.get_connection()
+    if not cnx:
+        return 0, 0
+
+    cursor = cnx.cursor()
+    new_count = 0
+    updated_count = 0
+
+    try:
+        # Use batch insert with ON DUPLICATE KEY UPDATE for efficiency
+        for discord_id, display_name, avatar_url in members_data:
+            try:
+                # Check if user exists first to count new vs updated
+                cursor.execute("SELECT discord_id FROM players WHERE discord_id = %s", (discord_id,))
+                existing = cursor.fetchone()
+
+                # Insert or update the player with avatar URL
+                cursor.execute("""
+                    INSERT INTO players (discord_id, display_name, avatar_url, last_seen)
+                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                    ON DUPLICATE KEY UPDATE
+                        display_name = VALUES(display_name),
+                        avatar_url = VALUES(avatar_url)
+                """, (discord_id, display_name, avatar_url))
+
+                if existing:
+                    updated_count += 1
+                else:
+                    new_count += 1
+
+            except Exception as e:
+                logger.debug(f"Error syncing member {discord_id}: {e}")
+                continue
+
+        cnx.commit()
+        logger.info(f"Guild member sync complete: {new_count} new, {updated_count} updated")
+
+    except Exception as e:
+        logger.error(f"Error during guild member sync: {e}")
+        cnx.rollback()
+    finally:
+        cursor.close()
+        cnx.close()
+
+    return new_count, updated_count
+
+
 @db_operation("add_balance")
 async def add_balance(user_id, display_name, amount_to_add, config, stat_period=None):
     """Adds an amount to a user's balance, creating the user if they don't exist."""
@@ -3051,7 +3114,23 @@ async def get_wrapped_extra_stats(user_id, stat_period):
         "most_bought_item_count": 0,
         "least_bought_item": None,
         "least_bought_item_count": 0,
-        "total_purchases": 0
+        "total_purchases": 0,
+        # New stats for wrapped rework
+        "songs_requested": 0,
+        "top_song_requested": None,
+        "top_artist_requested": None,
+        "wordle_played": 0,
+        "wordle_won": 0,
+        "wordle_avg_attempts": None,
+        "stock_trades": 0,
+        "stock_volume": 0,
+        "stock_profit": 0,
+        "sport_bets_placed": 0,
+        "sport_bets_won": 0,
+        "sport_total_wagered": 0,
+        "sport_total_won": 0,
+        "sport_biggest_win": 0,
+        "sport_best_streak": 0
     }
 
     if not db_pool:
@@ -3177,11 +3256,112 @@ async def get_wrapped_extra_stats(user_id, stat_period):
             stats["total_purchases"] = sum(p['purchase_count'] for p in purchase_results)
             stats["most_bought_item"] = purchase_results[0]['item_name']
             stats["most_bought_item_count"] = purchase_results[0]['purchase_count']
-            
+
             if len(purchase_results) > 1:
                 # Get least bought (last in sorted list)
                 stats["least_bought_item"] = purchase_results[-1]['item_name']
                 stats["least_bought_item_count"] = purchase_results[-1]['purchase_count']
+
+        # 9. Music Stats (songs requested via music bot)
+        try:
+            music_stats_query = """
+                SELECT
+                    COUNT(*) as songs_requested,
+                    title as top_song,
+                    artist as top_artist
+                FROM music_history
+                WHERE user_id = %s
+                AND DATE(requested_at) BETWEEN %s AND %s
+                GROUP BY title, artist
+                ORDER BY COUNT(*) DESC
+                LIMIT 1
+            """
+            cursor.execute(music_stats_query, (user_id, start_date, end_date))
+            music_result = cursor.fetchone()
+            if music_result:
+                # Get total songs requested
+                cursor.execute("""
+                    SELECT COUNT(*) as total FROM music_history
+                    WHERE user_id = %s AND DATE(requested_at) BETWEEN %s AND %s
+                """, (user_id, start_date, end_date))
+                total_result = cursor.fetchone()
+                if total_result:
+                    stats["songs_requested"] = total_result['total'] or 0
+                stats["top_song_requested"] = music_result.get('top_song')
+                stats["top_artist_requested"] = music_result.get('top_artist')
+        except Exception:
+            pass  # Table might not exist
+
+        # 10. Wordle Stats
+        try:
+            wordle_stats_query = """
+                SELECT
+                    COUNT(*) as games_played,
+                    SUM(CASE WHEN won = TRUE THEN 1 ELSE 0 END) as games_won,
+                    ROUND(AVG(CASE WHEN won = TRUE THEN attempts ELSE NULL END), 1) as avg_attempts
+                FROM wordle_games
+                WHERE user_id = %s
+                AND completed = TRUE
+                AND DATE(created_at) BETWEEN %s AND %s
+            """
+            cursor.execute(wordle_stats_query, (user_id, start_date, end_date))
+            wordle_result = cursor.fetchone()
+            if wordle_result:
+                stats["wordle_played"] = wordle_result['games_played'] or 0
+                stats["wordle_won"] = wordle_result['games_won'] or 0
+                stats["wordle_avg_attempts"] = float(wordle_result['avg_attempts']) if wordle_result['avg_attempts'] else None
+        except Exception:
+            pass  # Table might not exist
+
+        # 11. Stock Trading Stats
+        try:
+            # Count stock-related transactions
+            stock_trades_query = """
+                SELECT
+                    COUNT(*) as trades,
+                    SUM(ABS(amount)) as volume
+                FROM transaction_history
+                WHERE user_id = %s
+                AND (transaction_type LIKE '%%stock%%' OR transaction_type LIKE '%%aktie%%')
+                AND DATE(created_at) BETWEEN %s AND %s
+            """
+            cursor.execute(stock_trades_query, (user_id, start_date, end_date))
+            stock_result = cursor.fetchone()
+            if stock_result:
+                stats["stock_trades"] = stock_result['trades'] or 0
+                stats["stock_volume"] = int(stock_result['volume']) if stock_result['volume'] else 0
+        except Exception:
+            pass  # Table might not exist
+
+        # 12. Sports Betting Stats
+        try:
+            sport_bets_query = """
+                SELECT
+                    COUNT(*) as bets_placed,
+                    SUM(CASE WHEN status = 'won' THEN 1 ELSE 0 END) as bets_won,
+                    COALESCE(SUM(bet_amount), 0) as total_wagered,
+                    COALESCE(SUM(actual_payout), 0) as total_won,
+                    MAX(actual_payout) as biggest_win
+                FROM sport_bets
+                WHERE user_id = %s
+                AND DATE(created_at) BETWEEN %s AND %s
+            """
+            cursor.execute(sport_bets_query, (user_id, start_date, end_date))
+            sport_result = cursor.fetchone()
+            if sport_result:
+                stats["sport_bets_placed"] = sport_result['bets_placed'] or 0
+                stats["sport_bets_won"] = sport_result['bets_won'] or 0
+                stats["sport_total_wagered"] = int(sport_result['total_wagered']) if sport_result['total_wagered'] else 0
+                stats["sport_total_won"] = int(sport_result['total_won']) if sport_result['total_won'] else 0
+                stats["sport_biggest_win"] = int(sport_result['biggest_win']) if sport_result['biggest_win'] else 0
+
+            # Get best streak from stats table
+            cursor.execute("SELECT best_streak FROM sport_betting_stats WHERE user_id = %s", (user_id,))
+            streak_result = cursor.fetchone()
+            if streak_result:
+                stats["sport_best_streak"] = streak_result['best_streak'] or 0
+        except Exception:
+            pass  # Table might not exist
 
         return stats
     except mysql.connector.Error as err:

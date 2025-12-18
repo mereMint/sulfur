@@ -287,6 +287,81 @@ def handle_disconnect():
     """Handle client disconnection."""
     print(f"[Web Dashboard] Client disconnected")
 
+
+@socketio.on('request_stats')
+def handle_request_stats():
+    """Handle request for current stats - broadcast to requesting client."""
+    try:
+        stats = get_dashboard_stats()
+        emit('stats_update', stats)
+    except Exception as e:
+        logger.error(f"Error sending stats: {e}")
+
+
+def get_dashboard_stats():
+    """Get current dashboard statistics for real-time updates."""
+    stats = {
+        'users_online': 0,
+        'voice_users': 0,
+        'messages_today': 0,
+        'commands_today': 0
+    }
+
+    try:
+        if db_helpers.db_pool:
+            conn = db_helpers.get_db_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+                try:
+                    # Get messages today
+                    cursor.execute("""
+                        SELECT COALESCE(SUM(messages_sent), 0) as count
+                        FROM user_stats
+                        WHERE updated_at >= CURDATE()
+                    """)
+                    result = cursor.fetchone()
+                    if result:
+                        stats['messages_today'] = int(result.get('count', 0) or 0)
+                except Exception:
+                    pass
+
+                try:
+                    # Get commands today from command_usage if it exists
+                    cursor.execute("""
+                        SELECT COUNT(*) as count
+                        FROM command_usage
+                        WHERE used_at >= CURDATE()
+                    """)
+                    result = cursor.fetchone()
+                    if result:
+                        stats['commands_today'] = int(result.get('count', 0) or 0)
+                except Exception:
+                    pass
+
+                cursor.close()
+                conn.close()
+    except Exception as e:
+        logger.debug(f"Error getting dashboard stats: {e}")
+
+    return stats
+
+
+def broadcast_stats_periodically():
+    """Background task to broadcast stats every 30 seconds."""
+    while True:
+        try:
+            time.sleep(30)
+            stats = get_dashboard_stats()
+            socketio.emit('stats_update', stats, namespace='/')
+        except Exception as e:
+            logger.debug(f"Error broadcasting stats: {e}")
+
+
+# Start the stats broadcast thread
+stats_broadcast_thread = threading.Thread(target=broadcast_stats_periodically, daemon=True)
+stats_broadcast_thread.start()
+
+
 @app.route('/')
 def index():
     """Renders the main dashboard page."""
@@ -1475,7 +1550,11 @@ def api_all_leaderboards():
             'werwolf': [],
             'economy': [],
             'wordle': [],
-            'casino': []
+            'casino': [],
+            'voice': [],
+            'messages': [],
+            'detective': [],
+            'stocks': []
         }
         
         # Level leaderboard
@@ -1529,7 +1608,7 @@ def api_all_leaderboards():
                     
                     # Casino leaderboard (by total winnings)
                     casino_lb = safe_db_query(cursor, """
-                        SELECT 
+                        SELECT
                             user_id,
                             p.display_name,
                             SUM(payout) as total_won,
@@ -1545,7 +1624,69 @@ def api_all_leaderboards():
                         LIMIT 20
                     """, fetch_all=True)
                     result['casino'] = casino_lb or []
-                    
+
+                    # Voice leaderboard (by total voice minutes)
+                    voice_lb = safe_db_query(cursor, """
+                        SELECT
+                            us.user_id,
+                            p.display_name,
+                            SUM(us.voice_minutes) as voice_minutes
+                        FROM user_stats us
+                        LEFT JOIN players p ON us.user_id = p.discord_id
+                        WHERE us.voice_minutes > 0
+                        GROUP BY us.user_id, p.display_name
+                        ORDER BY voice_minutes DESC
+                        LIMIT 20
+                    """, fetch_all=True)
+                    result['voice'] = voice_lb or []
+
+                    # Messages leaderboard (by total messages sent)
+                    messages_lb = safe_db_query(cursor, """
+                        SELECT
+                            us.user_id,
+                            p.display_name,
+                            SUM(us.messages_sent) as messages_sent
+                        FROM user_stats us
+                        LEFT JOIN players p ON us.user_id = p.discord_id
+                        WHERE us.messages_sent > 0
+                        GROUP BY us.user_id, p.display_name
+                        ORDER BY messages_sent DESC
+                        LIMIT 20
+                    """, fetch_all=True)
+                    result['messages'] = messages_lb or []
+
+                    # Detective leaderboard (by cases solved)
+                    detective_lb = safe_db_query(cursor, """
+                        SELECT
+                            dus.user_id,
+                            p.display_name,
+                            dus.cases_solved,
+                            dus.total_cases_played as total_cases
+                        FROM detective_user_stats dus
+                        LEFT JOIN players p ON dus.user_id = p.discord_id
+                        WHERE dus.total_cases_played > 0
+                        ORDER BY dus.cases_solved DESC, dus.total_cases_played ASC
+                        LIMIT 20
+                    """, fetch_all=True)
+                    result['detective'] = detective_lb or []
+
+                    # Stocks leaderboard (by portfolio value)
+                    stocks_lb = safe_db_query(cursor, """
+                        SELECT
+                            up.user_id,
+                            p.display_name,
+                            COUNT(DISTINCT up.stock_id) as total_trades,
+                            COALESCE(SUM(up.shares * s.current_price), 0) as volume
+                        FROM user_portfolios up
+                        LEFT JOIN players p ON up.user_id = p.discord_id
+                        LEFT JOIN stocks s ON up.stock_id = s.id
+                        WHERE up.shares > 0
+                        GROUP BY up.user_id, p.display_name
+                        ORDER BY volume DESC
+                        LIMIT 20
+                    """, fetch_all=True)
+                    result['stocks'] = stocks_lb or []
+
             except Exception as e:
                 logger.error(f"Error fetching leaderboard data: {e}")
             finally:
@@ -1715,7 +1856,7 @@ def api_recent_activity():
             # Note: Consider adding composite index on (voice_minutes, updated_at) for performance
             if activity_type in ['all', 'voice']:
                 voice_activity = safe_db_query(cursor, """
-                    SELECT 
+                    SELECT
                         'voice' as activity_type,
                         user_id,
                         NULL as channel_id,
@@ -1729,6 +1870,74 @@ def api_recent_activity():
                     LIMIT %s
                 """, params=(limit,), default=[], fetch_all=True)
                 activities.extend(voice_activity or [])
+
+            # Get recent music listening activity
+            if activity_type in ['all', 'music']:
+                music_activity = safe_db_query(cursor, """
+                    SELECT
+                        'music' as activity_type,
+                        user_id,
+                        NULL as channel_id,
+                        CONCAT('Played: ', title, ' by ', artist) as preview,
+                        played_at as activity_time,
+                        'Music' as category
+                    FROM music_history
+                    WHERE played_at IS NOT NULL
+                    ORDER BY played_at DESC
+                    LIMIT %s
+                """, params=(limit,), default=[], fetch_all=True)
+                activities.extend(music_activity or [])
+
+            # Get recent Mines games
+            if activity_type in ['all', 'games']:
+                mines_activity = safe_db_query(cursor, """
+                    SELECT
+                        'game_mines' as activity_type,
+                        user_id,
+                        NULL as channel_id,
+                        CONCAT('Mines - Bet: ', bet_amount, ' | ', IF(won, CONCAT('Won ', payout), 'Lost')) as preview,
+                        played_at as activity_time,
+                        'Mines' as category
+                    FROM mines_games
+                    WHERE played_at IS NOT NULL
+                    ORDER BY played_at DESC
+                    LIMIT %s
+                """, params=(limit,), default=[], fetch_all=True)
+                activities.extend(mines_activity or [])
+
+            # Get recent Russian Roulette games
+            if activity_type in ['all', 'games']:
+                rr_activity = safe_db_query(cursor, """
+                    SELECT
+                        'game_russian_roulette' as activity_type,
+                        user_id,
+                        NULL as channel_id,
+                        CONCAT('Russian Roulette - ', IF(survived, CONCAT('Survived ', shots_survived, ' shots, won ', payout), 'Lost')) as preview,
+                        played_at as activity_time,
+                        'Russian Roulette' as category
+                    FROM russian_roulette_games
+                    WHERE played_at IS NOT NULL
+                    ORDER BY played_at DESC
+                    LIMIT %s
+                """, params=(limit,), default=[], fetch_all=True)
+                activities.extend(rr_activity or [])
+
+            # Get recent stock trades
+            if activity_type in ['all', 'economy']:
+                stock_activity = safe_db_query(cursor, """
+                    SELECT
+                        'stock_trade' as activity_type,
+                        user_id,
+                        NULL as channel_id,
+                        CONCAT(action, ' ', quantity, ' shares of ', symbol, ' @ ', price_per_share) as preview,
+                        traded_at as activity_time,
+                        'Stock Trading' as category
+                    FROM stock_trades
+                    WHERE traded_at IS NOT NULL
+                    ORDER BY traded_at DESC
+                    LIMIT %s
+                """, params=(limit,), default=[], fetch_all=True)
+                activities.extend(stock_activity or [])
             
             # Get user display names
             user_ids = list(set([a.get('user_id') for a in activities if a.get('user_id')]))
@@ -3472,9 +3681,17 @@ def games_stats():
             mines_games = safe_query("SELECT COUNT(*) as total_games FROM mines_games")
             mines_players = safe_query("SELECT COUNT(DISTINCT user_id) as total_players FROM mines_games")
             
+            # Tower games
+            tower_games = safe_query("SELECT COUNT(*) as total_games FROM tower_games")
+            tower_players = safe_query("SELECT COUNT(DISTINCT user_id) as total_players FROM tower_games")
+
+            # Russian Roulette games
+            rr_games = safe_query("SELECT COUNT(*) as total_games FROM russian_roulette_games")
+            rr_players = safe_query("SELECT COUNT(DISTINCT user_id) as total_players FROM russian_roulette_games")
+
             # Calculate total from individual games
-            total_casino_games = blackjack_games + roulette_games + mines_games
-            
+            total_casino_games = blackjack_games + roulette_games + mines_games + tower_games + rr_games
+
             stats['casino'] = {
                 'blackjack': {
                     'total_games': blackjack_games,
@@ -3487,6 +3704,14 @@ def games_stats():
                 'mines': {
                     'total_games': mines_games,
                     'total_players': mines_players
+                },
+                'tower': {
+                    'total_games': tower_games,
+                    'total_players': tower_players
+                },
+                'rr': {
+                    'total_games': rr_games,
+                    'total_players': rr_players
                 },
                 'total_games': total_casino_games
             }
@@ -3508,7 +3733,42 @@ def games_stats():
                 'total_games': trolly_games,
                 'total_players': trolly_players
             }
-            
+
+            # Stock Trading stats
+            stock_trades = safe_query("SELECT COUNT(*) as total_trades FROM stock_trades")
+            stock_players = safe_query("SELECT COUNT(DISTINCT user_id) as total_players FROM stock_trades")
+            stock_volume = safe_query("SELECT COALESCE(SUM(quantity * price_per_share), 0) as volume FROM stock_trades")
+
+            stats['stocks'] = {
+                'total_trades': stock_trades,
+                'total_players': stock_players,
+                'total_volume': stock_volume
+            }
+
+            # Sport Betting stats
+            sport_bets = safe_query("SELECT COUNT(*) as total_bets FROM sport_bets")
+            sport_players = safe_query("SELECT COUNT(DISTINCT user_id) as total_players FROM sport_bets")
+            sport_wins = safe_query("SELECT COUNT(*) as wins FROM sport_bets WHERE won = TRUE")
+
+            stats['sportbet'] = {
+                'total_bets': sport_bets,
+                'total_players': sport_players,
+                'total_wins': sport_wins
+            }
+
+            # Total players and games today
+            games_today = safe_query("""
+                SELECT (
+                    (SELECT COUNT(*) FROM blackjack_games WHERE DATE(played_at) = CURDATE()) +
+                    (SELECT COUNT(*) FROM roulette_games WHERE DATE(played_at) = CURDATE()) +
+                    (SELECT COUNT(*) FROM mines_games WHERE DATE(played_at) = CURDATE()) +
+                    (SELECT COUNT(*) FROM wordle_games WHERE DATE(completed_at) = CURDATE() AND completed = TRUE)
+                ) as total
+            """)
+
+            stats['games_today'] = games_today
+            stats['total_players'] = safe_query("SELECT COUNT(DISTINCT discord_id) FROM players WHERE last_seen >= DATE_SUB(NOW(), INTERVAL 30 DAY)")
+
             return jsonify(stats)
         finally:
             cursor.close()
@@ -4623,9 +4883,10 @@ def api_users_profiles():
             if users is None:
                 try:
                     cursor.execute("""
-                        SELECT 
+                        SELECT
                             p.discord_id as user_id,
                             p.display_name,
+                            p.avatar_url,
                             COALESCE(p.level, 0) as level,
                             COALESCE(p.xp, 0) as xp,
                             COALESCE(p.balance, 0) as coins,
@@ -4645,7 +4906,7 @@ def api_users_profiles():
                             FROM music_history
                             GROUP BY user_id
                         ) mh_count ON p.discord_id = mh_count.user_id
-                        GROUP BY p.discord_id, p.display_name, p.level, p.xp, p.balance, 
+                        GROUP BY p.discord_id, p.display_name, p.avatar_url, p.level, p.xp, p.balance,
                                  p.last_seen, uc.equipped_color, uc.language, mh_count.song_count
                         ORDER BY level DESC, xp DESC, p.display_name ASC
                         LIMIT 500
@@ -4659,9 +4920,10 @@ def api_users_profiles():
             if users is None:
                 try:
                     cursor.execute("""
-                        SELECT 
+                        SELECT
                             discord_id as user_id,
                             display_name,
+                            avatar_url,
                             COALESCE(level, 0) as level,
                             COALESCE(xp, 0) as xp,
                             COALESCE(balance, 0) as coins,
@@ -4688,7 +4950,7 @@ def api_users_profiles():
                 users_list.append({
                     'user_id': user.get('user_id'),
                     'display_name': user.get('display_name', 'Unknown'),
-                    'avatar_url': None,  # Could fetch from Discord API
+                    'avatar_url': user.get('avatar_url'),
                     'is_premium': bool(user.get('is_premium')),
                     'level': int(user.get('level', 0) or 0),
                     'xp': int(user.get('xp', 0) or 0),
@@ -4736,10 +4998,11 @@ def api_user_profile(user_id):
             # Get user info - use basic columns that should always exist
             # Note: Some columns may not exist if migrations haven't run
             user_info = safe_db_query(cursor, """
-                SELECT 
+                SELECT
                     p.discord_id as user_id,
                     p.display_name,
                     p.display_name as username,
+                    p.avatar_url,
                     0 as is_premium,
                     COALESCE(p.level, 1) as level,
                     COALESCE(p.xp, 0) as xp
@@ -4924,7 +5187,7 @@ def api_user_profile(user_id):
                 'user_id': user_info.get('user_id'),
                 'display_name': user_info.get('display_name', 'Unknown'),
                 'username': user_info.get('username', ''),
-                'avatar_url': None,
+                'avatar_url': user_info.get('avatar_url'),
                 'is_premium': bool(user_info.get('is_premium')),
                 'level': int(user_info.get('level', 1) or 1),
                 'xp': int(user_info.get('xp', 0) or 0),
@@ -5280,6 +5543,175 @@ def minecraft_download():
     except Exception as e:
         logger.error(f"Error downloading Minecraft server: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/minecraft/bans', methods=['GET'])
+def minecraft_bans_list():
+    """Get list of banned players from banned-players.json."""
+    if not MINECRAFT_AVAILABLE:
+        return jsonify({'error': 'Minecraft server module not available', 'bans': []}), 503
+
+    try:
+        ban_file = os.path.join('minecraft_server', 'banned-players.json')
+        if os.path.exists(ban_file):
+            with open(ban_file, 'r') as f:
+                bans = json.load(f)
+            return jsonify({'bans': bans})
+        return jsonify({'bans': []})
+    except Exception as e:
+        logger.error(f"Error reading ban list: {e}")
+        return jsonify({'error': str(e), 'bans': []}), 500
+
+
+@app.route('/api/minecraft/ban', methods=['POST'])
+def minecraft_ban_player():
+    """Ban a player via server command."""
+    if not MINECRAFT_AVAILABLE:
+        return jsonify({'error': 'Minecraft server module not available'}), 503
+
+    try:
+        data = request.json
+        username = data.get('username', '').strip()
+        reason = data.get('reason', 'Banned by admin')
+        duration = data.get('duration', 'permanent')
+
+        if not username:
+            return jsonify({'success': False, 'error': 'Username required'})
+
+        # Build ban command
+        if duration == 'permanent':
+            cmd = f"ban {username} {reason}"
+        else:
+            # For temp bans, use ban-ip with duration if supported, or just regular ban
+            cmd = f"ban {username} {reason}"
+
+        if minecraft_server.is_server_running():
+            minecraft_server.send_command(cmd)
+            return jsonify({'success': True})
+        else:
+            # Server not running, add to banned-players.json directly
+            ban_file = os.path.join('minecraft_server', 'banned-players.json')
+            bans = []
+            if os.path.exists(ban_file):
+                with open(ban_file, 'r') as f:
+                    bans = json.load(f)
+
+            # Add new ban entry
+            import uuid
+            bans.append({
+                'uuid': str(uuid.uuid4()),
+                'name': username,
+                'created': time.strftime('%Y-%m-%d %H:%M:%S +0000'),
+                'source': 'Dashboard',
+                'reason': reason
+            })
+
+            with open(ban_file, 'w') as f:
+                json.dump(bans, f, indent=2)
+
+            return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Error banning player: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/minecraft/unban', methods=['POST'])
+def minecraft_unban_player():
+    """Unban a player via server command or file edit."""
+    if not MINECRAFT_AVAILABLE:
+        return jsonify({'error': 'Minecraft server module not available'}), 503
+
+    try:
+        data = request.json
+        username = data.get('username', '').strip()
+
+        if not username:
+            return jsonify({'success': False, 'error': 'Username required'})
+
+        if minecraft_server.is_server_running():
+            minecraft_server.send_command(f"pardon {username}")
+            return jsonify({'success': True})
+        else:
+            # Server not running, remove from banned-players.json
+            ban_file = os.path.join('minecraft_server', 'banned-players.json')
+            if os.path.exists(ban_file):
+                with open(ban_file, 'r') as f:
+                    bans = json.load(f)
+
+                bans = [b for b in bans if b.get('name', '').lower() != username.lower()]
+
+                with open(ban_file, 'w') as f:
+                    json.dump(bans, f, indent=2)
+
+            return jsonify({'success': True})
+    except Exception as e:
+        logger.error(f"Error unbanning player: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/minecraft/player-stats', methods=['GET'])
+def minecraft_player_stats():
+    """Get Minecraft player statistics from database."""
+    try:
+        if not db_helpers.db_pool:
+            return jsonify({'stats': {}, 'players': []})
+
+        conn = db_helpers.get_db_connection()
+        if not conn:
+            return jsonify({'stats': {}, 'players': []})
+
+        cursor = conn.cursor(dictionary=True)
+
+        # Get aggregate stats
+        stats = {
+            'total_players': 0,
+            'total_playtime_minutes': 0,
+            'avg_session_minutes': 0,
+            'peak_players': 0
+        }
+
+        # Try to get player stats from minecraft_players table if it exists
+        try:
+            cursor.execute("""
+                SELECT COUNT(DISTINCT username) as total_players,
+                       COALESCE(SUM(playtime_minutes), 0) as total_playtime,
+                       COALESCE(AVG(playtime_minutes / NULLIF(sessions, 0)), 0) as avg_session,
+                       COALESCE(MAX(peak_concurrent), 0) as peak_players
+                FROM minecraft_players
+            """)
+            result = cursor.fetchone()
+            if result:
+                stats['total_players'] = result.get('total_players', 0) or 0
+                stats['total_playtime_minutes'] = int(result.get('total_playtime', 0) or 0)
+                stats['avg_session_minutes'] = int(result.get('avg_session', 0) or 0)
+                stats['peak_players'] = result.get('peak_players', 0) or 0
+        except Exception as e:
+            logger.debug(f"minecraft_players table not available: {e}")
+
+        # Get individual player stats
+        players = []
+        try:
+            cursor.execute("""
+                SELECT username, playtime_minutes, sessions, last_seen,
+                       CASE WHEN last_seen > DATE_SUB(NOW(), INTERVAL 5 MINUTE) THEN 1 ELSE 0 END as online
+                FROM minecraft_players
+                ORDER BY playtime_minutes DESC
+                LIMIT 50
+            """)
+            players = cursor.fetchall() or []
+        except Exception as e:
+            logger.debug(f"Could not fetch minecraft player list: {e}")
+
+        cursor.close()
+        conn.close()
+
+        return jsonify({
+            'stats': stats,
+            'players': players
+        })
+    except Exception as e:
+        logger.error(f"Error getting Minecraft player stats: {e}")
+        return jsonify({'stats': {}, 'players': [], 'error': str(e)}), 500
 
 
 # ==============================================================================

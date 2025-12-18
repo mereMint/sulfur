@@ -8,26 +8,30 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
     <style>
         body {
-            background-color: #1a1a2e;
-            color: #eee;
+            background: linear-gradient(135deg, #1a1410 0%, #2a221a 50%, #3d3226 100%);
+            background-attachment: fixed;
+            color: #f5e6c3;
             font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
         }
-        
+
         .navbar {
-            background: linear-gradient(135deg, #16213e 0%, #1a1a2e 100%);
-            border-bottom: 1px solid #0f3460;
+            background: rgba(42, 34, 26, 0.92) !important;
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(232, 165, 85, 0.2);
         }
-        
+
         .card {
-            background-color: #16213e;
-            border: 1px solid #0f3460;
+            background: rgba(42, 34, 26, 0.7);
+            border: 1px solid rgba(232, 165, 85, 0.2);
             border-radius: 12px;
+            backdrop-filter: blur(10px);
         }
-        
+
         .card-header {
-            background-color: #0f3460;
-            border-bottom: 1px solid #0f3460;
+            background: linear-gradient(135deg, rgba(232, 165, 85, 0.15), rgba(212, 149, 106, 0.1));
+            border-bottom: 1px solid rgba(232, 165, 85, 0.2);
             border-radius: 12px 12px 0 0 !important;
+            color: #e8a555;
         }
         
         .btn-minecraft {
@@ -47,29 +51,29 @@
         }
         
         .console-output {
-            background-color: #0a0a0a;
-            color: #00ff00;
+            background-color: rgba(20, 16, 12, 0.95);
+            color: #a8b88c;
             font-family: 'Consolas', 'Monaco', monospace;
             font-size: 12px;
             padding: 15px;
             border-radius: 8px;
             height: 400px;
             overflow-y: auto;
-            border: 1px solid #333;
+            border: 1px solid rgba(232, 165, 85, 0.2);
         }
-        
+
         .console-input {
-            background-color: #0a0a0a;
-            color: #00ff00;
-            border: 1px solid #333;
+            background-color: rgba(20, 16, 12, 0.95);
+            color: #a8b88c;
+            border: 1px solid rgba(232, 165, 85, 0.2);
             font-family: 'Consolas', 'Monaco', monospace;
         }
-        
+
         .console-input:focus {
-            background-color: #0a0a0a;
-            color: #00ff00;
-            border-color: #4CAF50;
-            box-shadow: 0 0 0 0.25rem rgba(76, 175, 80, 0.25);
+            background-color: rgba(20, 16, 12, 0.95);
+            color: #a8b88c;
+            border-color: #8b9b6a;
+            box-shadow: 0 0 0 0.25rem rgba(139, 155, 106, 0.25);
         }
         
         .status-badge {
@@ -94,59 +98,59 @@
         }
         
         .player-card {
-            background-color: #1a1a2e;
-            border: 1px solid #0f3460;
+            background-color: rgba(42, 34, 26, 0.6);
+            border: 1px solid rgba(232, 165, 85, 0.2);
             border-radius: 8px;
             padding: 10px;
             margin: 5px 0;
         }
-        
+
         .world-card {
             transition: transform 0.2s;
         }
-        
+
         .world-card:hover {
             transform: translateY(-2px);
         }
-        
+
         .backup-item {
-            background-color: #1a1a2e;
+            background-color: rgba(42, 34, 26, 0.6);
             border-radius: 8px;
             padding: 10px;
             margin: 5px 0;
         }
-        
+
         .mod-toggle {
             width: 100%;
             text-align: left;
-            background-color: #1a1a2e;
-            border: 1px solid #0f3460;
-            color: #eee;
+            background-color: rgba(42, 34, 26, 0.6);
+            border: 1px solid rgba(232, 165, 85, 0.2);
+            color: #f5e6c3;
             padding: 12px 15px;
             border-radius: 8px;
             margin: 5px 0;
         }
-        
+
         .mod-toggle:hover {
-            background-color: #0f3460;
+            background-color: rgba(232, 165, 85, 0.1);
         }
-        
+
         .mod-toggle.active {
-            border-color: #4CAF50;
-            background-color: rgba(76, 175, 80, 0.1);
+            border-color: #8b9b6a;
+            background-color: rgba(139, 155, 106, 0.1);
         }
-        
+
         .nav-tabs .nav-link {
-            color: #aaa;
+            color: #c4b89a;
             border: none;
             border-bottom: 2px solid transparent;
         }
-        
+
         .nav-tabs .nav-link:hover {
-            color: #eee;
+            color: #f5e6c3;
             border-color: transparent;
         }
-        
+
         .nav-tabs .nav-link.active {
             color: #4CAF50;
             background-color: transparent;
@@ -162,14 +166,61 @@
         .schedule-day {
             text-align: center;
             padding: 10px;
-            background-color: #1a1a2e;
+            background-color: rgba(42, 34, 26, 0.6);
             border-radius: 8px;
-            border: 1px solid #0f3460;
+            border: 1px solid rgba(232, 165, 85, 0.2);
+            cursor: pointer;
+            transition: all 0.2s;
         }
-        
+
+        .schedule-day:hover {
+            border-color: rgba(232, 165, 85, 0.5);
+        }
+
         .schedule-day.active {
             border-color: #4CAF50;
             background-color: rgba(76, 175, 80, 0.1);
+        }
+
+        .schedule-hour {
+            display: inline-block;
+            width: 28px;
+            height: 28px;
+            line-height: 28px;
+            text-align: center;
+            margin: 2px;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            background-color: rgba(42, 34, 26, 0.6);
+            border: 1px solid rgba(232, 165, 85, 0.2);
+            transition: all 0.2s;
+        }
+
+        .schedule-hour:hover {
+            border-color: rgba(232, 165, 85, 0.5);
+        }
+
+        .schedule-hour.active {
+            background-color: rgba(76, 175, 80, 0.3);
+            border-color: #4CAF50;
+            color: #4CAF50;
+        }
+
+        .ban-item {
+            background-color: rgba(42, 34, 26, 0.6);
+            border: 1px solid rgba(244, 67, 54, 0.3);
+            border-radius: 8px;
+            padding: 12px;
+            margin: 5px 0;
+        }
+
+        .player-stats-card {
+            background: linear-gradient(135deg, rgba(76, 175, 80, 0.1), rgba(139, 155, 106, 0.1));
+            border: 1px solid rgba(139, 155, 106, 0.3);
+            border-radius: 8px;
+            padding: 12px;
+            margin: 5px 0;
         }
         
         /* Fix form label readability - ensure white/light text on dark backgrounds */
@@ -369,6 +420,21 @@
                             <i class="bi bi-person-check"></i> Whitelist
                         </button>
                     </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-bans">
+                            <i class="bi bi-person-x"></i> Ban List
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-players">
+                            <i class="bi bi-graph-up"></i> Player Stats
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-schedule">
+                            <i class="bi bi-calendar-week"></i> Schedule
+                        </button>
+                    </li>
                 </ul>
                 
                 <div class="tab-content">
@@ -539,10 +605,129 @@
                                         <p class="text-muted">No pending requests</p>
                                     </div>
                                 </div>
-                                
+
                                 <h6>Whitelisted Players</h6>
                                 <div id="whitelist-players">
                                     <!-- Whitelist entries will be inserted here -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Ban List Tab -->
+                    <div class="tab-pane fade" id="tab-bans">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0"><i class="bi bi-person-x"></i> Ban Management</h5>
+                                <button class="btn btn-danger btn-sm" onclick="openBanModal()">
+                                    <i class="bi bi-plus"></i> Ban Player
+                                </button>
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <input type="text" class="form-control bg-dark text-light"
+                                           id="ban-search" placeholder="Search banned players..."
+                                           onkeyup="filterBanList()">
+                                </div>
+                                <div id="ban-list">
+                                    <p class="text-muted">Loading ban list...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Player Stats Tab -->
+                    <div class="tab-pane fade" id="tab-players">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0"><i class="bi bi-graph-up"></i> Player Statistics</h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="row mb-4">
+                                    <div class="col-md-3">
+                                        <div class="stat-box text-center">
+                                            <h3 id="stat-total-players">0</h3>
+                                            <small class="text-muted">Total Players</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="stat-box text-center">
+                                            <h3 id="stat-total-playtime">0h</h3>
+                                            <small class="text-muted">Total Playtime</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="stat-box text-center">
+                                            <h3 id="stat-avg-session">0m</h3>
+                                            <small class="text-muted">Avg Session</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="stat-box text-center">
+                                            <h3 id="stat-peak-players">0</h3>
+                                            <small class="text-muted">Peak Players</small>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <h6 class="mt-4 mb-3">Player Leaderboard</h6>
+                                <div id="player-stats-list">
+                                    <p class="text-muted">No player data available yet. Start the server to track players!</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Weekly Schedule Tab -->
+                    <div class="tab-pane fade" id="tab-schedule">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0"><i class="bi bi-calendar-week"></i> Weekly Schedule</h5>
+                                <button class="btn btn-minecraft btn-sm" onclick="saveSchedule()">
+                                    <i class="bi bi-save"></i> Save Schedule
+                                </button>
+                            </div>
+                            <div class="card-body">
+                                <p class="text-muted mb-3">Click on hours to toggle when the server should be running. Green = Online</p>
+
+                                <div class="schedule-container">
+                                    <div class="row mb-2">
+                                        <div class="col-1"></div>
+                                        <div class="col-11">
+                                            <div class="d-flex justify-content-between px-2">
+                                                <small>12am</small>
+                                                <small>6am</small>
+                                                <small>12pm</small>
+                                                <small>6pm</small>
+                                                <small>11pm</small>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div id="weekly-schedule">
+                                        <!-- Schedule rows will be generated by JS -->
+                                    </div>
+                                </div>
+
+                                <div class="mt-4">
+                                    <h6>Quick Presets</h6>
+                                    <div class="btn-group flex-wrap">
+                                        <button class="btn btn-outline-light btn-sm" onclick="setSchedulePreset('always')">
+                                            <i class="bi bi-clock"></i> 24/7
+                                        </button>
+                                        <button class="btn btn-outline-light btn-sm" onclick="setSchedulePreset('daytime')">
+                                            <i class="bi bi-sun"></i> Daytime (6am-10pm)
+                                        </button>
+                                        <button class="btn btn-outline-light btn-sm" onclick="setSchedulePreset('evening')">
+                                            <i class="bi bi-moon"></i> Evening (4pm-12am)
+                                        </button>
+                                        <button class="btn btn-outline-light btn-sm" onclick="setSchedulePreset('weekends')">
+                                            <i class="bi bi-calendar-check"></i> Weekends Only
+                                        </button>
+                                        <button class="btn btn-outline-light btn-sm" onclick="setSchedulePreset('none')">
+                                            <i class="bi bi-x-circle"></i> Clear All
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -569,6 +754,44 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="button" class="btn btn-minecraft" onclick="submitWhitelist()">Add</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ban Modal -->
+    <div class="modal fade" id="banModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content bg-dark">
+                <div class="modal-header border-danger">
+                    <h5 class="modal-title text-danger"><i class="bi bi-person-x"></i> Ban Player</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Minecraft Username</label>
+                        <input type="text" class="form-control bg-dark text-light" id="ban-username" placeholder="Player name">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Reason</label>
+                        <input type="text" class="form-control bg-dark text-light" id="ban-reason" placeholder="Reason for ban (optional)">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Duration</label>
+                        <select class="form-select bg-dark text-light" id="ban-duration">
+                            <option value="permanent">Permanent</option>
+                            <option value="1h">1 Hour</option>
+                            <option value="24h">24 Hours</option>
+                            <option value="7d">7 Days</option>
+                            <option value="30d">30 Days</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-danger" onclick="submitBan()">
+                        <i class="bi bi-person-x"></i> Ban Player
+                    </button>
                 </div>
             </div>
         </div>
@@ -1116,10 +1339,322 @@
         function openWhitelist() {
             document.querySelector('[data-bs-target="#tab-whitelist"]').click();
         }
-        
+
         function openSchedule() {
-            document.querySelector('[data-bs-target="#tab-config"]').click();
+            document.querySelector('[data-bs-target="#tab-schedule"]').click();
         }
+
+        // ===== Weekly Schedule Functions =====
+        const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+        let weeklySchedule = {};
+
+        function initWeeklySchedule() {
+            days.forEach(day => {
+                weeklySchedule[day] = new Array(24).fill(false);
+            });
+
+            const container = document.getElementById('weekly-schedule');
+            container.innerHTML = days.map(day => `
+                <div class="row mb-1 align-items-center">
+                    <div class="col-1">
+                        <strong>${day}</strong>
+                    </div>
+                    <div class="col-11">
+                        ${Array.from({length: 24}, (_, hour) => `
+                            <span class="schedule-hour"
+                                  id="sched-${day}-${hour}"
+                                  onclick="toggleScheduleHour('${day}', ${hour})"
+                                  title="${hour}:00 - ${hour+1}:00">
+                                ${hour}
+                            </span>
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('');
+
+            // Load saved schedule
+            loadScheduleFromServer();
+        }
+
+        function toggleScheduleHour(day, hour) {
+            weeklySchedule[day][hour] = !weeklySchedule[day][hour];
+            const el = document.getElementById(`sched-${day}-${hour}`);
+            el.classList.toggle('active', weeklySchedule[day][hour]);
+        }
+
+        function setSchedulePreset(preset) {
+            days.forEach(day => {
+                for (let h = 0; h < 24; h++) {
+                    let active = false;
+                    switch(preset) {
+                        case 'always':
+                            active = true;
+                            break;
+                        case 'daytime':
+                            active = h >= 6 && h < 22;
+                            break;
+                        case 'evening':
+                            active = h >= 16 || h < 1;
+                            break;
+                        case 'weekends':
+                            active = (day === 'Sat' || day === 'Sun');
+                            break;
+                        case 'none':
+                            active = false;
+                            break;
+                    }
+                    weeklySchedule[day][h] = active;
+                    document.getElementById(`sched-${day}-${h}`).classList.toggle('active', active);
+                }
+            });
+        }
+
+        async function loadScheduleFromServer() {
+            try {
+                const response = await fetch('/api/minecraft/config');
+                const data = await response.json();
+                if (data.schedule && data.schedule.weekly) {
+                    days.forEach(day => {
+                        if (data.schedule.weekly[day]) {
+                            data.schedule.weekly[day].forEach(hour => {
+                                if (hour >= 0 && hour < 24) {
+                                    weeklySchedule[day][hour] = true;
+                                    document.getElementById(`sched-${day}-${hour}`).classList.add('active');
+                                }
+                            });
+                        }
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading schedule:', error);
+            }
+        }
+
+        async function saveSchedule() {
+            const scheduleData = {};
+            days.forEach(day => {
+                scheduleData[day] = weeklySchedule[day]
+                    .map((active, hour) => active ? hour : -1)
+                    .filter(h => h >= 0);
+            });
+
+            try {
+                const response = await fetch('/api/minecraft/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        schedule: {
+                            mode: 'custom',
+                            weekly: scheduleData
+                        }
+                    })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    alert('Schedule saved successfully!');
+                } else {
+                    alert('Failed to save schedule: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Error saving schedule:', error);
+                alert('Error saving schedule');
+            }
+        }
+
+        // ===== Ban List Functions =====
+        let banList = [];
+
+        async function loadBanList() {
+            try {
+                const response = await fetch('/api/minecraft/bans');
+                const data = await response.json();
+                if (data.bans) {
+                    banList = data.bans;
+                    renderBanList();
+                }
+            } catch (error) {
+                console.error('Error loading ban list:', error);
+                document.getElementById('ban-list').innerHTML = '<p class="text-muted">Could not load ban list</p>';
+            }
+        }
+
+        function renderBanList() {
+            const container = document.getElementById('ban-list');
+            if (banList.length === 0) {
+                container.innerHTML = '<p class="text-muted">No banned players</p>';
+                return;
+            }
+
+            container.innerHTML = banList.map(ban => `
+                <div class="ban-item d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong class="text-danger"><i class="bi bi-person-x"></i> ${ban.name || ban.username}</strong>
+                        ${ban.reason ? `<br><small class="text-muted">Reason: ${ban.reason}</small>` : ''}
+                        ${ban.expires ? `<br><small class="text-warning">Expires: ${new Date(ban.expires).toLocaleString()}</small>` : '<br><small class="text-danger">Permanent</small>'}
+                    </div>
+                    <button class="btn btn-sm btn-outline-success" onclick="unbanPlayer('${ban.name || ban.username}')">
+                        <i class="bi bi-person-check"></i> Unban
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function filterBanList() {
+            const search = document.getElementById('ban-search').value.toLowerCase();
+            const filtered = banList.filter(ban =>
+                (ban.name || ban.username || '').toLowerCase().includes(search) ||
+                (ban.reason || '').toLowerCase().includes(search)
+            );
+
+            const container = document.getElementById('ban-list');
+            if (filtered.length === 0) {
+                container.innerHTML = '<p class="text-muted">No matching players</p>';
+                return;
+            }
+
+            container.innerHTML = filtered.map(ban => `
+                <div class="ban-item d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong class="text-danger"><i class="bi bi-person-x"></i> ${ban.name || ban.username}</strong>
+                        ${ban.reason ? `<br><small class="text-muted">Reason: ${ban.reason}</small>` : ''}
+                    </div>
+                    <button class="btn btn-sm btn-outline-success" onclick="unbanPlayer('${ban.name || ban.username}')">
+                        <i class="bi bi-person-check"></i> Unban
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function openBanModal() {
+            document.getElementById('ban-username').value = '';
+            document.getElementById('ban-reason').value = '';
+            document.getElementById('ban-duration').value = 'permanent';
+            const modal = new bootstrap.Modal(document.getElementById('banModal'));
+            modal.show();
+        }
+
+        async function submitBan() {
+            const username = document.getElementById('ban-username').value.trim();
+            const reason = document.getElementById('ban-reason').value.trim();
+            const duration = document.getElementById('ban-duration').value;
+
+            if (!username) {
+                alert('Please enter a username');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/minecraft/ban', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, reason, duration })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    alert(`Player ${username} has been banned!`);
+                    bootstrap.Modal.getInstance(document.getElementById('banModal')).hide();
+                    loadBanList();
+                } else {
+                    alert('Failed to ban player: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Error banning player:', error);
+                alert('Error banning player');
+            }
+        }
+
+        async function unbanPlayer(username) {
+            if (!confirm(`Are you sure you want to unban ${username}?`)) return;
+
+            try {
+                const response = await fetch('/api/minecraft/unban', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username })
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    alert(`Player ${username} has been unbanned!`);
+                    loadBanList();
+                } else {
+                    alert('Failed to unban player: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Error unbanning player:', error);
+                alert('Error unbanning player');
+            }
+        }
+
+        // ===== Player Stats Functions =====
+        async function loadPlayerStats() {
+            try {
+                const response = await fetch('/api/minecraft/player-stats');
+                const data = await response.json();
+
+                if (data.stats) {
+                    document.getElementById('stat-total-players').textContent = data.stats.total_players || 0;
+                    document.getElementById('stat-total-playtime').textContent = formatPlaytime(data.stats.total_playtime_minutes || 0);
+                    document.getElementById('stat-avg-session').textContent = (data.stats.avg_session_minutes || 0) + 'm';
+                    document.getElementById('stat-peak-players').textContent = data.stats.peak_players || 0;
+                }
+
+                if (data.players && data.players.length > 0) {
+                    const container = document.getElementById('player-stats-list');
+                    container.innerHTML = data.players.map((player, index) => `
+                        <div class="player-stats-card d-flex justify-content-between align-items-center">
+                            <div>
+                                <span class="badge bg-secondary me-2">#${index + 1}</span>
+                                <strong>${player.username}</strong>
+                                <br>
+                                <small class="text-muted">
+                                    <i class="bi bi-clock"></i> ${formatPlaytime(player.playtime_minutes)}
+                                    | <i class="bi bi-calendar"></i> ${player.sessions || 0} sessions
+                                    | Last: ${player.last_seen ? formatTimeAgo(player.last_seen) : 'Never'}
+                                </small>
+                            </div>
+                            <div class="text-end">
+                                <span class="badge ${player.online ? 'bg-success' : 'bg-secondary'}">
+                                    ${player.online ? 'Online' : 'Offline'}
+                                </span>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+            } catch (error) {
+                console.error('Error loading player stats:', error);
+            }
+        }
+
+        function formatPlaytime(minutes) {
+            if (minutes < 60) return minutes + 'm';
+            const hours = Math.floor(minutes / 60);
+            const mins = minutes % 60;
+            if (hours < 24) return hours + 'h ' + mins + 'm';
+            const days = Math.floor(hours / 24);
+            return days + 'd ' + (hours % 24) + 'h';
+        }
+
+        function formatTimeAgo(dateString) {
+            const date = new Date(dateString);
+            const now = new Date();
+            const seconds = Math.floor((now - date) / 1000);
+            if (seconds < 60) return 'Just now';
+            const minutes = Math.floor(seconds / 60);
+            if (minutes < 60) return minutes + 'm ago';
+            const hours = Math.floor(minutes / 60);
+            if (hours < 24) return hours + 'h ago';
+            const days = Math.floor(hours / 24);
+            return days + 'd ago';
+        }
+
+        // Initialize new features on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            initWeeklySchedule();
+            loadBanList();
+            loadPlayerStats();
+        });
     </script>
 </body>
 </html>

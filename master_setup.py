@@ -392,6 +392,19 @@ def check_wireguard() -> Tuple[bool, str]:
     return False, "WireGuard not found"
 
 
+def check_ffmpeg() -> Tuple[bool, str]:
+    """Check if FFmpeg is installed (required for music/voice features)."""
+    ffmpeg_path = shutil.which('ffmpeg')
+    if ffmpeg_path:
+        code, out, _ = run_command(['ffmpeg', '-version'])
+        if code == 0:
+            # Get first line of version output
+            version_line = out.split('\n')[0] if out else "FFmpeg installed"
+            return True, version_line
+        return True, "FFmpeg installed"
+    return False, "FFmpeg not found - music/voice features will not work"
+
+
 # ==============================================================================
 # Installation Functions
 # ==============================================================================
@@ -420,11 +433,13 @@ def install_all_system_dependencies(plat: str) -> bool:
         print_step("Installing Termux packages...")
         packages = [
             # Build essentials
-            'binutils', 'clang', 'make', 'cmake', 'pkg-config', 
+            'binutils', 'clang', 'make', 'cmake', 'pkg-config',
             # Python and development
             'python', 'python-pip', 'rust',  # Rust for some Python packages
             # Crypto and networking
             'libffi', 'openssl', 'libsodium',  # For PyNaCl
+            # Audio/Video (REQUIRED for music/voice)
+            'ffmpeg', 'opus', 'libopus',
             # Database
             'mariadb',
             # VPN
@@ -483,6 +498,8 @@ def install_all_system_dependencies(plat: str) -> bool:
             'build-essential', 'python3-dev', 'libffi-dev',
             # Crypto
             'libsodium-dev', 'libssl-dev',
+            # Audio/Video (REQUIRED for music/voice)
+            'ffmpeg', 'libopus0', 'opus-tools',
             # Database
             'mariadb-server', 'mariadb-client', 'libmariadb-dev',
             # VPN
@@ -548,6 +565,7 @@ def install_all_system_dependencies(plat: str) -> bool:
         
         packages = [
             'python', 'libffi', 'libsodium', 'openssl',
+            'ffmpeg', 'opus',  # REQUIRED for music/voice
             'mariadb', 'wireguard-tools', 'openjdk@21',
             'git', 'curl', 'wget'
         ]
@@ -575,6 +593,7 @@ def install_all_system_dependencies(plat: str) -> bool:
             
             winget_packages = [
                 'Python.Python.3.12',
+                'Gyan.FFmpeg',  # REQUIRED for music/voice
                 'MariaDB.Server',
                 'WireGuard.WireGuard',
                 'EclipseAdoptium.Temurin.21.JRE',
@@ -2411,6 +2430,7 @@ def run_quick_check():
         ("pip", check_pip),
         ("Git", check_git),
         ("MySQL/MariaDB", check_mysql),
+        ("FFmpeg", check_ffmpeg),  # REQUIRED for music/voice
         ("Java", check_java),
         ("WireGuard", check_wireguard)
     ]
