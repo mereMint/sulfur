@@ -3615,9 +3615,17 @@ def games_stats():
             mines_games = safe_query("SELECT COUNT(*) as total_games FROM mines_games")
             mines_players = safe_query("SELECT COUNT(DISTINCT user_id) as total_players FROM mines_games")
             
+            # Tower games
+            tower_games = safe_query("SELECT COUNT(*) as total_games FROM tower_games")
+            tower_players = safe_query("SELECT COUNT(DISTINCT user_id) as total_players FROM tower_games")
+
+            # Russian Roulette games
+            rr_games = safe_query("SELECT COUNT(*) as total_games FROM russian_roulette_games")
+            rr_players = safe_query("SELECT COUNT(DISTINCT user_id) as total_players FROM russian_roulette_games")
+
             # Calculate total from individual games
-            total_casino_games = blackjack_games + roulette_games + mines_games
-            
+            total_casino_games = blackjack_games + roulette_games + mines_games + tower_games + rr_games
+
             stats['casino'] = {
                 'blackjack': {
                     'total_games': blackjack_games,
@@ -3630,6 +3638,14 @@ def games_stats():
                 'mines': {
                     'total_games': mines_games,
                     'total_players': mines_players
+                },
+                'tower': {
+                    'total_games': tower_games,
+                    'total_players': tower_players
+                },
+                'rr': {
+                    'total_games': rr_games,
+                    'total_players': rr_players
                 },
                 'total_games': total_casino_games
             }
@@ -3651,7 +3667,42 @@ def games_stats():
                 'total_games': trolly_games,
                 'total_players': trolly_players
             }
-            
+
+            # Stock Trading stats
+            stock_trades = safe_query("SELECT COUNT(*) as total_trades FROM stock_trades")
+            stock_players = safe_query("SELECT COUNT(DISTINCT user_id) as total_players FROM stock_trades")
+            stock_volume = safe_query("SELECT COALESCE(SUM(quantity * price_per_share), 0) as volume FROM stock_trades")
+
+            stats['stocks'] = {
+                'total_trades': stock_trades,
+                'total_players': stock_players,
+                'total_volume': stock_volume
+            }
+
+            # Sport Betting stats
+            sport_bets = safe_query("SELECT COUNT(*) as total_bets FROM sport_bets")
+            sport_players = safe_query("SELECT COUNT(DISTINCT user_id) as total_players FROM sport_bets")
+            sport_wins = safe_query("SELECT COUNT(*) as wins FROM sport_bets WHERE won = TRUE")
+
+            stats['sportbet'] = {
+                'total_bets': sport_bets,
+                'total_players': sport_players,
+                'total_wins': sport_wins
+            }
+
+            # Total players and games today
+            games_today = safe_query("""
+                SELECT (
+                    (SELECT COUNT(*) FROM blackjack_games WHERE DATE(played_at) = CURDATE()) +
+                    (SELECT COUNT(*) FROM roulette_games WHERE DATE(played_at) = CURDATE()) +
+                    (SELECT COUNT(*) FROM mines_games WHERE DATE(played_at) = CURDATE()) +
+                    (SELECT COUNT(*) FROM wordle_games WHERE DATE(completed_at) = CURDATE() AND completed = TRUE)
+                ) as total
+            """)
+
+            stats['games_today'] = games_today
+            stats['total_players'] = safe_query("SELECT COUNT(DISTINCT discord_id) FROM players WHERE last_seen >= DATE_SUB(NOW(), INTERVAL 30 DAY)")
+
             return jsonify(stats)
         finally:
             cursor.close()
