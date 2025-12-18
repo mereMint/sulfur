@@ -465,19 +465,42 @@ def initialize_database(max_retries=3, retry_delay=2):
             )
         """)
         # --- REFACTORED: Table for detailed API usage tracking (per model) ---
-        # Drop the old simple table if it exists to replace it with the new one.
-        cursor.execute("DROP TABLE IF EXISTS api_usage;")
+        # Check if api_usage table exists with the correct schema before recreating
         cursor.execute("""
-            CREATE TABLE api_usage (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                usage_date DATE NOT NULL,
-                model_name VARCHAR(100) NOT NULL,
-                call_count INT DEFAULT 0 NOT NULL,
-                input_tokens INT DEFAULT 0 NOT NULL,
-                output_tokens INT DEFAULT 0 NOT NULL,
-                UNIQUE KEY `daily_model_usage` (`usage_date`, `model_name`)
-            )
+            SELECT COUNT(*) FROM information_schema.columns 
+            WHERE table_schema = DATABASE() 
+            AND table_name = 'api_usage' 
+            AND column_name = 'model_name'
         """)
+        has_model_column = cursor.fetchone()[0] > 0
+        
+        if not has_model_column:
+            # Old schema or missing table - drop and recreate
+            cursor.execute("DROP TABLE IF EXISTS api_usage;")
+            cursor.execute("""
+                CREATE TABLE api_usage (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    usage_date DATE NOT NULL,
+                    model_name VARCHAR(100) NOT NULL,
+                    call_count INT DEFAULT 0 NOT NULL,
+                    input_tokens INT DEFAULT 0 NOT NULL,
+                    output_tokens INT DEFAULT 0 NOT NULL,
+                    UNIQUE KEY `daily_model_usage` (`usage_date`, `model_name`)
+                )
+            """)
+        else:
+            # Table exists with correct schema, just ensure it exists
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS api_usage (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    usage_date DATE NOT NULL,
+                    model_name VARCHAR(100) NOT NULL,
+                    call_count INT DEFAULT 0 NOT NULL,
+                    input_tokens INT DEFAULT 0 NOT NULL,
+                    output_tokens INT DEFAULT 0 NOT NULL,
+                    UNIQUE KEY `daily_model_usage` (`usage_date`, `model_name`)
+                )
+            """)
         cursor.execute("DROP EVENT IF EXISTS reset_daily_api_usage;") # Remove old event
         
         # --- NEW: Conversation Context Table ---

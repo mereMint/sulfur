@@ -2048,6 +2048,15 @@ async def initialize_sport_betting_tables(db_helpers):
             except Exception:
                 pass  # Column already exists
             
+            # Add won column to sport_bets if it doesn't exist (for tracking bet outcomes)
+            try:
+                cursor.execute("""
+                    ALTER TABLE sport_bets 
+                    ADD COLUMN won BOOLEAN DEFAULT NULL
+                """)
+            except Exception:
+                pass  # Column already exists
+            
             # Table for combination bets (accumulators/parlays)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS sport_combo_bets (

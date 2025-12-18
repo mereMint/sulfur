@@ -2012,15 +2012,32 @@ async def play_song_with_queue(
         # If not in cache, extract audio URL
         if not audio_url:
             logger.info(f"Extracting audio URL for: {song.get('title', song_url)}")
-            with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-                info = await asyncio.to_thread(ydl.extract_info, song_url, download=False)
-                audio_url = extract_audio_url(info)
-            
-            # Extract song info if not provided
-            if 'title' not in song and info:
-                song['title'] = info.get('title', 'Unknown')
-            if 'artist' not in song and info:
-                song['artist'] = info.get('uploader', 'Unknown')
+            try:
+                with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
+                    info = await asyncio.to_thread(ydl.extract_info, song_url, download=False)
+                    audio_url = extract_audio_url(info)
+                
+                # Extract song info if not provided
+                if 'title' not in song and info:
+                    song['title'] = info.get('title', 'Unknown')
+                if 'artist' not in song and info:
+                    song['artist'] = info.get('uploader', 'Unknown')
+            except Exception as e:
+                error_msg = str(e).lower()
+                # Handle specific YouTube errors gracefully
+                if 'unavailable' in error_msg or 'video unavailable' in error_msg:
+                    logger.warning(f"Video unavailable, skipping: {song.get('title', song_url)}")
+                elif 'private' in error_msg or 'sign in' in error_msg:
+                    logger.warning(f"Video is private or requires sign-in, skipping: {song.get('title', song_url)}")
+                elif 'removed' in error_msg or 'deleted' in error_msg:
+                    logger.warning(f"Video has been removed, skipping: {song.get('title', song_url)}")
+                elif 'copyright' in error_msg or 'blocked' in error_msg:
+                    logger.warning(f"Video blocked due to copyright, skipping: {song.get('title', song_url)}")
+                elif 'age' in error_msg or 'age-restricted' in error_msg:
+                    logger.warning(f"Video is age-restricted, skipping: {song.get('title', song_url)}")
+                else:
+                    logger.error(f"Error extracting audio URL: {e}")
+                return False
         
         if not audio_url:
             logger.error(f"Could not extract audio URL from: {song['url']}")
