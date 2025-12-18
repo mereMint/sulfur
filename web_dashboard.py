@@ -1895,7 +1895,12 @@ def api_recent_activity():
                         'game_mines' as activity_type,
                         user_id,
                         NULL as channel_id,
-                        CONCAT('Mines - Bet: ', bet_amount, ' | ', IF(won, CONCAT('Won ', payout), 'Lost')) as preview,
+                        CONCAT(
+                            'Mines - Bet: ', bet_amount, ' | ', 
+                            IF(COALESCE(won, (result = 'win' OR result = 'won')), 
+                               CONCAT('Won ', COALESCE(payout, won_amount)), 
+                               'Lost')
+                        ) as preview,
                         played_at as activity_time,
                         'Mines' as category
                     FROM mines_games
@@ -1912,7 +1917,12 @@ def api_recent_activity():
                         'game_russian_roulette' as activity_type,
                         user_id,
                         NULL as channel_id,
-                        CONCAT('Russian Roulette - ', IF(survived, CONCAT('Survived ', shots_survived, ' shots, won ', payout), 'Lost')) as preview,
+                        CONCAT(
+                            'Russian Roulette - ', 
+                            IF(survived, 
+                               CONCAT('Survived ', COALESCE(shots_survived, 1), ' shots, won ', won_amount), 
+                               'Lost')
+                        ) as preview,
                         played_at as activity_time,
                         'Russian Roulette' as category
                     FROM russian_roulette_games
@@ -1929,12 +1939,17 @@ def api_recent_activity():
                         'stock_trade' as activity_type,
                         user_id,
                         NULL as channel_id,
-                        CONCAT(action, ' ', quantity, ' shares of ', symbol, ' @ ', price_per_share) as preview,
-                        traded_at as activity_time,
+                        CONCAT(
+                            COALESCE(action, trade_type), ' ', 
+                            quantity, ' shares of ', 
+                            COALESCE(symbol, stock_symbol), ' @ ', 
+                            price_per_share
+                        ) as preview,
+                        COALESCE(traded_at, timestamp) as activity_time,
                         'Stock Trading' as category
                     FROM stock_trades
-                    WHERE traded_at IS NOT NULL
-                    ORDER BY traded_at DESC
+                    WHERE COALESCE(traded_at, timestamp) IS NOT NULL
+                    ORDER BY COALESCE(traded_at, timestamp) DESC
                     LIMIT %s
                 """, params=(limit,), default=[], fetch_all=True)
                 activities.extend(stock_activity or [])

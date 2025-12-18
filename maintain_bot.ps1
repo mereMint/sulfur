@@ -1162,6 +1162,9 @@ function Invoke-Update {
     # Check Java 21 for Minecraft support
     Test-JavaVersion | Out-Null
     
+    # Check FFmpeg installation
+    Test-FFmpegInstallation | Out-Null
+    
     # Initialize/update database tables after pulling updates with retry logic
     Write-ColorLog 'Updating database tables and applying migrations...' 'Cyan' '[UPDATE] '
     

@@ -69,6 +69,40 @@ if ($mysqlProcess) {
 }
 Write-Host ""
 
+# ============================================================================
+# Auto-install/Check Java
+# ============================================================================
+Write-Host "Checking Java installation..." -ForegroundColor Yellow
+try {
+    $javaVersion = java -version 2>&1 | Out-String
+    if ($javaVersion) {
+        Write-Host "[OK] Java found: $($javaVersion.Split([Environment]::NewLine)[0])" -ForegroundColor Green
+    }
+} catch {
+    Write-Host "[!] Java not found" -ForegroundColor Yellow
+    Write-Host "  Java is required for Minecraft server features" -ForegroundColor Gray
+    Write-Host "  Download from: https://adoptium.net/temurin/releases/?version=21" -ForegroundColor Gray
+    Write-Host "  Or use winget: winget install EclipseAdoptium.Temurin.21.JDK" -ForegroundColor Gray
+}
+Write-Host ""
+
+# ============================================================================
+# Auto-install/Check FFmpeg
+# ============================================================================
+Write-Host "Checking FFmpeg installation..." -ForegroundColor Yellow
+try {
+    $ffmpegVersion = ffmpeg -version 2>&1 | Select-Object -First 1
+    if ($ffmpegVersion) {
+        Write-Host "[OK] FFmpeg found: $ffmpegVersion" -ForegroundColor Green
+    }
+} catch {
+    Write-Host "[!] FFmpeg not found" -ForegroundColor Yellow
+    Write-Host "  FFmpeg is required for music/audio features" -ForegroundColor Gray
+    Write-Host "  Download from: https://ffmpeg.org/download.html" -ForegroundColor Gray
+    Write-Host "  Or use winget: winget install FFmpeg.FFmpeg" -ForegroundColor Gray
+}
+Write-Host ""
+
 # Check if virtual environment exists and activate it
 if (Test-Path "venv\Scripts\Activate.ps1") {
     Write-Host "Activating virtual environment..." -ForegroundColor Yellow

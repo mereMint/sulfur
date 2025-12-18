@@ -338,6 +338,20 @@ def is_feature_enabled(feature_name: str) -> bool:
     return features.get(feature_name, True)
 
 
+def is_command_enabled(command_name: str) -> bool:
+    """
+    Check if a command is enabled (not in the disabled_commands list).
+
+    Args:
+        command_name: The name of the command to check
+
+    Returns:
+        True if the command is enabled, False if disabled
+    """
+    disabled_commands = config.get('disabled_commands', [])
+    return command_name not in disabled_commands
+
+
 def feature_check(feature_name: str):
     """
     Decorator to check if a feature is enabled before running a command.
@@ -1245,6 +1259,24 @@ async def on_ready():
                     print(f"Cleaned up empty orphaned channel: {channel.name} ({channel_id})")
                 except (discord.Forbidden, discord.NotFound):
                     await db_helpers.remove_managed_channel(channel_id) # Still remove from DB if delete fails
+    
+    # Filter out disabled commands before syncing
+    disabled_commands = config.get('disabled_commands', [])
+    if disabled_commands:
+        print(f"Filtering out {len(disabled_commands)} disabled commands: {', '.join(disabled_commands)}")
+        logger.info(f"Disabled commands: {', '.join(disabled_commands)}")
+        
+        # Remove disabled commands from the tree
+        commands_to_remove = []
+        for cmd in tree.get_commands():
+            if cmd.name in disabled_commands:
+                commands_to_remove.append(cmd)
+        
+        for cmd in commands_to_remove:
+            tree.remove_command(cmd.name)
+            print(f"  -> Removed command: {cmd.name}")
+            logger.info(f"Removed disabled command: {cmd.name}")
+    
     synced = await tree.sync()
     # Also sync per-guild for immediate availability of new commands
     try:
