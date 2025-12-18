@@ -1163,6 +1163,129 @@
             });
         });
     </script>
+
+    <!-- Socket.IO for real-time updates -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script>
+        // Global real-time dashboard connection
+        const dashboardSocket = io({
+            reconnection: true,
+            reconnectionDelay: 1000,
+            reconnectionAttempts: 10
+        });
+
+        // Connection status indicator
+        dashboardSocket.on('connect', function() {
+            console.log('[Dashboard] WebSocket connected');
+            const statusEl = document.getElementById('bot-status');
+            if (statusEl) {
+                statusEl.classList.remove('bg-danger', 'bg-warning');
+                statusEl.classList.add('bg-success');
+                statusEl.innerHTML = '<i class="bi bi-circle-fill"></i> LIVE';
+            }
+        });
+
+        dashboardSocket.on('disconnect', function() {
+            console.log('[Dashboard] WebSocket disconnected');
+            const statusEl = document.getElementById('bot-status');
+            if (statusEl) {
+                statusEl.classList.remove('bg-success');
+                statusEl.classList.add('bg-warning');
+                statusEl.innerHTML = '<i class="bi bi-circle"></i> RECONNECTING...';
+            }
+        });
+
+        dashboardSocket.on('connect_error', function() {
+            const statusEl = document.getElementById('bot-status');
+            if (statusEl) {
+                statusEl.classList.remove('bg-success', 'bg-warning');
+                statusEl.classList.add('bg-danger');
+                statusEl.innerHTML = '<i class="bi bi-x-circle-fill"></i> OFFLINE';
+            }
+        });
+
+        // Real-time stat updates
+        dashboardSocket.on('stats_update', function(data) {
+            // Update any stat elements that exist on the page
+            if (data.users_online !== undefined) {
+                const el = document.getElementById('stat-users-online');
+                if (el) el.textContent = data.users_online;
+            }
+            if (data.voice_users !== undefined) {
+                const el = document.getElementById('stat-voice-users');
+                if (el) el.textContent = data.voice_users;
+            }
+            if (data.messages_today !== undefined) {
+                const el = document.getElementById('stat-messages-today');
+                if (el) el.textContent = data.messages_today.toLocaleString();
+            }
+            if (data.commands_today !== undefined) {
+                const el = document.getElementById('stat-commands-today');
+                if (el) el.textContent = data.commands_today.toLocaleString();
+            }
+        });
+
+        // Real-time activity feed
+        dashboardSocket.on('activity_update', function(data) {
+            const feedEl = document.getElementById('activity-feed');
+            if (feedEl && data.activity) {
+                const item = document.createElement('div');
+                item.className = 'activity-item fade-in mb-2 p-2 rounded';
+                item.style.background = 'rgba(232, 165, 85, 0.1)';
+                item.innerHTML = `
+                    <small class="text-muted">${new Date().toLocaleTimeString()}</small>
+                    <span class="ms-2">${data.activity}</span>
+                `;
+                feedEl.insertBefore(item, feedEl.firstChild);
+                // Keep only last 20 items
+                while (feedEl.children.length > 20) {
+                    feedEl.removeChild(feedEl.lastChild);
+                }
+            }
+        });
+
+        // Minecraft server status updates
+        dashboardSocket.on('minecraft_status', function(data) {
+            const statusEl = document.getElementById('mc-status');
+            if (statusEl) {
+                statusEl.className = `badge ${data.running ? 'bg-success' : 'bg-secondary'}`;
+                statusEl.textContent = data.running ? 'Online' : 'Offline';
+            }
+            const playersEl = document.getElementById('mc-players');
+            if (playersEl && data.player_count !== undefined) {
+                playersEl.textContent = data.player_count;
+            }
+        });
+
+        // Auto-refresh for pages that need periodic updates
+        let autoRefreshInterval = null;
+        const refreshableElements = document.querySelectorAll('[data-auto-refresh]');
+        if (refreshableElements.length > 0) {
+            autoRefreshInterval = setInterval(() => {
+                refreshableElements.forEach(el => {
+                    const endpoint = el.dataset.autoRefresh;
+                    const targetId = el.id;
+                    if (endpoint && targetId) {
+                        fetch(endpoint)
+                            .then(response => response.json())
+                            .then(data => {
+                                // Trigger custom event for page-specific handling
+                                window.dispatchEvent(new CustomEvent('dashboardDataRefresh', {
+                                    detail: { targetId, data }
+                                }));
+                            })
+                            .catch(err => console.debug('Auto-refresh failed:', err));
+                    }
+                });
+            }, 30000); // Refresh every 30 seconds
+        }
+
+        // Global function to request immediate refresh
+        window.requestDashboardRefresh = function() {
+            dashboardSocket.emit('request_stats');
+        };
+    </script>
+
     {% block scripts %}{% endblock %}
 </body>
 </html>

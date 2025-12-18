@@ -287,6 +287,81 @@ def handle_disconnect():
     """Handle client disconnection."""
     print(f"[Web Dashboard] Client disconnected")
 
+
+@socketio.on('request_stats')
+def handle_request_stats():
+    """Handle request for current stats - broadcast to requesting client."""
+    try:
+        stats = get_dashboard_stats()
+        emit('stats_update', stats)
+    except Exception as e:
+        logger.error(f"Error sending stats: {e}")
+
+
+def get_dashboard_stats():
+    """Get current dashboard statistics for real-time updates."""
+    stats = {
+        'users_online': 0,
+        'voice_users': 0,
+        'messages_today': 0,
+        'commands_today': 0
+    }
+
+    try:
+        if db_helpers.db_pool:
+            conn = db_helpers.get_db_connection()
+            if conn:
+                cursor = conn.cursor(dictionary=True)
+                try:
+                    # Get messages today
+                    cursor.execute("""
+                        SELECT COALESCE(SUM(messages_sent), 0) as count
+                        FROM user_stats
+                        WHERE updated_at >= CURDATE()
+                    """)
+                    result = cursor.fetchone()
+                    if result:
+                        stats['messages_today'] = int(result.get('count', 0) or 0)
+                except Exception:
+                    pass
+
+                try:
+                    # Get commands today from command_usage if it exists
+                    cursor.execute("""
+                        SELECT COUNT(*) as count
+                        FROM command_usage
+                        WHERE used_at >= CURDATE()
+                    """)
+                    result = cursor.fetchone()
+                    if result:
+                        stats['commands_today'] = int(result.get('count', 0) or 0)
+                except Exception:
+                    pass
+
+                cursor.close()
+                conn.close()
+    except Exception as e:
+        logger.debug(f"Error getting dashboard stats: {e}")
+
+    return stats
+
+
+def broadcast_stats_periodically():
+    """Background task to broadcast stats every 30 seconds."""
+    while True:
+        try:
+            time.sleep(30)
+            stats = get_dashboard_stats()
+            socketio.emit('stats_update', stats, namespace='/')
+        except Exception as e:
+            logger.debug(f"Error broadcasting stats: {e}")
+
+
+# Start the stats broadcast thread
+stats_broadcast_thread = threading.Thread(target=broadcast_stats_periodically, daemon=True)
+stats_broadcast_thread.start()
+
+
 @app.route('/')
 def index():
     """Renders the main dashboard page."""
