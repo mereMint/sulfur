@@ -613,10 +613,53 @@ async def get_working_station(station: dict) -> Optional[dict]:
         return None
 
 
+async def find_any_working_station(preferred_type: str = None) -> Optional[dict]:
+    """
+    Find any working station, optionally preferring a specific type.
+    Falls back to other types if preferred type has no working stations.
+    
+    Args:
+        preferred_type: Preferred station type (lofi, nocopyright, ambient)
+    
+    Returns:
+        A working station dictionary, or None if none available
+    """
+    try:
+        # Order of types to try
+        types_to_try = []
+        
+        if preferred_type and preferred_type in MUSIC_STATIONS:
+            types_to_try.append(preferred_type)
+        
+        # Add all other types as fallbacks
+        for station_type in MUSIC_STATIONS.keys():
+            if station_type not in types_to_try:
+                types_to_try.append(station_type)
+        
+        # Try each type until we find a working station
+        for station_type in types_to_try:
+            logger.info(f"Trying stations of type: {station_type}")
+            stations = MUSIC_STATIONS.get(station_type, [])
+            
+            for station in stations:
+                working = await get_working_station(station)
+                if working:
+                    logger.info(f"Found working station: {working.get('name')} (type: {station_type})")
+                    return working
+        
+        logger.error("No working stations found in any category")
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error finding working station: {e}")
+        return None
+
+
 async def play_station(voice_client: discord.VoiceClient, station: dict, volume: float = 1.0) -> bool:
     """
     Play a single music station in a voice channel.
     Automatically tries alternatives if primary URL fails.
+    Falls back to any working station from any category if needed.
     
     Args:
         voice_client: Connected Discord voice client
@@ -639,15 +682,41 @@ async def play_station(voice_client: discord.VoiceClient, station: dict, volume:
         
         # Get working station (tries alternatives if needed)
         working_station = await get_working_station(station)
+        
+        # If no working station found, try to find any working station
         if not working_station:
-            logger.error(f"No working URL for station: {station.get('name')}")
-            return False
+            logger.warning(f"No working URL for station: {station.get('name')}, trying fallback...")
+            preferred_type = station.get('type')
+            working_station = await find_any_working_station(preferred_type)
+            
+            if working_station:
+                logger.info(f"Using fallback station: {working_station.get('name')}")
+            else:
+                logger.error("No working stations available in any category")
+                return False
         
         # Extract audio URL using yt-dlp
         logger.info(f"Extracting stream URL: {working_station['url']}")
-        with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-            info = await asyncio.to_thread(ydl.extract_info, working_station['url'], download=False)
-            audio_url = extract_audio_url(info)
+        try:
+            with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
+                info = await asyncio.to_thread(ydl.extract_info, working_station['url'], download=False)
+                audio_url = extract_audio_url(info)
+        except Exception as e:
+            logger.error(f"Failed to extract audio URL: {e}")
+            # Try fallback if extraction fails
+            logger.warning("Trying to find another working station...")
+            preferred_type = station.get('type')
+            fallback = await find_any_working_station(preferred_type)
+            # Compare URLs by stripping trailing slashes and query params for basic comparison
+            current_url = working_station.get('url', '').split('?')[0].rstrip('/')
+            fallback_url = fallback.get('url', '').split('?')[0].rstrip('/') if fallback else ''
+            if fallback and fallback_url != current_url:
+                working_station = fallback
+                with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
+                    info = await asyncio.to_thread(ydl.extract_info, working_station['url'], download=False)
+                    audio_url = extract_audio_url(info)
+            else:
+                return False
         
         if not audio_url:
             logger.error(f"Could not extract audio URL from: {working_station['url']}")
@@ -667,7 +736,7 @@ async def play_station(voice_client: discord.VoiceClient, station: dict, volume:
             after=lambda e: logger.error(f"Playback error: {e}") if e else None
         )
         
-        logger.info(f"Started playback: {station['name']}")
+        logger.info(f"Started playback: {working_station.get('name', station['name'])}")
         return True
         
     except ImportError:
@@ -2012,15 +2081,32 @@ async def play_song_with_queue(
         # If not in cache, extract audio URL
         if not audio_url:
             logger.info(f"Extracting audio URL for: {song.get('title', song_url)}")
-            with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-                info = await asyncio.to_thread(ydl.extract_info, song_url, download=False)
-                audio_url = extract_audio_url(info)
-            
-            # Extract song info if not provided
-            if 'title' not in song and info:
-                song['title'] = info.get('title', 'Unknown')
-            if 'artist' not in song and info:
-                song['artist'] = info.get('uploader', 'Unknown')
+            try:
+                with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
+                    info = await asyncio.to_thread(ydl.extract_info, song_url, download=False)
+                    audio_url = extract_audio_url(info)
+                
+                # Extract song info if not provided
+                if 'title' not in song and info:
+                    song['title'] = info.get('title', 'Unknown')
+                if 'artist' not in song and info:
+                    song['artist'] = info.get('uploader', 'Unknown')
+            except Exception as e:
+                error_msg = str(e).lower()
+                # Handle specific YouTube errors gracefully
+                if 'unavailable' in error_msg or 'video unavailable' in error_msg:
+                    logger.warning(f"Video unavailable, skipping: {song.get('title', song_url)}")
+                elif 'private' in error_msg or 'sign in' in error_msg:
+                    logger.warning(f"Video is private or requires sign-in, skipping: {song.get('title', song_url)}")
+                elif 'removed' in error_msg or 'deleted' in error_msg:
+                    logger.warning(f"Video has been removed, skipping: {song.get('title', song_url)}")
+                elif 'copyright' in error_msg or 'blocked' in error_msg:
+                    logger.warning(f"Video blocked due to copyright, skipping: {song.get('title', song_url)}")
+                elif 'age' in error_msg or 'age-restricted' in error_msg:
+                    logger.warning(f"Video is age-restricted, skipping: {song.get('title', song_url)}")
+                else:
+                    logger.error(f"Error extracting audio URL: {e}")
+                return False
         
         if not audio_url:
             logger.error(f"Could not extract audio URL from: {song['url']}")

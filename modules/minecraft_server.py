@@ -396,6 +396,146 @@ def get_java_version() -> Optional[str]:
     return None
 
 
+async def install_java_21() -> Tuple[bool, str]:
+    """
+    Automatically install Java 21 based on the detected platform.
+    
+    Returns:
+        Tuple of (success, message)
+    """
+    plat = _get_platform()
+    
+    logger.info(f"Attempting automatic Java 21 installation for platform: {plat}")
+    
+    try:
+        if plat == 'termux':
+            # Termux installation
+            process = await asyncio.create_subprocess_exec(
+                'pkg', 'install', '-y', 'openjdk-21',
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await process.communicate()
+            if process.returncode == 0:
+                return True, "Java 21 installed successfully via pkg"
+            else:
+                return False, f"pkg install failed: {stderr.decode()}"
+                
+        elif plat in ['linux', 'raspberrypi', 'wsl']:
+            # Try apt-get first (Debian/Ubuntu)
+            try:
+                # Update package list
+                update_proc = await asyncio.create_subprocess_exec(
+                    'sudo', 'apt-get', 'update', '-qq',
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                await update_proc.communicate()
+                
+                # Install Java 21
+                install_proc = await asyncio.create_subprocess_exec(
+                    'sudo', 'apt-get', 'install', '-y', 'openjdk-21-jre-headless',
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await install_proc.communicate()
+                
+                if install_proc.returncode == 0:
+                    return True, "Java 21 installed successfully via apt-get"
+                    
+                # If openjdk-21 not available, try alternative package
+                install_proc2 = await asyncio.create_subprocess_exec(
+                    'sudo', 'apt-get', 'install', '-y', 'openjdk-21-jdk',
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout2, stderr2 = await install_proc2.communicate()
+                
+                if install_proc2.returncode == 0:
+                    return True, "Java 21 JDK installed successfully via apt-get"
+                    
+            except FileNotFoundError:
+                pass  # apt-get not available
+            
+            # Try dnf (Fedora/RHEL)
+            try:
+                install_proc = await asyncio.create_subprocess_exec(
+                    'sudo', 'dnf', 'install', '-y', 'java-21-openjdk-headless',
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await install_proc.communicate()
+                
+                if install_proc.returncode == 0:
+                    return True, "Java 21 installed successfully via dnf"
+            except FileNotFoundError:
+                pass  # dnf not available
+            
+            # Try pacman (Arch Linux)
+            try:
+                install_proc = await asyncio.create_subprocess_exec(
+                    'sudo', 'pacman', '-S', '--noconfirm', 'jre21-openjdk-headless',
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await install_proc.communicate()
+                
+                if install_proc.returncode == 0:
+                    return True, "Java 21 installed successfully via pacman"
+            except FileNotFoundError:
+                pass  # pacman not available
+            
+            return False, "Could not install Java 21 automatically. Please install manually."
+            
+        elif plat == 'macos':
+            # Try Homebrew
+            try:
+                install_proc = await asyncio.create_subprocess_exec(
+                    'brew', 'install', 'openjdk@21',
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await install_proc.communicate()
+                
+                if install_proc.returncode == 0:
+                    # Create symlink - detect Homebrew path (Intel vs Apple Silicon)
+                    # Apple Silicon: /opt/homebrew, Intel: /usr/local
+                    homebrew_paths = [
+                        '/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk',  # Apple Silicon
+                        '/usr/local/opt/openjdk@21/libexec/openjdk.jdk'       # Intel
+                    ]
+                    
+                    for brew_path in homebrew_paths:
+                        if os.path.exists(brew_path):
+                            try:
+                                link_proc = await asyncio.create_subprocess_exec(
+                                    'sudo', 'ln', '-sfn', 
+                                    brew_path,
+                                    '/Library/Java/JavaVirtualMachines/openjdk-21.jdk',
+                                    stdout=asyncio.subprocess.PIPE,
+                                    stderr=asyncio.subprocess.PIPE
+                                )
+                                await link_proc.communicate()
+                            except Exception:
+                                pass  # Symlink is optional
+                            break
+                    
+                    return True, "Java 21 installed successfully via Homebrew"
+                else:
+                    return False, f"Homebrew install failed: {stderr.decode()}"
+            except FileNotFoundError:
+                return False, "Homebrew not found. Please install Java 21 manually."
+                
+        elif plat == 'windows':
+            return False, "Automatic Java installation not supported on Windows. Please download from https://adoptium.net/"
+        
+        return False, f"Automatic Java installation not supported for platform: {plat}"
+        
+    except Exception as e:
+        logger.error(f"Error installing Java 21: {e}")
+        return False, f"Installation error: {str(e)}"
+
+
 def check_java_requirements() -> Tuple[bool, str]:
     """
     Check if Java meets the requirements for Minecraft.
@@ -2207,10 +2347,23 @@ async def start_server(config: Dict) -> Tuple[bool, str]:
     if is_server_running():
         return False, "Server is already running"
     
-    # Check Java
+    # Check Java - auto-install if not found
     java_ok, java_msg = check_java_requirements()
     if not java_ok:
-        return False, java_msg
+        logger.info(f"Java check failed: {java_msg}")
+        logger.info("Attempting automatic Java 21 installation...")
+        
+        # Try to install Java automatically
+        install_ok, install_msg = await install_java_21()
+        if install_ok:
+            logger.info(f"Java installation successful: {install_msg}")
+            # Re-check Java after installation
+            java_ok, java_msg = check_java_requirements()
+            if not java_ok:
+                return False, f"Java installation succeeded but still not working: {java_msg}"
+        else:
+            logger.error(f"Automatic Java installation failed: {install_msg}")
+            return False, f"Java not available and auto-install failed: {install_msg}. {java_msg}"
     
     java_path = _get_java_path()
     

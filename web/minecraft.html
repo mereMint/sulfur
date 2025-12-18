@@ -803,11 +803,58 @@
         // Connect to WebSocket for real-time updates
         const socket = io();
         
+        // Console state
+        let lastConsoleLines = 0;
+        let useWebSocket = true;
+        let consolePollingInterval = null;
+        
         // Request Minecraft console stream when connected
         socket.on('connect', function() {
             console.log('WebSocket connected');
             socket.emit('minecraft_console_connect');
+            useWebSocket = true;
+            // Stop HTTP polling if WebSocket works
+            if (consolePollingInterval) {
+                clearInterval(consolePollingInterval);
+                consolePollingInterval = null;
+            }
         });
+        
+        socket.on('connect_error', function(error) {
+            console.log('WebSocket connection error:', error);
+            useWebSocket = false;
+            startConsolePolling();
+        });
+        
+        socket.on('disconnect', function() {
+            console.log('WebSocket disconnected');
+            useWebSocket = false;
+            startConsolePolling();
+        });
+        
+        // Fallback: HTTP polling for console when WebSocket fails
+        function startConsolePolling() {
+            if (consolePollingInterval) return; // Already polling
+            
+            console.log('Starting HTTP console polling as WebSocket fallback');
+            consolePollingInterval = setInterval(async function() {
+                if (useWebSocket) return; // WebSocket recovered
+                
+                try {
+                    const response = await fetch('/api/minecraft/console?lines=100');
+                    const data = await response.json();
+                    
+                    if (data.lines && data.lines.length > lastConsoleLines) {
+                        // Only show new lines
+                        const newLines = data.lines.slice(lastConsoleLines);
+                        newLines.forEach(line => appendToConsole(line));
+                        lastConsoleLines = data.lines.length;
+                    }
+                } catch (error) {
+                    console.error('Error polling console:', error);
+                }
+            }, 1000); // Poll every second
+        }
         
         // Server state
         let serverStatus = {
@@ -821,6 +868,9 @@
             refreshStatus();
             refreshModsAndModpacks();
             setInterval(refreshStatus, 5000);
+            
+            // Initial console fetch via HTTP (in case WebSocket is slow)
+            fetchInitialConsole();
             
             // Schedule mode change handler
             document.getElementById('config-schedule-mode').addEventListener('change', function() {
@@ -836,6 +886,20 @@
                 saveConfig();
             });
         });
+        
+        async function fetchInitialConsole() {
+            try {
+                const response = await fetch('/api/minecraft/console?lines=50');
+                const data = await response.json();
+                
+                if (data.lines && data.lines.length > 0) {
+                    data.lines.forEach(line => appendToConsole(line));
+                    lastConsoleLines = data.lines.length;
+                }
+            } catch (error) {
+                console.error('Error fetching initial console:', error);
+            }
+        }
         
         // Mods and Modpacks Functions
         async function refreshModsAndModpacks() {
@@ -976,7 +1040,11 @@
         
         // Socket events
         socket.on('minecraft_console', function(data) {
-            appendToConsole(data.line);
+            if (data.error) {
+                appendToConsole('[ERROR] ' + data.error);
+            } else if (data.line) {
+                appendToConsole(data.line);
+            }
         });
         
         socket.on('minecraft_status', function(data) {

@@ -275,6 +275,36 @@ if (!$SkipPrerequisites) {
         }
     }
     
+    # Check Java (for Minecraft support)
+    Write-Step "Checking Java 21 (for Minecraft support)..."
+    try {
+        $javaVersion = java -version 2>&1 | Out-String
+        if ($javaVersion -match "version `"?(\d+)") {
+            $javaMajor = [int]$matches[1]
+            if ($javaMajor -ge 21) {
+                Write-Success "Java $javaMajor detected - Perfect for Minecraft"
+            } elseif ($javaMajor -ge 17) {
+                Write-Warning "Java $javaMajor detected - Java 21 recommended for Minecraft 1.21+"
+                Write-Info "Consider upgrading: https://adoptium.net/temurin/releases/?version=21"
+            } else {
+                Write-Warning "Java $javaMajor detected - Java 21 required for modern Minecraft"
+                if (Read-YesNo "Would you like to download Java 21?") {
+                    Open-URL "https://adoptium.net/temurin/releases/?version=21"
+                    Write-Host ""
+                    Write-Info "After installing Java 21, restart PowerShell and run this wizard again."
+                }
+            }
+        }
+    } catch {
+        Write-Warning "Java not found (optional for Minecraft server)"
+        Write-Info "If you plan to use Minecraft features, install Java 21:"
+        Write-Host "     Download from: https://adoptium.net/temurin/releases/?version=21" -ForegroundColor Gray
+        Write-Host ""
+        if (Read-YesNo "Would you like to download Java 21 now?") {
+            Open-URL "https://adoptium.net/temurin/releases/?version=21"
+        }
+    }
+    
     # Summary
     if ($allPrereqsMet) {
         Write-Host ""

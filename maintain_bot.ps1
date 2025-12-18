@@ -292,6 +292,29 @@ function Test-OptionalApiKeys {
     }
 }
 
+function Test-JavaVersion {
+    Write-ColorLog 'Checking Java 21 for Minecraft support...' 'Cyan' '[JAVA] '
+    
+    try {
+        $javaVersion = java -version 2>&1 | Out-String
+        if ($javaVersion -match "version `"?(\d+)") {
+            $javaMajor = [int]$matches[1]
+            if ($javaMajor -ge 21) {
+                Write-ColorLog "Java $javaMajor is installed" 'Green' '[JAVA] '
+                return $true
+            } else {
+                Write-ColorLog "Java $javaMajor found - Java 21 recommended for Minecraft 1.21+" 'Yellow' '[JAVA] '
+                Write-ColorLog "Download from: https://adoptium.net/temurin/releases/?version=21" 'White' '[JAVA] '
+                return $true  # Still allow bot to run
+            }
+        }
+    } catch {
+        Write-ColorLog "Java not found (optional for Minecraft server)" 'Yellow' '[JAVA] '
+        Write-ColorLog "Install Java 21 for Minecraft: https://adoptium.net/temurin/releases/?version=21" 'White' '[JAVA] '
+    }
+    return $false
+}
+
 function Update-BotStatus {
     param([string]$Status,[int]$BotProcessId=0)
     $statusData=@{status=$Status;timestamp=(Get-Date).ToUniversalTime().ToString('o')}
@@ -1135,6 +1158,9 @@ function Invoke-Update {
     } else {
         Write-ColorLog "Updated to latest commit" 'Green' '[UPDATE] '
     }
+    
+    # Check Java 21 for Minecraft support
+    Test-JavaVersion | Out-Null
     
     # Initialize/update database tables after pulling updates with retry logic
     Write-ColorLog 'Updating database tables and applying migrations...' 'Cyan' '[UPDATE] '

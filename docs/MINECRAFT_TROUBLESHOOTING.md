@@ -19,6 +19,40 @@ java -version
 ```
 You need Java 21+ for Minecraft 1.21.11.
 
+### "class file version 65.0" Error (Java Version Mismatch)
+If you see an error like:
+```
+UnsupportedClassVersionError: class file version 65.0
+```
+This means you have an older Java version (17 or lower) but need Java 21.
+
+**Solution - Install Java 21:**
+
+```bash
+# Ubuntu/Debian
+sudo apt update && sudo apt install openjdk-21-jre-headless
+
+# Fedora/RHEL
+sudo dnf install java-21-openjdk-headless
+
+# Arch Linux
+sudo pacman -S jre21-openjdk-headless
+
+# macOS (with Homebrew)
+brew install openjdk@21
+
+# Windows
+# Download from: https://adoptium.net/temurin/releases/?version=21
+```
+
+**After installing Java 21, update the Minecraft startup script:**
+
+The bot should automatically detect Java 21 if it's installed. If not, set the `JAVA_HOME` environment variable:
+```bash
+export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64  # Linux
+# Then restart the bot
+```
+
 ### Check Server Logs
 1. Go to web dashboard: `http://localhost:5000/minecraft`
 2. Check console output for errors

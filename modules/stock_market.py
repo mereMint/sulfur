@@ -144,6 +144,23 @@ async def initialize_stocks(db_helpers):
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
+            # Create stock_trades table for tracking individual trades (used by dashboard)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS stock_trades (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    stock_symbol VARCHAR(10) NOT NULL,
+                    quantity INT NOT NULL,
+                    price_per_share DECIMAL(18, 8) NOT NULL,
+                    trade_type ENUM('buy', 'sell') NOT NULL,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_user_id (user_id),
+                    INDEX idx_stock_symbol (stock_symbol),
+                    INDEX idx_timestamp (timestamp),
+                    INDEX idx_trade_type (trade_type)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """)
+            
             conn.commit()
             
             # Insert or update default stocks (allows adding new stocks without duplicating existing ones)
@@ -589,6 +606,12 @@ async def buy_stock(db_helpers, user_id: int, symbol: str, shares: int, currency
                 VALUES (%s, %s, %s, %s, %s)
             """, (user_id, 'stock_buy', -total_cost, new_balance, f"Gekauft: {shares}x {symbol} @ {format_price(current_price)}"))
             
+            # Log to stock_trades table for dashboard statistics
+            cursor.execute("""
+                INSERT INTO stock_trades (user_id, stock_symbol, quantity, price_per_share, trade_type)
+                VALUES (%s, %s, %s, %s, 'buy')
+            """, (user_id, symbol, shares, current_price))
+            
             conn.commit()
             return True, f"Gekauft: {shares} Aktien von {symbol} für {total_cost:.2f}"
         finally:
@@ -671,6 +694,12 @@ async def sell_stock(db_helpers, user_id: int, symbol: str, shares: int):
                 INSERT INTO transaction_history (user_id, transaction_type, amount, balance_after, description)
                 VALUES (%s, %s, %s, %s, %s)
             """, (user_id, 'stock_sell', total_value, new_balance, f"Verkauft: {shares}x {symbol} @ {format_price(current_price)}"))
+            
+            # Log to stock_trades table for dashboard statistics
+            cursor.execute("""
+                INSERT INTO stock_trades (user_id, stock_symbol, quantity, price_per_share, trade_type)
+                VALUES (%s, %s, %s, %s, 'sell')
+            """, (user_id, symbol, shares, current_price))
             
             conn.commit()
             return True, f"Verkauft: {shares} Aktien von {symbol} für {total_value:.2f}"
