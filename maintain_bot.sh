@@ -169,6 +169,62 @@ log_db() { log_message "$CYAN" "[DB] " "$1"; }
 log_bot() { log_message "$GREEN" "[BOT] " "$1"; }
 log_web() { log_message "$CYAN" "[WEB] " "$1"; }
 log_update() { log_message "$YELLOW" "[UPDATE] " "$1"; }
+log_java() { log_message "$CYAN" "[JAVA] " "$1"; }
+
+# ==============================================================================
+# Java Installation Functions
+# ==============================================================================
+
+check_and_install_java_21() {
+    log_java "Checking Java 21 for Minecraft support..."
+    
+    # Check if Java is already installed with version 21+
+    if command -v java &> /dev/null; then
+        local java_version
+        java_version=$(java -version 2>&1 | grep -oP 'version "?\K\d+' | head -1 || echo "0")
+        if [ "$java_version" -ge 21 ] 2>/dev/null; then
+            log_success "Java $java_version is installed"
+            return 0
+        else
+            log_warning "Java $java_version found, upgrading to Java 21..."
+        fi
+    else
+        log_java "Java not found, installing Java 21..."
+    fi
+    
+    # Install Java 21 based on platform
+    if [ "$IS_TERMUX" = true ]; then
+        pkg install -y openjdk-21 >>"$MAIN_LOG" 2>&1 && {
+            log_success "Java 21 installed via pkg"
+            return 0
+        }
+    elif command -v apt-get &> /dev/null; then
+        sudo apt-get update -qq >>"$MAIN_LOG" 2>&1
+        sudo apt-get install -y openjdk-21-jre-headless >>"$MAIN_LOG" 2>&1 || \
+        sudo apt-get install -y openjdk-21-jdk >>"$MAIN_LOG" 2>&1 && {
+            log_success "Java 21 installed via apt"
+            return 0
+        }
+    elif command -v dnf &> /dev/null; then
+        sudo dnf install -y java-21-openjdk-headless >>"$MAIN_LOG" 2>&1 && {
+            log_success "Java 21 installed via dnf"
+            return 0
+        }
+    elif command -v pacman &> /dev/null; then
+        sudo pacman -S --noconfirm jre21-openjdk-headless >>"$MAIN_LOG" 2>&1 && {
+            log_success "Java 21 installed via pacman"
+            return 0
+        }
+    elif command -v brew &> /dev/null; then
+        brew install openjdk@21 >>"$MAIN_LOG" 2>&1 && {
+            log_success "Java 21 installed via Homebrew"
+            return 0
+        }
+    fi
+    
+    log_warning "Could not auto-install Java 21"
+    return 1
+}
 
 # ==============================================================================
 # Status Functions
@@ -1575,6 +1631,9 @@ apply_updates() {
         log_update "Checking system dependencies..."
         ensure_system_dependencies
     fi
+    
+    # Check and install Java 21 for Minecraft support
+    check_and_install_java_21 || true
 
     local python_exe="$PYTHON_CMD"
     if [ -f "venv/bin/python" ]; then

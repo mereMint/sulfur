@@ -353,6 +353,78 @@ setup_python() {
     echo -e "${GREEN}✅ Python dependencies installed${NC}"
 }
 
+# Install Java 21 automatically for Minecraft support
+install_java_21() {
+    echo -e "${BLUE}☕ Checking Java 21 for Minecraft support...${NC}"
+    
+    # Check if Java is already installed
+    if command -v java &> /dev/null; then
+        JAVA_VERSION=$(java -version 2>&1 | grep -oP 'version "?\K\d+' | head -1 || echo "0")
+        if [ "$JAVA_VERSION" -ge 21 ] 2>/dev/null; then
+            echo -e "${GREEN}✅ Java $JAVA_VERSION already installed${NC}"
+            return 0
+        else
+            echo -e "${YELLOW}⚠️  Java $JAVA_VERSION found, but Java 21 is recommended${NC}"
+        fi
+    fi
+    
+    echo -e "${BLUE}📦 Installing Java 21...${NC}"
+    
+    case $PLATFORM in
+        termux)
+            pkg install -y openjdk-21 2>/dev/null || {
+                echo -e "${YELLOW}⚠️  Could not install Java 21 automatically${NC}"
+                return 1
+            }
+            echo -e "${GREEN}✅ Java 21 installed via pkg${NC}"
+            ;;
+        linux|raspberrypi|wsl)
+            if command -v apt-get &> /dev/null; then
+                sudo apt-get update -qq 2>/dev/null
+                sudo apt-get install -y openjdk-21-jre-headless 2>/dev/null || \
+                sudo apt-get install -y openjdk-21-jdk 2>/dev/null || {
+                    echo -e "${YELLOW}⚠️  Could not install Java 21 via apt${NC}"
+                    return 1
+                }
+                echo -e "${GREEN}✅ Java 21 installed via apt${NC}"
+            elif command -v dnf &> /dev/null; then
+                sudo dnf install -y java-21-openjdk-headless 2>/dev/null || {
+                    echo -e "${YELLOW}⚠️  Could not install Java 21 via dnf${NC}"
+                    return 1
+                }
+                echo -e "${GREEN}✅ Java 21 installed via dnf${NC}"
+            elif command -v pacman &> /dev/null; then
+                sudo pacman -S --noconfirm jre21-openjdk-headless 2>/dev/null || {
+                    echo -e "${YELLOW}⚠️  Could not install Java 21 via pacman${NC}"
+                    return 1
+                }
+                echo -e "${GREEN}✅ Java 21 installed via pacman${NC}"
+            else
+                echo -e "${YELLOW}⚠️  Unknown package manager, skipping Java installation${NC}"
+                return 1
+            fi
+            ;;
+        macos)
+            if command -v brew &> /dev/null; then
+                brew install openjdk@21 2>/dev/null || {
+                    echo -e "${YELLOW}⚠️  Could not install Java 21 via brew${NC}"
+                    return 1
+                }
+                echo -e "${GREEN}✅ Java 21 installed via Homebrew${NC}"
+            else
+                echo -e "${YELLOW}⚠️  Homebrew not found, skipping Java installation${NC}"
+                return 1
+            fi
+            ;;
+        *)
+            echo -e "${YELLOW}⚠️  Automatic Java installation not supported for this platform${NC}"
+            return 1
+            ;;
+    esac
+    
+    return 0
+}
+
 # Run platform-specific installer (FULL installer - optional)
 run_full_installer() {
     case $PLATFORM in
@@ -479,6 +551,10 @@ main() {
         # Fresh install - use quick installer (just Python setup)
         run_quick_installer
     fi
+    
+    # Install Java 21 upfront (for Minecraft support)
+    echo ""
+    install_java_21 || true
     
     # Offer full installer only in interactive mode
     if [ "$INTERACTIVE" = true ]; then
