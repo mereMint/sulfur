@@ -3652,6 +3652,242 @@ async def _generate_and_send_wrapped_for_user(
         shop_embed.set_footer(text="Schau im /shop vorbei für neue Items!")
         pages.append(shop_embed)
 
+    # --- NEW: Music Bot Stats Page ---
+    if extra_stats.get('songs_requested', 0) > 0:
+        music_bot_embed = discord.Embed(
+            title="🎵 Musik-Bot Rückblick",
+            description="*Was du diesen Monat gehört hast...*",
+            color=WRAPPED_COLORS['spotify']
+        )
+
+        songs_requested = extra_stats.get('songs_requested', 0)
+        top_song = extra_stats.get('top_song_requested')
+        top_artist = extra_stats.get('top_artist_requested')
+
+        music_bot_embed.add_field(
+            name="🎶 Songs angefordert",
+            value=f"## `{songs_requested}`",
+            inline=True
+        )
+
+        if top_song:
+            music_bot_embed.add_field(
+                name="⭐ Lieblingssong",
+                value=f"**{top_song}**",
+                inline=True
+            )
+
+        if top_artist:
+            music_bot_embed.add_field(
+                name="🎤 Lieblingskünstler",
+                value=f"**{top_artist}**",
+                inline=True
+            )
+
+        # Add DJ personality
+        if songs_requested >= 50:
+            dj_title = "🎧 **Server-DJ!**\nDu hast die Playlist dominiert!"
+        elif songs_requested >= 20:
+            dj_title = "🎵 **Musik-Liebhaber!**\nImmer was Gutes auf Lager!"
+        else:
+            dj_title = "🎶 **Gelegentlicher Hörer!**\nMusik ist Lebensqualität!"
+
+        music_bot_embed.add_field(
+            name="🎭 Dein DJ-Titel",
+            value=dj_title,
+            inline=False
+        )
+
+        music_bot_embed.set_footer(text="Musik bringt uns zusammen!")
+        pages.append(music_bot_embed)
+
+    # --- NEW: Wordle Stats Page ---
+    if extra_stats.get('wordle_played', 0) > 0:
+        wordle_embed = discord.Embed(
+            title="📝 Wordle Rückblick",
+            description="*Deine Wort-Künste im Überblick*",
+            color=discord.Color.from_rgb(108, 169, 101)  # Wordle green
+        )
+
+        wordle_played = extra_stats.get('wordle_played', 0)
+        wordle_won = extra_stats.get('wordle_won', 0)
+        wordle_avg = extra_stats.get('wordle_avg_attempts')
+        win_rate = (wordle_won / wordle_played * 100) if wordle_played > 0 else 0
+
+        wordle_embed.add_field(
+            name="🎮 Spiele gespielt",
+            value=f"## `{wordle_played}`",
+            inline=True
+        )
+        wordle_embed.add_field(
+            name="✅ Gewonnen",
+            value=f"## `{wordle_won}`",
+            inline=True
+        )
+        wordle_embed.add_field(
+            name="📊 Gewinnrate",
+            value=f"## `{win_rate:.0f}%`",
+            inline=True
+        )
+
+        if wordle_avg:
+            # Visual representation of average attempts
+            avg_bar = "🟩" * int(wordle_avg) + "⬜" * (6 - int(wordle_avg))
+            wordle_embed.add_field(
+                name="🎯 Durchschnittliche Versuche",
+                value=f"`{avg_bar}` **{wordle_avg}** Versuche",
+                inline=False
+            )
+
+        # Add Wordle rank
+        if win_rate >= 90 and wordle_avg and wordle_avg <= 3:
+            rank = "🏆 **Wordle-Genie!**\n*Unschlagbar!*"
+        elif win_rate >= 70:
+            rank = "⭐ **Wort-Meister!**\n*Sehr beeindruckend!*"
+        elif win_rate >= 50:
+            rank = "📖 **Solider Spieler!**\n*Gut dabei!*"
+        else:
+            rank = "📚 **Noch am Lernen!**\n*Übung macht den Meister!*"
+
+        wordle_embed.add_field(
+            name="🎭 Dein Wordle-Rang",
+            value=rank,
+            inline=False
+        )
+
+        wordle_embed.set_footer(text="Täglich ein neues Wort!")
+        pages.append(wordle_embed)
+
+    # --- NEW: Stock Trading Page ---
+    if extra_stats.get('stock_trades', 0) > 0:
+        stock_embed = discord.Embed(
+            title="📈 Trading Rückblick",
+            description="*Deine Börsen-Aktivitäten*",
+            color=discord.Color.from_rgb(0, 200, 83)  # Stock green
+        )
+
+        trades = extra_stats.get('stock_trades', 0)
+        volume = extra_stats.get('stock_volume', 0)
+        currency = get_nested_config(config, 'modules', 'economy', 'currency_symbol', default='💰')
+
+        stock_embed.add_field(
+            name="📊 Trades durchgeführt",
+            value=f"## `{trades}`",
+            inline=True
+        )
+        stock_embed.add_field(
+            name="💰 Handelsvolumen",
+            value=f"## `{volume:,}` {currency}",
+            inline=True
+        )
+
+        # Add trader personality
+        if trades >= 50:
+            trader_title = "🦈 **Wall Street Wolf!**\n*Du lebst für den Markt!*"
+        elif trades >= 20:
+            trader_title = "📊 **Aktiver Händler!**\n*Immer am Puls der Börse!*"
+        else:
+            trader_title = "🌱 **Investment-Anfänger!**\n*Ein guter Start!*"
+
+        stock_embed.add_field(
+            name="🎭 Dein Trader-Typ",
+            value=trader_title,
+            inline=False
+        )
+
+        stock_embed.set_footer(text="Investiere weise!")
+        pages.append(stock_embed)
+
+    # --- NEW: Sports Betting Page ---
+    if extra_stats.get('sport_bets_placed', 0) > 0:
+        sport_embed = discord.Embed(
+            title="⚽ Sportwetten Rückblick",
+            description="*Deine Wett-Karriere diesen Monat*",
+            color=discord.Color.from_rgb(46, 139, 87)  # Sport green
+        )
+
+        bets_placed = extra_stats.get('sport_bets_placed', 0)
+        bets_won = extra_stats.get('sport_bets_won', 0)
+        total_wagered = extra_stats.get('sport_total_wagered', 0)
+        total_won = extra_stats.get('sport_total_won', 0)
+        biggest_win = extra_stats.get('sport_biggest_win', 0)
+        best_streak = extra_stats.get('sport_best_streak', 0)
+
+        win_rate = (bets_won / bets_placed * 100) if bets_placed > 0 else 0
+        net_profit = total_won - total_wagered
+        currency = get_nested_config(config, 'modules', 'economy', 'currency_symbol', default='💰')
+
+        sport_embed.add_field(
+            name="🎫 Wetten platziert",
+            value=f"## `{bets_placed}`",
+            inline=True
+        )
+        sport_embed.add_field(
+            name="✅ Gewonnen",
+            value=f"## `{bets_won}`",
+            inline=True
+        )
+        sport_embed.add_field(
+            name="📊 Quote",
+            value=f"## `{win_rate:.0f}%`",
+            inline=True
+        )
+
+        sport_embed.add_field(
+            name="💵 Eingesetzt",
+            value=f"`{total_wagered:,}` {currency}",
+            inline=True
+        )
+        sport_embed.add_field(
+            name="🎉 Gewonnen",
+            value=f"`{total_won:,}` {currency}",
+            inline=True
+        )
+
+        if net_profit > 0:
+            profit_text = f"+{net_profit:,} {currency} 📈"
+        elif net_profit < 0:
+            profit_text = f"{net_profit:,} {currency} 📉"
+        else:
+            profit_text = f"±0 {currency} ⚖️"
+
+        sport_embed.add_field(
+            name="💰 Bilanz",
+            value=profit_text,
+            inline=True
+        )
+
+        # Add highlights
+        highlights = []
+        if biggest_win > 0:
+            highlights.append(f"🏆 Größter Gewinn: **{biggest_win:,}** {currency}")
+        if best_streak > 0:
+            highlights.append(f"🔥 Beste Siegesserie: **{best_streak}** Wetten")
+
+        if highlights:
+            sport_embed.add_field(
+                name="✨ Highlights",
+                value="\n".join(highlights),
+                inline=False
+            )
+
+        # Add bettor personality
+        if win_rate >= 60:
+            bettor_title = "🎯 **Profi-Tipper!**\n*Dein Gespür ist unglaublich!*"
+        elif win_rate >= 40:
+            bettor_title = "⚽ **Solider Wetter!**\n*Du kennst dich aus!*"
+        else:
+            bettor_title = "🎲 **Glücksspieler!**\n*Manchmal braucht man Glück!*"
+
+        sport_embed.add_field(
+            name="🎭 Dein Wetter-Typ",
+            value=bettor_title,
+            inline=False
+        )
+
+        sport_embed.set_footer(text="Möge das beste Team gewinnen!")
+        pages.append(sport_embed)
+
     # --- Enhanced Final Page: AI Summary ---
     gemini_stats = {
         "message_count": total_messages, 
@@ -3684,6 +3920,19 @@ async def _generate_and_send_wrapped_for_user(
     if extra_stats.get('games_played', 0) > 0:
         gemini_stats["games_played"] = extra_stats.get('games_played', 0)
         gemini_stats["win_rate"] = (extra_stats.get('games_won', 0) / extra_stats.get('games_played', 1) * 100)
+
+    # Add new wrapped stats to AI summary
+    if extra_stats.get('wordle_played', 0) > 0:
+        gemini_stats["wordle_played"] = extra_stats.get('wordle_played', 0)
+        gemini_stats["wordle_win_rate"] = (extra_stats.get('wordle_won', 0) / extra_stats.get('wordle_played', 1) * 100)
+    if extra_stats.get('sport_bets_placed', 0) > 0:
+        gemini_stats["sport_bets"] = extra_stats.get('sport_bets_placed', 0)
+        sport_win_rate = (extra_stats.get('sport_bets_won', 0) / extra_stats.get('sport_bets_placed', 1) * 100)
+        gemini_stats["sport_win_rate"] = sport_win_rate
+    if extra_stats.get('stock_trades', 0) > 0:
+        gemini_stats["stock_trades"] = extra_stats.get('stock_trades', 0)
+    if extra_stats.get('songs_requested', 0) > 0:
+        gemini_stats["songs_requested"] = extra_stats.get('songs_requested', 0)
 
     summary_text, _ = await get_wrapped_summary_from_api(user.display_name, gemini_stats, config, GEMINI_API_KEY, OPENAI_API_KEY)
     print(f"    - [Wrapped] Generated Gemini summary for {user.name}.")
