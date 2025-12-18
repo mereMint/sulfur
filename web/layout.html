@@ -773,11 +773,16 @@
             }
             
             /* Touch-friendly tap targets */
-            a, button, .btn {
+            a.btn, button.btn, .btn-link {
                 min-height: 44px;
                 display: inline-flex;
                 align-items: center;
                 justify-content: center;
+            }
+            
+            /* Navigation links and interactive elements */
+            .nav-link, .dropdown-item, .list-group-item-action {
+                min-height: 44px;
             }
         }
         

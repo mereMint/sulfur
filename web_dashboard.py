@@ -1897,9 +1897,11 @@ def api_recent_activity():
                         NULL as channel_id,
                         CONCAT(
                             'Mines - Bet: ', bet_amount, ' | ', 
-                            IF(COALESCE(won, (result = 'win' OR result = 'won')), 
-                               CONCAT('Won ', COALESCE(payout, won_amount)), 
-                               'Lost')
+                            CASE 
+                                WHEN COALESCE(won, 0) = 1 THEN CONCAT('Won ', COALESCE(payout, won_amount))
+                                WHEN result IN ('win', 'won', 'cashed_out') THEN CONCAT('Won ', COALESCE(payout, won_amount))
+                                ELSE 'Lost'
+                            END
                         ) as preview,
                         played_at as activity_time,
                         'Mines' as category
@@ -1917,12 +1919,13 @@ def api_recent_activity():
                         'game_russian_roulette' as activity_type,
                         user_id,
                         NULL as channel_id,
-                        CONCAT(
-                            'Russian Roulette - ', 
-                            IF(survived, 
-                               CONCAT('Survived ', COALESCE(shots_survived, 1), ' shots, won ', won_amount), 
-                               'Lost')
-                        ) as preview,
+                        CASE 
+                            WHEN survived = 1 THEN 
+                                CONCAT('Russian Roulette - Survived ', 
+                                       COALESCE(shots_survived, 1), 
+                                       ' shots, won ', won_amount)
+                            ELSE 'Russian Roulette - Lost'
+                        END as preview,
                         played_at as activity_time,
                         'Russian Roulette' as category
                     FROM russian_roulette_games

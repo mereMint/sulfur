@@ -1266,13 +1266,8 @@ async def on_ready():
         print(f"Filtering out {len(disabled_commands)} disabled commands: {', '.join(disabled_commands)}")
         logger.info(f"Disabled commands: {', '.join(disabled_commands)}")
         
-        # Remove disabled commands from the tree
-        commands_to_remove = []
-        for cmd in tree.get_commands():
-            if cmd.name in disabled_commands:
-                commands_to_remove.append(cmd)
-        
-        for cmd in commands_to_remove:
+        # Remove disabled commands from the tree in a single pass
+        for cmd in [c for c in tree.get_commands() if c.name in disabled_commands]:
             tree.remove_command(cmd.name)
             print(f"  -> Removed command: {cmd.name}")
             logger.info(f"Removed disabled command: {cmd.name}")

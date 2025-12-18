@@ -50,6 +50,22 @@ DELIMITER ;
 -- ============================================================================
 -- The web_dashboard.py queries expect 'action', 'symbol', and 'traded_at' columns
 -- but migration 026 created 'trade_type', 'stock_symbol', and 'timestamp' instead
+--
+-- NOTE: We intentionally create duplicate columns for backward compatibility.
+-- This allows the system to work with both old and new code versions during
+-- deployment. In a future migration, we can consolidate these columns once
+-- all instances are updated.
+--
+-- Alternative approaches considered:
+-- 1. Database views: Would require changes to all queries and ORM mappings
+-- 2. Update all queries: Risky in a live system with multiple components
+-- 3. Column rename: Could break existing code that uses old column names
+--
+-- Current approach (duplicate columns) provides:
+-- - Zero downtime deployment
+-- - Gradual migration path
+-- - Easy rollback if needed
+-- - No breaking changes to existing code
 
 -- Add 'action' column (alias for trade_type)
 CALL add_column_if_not_exists_027('stock_trades', 'action', 'VARCHAR(10) NULL');

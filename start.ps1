@@ -74,9 +74,11 @@ Write-Host ""
 # ============================================================================
 Write-Host "Checking Java installation..." -ForegroundColor Yellow
 try {
-    $javaVersion = java -version 2>&1 | Out-String
-    if ($javaVersion) {
+    $javaVersion = & java -version 2>&1 | Out-String
+    if ($LASTEXITCODE -eq 0 -and $javaVersion) {
         Write-Host "[OK] Java found: $($javaVersion.Split([Environment]::NewLine)[0])" -ForegroundColor Green
+    } else {
+        throw "Java not found"
     }
 } catch {
     Write-Host "[!] Java not found" -ForegroundColor Yellow
@@ -91,9 +93,11 @@ Write-Host ""
 # ============================================================================
 Write-Host "Checking FFmpeg installation..." -ForegroundColor Yellow
 try {
-    $ffmpegVersion = ffmpeg -version 2>&1 | Select-Object -First 1
-    if ($ffmpegVersion) {
+    $ffmpegVersion = & ffmpeg -version 2>&1 | Select-Object -First 1
+    if ($LASTEXITCODE -eq 0 -and $ffmpegVersion) {
         Write-Host "[OK] FFmpeg found: $ffmpegVersion" -ForegroundColor Green
+    } else {
+        throw "FFmpeg not found"
     }
 } catch {
     Write-Host "[!] FFmpeg not found" -ForegroundColor Yellow
