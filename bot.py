@@ -1051,7 +1051,10 @@ async def on_ready():
     total_new = 0
     total_updated = 0
     for guild in client.guilds:
-        members_data = [(member.id, member.display_name) for member in guild.members if not member.bot]
+        members_data = [
+            (member.id, member.display_name, str(member.display_avatar.url) if member.display_avatar else None)
+            for member in guild.members if not member.bot
+        ]
         new_count, updated_count = await db_helpers.sync_guild_members(members_data)
         total_new += new_count
         total_updated += updated_count

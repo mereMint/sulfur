@@ -2196,10 +2196,10 @@ async def update_user_presence(user_id, display_name, status, activity_name):
 async def sync_guild_members(members_data: list):
     """
     Bulk sync Discord guild members to the players table.
-    Creates entries for new members, updates display names for existing ones.
+    Creates entries for new members, updates display names and avatar URLs for existing ones.
 
     Args:
-        members_data: List of tuples (discord_id, display_name)
+        members_data: List of tuples (discord_id, display_name, avatar_url)
 
     Returns:
         Tuple of (new_members_count, updated_members_count)
@@ -2218,19 +2218,20 @@ async def sync_guild_members(members_data: list):
 
     try:
         # Use batch insert with ON DUPLICATE KEY UPDATE for efficiency
-        for discord_id, display_name in members_data:
+        for discord_id, display_name, avatar_url in members_data:
             try:
                 # Check if user exists first to count new vs updated
                 cursor.execute("SELECT discord_id FROM players WHERE discord_id = %s", (discord_id,))
                 existing = cursor.fetchone()
 
-                # Insert or update the player
+                # Insert or update the player with avatar URL
                 cursor.execute("""
-                    INSERT INTO players (discord_id, display_name, last_seen)
-                    VALUES (%s, %s, CURRENT_TIMESTAMP)
+                    INSERT INTO players (discord_id, display_name, avatar_url, last_seen)
+                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
                     ON DUPLICATE KEY UPDATE
-                        display_name = VALUES(display_name)
-                """, (discord_id, display_name))
+                        display_name = VALUES(display_name),
+                        avatar_url = VALUES(avatar_url)
+                """, (discord_id, display_name, avatar_url))
 
                 if existing:
                     updated_count += 1

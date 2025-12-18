@@ -4,59 +4,59 @@
 {% block extra_styles %}
 <style>
     .user-card {
-        background: linear-gradient(135deg, rgba(106, 155, 216, 0.2) 0%, rgba(157, 132, 183, 0.2) 100%);
+        background: linear-gradient(135deg, rgba(232, 165, 85, 0.15) 0%, rgba(212, 149, 106, 0.1) 100%);
         border: 2px solid var(--border-color);
         border-radius: 16px;
         padding: 1.5rem;
         transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         cursor: pointer;
     }
-    
+
     .user-card:hover {
         transform: translateY(-6px);
-        box-shadow: 0 12px 40px rgba(157, 132, 183, 0.3);
-        border-color: var(--lofi-purple);
+        box-shadow: 0 12px 40px rgba(232, 165, 85, 0.3);
+        border-color: var(--lofi-amber);
     }
-    
+
     .user-avatar {
         width: 80px;
         height: 80px;
         border-radius: 50%;
-        border: 3px solid var(--lofi-purple);
-        box-shadow: 0 4px 20px rgba(157, 132, 183, 0.4);
+        border: 3px solid var(--lofi-amber);
+        box-shadow: 0 4px 20px rgba(232, 165, 85, 0.4);
     }
-    
+
     .user-badge {
         font-size: 0.7rem;
         padding: 0.25rem 0.5rem;
         margin-right: 0.25rem;
         border-radius: 12px;
     }
-    
+
     .stat-box {
-        background: rgba(26, 26, 46, 0.6);
-        border-left: 3px solid var(--lofi-teal);
+        background: rgba(42, 34, 26, 0.6);
+        border-left: 3px solid var(--lofi-olive);
         padding: 0.75rem;
         border-radius: 8px;
         margin-bottom: 0.5rem;
     }
-    
+
     .modal-content {
         background: var(--bg-card);
-        border: 2px solid var(--lofi-purple);
+        border: 2px solid var(--lofi-amber);
     }
-    
+
     .search-box {
-        background: rgba(26, 26, 46, 0.8);
+        background: rgba(42, 34, 26, 0.8);
         border: 1px solid var(--border-color);
         color: var(--text-primary);
         border-radius: 12px;
     }
-    
+
     .search-box:focus {
-        border-color: var(--lofi-purple);
-        box-shadow: 0 0 0 0.25rem rgba(157, 132, 183, 0.15);
-        background: rgba(26, 26, 46, 0.95);
+        border-color: var(--lofi-amber);
+        box-shadow: 0 0 0 0.25rem rgba(232, 165, 85, 0.15);
+        background: rgba(42, 34, 26, 0.95);
     }
 </style>
 {% endblock %}

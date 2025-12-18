@@ -4623,9 +4623,10 @@ def api_users_profiles():
             if users is None:
                 try:
                     cursor.execute("""
-                        SELECT 
+                        SELECT
                             p.discord_id as user_id,
                             p.display_name,
+                            p.avatar_url,
                             COALESCE(p.level, 0) as level,
                             COALESCE(p.xp, 0) as xp,
                             COALESCE(p.balance, 0) as coins,
@@ -4645,7 +4646,7 @@ def api_users_profiles():
                             FROM music_history
                             GROUP BY user_id
                         ) mh_count ON p.discord_id = mh_count.user_id
-                        GROUP BY p.discord_id, p.display_name, p.level, p.xp, p.balance, 
+                        GROUP BY p.discord_id, p.display_name, p.avatar_url, p.level, p.xp, p.balance,
                                  p.last_seen, uc.equipped_color, uc.language, mh_count.song_count
                         ORDER BY level DESC, xp DESC, p.display_name ASC
                         LIMIT 500
@@ -4659,9 +4660,10 @@ def api_users_profiles():
             if users is None:
                 try:
                     cursor.execute("""
-                        SELECT 
+                        SELECT
                             discord_id as user_id,
                             display_name,
+                            avatar_url,
                             COALESCE(level, 0) as level,
                             COALESCE(xp, 0) as xp,
                             COALESCE(balance, 0) as coins,
@@ -4688,7 +4690,7 @@ def api_users_profiles():
                 users_list.append({
                     'user_id': user.get('user_id'),
                     'display_name': user.get('display_name', 'Unknown'),
-                    'avatar_url': None,  # Could fetch from Discord API
+                    'avatar_url': user.get('avatar_url'),
                     'is_premium': bool(user.get('is_premium')),
                     'level': int(user.get('level', 0) or 0),
                     'xp': int(user.get('xp', 0) or 0),
@@ -4736,10 +4738,11 @@ def api_user_profile(user_id):
             # Get user info - use basic columns that should always exist
             # Note: Some columns may not exist if migrations haven't run
             user_info = safe_db_query(cursor, """
-                SELECT 
+                SELECT
                     p.discord_id as user_id,
                     p.display_name,
                     p.display_name as username,
+                    p.avatar_url,
                     0 as is_premium,
                     COALESCE(p.level, 1) as level,
                     COALESCE(p.xp, 0) as xp
@@ -4924,7 +4927,7 @@ def api_user_profile(user_id):
                 'user_id': user_info.get('user_id'),
                 'display_name': user_info.get('display_name', 'Unknown'),
                 'username': user_info.get('username', ''),
-                'avatar_url': None,
+                'avatar_url': user_info.get('avatar_url'),
                 'is_premium': bool(user_info.get('is_premium')),
                 'level': int(user_info.get('level', 1) or 1),
                 'xp': int(user_info.get('xp', 0) or 0),
