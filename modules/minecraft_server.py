@@ -498,15 +498,28 @@ async def install_java_21() -> Tuple[bool, str]:
                 stdout, stderr = await install_proc.communicate()
                 
                 if install_proc.returncode == 0:
-                    # Create symlink
-                    link_proc = await asyncio.create_subprocess_exec(
-                        'sudo', 'ln', '-sfn', 
-                        '/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk',
-                        '/Library/Java/JavaVirtualMachines/openjdk-21.jdk',
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE
-                    )
-                    await link_proc.communicate()
+                    # Create symlink - detect Homebrew path (Intel vs Apple Silicon)
+                    # Apple Silicon: /opt/homebrew, Intel: /usr/local
+                    homebrew_paths = [
+                        '/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk',  # Apple Silicon
+                        '/usr/local/opt/openjdk@21/libexec/openjdk.jdk'       # Intel
+                    ]
+                    
+                    for brew_path in homebrew_paths:
+                        if os.path.exists(brew_path):
+                            try:
+                                link_proc = await asyncio.create_subprocess_exec(
+                                    'sudo', 'ln', '-sfn', 
+                                    brew_path,
+                                    '/Library/Java/JavaVirtualMachines/openjdk-21.jdk',
+                                    stdout=asyncio.subprocess.PIPE,
+                                    stderr=asyncio.subprocess.PIPE
+                                )
+                                await link_proc.communicate()
+                            except Exception:
+                                pass  # Symlink is optional
+                            break
+                    
                     return True, "Java 21 installed successfully via Homebrew"
                 else:
                     return False, f"Homebrew install failed: {stderr.decode()}"

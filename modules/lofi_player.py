@@ -707,7 +707,10 @@ async def play_station(voice_client: discord.VoiceClient, station: dict, volume:
             logger.warning("Trying to find another working station...")
             preferred_type = station.get('type')
             fallback = await find_any_working_station(preferred_type)
-            if fallback and fallback.get('url') != working_station.get('url'):
+            # Compare URLs by stripping trailing slashes and query params for basic comparison
+            current_url = working_station.get('url', '').split('?')[0].rstrip('/')
+            fallback_url = fallback.get('url', '').split('?')[0].rstrip('/') if fallback else ''
+            if fallback and fallback_url != current_url:
                 working_station = fallback
                 with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
                     info = await asyncio.to_thread(ydl.extract_info, working_station['url'], download=False)
