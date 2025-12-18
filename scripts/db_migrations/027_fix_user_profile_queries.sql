@@ -60,15 +60,18 @@ CALL add_column_if_not_exists_027('stock_trades', 'symbol', 'VARCHAR(10) NULL');
 -- Add 'traded_at' column (alias for timestamp)
 CALL add_column_if_not_exists_027('stock_trades', 'traded_at', 'TIMESTAMP NULL DEFAULT NULL');
 
+-- Add indexes on new columns for better query performance (before UPDATE)
+CREATE INDEX IF NOT EXISTS idx_stock_trades_action ON stock_trades(action);
+CREATE INDEX IF NOT EXISTS idx_stock_trades_symbol ON stock_trades(symbol);
+CREATE INDEX IF NOT EXISTS idx_stock_trades_traded_at ON stock_trades(traded_at);
+
 -- Update existing data to populate the new columns
+-- This is safe because we have indexes and use NULL checks
 UPDATE stock_trades 
 SET action = trade_type, 
     symbol = stock_symbol,
     traded_at = timestamp
 WHERE action IS NULL OR symbol IS NULL OR traded_at IS NULL;
-
--- Add index on traded_at for better query performance
-CREATE INDEX IF NOT EXISTS idx_traded_at ON stock_trades(traded_at);
 
 -- ============================================================================
 -- PART 2: Fix mines_games Table

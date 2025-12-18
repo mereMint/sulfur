@@ -315,6 +315,24 @@ function Test-JavaVersion {
     return $false
 }
 
+function Test-FFmpegInstallation {
+    Write-ColorLog 'Checking FFmpeg installation...' 'Cyan' '[FFMPEG] '
+    try {
+        $ffmpegVersion = ffmpeg -version 2>&1 | Select-Object -First 1
+        if ($ffmpegVersion) {
+            Write-ColorLog "FFmpeg is installed: $ffmpegVersion" 'Green' '[FFMPEG] '
+            return $true
+        }
+    } catch {
+        Write-ColorLog "FFmpeg not found" 'Yellow' '[FFMPEG] '
+        Write-ColorLog "FFmpeg is required for music/audio features" 'White' '[FFMPEG] '
+        Write-ColorLog "Download from: https://ffmpeg.org/download.html" 'White' '[FFMPEG] '
+        Write-ColorLog "Or use winget: winget install FFmpeg.FFmpeg" 'White' '[FFMPEG] '
+        return $false
+    }
+    return $false
+}
+
 function Update-BotStatus {
     param([string]$Status,[int]$BotProcessId=0)
     $statusData=@{status=$Status;timestamp=(Get-Date).ToUniversalTime().ToString('o')}
