@@ -399,6 +399,16 @@ cleanup() {
             done
         fi
     fi
+    
+    # Remove bot instance lock file to prevent "Secondary Instance" issues
+    local lock_file="$SCRIPT_DIR/bot_instance.lock"
+    if [ -f "$lock_file" ]; then
+        if rm -f "$lock_file" 2>/dev/null; then
+            log_success "Removed bot instance lock file"
+        else
+            log_warning "Could not remove bot instance lock file"
+        fi
+    fi
 
     # Final backup and commit
     if [ "$SKIP_BACKUP" != true ]; then
@@ -1877,6 +1887,22 @@ except Exception as e:
 
     log_success "Update complete"
     date -u +"%Y-%m-%dT%H:%M:%SZ" > "last_update.txt"
+    
+    # Restart web dashboard after update if it's not running
+    log_update "Checking web dashboard status after update..."
+    if [ -f "$WEB_PID_FILE" ]; then
+        local web_pid=$(cat "$WEB_PID_FILE" 2>/dev/null)
+        if [ -n "$web_pid" ] && kill -0 "$web_pid" 2>/dev/null; then
+            log_success "Web Dashboard is still running (PID: $web_pid)"
+        else
+            log_warning "Web Dashboard is not running, attempting to restart..."
+            rm -f "$WEB_PID_FILE"
+            start_web_dashboard || log_warning "Web Dashboard failed to restart after update"
+        fi
+    else
+        log_warning "Web Dashboard PID file not found, attempting to start..."
+        start_web_dashboard || log_warning "Web Dashboard failed to start after update"
+    fi
 }
 
 # ==============================================================================

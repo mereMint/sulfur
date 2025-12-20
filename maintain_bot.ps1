@@ -150,6 +150,17 @@ function Invoke-Cleanup {
             }
         }
     }
+    
+    # Remove bot instance lock file to prevent "Secondary Instance" issues
+    $lockFile = Join-Path $PSScriptRoot 'bot_instance.lock'
+    if(Test-Path $lockFile){
+        try {
+            Remove-Item $lockFile -Force -ErrorAction Stop
+            Write-Host "Removed bot instance lock file" -ForegroundColor Green
+        } catch {
+            Write-Host "Warning: Could not remove bot instance lock file: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+    }
 }
 
 # Register cleanup handler for Ctrl+C and script termination
@@ -1286,6 +1297,31 @@ except Exception as e:
     
     Write-ColorLog 'Update complete' 'Green' '[UPDATE] '
     (Get-Date).ToUniversalTime().ToString('o') | Out-File -FilePath 'last_update.txt' -Encoding utf8
+    
+    # Restart web dashboard after update if it's not running
+    Write-ColorLog 'Checking web dashboard status after update...' 'Cyan' '[UPDATE] '
+    $webIsRunning = $false
+    if($script:webDashboardJob){
+        if((Get-Job -Id $script:webDashboardJob.Id -ErrorAction SilentlyContinue) -and $script:webDashboardJob.State -eq 'Running'){
+            Write-ColorLog 'Web Dashboard is still running' 'Green' '[WEB] '
+            $webIsRunning = $true
+        }
+    }
+    
+    if(-not $webIsRunning){
+        Write-ColorLog 'Web Dashboard is not running, attempting to restart...' 'Yellow' '[WEB] '
+        try {
+            $script:webDashboardJob = Start-WebDashboard
+            if($script:webDashboardJob){
+                Write-ColorLog 'Web Dashboard restarted successfully after update' 'Green' '[WEB] '
+            } else {
+                Write-ColorLog 'Web Dashboard failed to restart after update' 'Yellow' '[WEB] '
+            }
+        } catch {
+            Write-ColorLog "Web Dashboard restart error: $($_.Exception.Message)" 'Yellow' '[WEB] '
+            $script:webDashboardJob = $null
+        }
+    }
 }
 
 # ==================== MAIN LOOP ====================
