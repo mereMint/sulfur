@@ -1,0 +1,561 @@
+{% extends "layout.html" %}
+
+{% block title %}Twitch Bot - Sulfur Dashboard{% endblock %}
+
+{% block content %}
+<div class="container-fluid page-transition">
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="gradient-text mb-2">
+                <i class="bi bi-twitch"></i> Twitch Bot
+            </h1>
+            <p class="text-muted">Manage your Twitch stream integration, commands, and chat automation</p>
+        </div>
+    </div>
+
+    <!-- Status Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3 mb-3">
+            <div class="stat-card">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <div class="stat-label">Bot Status</div>
+                        <div class="stat-value" id="bot-status-text">
+                            {% if twitch_status.running %}
+                            <span class="badge bg-success">Running</span>
+                            {% else %}
+                            <span class="badge bg-secondary">Stopped</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <i class="bi bi-robot" style="font-size: 2rem; color: var(--lofi-amber); opacity: 0.5;"></i>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3 mb-3">
+            <div class="stat-card">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <div class="stat-label">Stream Status</div>
+                        <div class="stat-value">
+                            {% if twitch_status.stream_live %}
+                            <span class="badge bg-danger"><i class="bi bi-circle-fill"></i> LIVE</span>
+                            {% else %}
+                            <span class="badge bg-secondary">Offline</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <i class="bi bi-broadcast" style="font-size: 2rem; color: var(--lofi-peach); opacity: 0.5;"></i>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3 mb-3">
+            <div class="stat-card">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <div class="stat-label">Viewers</div>
+                        <div class="stat-value" id="viewer-count">{{ twitch_status.viewer_count or 0 }}</div>
+                    </div>
+                    <i class="bi bi-eye" style="font-size: 2rem; color: var(--lofi-teal); opacity: 0.5;"></i>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3 mb-3">
+            <div class="stat-card">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <div class="stat-label">Chatters</div>
+                        <div class="stat-value" id="chatter-count">{{ twitch_status.chatters or 0 }}</div>
+                    </div>
+                    <i class="bi bi-chat-dots" style="font-size: 2rem; color: var(--lofi-green); opacity: 0.5;"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bot Controls -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-gear"></i> Bot Controls</span>
+                    <div>
+                        {% if twitch_status.running %}
+                        <button class="btn btn-sm btn-danger" onclick="controlBot('stop')">
+                            <i class="bi bi-stop-circle"></i> Stop Bot
+                        </button>
+                        {% else %}
+                        <button class="btn btn-sm btn-success" onclick="controlBot('start')">
+                            <i class="bi bi-play-circle"></i> Start Bot
+                        </button>
+                        {% endif %}
+                        <button class="btn btn-sm btn-primary" onclick="refreshStatus()">
+                            <i class="bi bi-arrow-clockwise"></i> Refresh
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <p class="mb-2"><strong>Channel:</strong> <span class="text-info">{{ twitch_config.channel or 'Not configured' }}</span></p>
+                            <p class="mb-2"><strong>Bot Username:</strong> <span class="text-info">{{ twitch_config.bot_username or 'Not configured' }}</span></p>
+                            {% if twitch_status.stream_live %}
+                            <p class="mb-2"><strong>Uptime:</strong> <span class="text-success">{{ twitch_status.uptime }}</span></p>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            <p class="mb-2"><strong>Messages Processed:</strong> <span class="badge bg-primary">{{ twitch_status.message_count or 0 }}</span></p>
+                            <p class="mb-2"><strong>Commands Executed:</strong> <span class="badge bg-info">{{ twitch_status.command_count or 0 }}</span></p>
+                            <p class="mb-2"><strong>Followers Tracked:</strong> <span class="badge bg-success">{{ twitch_status.followers_tracked or 0 }}</span></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Configuration Tabs -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <ul class="nav nav-tabs card-header-tabs" role="tablist">
+                        <li class="nav-item">
+                            <a class="nav-link active" data-bs-toggle="tab" href="#setup-tab" role="tab">
+                                <i class="bi bi-sliders"></i> Setup
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" data-bs-toggle="tab" href="#commands-tab" role="tab">
+                                <i class="bi bi-terminal"></i> Commands
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" data-bs-toggle="tab" href="#features-tab" role="tab">
+                                <i class="bi bi-toggles"></i> Features
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" data-bs-toggle="tab" href="#stats-tab" role="tab">
+                                <i class="bi bi-graph-up"></i> Statistics
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+                <div class="card-body">
+                    <div class="tab-content">
+                        <!-- Setup Tab -->
+                        <div class="tab-pane fade show active" id="setup-tab" role="tabpanel">
+                            <h5 class="mb-3">Twitch Bot Configuration</h5>
+                            <form id="setup-form">
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label for="channel" class="form-label">Twitch Channel Name</label>
+                                        <input type="text" class="form-control" id="channel" name="channel"
+                                               value="{{ twitch_config.channel }}" placeholder="your_channel_name">
+                                        <small class="text-muted">The channel your bot will join (without #)</small>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label for="bot_username" class="form-label">Bot Username</label>
+                                        <input type="text" class="form-control" id="bot_username" name="bot_username"
+                                               value="{{ twitch_config.bot_username }}" placeholder="bot_username">
+                                        <small class="text-muted">Your bot's Twitch username</small>
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="oauth_token" class="form-label">OAuth Token</label>
+                                    <input type="password" class="form-control" id="oauth_token" name="oauth_token"
+                                           value="{{ twitch_config.oauth_token }}" placeholder="oauth:your_oauth_token">
+                                    <small class="text-muted">
+                                        Get your OAuth token from <a href="https://twitchapps.com/tmi/" target="_blank" rel="noopener">twitchapps.com/tmi</a>
+                                    </small>
+                                </div>
+
+                                <div class="row mb-3">
+                                    <div class="col-md-6">
+                                        <label for="client_id" class="form-label">Client ID (Optional)</label>
+                                        <input type="text" class="form-control" id="client_id" name="client_id"
+                                               value="{{ twitch_config.client_id }}" placeholder="your_client_id">
+                                        <small class="text-muted">For API features (followers, stream status)</small>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label for="client_secret" class="form-label">Client Secret (Optional)</label>
+                                        <input type="password" class="form-control" id="client_secret" name="client_secret"
+                                               value="{{ twitch_config.client_secret }}" placeholder="your_client_secret">
+                                        <small class="text-muted">From your Twitch Developer Console</small>
+                                    </div>
+                                </div>
+
+                                <div class="form-check form-switch mb-3">
+                                    <input class="form-check-input" type="checkbox" id="enabled" name="enabled"
+                                           {{ 'checked' if twitch_config.enabled }}>
+                                    <label class="form-check-label" for="enabled">
+                                        Enable Twitch Bot
+                                    </label>
+                                </div>
+
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-save"></i> Save Configuration
+                                </button>
+                            </form>
+                        </div>
+
+                        <!-- Commands Tab -->
+                        <div class="tab-pane fade" id="commands-tab" role="tabpanel">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h5 class="mb-0">Custom Commands</h5>
+                                <button class="btn btn-sm btn-success" onclick="showAddCommandModal()">
+                                    <i class="bi bi-plus-circle"></i> Add Command
+                                </button>
+                            </div>
+
+                            <div class="table-responsive">
+                                <table class="table table-dark table-striped">
+                                    <thead>
+                                        <tr>
+                                            <th>Command</th>
+                                            <th>Response</th>
+                                            <th>Cooldown</th>
+                                            <th>Status</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="commands-table-body">
+                                        {% for cmd, config in twitch_commands.items() %}
+                                        <tr data-command="{{ cmd }}">
+                                            <td><code>{{ cmd }}</code></td>
+                                            <td>{{ config.response[:50] }}{% if config.response|length > 50 %}...{% endif %}</td>
+                                            <td>{{ config.cooldown }}s</td>
+                                            <td>
+                                                {% if config.enabled %}
+                                                <span class="badge bg-success">Enabled</span>
+                                                {% else %}
+                                                <span class="badge bg-secondary">Disabled</span>
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                <button class="btn btn-sm btn-warning" onclick="editCommand('{{ cmd }}')">
+                                                    <i class="bi bi-pencil"></i>
+                                                </button>
+                                                <button class="btn btn-sm btn-danger" onclick="deleteCommand('{{ cmd }}')">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Features Tab -->
+                        <div class="tab-pane fade" id="features-tab" role="tabpanel">
+                            <h5 class="mb-3">Bot Features</h5>
+                            <form id="features-form">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-check form-switch mb-3">
+                                            <input class="form-check-input" type="checkbox" id="chat_monitoring" name="chat_monitoring"
+                                                   {{ 'checked' if twitch_config.features.chat_monitoring }}>
+                                            <label class="form-check-label" for="chat_monitoring">
+                                                <strong>Chat Monitoring</strong><br>
+                                                <small class="text-muted">Monitor and log chat messages</small>
+                                            </label>
+                                        </div>
+
+                                        <div class="form-check form-switch mb-3">
+                                            <input class="form-check-input" type="checkbox" id="commands" name="commands"
+                                                   {{ 'checked' if twitch_config.features.commands }}>
+                                            <label class="form-check-label" for="commands">
+                                                <strong>Custom Commands</strong><br>
+                                                <small class="text-muted">Enable custom chat commands</small>
+                                            </label>
+                                        </div>
+
+                                        <div class="form-check form-switch mb-3">
+                                            <input class="form-check-input" type="checkbox" id="user_tracking" name="user_tracking"
+                                                   {{ 'checked' if twitch_config.features.user_tracking }}>
+                                            <label class="form-check-label" for="user_tracking">
+                                                <strong>User Tracking</strong><br>
+                                                <small class="text-muted">Track user activity and stats</small>
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-md-6">
+                                        <div class="form-check form-switch mb-3">
+                                            <input class="form-check-input" type="checkbox" id="spam_protection" name="spam_protection"
+                                                   {{ 'checked' if twitch_config.features.spam_protection }}>
+                                            <label class="form-check-label" for="spam_protection">
+                                                <strong>Spam Protection</strong><br>
+                                                <small class="text-muted">Detect and filter spam messages</small>
+                                            </label>
+                                        </div>
+
+                                        <div class="form-check form-switch mb-3">
+                                            <input class="form-check-input" type="checkbox" id="auto_shoutout" name="auto_shoutout"
+                                                   {{ 'checked' if twitch_config.features.auto_shoutout }}>
+                                            <label class="form-check-label" for="auto_shoutout">
+                                                <strong>Auto Shoutout</strong><br>
+                                                <small class="text-muted">Automatically shoutout new followers</small>
+                                            </label>
+                                        </div>
+
+                                        <div class="form-check form-switch mb-3">
+                                            <input class="form-check-input" type="checkbox" id="auto_category" name="auto_category"
+                                                   {{ 'checked' if twitch_config.features.auto_category }}>
+                                            <label class="form-check-label" for="auto_category">
+                                                <strong>Auto Category (Beta)</strong><br>
+                                                <small class="text-muted">Automatically change category from images</small>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <button type="submit" class="btn btn-primary mt-3">
+                                    <i class="bi bi-save"></i> Save Features
+                                </button>
+                            </form>
+                        </div>
+
+                        <!-- Statistics Tab -->
+                        <div class="tab-pane fade" id="stats-tab" role="tabpanel">
+                            <h5 class="mb-3">Bot Statistics</h5>
+                            <div class="row">
+                                <div class="col-md-4 mb-3">
+                                    <div class="card bg-dark">
+                                        <div class="card-body text-center">
+                                            <h3 class="text-primary">{{ twitch_status.message_count or 0 }}</h3>
+                                            <p class="text-muted mb-0">Total Messages</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <div class="card bg-dark">
+                                        <div class="card-body text-center">
+                                            <h3 class="text-info">{{ twitch_status.command_count or 0 }}</h3>
+                                            <p class="text-muted mb-0">Commands Executed</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <div class="card bg-dark">
+                                        <div class="card-body text-center">
+                                            <h3 class="text-success">{{ twitch_status.chatters or 0 }}</h3>
+                                            <p class="text-muted mb-0">Unique Chatters</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="alert alert-info mt-3">
+                                <i class="bi bi-info-circle"></i> More detailed statistics will be available once the bot has been running for a while.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Command Modal -->
+<div class="modal fade" id="addCommandModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Custom Command</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="add-command-form">
+                    <div class="mb-3">
+                        <label for="new-command" class="form-label">Command</label>
+                        <input type="text" class="form-control" id="new-command" placeholder="!mycommand" required>
+                        <small class="text-muted">Must start with !</small>
+                    </div>
+                    <div class="mb-3">
+                        <label for="new-response" class="form-label">Response</label>
+                        <textarea class="form-control" id="new-response" rows="3" placeholder="Bot's response..." required></textarea>
+                        <small class="text-muted">Use {user} for username, {uptime} for stream uptime</small>
+                    </div>
+                    <div class="mb-3">
+                        <label for="new-cooldown" class="form-label">Cooldown (seconds)</label>
+                        <input type="number" class="form-control" id="new-cooldown" value="30" min="0">
+                    </div>
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" id="new-enabled" checked>
+                        <label class="form-check-label" for="new-enabled">Enabled</label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveNewCommand()">Add Command</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Bot control functions
+async function controlBot(action) {
+    try {
+        const response = await fetch(`/api/twitch/${action}`, {
+            method: 'POST'
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            showAlert('success', data.message);
+            setTimeout(() => window.location.reload(), 1000);
+        } else {
+            showAlert('danger', data.message);
+        }
+    } catch (error) {
+        showAlert('danger', 'Failed to control bot: ' + error.message);
+    }
+}
+
+async function refreshStatus() {
+    window.location.reload();
+}
+
+// Setup form submission
+document.getElementById('setup-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+
+    const formData = new FormData(this);
+    const config = {};
+    for (const [key, value] of formData.entries()) {
+        config[key] = key === 'enabled' ? (formData.get('enabled') === 'on') : value;
+    }
+
+    try {
+        const response = await fetch('/api/twitch/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(config)
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            showAlert('success', 'Configuration saved successfully');
+        } else {
+            showAlert('danger', data.message);
+        }
+    } catch (error) {
+        showAlert('danger', 'Failed to save configuration: ' + error.message);
+    }
+});
+
+// Features form submission
+document.getElementById('features-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+
+    const features = {};
+    const checkboxes = this.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach(cb => {
+        features[cb.name] = cb.checked;
+    });
+
+    try {
+        const response = await fetch('/api/twitch/features', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(features)
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            showAlert('success', 'Features updated successfully');
+        } else {
+            showAlert('danger', data.message);
+        }
+    } catch (error) {
+        showAlert('danger', 'Failed to update features: ' + error.message);
+    }
+});
+
+// Command management
+function showAddCommandModal() {
+    const modal = new bootstrap.Modal(document.getElementById('addCommandModal'));
+    modal.show();
+}
+
+async function saveNewCommand() {
+    const command = document.getElementById('new-command').value;
+    const response = document.getElementById('new-response').value;
+    const cooldown = parseInt(document.getElementById('new-cooldown').value);
+    const enabled = document.getElementById('new-enabled').checked;
+
+    if (!command.startsWith('!')) {
+        showAlert('warning', 'Command must start with !');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/twitch/command/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command, response, cooldown, enabled })
+        });
+
+        const data = await res.json();
+        if (data.success) {
+            showAlert('success', 'Command added successfully');
+            bootstrap.Modal.getInstance(document.getElementById('addCommandModal')).hide();
+            setTimeout(() => window.location.reload(), 1000);
+        } else {
+            showAlert('danger', data.message);
+        }
+    } catch (error) {
+        showAlert('danger', 'Failed to add command: ' + error.message);
+    }
+}
+
+async function deleteCommand(command) {
+    if (!confirm(`Delete command ${command}?`)) return;
+
+    try {
+        const response = await fetch('/api/twitch/command/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ command })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            showAlert('success', 'Command deleted successfully');
+            setTimeout(() => window.location.reload(), 1000);
+        } else {
+            showAlert('danger', data.message);
+        }
+    } catch (error) {
+        showAlert('danger', 'Failed to delete command: ' + error.message);
+    }
+}
+
+function editCommand(command) {
+    showAlert('info', 'Edit functionality coming soon!');
+}
+
+function showAlert(type, message) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    document.querySelector('.container-fluid').insertBefore(alertDiv, document.querySelector('.container-fluid').firstChild);
+
+    setTimeout(() => {
+        alertDiv.remove();
+    }, 5000);
+}
+</script>
+{% endblock %}

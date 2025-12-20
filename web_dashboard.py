@@ -6169,6 +6169,164 @@ def api_switch_modpack():
 
 
 # ============================================================
+# Twitch Bot Dashboard and Endpoints
+# ============================================================
+
+# Try to import Twitch bot module
+try:
+    from modules import twitch_bot
+    TWITCH_AVAILABLE = True
+except ImportError:
+    TWITCH_AVAILABLE = False
+    twitch_bot = None
+    logger.warning("Twitch bot module not available")
+
+@app.route('/twitch')
+def twitch_dashboard():
+    """Renders the Twitch bot dashboard."""
+    if not TWITCH_AVAILABLE:
+        flash('Twitch bot module not available', 'warning')
+        return redirect(url_for('index'))
+
+    try:
+        bot = twitch_bot.get_twitch_bot()
+        status = bot.get_status()
+        config = bot.config.config
+        commands = bot.config.commands
+
+        return render_template('twitch.html',
+                             twitch_status=status,
+                             twitch_config=config,
+                             twitch_commands=commands)
+    except Exception as e:
+        logger.error(f"Error loading Twitch dashboard: {e}")
+        flash(f'Error loading Twitch dashboard: {e}', 'danger')
+        return redirect(url_for('index'))
+
+@app.route('/api/twitch/status', methods=['GET'])
+def twitch_status_api():
+    """Get Twitch bot status."""
+    if not TWITCH_AVAILABLE:
+        return jsonify({'error': 'Twitch bot module not available'}), 503
+
+    try:
+        bot = twitch_bot.get_twitch_bot()
+        status = bot.get_status()
+        return jsonify(status)
+    except Exception as e:
+        logger.error(f"Error getting Twitch status: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/twitch/start', methods=['POST'])
+def twitch_start():
+    """Start the Twitch bot."""
+    if not TWITCH_AVAILABLE:
+        return jsonify({'success': False, 'message': 'Twitch bot module not available'}), 503
+
+    try:
+        success, message = run_async(twitch_bot.start_twitch_bot())
+        return jsonify({'success': success, 'message': message})
+    except Exception as e:
+        logger.error(f"Error starting Twitch bot: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/twitch/stop', methods=['POST'])
+def twitch_stop():
+    """Stop the Twitch bot."""
+    if not TWITCH_AVAILABLE:
+        return jsonify({'success': False, 'message': 'Twitch bot module not available'}), 503
+
+    try:
+        success, message = run_async(twitch_bot.stop_twitch_bot())
+        return jsonify({'success': success, 'message': message})
+    except Exception as e:
+        logger.error(f"Error stopping Twitch bot: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/twitch/config', methods=['POST'])
+def twitch_config_update():
+    """Update Twitch bot configuration."""
+    if not TWITCH_AVAILABLE:
+        return jsonify({'success': False, 'message': 'Twitch bot module not available'}), 503
+
+    try:
+        data = request.get_json()
+        bot = twitch_bot.get_twitch_bot()
+
+        # Update config
+        for key, value in data.items():
+            bot.config.set(key, value)
+
+        return jsonify({'success': True, 'message': 'Configuration updated successfully'})
+    except Exception as e:
+        logger.error(f"Error updating Twitch config: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/twitch/features', methods=['POST'])
+def twitch_features_update():
+    """Update Twitch bot features."""
+    if not TWITCH_AVAILABLE:
+        return jsonify({'success': False, 'message': 'Twitch bot module not available'}), 503
+
+    try:
+        data = request.get_json()
+        bot = twitch_bot.get_twitch_bot()
+
+        # Update features
+        for key, value in data.items():
+            bot.config.set(f'features.{key}', value)
+
+        return jsonify({'success': True, 'message': 'Features updated successfully'})
+    except Exception as e:
+        logger.error(f"Error updating Twitch features: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/twitch/command/add', methods=['POST'])
+def twitch_command_add():
+    """Add a custom Twitch command."""
+    if not TWITCH_AVAILABLE:
+        return jsonify({'success': False, 'message': 'Twitch bot module not available'}), 503
+
+    try:
+        data = request.get_json()
+        command = data.get('command')
+        response = data.get('response')
+        cooldown = data.get('cooldown', 30)
+        enabled = data.get('enabled', True)
+
+        if not command or not response:
+            return jsonify({'success': False, 'message': 'Command and response are required'}), 400
+
+        bot = twitch_bot.get_twitch_bot()
+        bot.add_command(command, response, cooldown, mod_only=False)
+
+        return jsonify({'success': True, 'message': f'Command {command} added successfully'})
+    except Exception as e:
+        logger.error(f"Error adding Twitch command: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/twitch/command/delete', methods=['POST'])
+def twitch_command_delete():
+    """Delete a custom Twitch command."""
+    if not TWITCH_AVAILABLE:
+        return jsonify({'success': False, 'message': 'Twitch bot module not available'}), 503
+
+    try:
+        data = request.get_json()
+        command = data.get('command')
+
+        if not command:
+            return jsonify({'success': False, 'message': 'Command is required'}), 400
+
+        bot = twitch_bot.get_twitch_bot()
+        bot.remove_command(command)
+
+        return jsonify({'success': True, 'message': f'Command {command} deleted successfully'})
+    except Exception as e:
+        logger.error(f"Error deleting Twitch command: {e}")
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+# ============================================================
 # VPN Dashboard and Endpoints
 # ============================================================
 
