@@ -421,6 +421,16 @@ class OpenLigaDBProvider(FootballAPIProvider):
             except asyncio.TimeoutError:
                 logger.warning(f"OpenLigaDB timeout (attempt {attempt + 1}/{self.MAX_RETRIES}) for URL: {url}")
                 last_error = "Timeout"
+            except aiohttp.ClientConnectorError as e:
+                # DNS resolution errors, connection refused, etc.
+                if 'Temporary failure in name resolution' in str(e) or 'Name or service not known' in str(e):
+                    logger.warning(f"OpenLigaDB DNS error (attempt {attempt + 1}/{self.MAX_RETRIES}): {e}")
+                    logger.info("Trying with longer delay for DNS resolution...")
+                    last_error = f"DNS error: {e}"
+                    await asyncio.sleep(self.RETRY_DELAY * 3)  # Wait longer for DNS to resolve
+                else:
+                    logger.warning(f"OpenLigaDB connection error (attempt {attempt + 1}/{self.MAX_RETRIES}): {e}")
+                    last_error = f"Connection error: {e}"
             except aiohttp.ClientError as e:
                 logger.warning(f"OpenLigaDB client error (attempt {attempt + 1}/{self.MAX_RETRIES}): {e}")
                 last_error = str(e)

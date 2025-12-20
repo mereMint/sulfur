@@ -1842,6 +1842,11 @@ except Exception as e:
 " >>"$MAIN_LOG" 2>&1; then
             log_success "Database tables and migrations updated successfully"
             db_success=true
+
+            # Also run SQL-based migrations
+            log_update "Running SQL migrations..."
+            run_database_migrations || log_warning "SQL migrations failed, but continuing..."
+
             break
         else
             log_warning "Database update attempt $db_attempt failed"
