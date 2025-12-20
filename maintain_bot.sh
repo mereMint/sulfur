@@ -1713,9 +1713,13 @@ apply_updates() {
         log_update "Checking system dependencies..."
         ensure_system_dependencies
     fi
-    
+
     # Check and install Java 21 for Minecraft support
     check_and_install_java_21 || true
+
+    # Check and install FFmpeg for media features
+    log_update "Checking FFmpeg installation..."
+    install_ffmpeg || true
 
     local python_exe="$PYTHON_CMD"
     if [ -f "venv/bin/python" ]; then
