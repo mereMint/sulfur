@@ -2405,7 +2405,16 @@ async def start_server(config: Dict) -> Tuple[bool, str]:
             f.write("# https://www.minecraft.net/en-us/eula\n")
             f.write("eula=true\n")
         logger.info("Created eula.txt (EULA accepted)")
-    
+
+    # Clean up session.lock if it exists (prevents "already running" errors)
+    session_lock_path = os.path.join(MC_SERVER_DIR, "world", "session.lock")
+    if os.path.exists(session_lock_path):
+        try:
+            os.remove(session_lock_path)
+            logger.info("Removed stale session.lock file")
+        except Exception as e:
+            logger.warning(f"Failed to remove session.lock: {e}")
+
     # Build Java command
     memory_min = config.get('memory_min', '1G')
     memory_max = config.get('memory_max', '4G')
@@ -2630,7 +2639,26 @@ async def _read_console_output():
 async def _parse_console_line(line: str):
     """Parse console lines for events like player joins/leaves."""
     global _player_list
-    
+
+    # Detect critical library errors
+    if 'libc.so.6' in line or 'com.sun.jna.Native' in line or 'UnsatisfiedLinkError' in line:
+        logger.error(f"CRITICAL: Library error detected in server console: {line}")
+        logger.error("Attempting to install missing system libraries...")
+
+        # Try to install required libraries
+        try:
+            if platform.system() == "Linux":
+                # Install glibc and other dependencies
+                logger.info("Installing system dependencies (glibc, libstdc++)...")
+                subprocess.run(['apt-get', 'update'], capture_output=True)
+                subprocess.run(['apt-get', 'install', '-y', 'libc6', 'libstdc++6', 'zlib1g'],
+                             capture_output=True, check=False)
+                logger.info("System libraries installed. Please restart the server.")
+            else:
+                logger.warning(f"Unsupported platform for automatic library installation: {platform.system()}")
+        except Exception as e:
+            logger.error(f"Failed to install system libraries: {e}")
+
     # Player joined
     join_match = re.search(r'(\w+) joined the game', line)
     if join_match:
@@ -2640,7 +2668,7 @@ async def _parse_console_line(line: str):
         update_state('player_count', len(_player_list))
         logger.info(f"Player {player} joined. Total: {len(_player_list)}")
         return
-    
+
     # Player left
     leave_match = re.search(r'(\w+) left the game', line)
     if leave_match:

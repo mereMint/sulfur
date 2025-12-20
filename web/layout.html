@@ -1076,17 +1076,25 @@
                             <i class="bi bi-trophy"></i> Leaderboard
                         </a>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.path == '/minecraft' %}active{% endif %}" href="/minecraft">
-                            <i class="bi bi-box"></i> Minecraft
+
+                    <!-- External Services Dropdown -->
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle {% if request.path in ['/minecraft', '/vpn', '/twitch'] %}active{% endif %}" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="bi bi-box-arrow-up-right"></i> External
                         </a>
+                        <ul class="dropdown-menu dropdown-menu-dark">
+                            <li><a class="dropdown-item {% if request.path == '/twitch' %}active{% endif %}" href="/twitch">
+                                <i class="bi bi-twitch"></i> Twitch
+                            </a></li>
+                            <li><a class="dropdown-item {% if request.path == '/minecraft' %}active{% endif %}" href="/minecraft">
+                                <i class="bi bi-box"></i> Minecraft
+                            </a></li>
+                            <li><a class="dropdown-item {% if request.path == '/vpn' %}active{% endif %}" href="/vpn">
+                                <i class="bi bi-shield-lock"></i> VPN
+                            </a></li>
+                        </ul>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.path == '/vpn' %}active{% endif %}" href="/vpn">
-                            <i class="bi bi-shield-lock"></i> VPN
-                        </a>
-                    </li>
-                    
+
                     <!-- Analytics Dropdown -->
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle {% if request.path in ['/ai_dashboard', '/economy', '/music_dashboard', '/user_profiles'] %}active{% endif %}" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">

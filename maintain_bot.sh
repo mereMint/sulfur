@@ -1713,9 +1713,13 @@ apply_updates() {
         log_update "Checking system dependencies..."
         ensure_system_dependencies
     fi
-    
+
     # Check and install Java 21 for Minecraft support
     check_and_install_java_21 || true
+
+    # Check and install FFmpeg for media features
+    log_update "Checking FFmpeg installation..."
+    install_ffmpeg || true
 
     local python_exe="$PYTHON_CMD"
     if [ -f "venv/bin/python" ]; then
@@ -1842,6 +1846,11 @@ except Exception as e:
 " >>"$MAIN_LOG" 2>&1; then
             log_success "Database tables and migrations updated successfully"
             db_success=true
+
+            # Also run SQL-based migrations
+            log_update "Running SQL migrations..."
+            run_database_migrations || log_warning "SQL migrations failed, but continuing..."
+
             break
         else
             log_warning "Database update attempt $db_attempt failed"

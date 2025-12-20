@@ -5,26 +5,74 @@
 <div class="row">
     <div class="col-md-12">
         <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-toggles"></i> Feature Toggles</h5>
-                <button class="btn btn-sm btn-secondary" onclick="refreshFeatures()">
-                    <i class="bi bi-arrow-clockwise"></i> Refresh
-                </button>
+            <div class="card-header">
+                <ul class="nav nav-tabs card-header-tabs" role="tablist">
+                    <li class="nav-item">
+                        <a class="nav-link active" data-bs-toggle="tab" href="#features-tab" role="tab">
+                            <i class="bi bi-toggles"></i> Features
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" data-bs-toggle="tab" href="#commands-tab" role="tab">
+                            <i class="bi bi-terminal"></i> Commands
+                        </a>
+                    </li>
+                </ul>
             </div>
             <div class="card-body">
-                <p class="text-muted">Enable or disable bot features. Changes take effect immediately for new commands, but may require a bot restart for some features.</p>
-                
-                <div id="feature-alert"></div>
-                
-                <div id="features-loading" class="text-center py-4">
-                    <div class="spinner-border text-primary" role="status">
-                        <span class="visually-hidden">Loading...</span>
+                <div class="tab-content">
+                    <!-- Features Tab -->
+                    <div class="tab-pane fade show active" id="features-tab" role="tabpanel">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <p class="text-muted mb-0">Enable or disable bot features. Changes take effect immediately for new commands.</p>
+                            <button class="btn btn-sm btn-secondary" onclick="refreshFeatures()">
+                                <i class="bi bi-arrow-clockwise"></i> Refresh
+                            </button>
+                        </div>
+
+                        <div id="feature-alert"></div>
+
+                        <div id="features-loading" class="text-center py-4">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mt-2">Loading features...</p>
+                        </div>
+
+                        <div id="features-container" style="display: none;">
+                            <!-- Features will be loaded here -->
+                        </div>
                     </div>
-                    <p class="mt-2">Loading features...</p>
-                </div>
-                
-                <div id="features-container" style="display: none;">
-                    <!-- Features will be loaded here -->
+
+                    <!-- Commands Tab -->
+                    <div class="tab-pane fade" id="commands-tab" role="tabpanel">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <div>
+                                <p class="text-muted mb-1">Enable or disable individual Discord commands.</p>
+                                <small class="text-warning">⚠️ Note: This feature requires bot support for command-level toggling.</small>
+                            </div>
+                            <button class="btn btn-sm btn-secondary" onclick="refreshCommands()">
+                                <i class="bi bi-arrow-clockwise"></i> Refresh
+                            </button>
+                        </div>
+
+                        <div class="mb-3">
+                            <input type="text" class="form-control" id="command-search"
+                                   placeholder="🔍 Search commands..."
+                                   oninput="filterCommands(this.value)">
+                        </div>
+
+                        <div id="commands-loading" class="text-center py-4">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mt-2">Loading commands...</p>
+                        </div>
+
+                        <div id="commands-container" style="display: none;">
+                            <!-- Commands will be loaded here -->
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -232,8 +280,195 @@ function refreshFeatures() {
     loadFeatures();
 }
 
-// Load features on page load
-document.addEventListener('DOMContentLoaded', loadFeatures);
+// ============================================================================
+// Commands Management
+// ============================================================================
+
+let allCommands = [];
+
+async function loadCommands() {
+    const container = document.getElementById('commands-container');
+    const loading = document.getElementById('commands-loading');
+
+    try {
+        const response = await fetch('/api/commands');
+        const data = await response.json();
+
+        if (data.status !== 'success') {
+            throw new Error(data.message || 'Failed to load commands');
+        }
+
+        allCommands = data.commands || [];
+
+        displayCommands(allCommands);
+
+        loading.style.display = 'none';
+        container.style.display = 'block';
+
+    } catch (error) {
+        loading.innerHTML = `
+            <div class="alert alert-warning">
+                <i class="bi bi-info-circle"></i> Command management not yet fully implemented in bot.
+                <p class="mb-0 mt-2 small">This feature will allow granular control over individual Discord commands once bot support is added.</p>
+            </div>
+        `;
+    }
+}
+
+function displayCommands(commands) {
+    const container = document.getElementById('commands-container');
+
+    if (!commands || commands.length === 0) {
+        container.innerHTML = `
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle"></i> No commands available yet.
+                <p class="mb-0 mt-2">This feature will be populated once the bot provides command information.</p>
+            </div>
+        `;
+        return;
+    }
+
+    // Group by category
+    const categories = {};
+    commands.forEach(cmd => {
+        const cat = cmd.category || 'Other';
+        if (!categories[cat]) {
+            categories[cat] = [];
+        }
+        categories[cat].push(cmd);
+    });
+
+    let html = '';
+    for (const [category, cmds] of Object.entries(categories)) {
+        const icon = categoryIcons[category] || 'bi-terminal';
+        const color = categoryColors[category] || 'var(--text-muted)';
+
+        html += `
+            <div class="category-section mb-4">
+                <h6 class="category-header" style="color: ${color};">
+                    <i class="bi ${icon}"></i> ${category}
+                </h6>
+                <div class="table-responsive">
+                    <table class="table table-dark table-hover">
+                        <thead>
+                            <tr>
+                                <th style="width: 30%;">Command</th>
+                                <th style="width: 40%;">Description</th>
+                                <th style="width: 15%;" class="text-center">Status</th>
+                                <th style="width: 15%;" class="text-center">Toggle</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+        `;
+
+        cmds.forEach(cmd => {
+            const checked = cmd.enabled ? 'checked' : '';
+            const statusClass = cmd.enabled ? 'text-success' : 'text-muted';
+            const statusText = cmd.enabled ? 'Enabled' : 'Disabled';
+
+            html += `
+                <tr class="command-row ${cmd.enabled ? '' : 'opacity-75'}">
+                    <td><code class="text-info">/${cmd.name}</code></td>
+                    <td><small>${cmd.description || 'No description'}</small></td>
+                    <td class="text-center">
+                        <span class="badge ${cmd.enabled ? 'bg-success' : 'bg-secondary'}" id="cmd-status-${cmd.name}">
+                            ${statusText}
+                        </span>
+                    </td>
+                    <td class="text-center">
+                        <div class="form-check form-switch d-inline-block">
+                            <input class="form-check-input command-toggle" type="checkbox"
+                                   data-command="${cmd.name}"
+                                   ${checked}
+                                   onchange="toggleCommand(this)">
+                        </div>
+                    </td>
+                </tr>
+            `;
+        });
+
+        html += `
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    }
+
+    container.innerHTML = html;
+}
+
+async function toggleCommand(toggle) {
+    const commandName = toggle.dataset.command;
+    const enabled = toggle.checked;
+
+    toggle.disabled = true;
+
+    try {
+        const response = await fetch(`/api/commands/${commandName}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ enabled: enabled })
+        });
+
+        const data = await response.json();
+
+        if (data.status !== 'success') {
+            throw new Error(data.message || 'Failed to update command');
+        }
+
+        // Update UI
+        const statusBadge = document.getElementById(`cmd-status-${commandName}`);
+        const row = toggle.closest('tr');
+
+        if (enabled) {
+            statusBadge.textContent = 'Enabled';
+            statusBadge.className = 'badge bg-success';
+            row.classList.remove('opacity-75');
+        } else {
+            statusBadge.textContent = 'Disabled';
+            statusBadge.className = 'badge bg-secondary';
+            row.classList.add('opacity-75');
+        }
+
+        showAlert('success', `Command /${commandName} ${enabled ? 'enabled' : 'disabled'} successfully.`);
+
+    } catch (error) {
+        toggle.checked = !enabled;
+        showAlert('danger', `Error updating command: ${error.message}`);
+    } finally {
+        toggle.disabled = false;
+    }
+}
+
+function filterCommands(searchTerm) {
+    const filtered = allCommands.filter(cmd => {
+        const term = searchTerm.toLowerCase();
+        return cmd.name.toLowerCase().includes(term) ||
+               (cmd.description && cmd.description.toLowerCase().includes(term)) ||
+               (cmd.category && cmd.category.toLowerCase().includes(term));
+    });
+
+    displayCommands(filtered);
+}
+
+function refreshCommands() {
+    const container = document.getElementById('commands-container');
+    const loading = document.getElementById('commands-loading');
+
+    container.style.display = 'none';
+    loading.style.display = 'block';
+
+    loadCommands();
+}
+
+// Load features and commands on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadFeatures();
+    loadCommands();
+});
 </script>
 
 <style>
