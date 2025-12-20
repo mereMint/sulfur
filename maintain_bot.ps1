@@ -1301,8 +1301,28 @@ except Exception as e:
     # Restart web dashboard after update if it's not running
     Write-ColorLog 'Checking web dashboard status after update...' 'Cyan' '[UPDATE] '
     $webIsRunning = $false
+    
+    # Check both job state and actual process state
     if($script:webDashboardJob){
-        if((Get-Job -Id $script:webDashboardJob.Id -ErrorAction SilentlyContinue) -and $script:webDashboardJob.State -eq 'Running'){
+        $jobRunning = (Get-Job -Id $script:webDashboardJob.Id -ErrorAction SilentlyContinue) -and $script:webDashboardJob.State -eq 'Running'
+        
+        # Also verify the Python process is actually running
+        $processRunning = $false
+        if($jobRunning){
+            $webProcesses = Get-Process -Name python* -ErrorAction SilentlyContinue | Where-Object {
+                try {
+                    $cmdLine = (Get-CimInstance Win32_Process -Filter "ProcessId = $($_.Id)" -ErrorAction SilentlyContinue).CommandLine
+                    $cmdLine -and ($cmdLine -like "*web_dashboard.py*")
+                } catch {
+                    $false
+                }
+            }
+            if($webProcesses){
+                $processRunning = $true
+            }
+        }
+        
+        if($jobRunning -and $processRunning){
             Write-ColorLog 'Web Dashboard is still running' 'Green' '[WEB] '
             $webIsRunning = $true
         }
@@ -1310,6 +1330,13 @@ except Exception as e:
     
     if(-not $webIsRunning){
         Write-ColorLog 'Web Dashboard is not running, attempting to restart...' 'Yellow' '[WEB] '
+        
+        # Clean up the old job if it exists
+        if($script:webDashboardJob){
+            Remove-Job $script:webDashboardJob -Force -ErrorAction SilentlyContinue
+            $script:webDashboardJob = $null
+        }
+        
         try {
             $script:webDashboardJob = Start-WebDashboard
             if($script:webDashboardJob){
