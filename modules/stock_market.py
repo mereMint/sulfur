@@ -74,11 +74,13 @@ async def initialize_stocks(db_helpers):
         cursor = conn.cursor()
         try:
             # Create stocks table if it doesn't exist
-            # Note: current_price uses DECIMAL(18, 8) to handle crypto with very small values (e.g., SHIB at 0.000025)
+            # Note: Uses id as PRIMARY KEY with symbol as UNIQUE key (matches migration 019)
+            # current_price uses DECIMAL(18, 8) to handle crypto with very small values (e.g., SHIB at 0.000025)
             # trend uses DECIMAL(6, 5) to allow values from -9.99999 to 9.99999 (normal trends are ±0.5)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS stocks (
-                    symbol VARCHAR(10) PRIMARY KEY,
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    symbol VARCHAR(10) NOT NULL UNIQUE,
                     name VARCHAR(100) NOT NULL,
                     category VARCHAR(20) NOT NULL,
                     current_price DECIMAL(18, 8) NOT NULL,
@@ -86,7 +88,8 @@ async def initialize_stocks(db_helpers):
                     trend DECIMAL(6, 5) DEFAULT 0,
                     last_update TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     volume_today INT DEFAULT 0,
-                    game_influence_factor DECIMAL(6, 5) DEFAULT 0
+                    game_influence_factor DECIMAL(6, 5) DEFAULT 0,
+                    INDEX idx_symbol (symbol)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             
