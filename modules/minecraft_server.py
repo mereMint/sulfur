@@ -2347,8 +2347,9 @@ async def start_server(config: Dict) -> Tuple[bool, str]:
     if is_server_running():
         return False, "Server is already running"
     
-    # Check for required system libraries on Linux/Unix systems
-    if platform.system() in ['Linux', 'Darwin']:  # Darwin = macOS
+    # Check for required system libraries on Linux only (not macOS)
+    # Note: macOS doesn't have ldconfig, and glibc is not used on macOS
+    if platform.system() == 'Linux':
         try:
             # Check for libc.so.6 which is required by JNA (Java Native Access)
             result = subprocess.run(
@@ -2364,6 +2365,8 @@ async def start_server(config: Dict) -> Tuple[bool, str]:
                 logger.warning("  - Ubuntu/Debian: sudo apt-get install libc6")
                 logger.warning("  - Arch Linux: sudo pacman -S glibc")
                 logger.warning("  - Fedora/RHEL: sudo dnf install glibc")
+        except FileNotFoundError:
+            logger.debug("ldconfig command not found, skipping library check")
         except Exception as e:
             logger.debug(f"Could not check system libraries: {e}")
     

@@ -136,11 +136,11 @@ async def initialize_stocks(db_helpers):
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS stock_history (
                     id INT AUTO_INCREMENT PRIMARY KEY,
-                    stock_symbol VARCHAR(10) NOT NULL,
+                    stock_id INT NOT NULL,
                     price DECIMAL(18, 8) NOT NULL,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (stock_symbol) REFERENCES stocks(symbol) ON DELETE CASCADE,
-                    INDEX idx_symbol_time (stock_symbol, timestamp)
+                    recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_stock (stock_id),
+                    INDEX idx_recorded (recorded_at)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """)
             

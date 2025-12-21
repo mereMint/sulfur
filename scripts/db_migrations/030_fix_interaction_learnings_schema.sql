@@ -3,6 +3,13 @@
 -- ============================================================================
 -- This migration ensures the interaction_learnings table has the correct schema
 -- as expected by personality_evolution.py module.
+-- 
+-- WARNING: This migration drops and recreates the interaction_learnings table,
+-- which will result in the loss of any existing learning data. This is acceptable
+-- because:
+-- 1. The table structure from migration 023 was incorrect and incompatible
+-- 2. Learning data is accumulated over time and will be regenerated through usage
+-- 3. Personality traits are stored separately in personality_evolution table
 -- ============================================================================
 
 -- Drop the incorrectly structured interaction_learnings table if it exists
