@@ -2347,8 +2347,12 @@ async def start_server(config: Dict) -> Tuple[bool, str]:
     if is_server_running():
         return False, "Server is already running"
     
-    # Check for required system libraries on Linux only (not macOS)
-    # Note: macOS doesn't have ldconfig, and glibc is not used on macOS
+    # Check for required system libraries on Linux only
+    # Note: This check is Linux-specific because:
+    # - macOS uses its own C library (libSystem) instead of glibc
+    # - FreeBSD/OpenBSD use their own C libraries
+    # - Windows doesn't use glibc
+    # The ldconfig command is also Linux-specific
     if platform.system() == 'Linux':
         try:
             # Check for libc.so.6 which is required by JNA (Java Native Access)
@@ -2455,10 +2459,14 @@ async def start_server(config: Dict) -> Tuple[bool, str]:
                     if f':{port}' in line and 'LISTENING' in line:
                         parts = line.split()
                         if parts:
-                            pid = parts[-1]
-                            logger.warning(f"Found zombie process {pid} on port {port}, attempting to kill...")
-                            subprocess.run(['taskkill', '/F', '/PID', pid], capture_output=True, timeout=5)
-                            logger.info(f"Killed zombie process {pid}")
+                            pid = parts[-1].strip()
+                            # Validate PID is numeric to prevent command injection
+                            if pid.isdigit():
+                                logger.warning(f"Found zombie process {pid} on port {port}, attempting to kill...")
+                                subprocess.run(['taskkill', '/F', '/PID', pid], capture_output=True, timeout=5)
+                                logger.info(f"Killed zombie process {pid}")
+                            else:
+                                logger.debug(f"Skipping non-numeric PID: {pid}")
             except Exception as e:
                 logger.debug(f"Port cleanup check (Windows) failed: {e}")
         else:

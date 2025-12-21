@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS stock_history (
     stock_id INT NOT NULL,
     price DECIMAL(18, 8) NOT NULL,
     recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (stock_id) REFERENCES stocks(id) ON DELETE CASCADE,
     INDEX idx_stock (stock_id),
     INDEX idx_recorded (recorded_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
