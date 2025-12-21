@@ -99,10 +99,31 @@ CALL add_column_if_not_exists_027('mines_games', 'won', 'BOOLEAN NULL');
 CALL add_column_if_not_exists_027('mines_games', 'payout', 'BIGINT NULL DEFAULT 0');
 
 -- Update existing data
+-- First update 'won' column based on result
 UPDATE mines_games 
-SET won = (result = 'win' OR result = 'won' OR result = 'cashed_out'),
-    payout = won_amount
-WHERE won IS NULL OR payout IS NULL;
+SET won = (result = 'win' OR result = 'won' OR result = 'cashed_out')
+WHERE won IS NULL;
+
+-- Update 'payout' column from won_amount ONLY if won_amount column exists
+-- Check for won_amount column and copy data if available
+SET @won_amount_exists = (
+    SELECT COUNT(*) 
+    FROM information_schema.columns 
+    WHERE table_schema = DATABASE() 
+      AND table_name = 'mines_games' 
+      AND column_name = 'won_amount'
+);
+
+-- If won_amount exists, copy the data
+SET @update_payout_sql = IF(
+    @won_amount_exists > 0,
+    'UPDATE mines_games SET payout = COALESCE(won_amount, 0) WHERE payout IS NULL OR payout = 0',
+    'SELECT "won_amount column does not exist, skipping payout update" AS message'
+);
+
+PREPARE update_payout_stmt FROM @update_payout_sql;
+EXECUTE update_payout_stmt;
+DEALLOCATE PREPARE update_payout_stmt;
 
 -- ============================================================================
 -- PART 3: Fix russian_roulette_games Table
