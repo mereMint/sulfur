@@ -273,9 +273,9 @@ async def update_stock_prices(db_helpers):
                 
                 # Record history
                 cursor.execute("""
-                    INSERT INTO stock_history (stock_symbol, price)
-                    VALUES (%s, %s)
-                """, (symbol, new_price))
+                    INSERT INTO stock_history (stock_id, price)
+                    SELECT id, %s FROM stocks WHERE symbol = %s
+                """, (new_price, symbol))
             
             conn.commit()
             logger.info(f"Updated {len(stocks)} stock prices")
