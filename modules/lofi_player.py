@@ -148,12 +148,6 @@ MUSIC_STATIONS = {
                 "https://www.youtube.com/watch?v=ZXtimhT-ff4"   # Pink noise
             ]
         }
-            "type": "noise",
-            "alternatives": [
-                "https://www.youtube.com/watch?v=4yExhxdnPfQ",
-                "https://www.youtube.com/watch?v=8SHf6wmX5MU"
-            ]
-        }
     ]
 }
 

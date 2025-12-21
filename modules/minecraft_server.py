@@ -2347,8 +2347,8 @@ async def start_server(config: Dict) -> Tuple[bool, str]:
     if is_server_running():
         return False, "Server is already running"
     
-    # Check for required system libraries on Linux/Unix
-    if platform.system() != "Windows":
+    # Check for required system libraries on Linux/Unix systems
+    if platform.system() in ['Linux', 'Darwin']:  # Darwin = macOS
         try:
             # Check for libc.so.6 which is required by JNA (Java Native Access)
             result = subprocess.run(
