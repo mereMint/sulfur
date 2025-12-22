@@ -47,7 +47,7 @@ DOWNLOAD_PROGRESS_UPDATE_INTERVAL = 1.0
 DEFAULT_MC_CONFIG = {
     "enabled": True,
     "server_type": "paper",  # vanilla, paper, purpur, fabric
-    "minecraft_version": "1.21.11",  # Updated to latest stable version
+    "minecraft_version": "1.21.4",  # Match with config.json - Fixed from 1.21.11 to avoid version mismatch
     "memory_min": "1G",
     "memory_max": "4G",
     "port": 25565,
@@ -2347,6 +2347,33 @@ async def start_server(config: Dict) -> Tuple[bool, str]:
     if is_server_running():
         return False, "Server is already running"
     
+    # Check for required system libraries on Linux only
+    # Note: This check is Linux-specific because:
+    # - macOS uses its own C library (libSystem) instead of glibc
+    # - FreeBSD/OpenBSD use their own C libraries
+    # - Windows doesn't use glibc
+    # The ldconfig command is also Linux-specific
+    if platform.system() == 'Linux':
+        try:
+            # Check for libc.so.6 which is required by JNA (Java Native Access)
+            result = subprocess.run(
+                ['ldconfig', '-p'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if 'libc.so.6' not in result.stdout:
+                logger.warning("libc.so.6 not found in system libraries")
+                logger.warning("This may cause NoClassDefFoundError: com.sun.jna.Native")
+                logger.warning("Install glibc/libc6 package for your system:")
+                logger.warning("  - Ubuntu/Debian: sudo apt-get install libc6")
+                logger.warning("  - Arch Linux: sudo pacman -S glibc")
+                logger.warning("  - Fedora/RHEL: sudo dnf install glibc")
+        except FileNotFoundError:
+            logger.debug("ldconfig command not found, skipping library check")
+        except Exception as e:
+            logger.debug(f"Could not check system libraries: {e}")
+    
     # Check Java - auto-install if not found
     java_ok, java_msg = check_java_requirements()
     if not java_ok:
@@ -2414,6 +2441,76 @@ async def start_server(config: Dict) -> Tuple[bool, str]:
             logger.info("Removed stale session.lock file")
         except Exception as e:
             logger.warning(f"Failed to remove session.lock: {e}")
+    
+    # Check and clean up zombie processes on the configured port
+    port = config.get('port', 25565)
+    try:
+        # Try to find and kill processes using the port
+        if platform.system() == "Windows":
+            # Windows: use netstat to find PID, then taskkill
+            try:
+                result = subprocess.run(
+                    ['netstat', '-ano', '-p', 'TCP'],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                for line in result.stdout.split('\n'):
+                    if f':{port}' in line and 'LISTENING' in line:
+                        parts = line.split()
+                        if parts:
+                            pid = parts[-1].strip()
+                            # Validate PID is numeric to prevent command injection
+                            if pid.isdigit():
+                                logger.warning(f"Found zombie process {pid} on port {port}, attempting to kill...")
+                                subprocess.run(['taskkill', '/F', '/PID', pid], capture_output=True, timeout=5)
+                                logger.info(f"Killed zombie process {pid}")
+                            else:
+                                logger.debug(f"Skipping non-numeric PID: {pid}")
+            except Exception as e:
+                logger.debug(f"Port cleanup check (Windows) failed: {e}")
+        else:
+            # Linux/Unix: use lsof to find and kill
+            try:
+                result = subprocess.run(
+                    ['lsof', '-ti', f':{port}'],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.stdout.strip():
+                    pids = result.stdout.strip().split('\n')
+                    for pid in pids:
+                        if pid.isdigit():
+                            logger.warning(f"Found zombie process {pid} on port {port}, attempting to kill...")
+                            subprocess.run(['kill', '-9', pid], capture_output=True, timeout=5)
+                            logger.info(f"Killed zombie process {pid}")
+            except FileNotFoundError:
+                # lsof not available, try netstat
+                try:
+                    result = subprocess.run(
+                        ['netstat', '-tulpn'],
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+                    for line in result.stdout.split('\n'):
+                        if f':{port}' in line and 'LISTEN' in line:
+                            # Extract PID from the line (format: "tcp ... LISTEN pid/program")
+                            parts = line.split()
+                            if parts and '/' in parts[-1]:
+                                pid = parts[-1].split('/')[0]
+                                if pid.isdigit():
+                                    logger.warning(f"Found zombie process {pid} on port {port}, attempting to kill...")
+                                    subprocess.run(['kill', '-9', pid], capture_output=True, timeout=5)
+                                    logger.info(f"Killed zombie process {pid}")
+                except Exception as e:
+                    logger.debug(f"Port cleanup check (netstat) failed: {e}")
+            except Exception as e:
+                logger.debug(f"Port cleanup check (lsof) failed: {e}")
+    except Exception as e:
+        logger.debug(f"Port cleanup check failed: {e}")
+        # Continue anyway - the port might be available
 
     # Build Java command
     memory_min = config.get('memory_min', '1G')

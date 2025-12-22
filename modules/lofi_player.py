@@ -132,20 +132,20 @@ MUSIC_STATIONS = {
         },
         {
             "name": "🌊 Blue Noise",
-            "url": "https://www.youtube.com/watch?v=4yExhxdnPfQ",
+            "url": "https://www.youtube.com/watch?v=8SHf6wmX5MU",  # Updated: Original URL unavailable
             "type": "noise",
             "alternatives": [
-                "https://www.youtube.com/watch?v=8SHf6wmX5MU",
-                "https://www.youtube.com/watch?v=ZPoqNeR3_UA"
+                "https://www.youtube.com/watch?v=ZPoqNeR3_UA",
+                "https://www.youtube.com/watch?v=nMfPqeZjc2c"  # White noise fallback
             ]
         },
         {
             "name": "🔇 Grey Noise",
-            "url": "https://www.youtube.com/watch?v=1KxQ3u1Tv1w",
+            "url": "https://www.youtube.com/watch?v=wzjWIxXBs_s",  # Updated: Original URL unavailable
             "type": "noise",
             "alternatives": [
-                "https://www.youtube.com/watch?v=4yExhxdnPfQ",
-                "https://www.youtube.com/watch?v=8SHf6wmX5MU"
+                "https://www.youtube.com/watch?v=nMfPqeZjc2c",  # White noise
+                "https://www.youtube.com/watch?v=ZXtimhT-ff4"   # Pink noise
             ]
         }
     ]

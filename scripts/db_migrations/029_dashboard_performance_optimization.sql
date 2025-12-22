@@ -16,7 +16,6 @@ CREATE INDEX IF NOT EXISTS idx_players_display_name ON players(display_name);
 -- User stats - frequently filtered by user_id
 CREATE INDEX IF NOT EXISTS idx_user_stats_user_id ON user_stats(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_stats_messages_sent ON user_stats(messages_sent DESC);
-CREATE INDEX IF NOT EXISTS idx_user_stats_commands_used ON user_stats(commands_used DESC);
 
 -- Transaction history - large table, needs indexes
 CREATE INDEX IF NOT EXISTS idx_transaction_history_user_id ON transaction_history(user_id);
@@ -116,9 +115,9 @@ CREATE INDEX IF NOT EXISTS idx_daily_user_stats_date ON daily_user_stats(date DE
 -- PART 6: Composite Indexes for Common Queries
 -- ============================================================================
 
--- User stats - messages + commands leaderboard
+-- User stats - messages leaderboard (commands_used column does not exist in user_stats table)
 CREATE INDEX IF NOT EXISTS idx_user_stats_activity
-ON user_stats(messages_sent DESC, commands_used DESC);
+ON user_stats(messages_sent DESC);
 
 -- Transaction history - user timeline
 CREATE INDEX IF NOT EXISTS idx_transaction_user_time
