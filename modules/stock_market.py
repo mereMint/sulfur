@@ -453,11 +453,13 @@ async def get_stock_stats(db_helpers, symbol: str):
                 return None
             
             # Get 24h high/low from history
+            # stock_history uses stock_id (FK) and recorded_at columns, so we need to join
             cursor.execute("""
-                SELECT MAX(price) as high_24h, MIN(price) as low_24h
-                FROM stock_history
-                WHERE stock_symbol = %s
-                AND timestamp > DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                SELECT MAX(sh.price) as high_24h, MIN(sh.price) as low_24h
+                FROM stock_history sh
+                JOIN stocks s ON sh.stock_id = s.id
+                WHERE s.symbol = %s
+                AND sh.recorded_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)
             """, (symbol.upper(),))
             stats = cursor.fetchone()
             
