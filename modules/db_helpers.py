@@ -2280,24 +2280,39 @@ async def sync_guild_members(members_data: list):
 
 @db_operation("add_balance")
 async def add_balance(user_id, display_name, amount_to_add, config, stat_period=None):
-    """Adds an amount to a user's balance, creating the user if they don't exist."""
+    """Adds an amount to a user's balance, creating the user if they don't exist. Returns the new balance."""
     if not db_pool:
         logger.warning("Database pool not available, skipping balance addition")
-        return
+        return 0
         
     cnx = db_pool.get_connection()
     if not cnx:
-        return
+        return 0
 
-    cursor = cnx.cursor()
+    cursor = cnx.cursor(dictionary=True)
     try:
         starting_balance = config['modules']['economy']['starting_balance']
+        
+        # Get current balance first (if exists)
+        cursor.execute("SELECT balance FROM players WHERE discord_id = %s", (user_id,))
+        row = cursor.fetchone()
+        current_balance = int(row['balance']) if row and row.get('balance') is not None else None
+        
+        # Calculate new balance
+        if current_balance is None:
+            # New player - will be created with starting_balance + amount_to_add
+            new_balance = starting_balance + amount_to_add
+        else:
+            # Existing player - add to current balance
+            new_balance = current_balance + amount_to_add
+        
+        # Update or insert player
         query = """
-            INSERT INTO players (discord_id, display_name, balance) VALUES (%s, %s, %s + %s)
+            INSERT INTO players (discord_id, display_name, balance) VALUES (%s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 balance = balance + %s, display_name = VALUES(display_name);
         """
-        cursor.execute(query, (user_id, display_name, starting_balance, amount_to_add, amount_to_add))
+        cursor.execute(query, (user_id, display_name, new_balance if current_balance is None else starting_balance, amount_to_add))
         cnx.commit()
 
         # --- NEW: Log money earned for Wrapped ---
@@ -2313,7 +2328,8 @@ async def add_balance(user_id, display_name, amount_to_add, config, stat_period=
         # Invalidate balance cache since it changed
         _invalidate_cache(f"balance:{user_id}")
             
-        logger.debug(f"Added {amount_to_add} balance to user {user_id}")
+        logger.debug(f"Added {amount_to_add} balance to user {user_id}, new balance: {new_balance}")
+        return new_balance
     finally:
         cursor.close()
         cnx.close()
@@ -4229,6 +4245,11 @@ async def log_transaction(user_id, transaction_type, amount, balance_after, desc
     cnx = db_pool.get_connection()
     if not cnx:
         return False
+    
+    # Ensure balance_after is not None - default to 0 if missing
+    if balance_after is None:
+        logger.warning(f"log_transaction called with None balance_after for user {user_id}, using 0 instead")
+        balance_after = 0
     
     cursor = cnx.cursor()
     try:

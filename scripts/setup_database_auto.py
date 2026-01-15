@@ -98,19 +98,19 @@ def print_header(text: str):
     print()
 
 def print_success(text: str):
-    print(f"{Colors.GREEN}✓ {text}{Colors.RESET}")
+    print(f"{Colors.GREEN}[OK] {text}{Colors.RESET}")
 
 def print_error(text: str):
-    print(f"{Colors.RED}✗ {text}{Colors.RESET}")
+    print(f"{Colors.RED}[ERROR] {text}{Colors.RESET}")
 
 def print_warning(text: str):
-    print(f"{Colors.YELLOW}⚠ {text}{Colors.RESET}")
+    print(f"{Colors.YELLOW}[WARNING] {text}{Colors.RESET}")
 
 def print_info(text: str):
-    print(f"{Colors.CYAN}ℹ {text}{Colors.RESET}")
+    print(f"{Colors.CYAN}[INFO] {text}{Colors.RESET}")
 
 def print_step(text: str):
-    print(f"{Colors.BLUE}→ {text}{Colors.RESET}")
+    print(f"{Colors.BLUE}[STEP] {text}{Colors.RESET}")
 
 # ==============================================================================
 # Database Server Management
@@ -766,10 +766,10 @@ def main():
             print()
             print_step("Running migrations automatically...")
             if run_migrations():
-                print_header("✓ Setup Complete!")
+                print_header("[OK] Setup Complete!")
                 return 0
             else:
-                print_header("✗ Migration Failed")
+                print_header("[ERROR] Migration Failed")
                 return 1
         else:
             print_warning("Existing configuration doesn't work, reconfiguring...")
@@ -850,29 +850,29 @@ def main():
         # Use standard approach
         success, db_password = create_database_and_user(root_password)
     if not success:
-        print_header("✗ Setup Failed")
+        print_header("[ERROR] Setup Failed")
         return 1
 
     # Step 5: Save configuration
     print()
     if not save_config(db_password):
-        print_header("✗ Setup Failed")
+        print_header("[ERROR] Setup Failed")
         return 1
 
     # Step 6: Test connection
     print()
     if not test_connection():
-        print_header("✗ Setup Failed")
+        print_header("[ERROR] Setup Failed")
         return 1
 
     # Step 7: Run migrations
     print()
     if not run_migrations():
-        print_header("✗ Setup Failed")
+        print_header("[ERROR] Setup Failed")
         return 1
 
     # Success!
-    print_header("✓ Database Setup Complete!")
+    print_header("[OK] Database Setup Complete!")
     print()
     print(f"{Colors.BOLD}Configuration:{Colors.RESET}")
     print(f"  Database: {DB_NAME}")

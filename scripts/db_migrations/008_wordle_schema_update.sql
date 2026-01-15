@@ -2,6 +2,23 @@
 -- Description: Updates wordle tables to support multi-language and premium games
 -- This migration is BACKWARDS COMPATIBLE - existing data is preserved
 
+-- ============================================================================
+-- STEP 0: Ensure wordle_daily table exists
+-- ============================================================================
+-- The wordle_daily table is normally created by modules/wordle.py
+-- but we need to ensure it exists before we can modify it
+
+CREATE TABLE IF NOT EXISTS wordle_daily (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    word VARCHAR(5) NOT NULL,
+    date DATE NOT NULL,
+    UNIQUE KEY unique_date (date),
+    INDEX idx_date (date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================================
+-- STEP 1: Add language column to wordle_daily if it doesn't exist
+-- ============================================================================
 -- Add language column to wordle_daily if it doesn't exist
 -- Default 'de' ensures all existing words are treated as German (backwards compatible)
 SET @db_name = DATABASE();
@@ -67,6 +84,19 @@ SET @query = IF(
 PREPARE stmt FROM @query;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
+
+-- ============================================================================
+-- STEP 2: Ensure wordle_attempts table exists
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS wordle_attempts (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    word_id INT NOT NULL,
+    guess VARCHAR(5) NOT NULL,
+    attempt_number INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_user_word (user_id, word_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Add game_type column to wordle_attempts if it doesn't exist
 -- Default 'daily' ensures all existing attempts are treated as daily games

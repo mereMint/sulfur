@@ -53,7 +53,18 @@ DELIMITER ;
 CALL add_column_if_not_exists_028('stocks', 'category', 'VARCHAR(20) DEFAULT NULL');
 
 -- Add index on category for better query performance
-CREATE INDEX IF NOT EXISTS idx_stocks_category ON stocks(category);
+-- Use dynamic SQL to avoid errors if index already exists
+SET @create_idx_category = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS 
+     WHERE TABLE_SCHEMA = DATABASE() 
+       AND TABLE_NAME = 'stocks' 
+       AND INDEX_NAME = 'idx_stocks_category') = 0,
+    'CREATE INDEX idx_stocks_category ON stocks(category)',
+    'SELECT "Index idx_stocks_category already exists" AS message'
+);
+PREPARE stmt FROM @create_idx_category;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 -- Sync category from sector if category is NULL
 UPDATE stocks
@@ -75,7 +86,11 @@ CALL add_column_if_not_exists_028('stocks', 'game_influence_factor', 'DECIMAL(6,
 -- The dashboard queries reference both 'mines_games' and 'game_mines'.
 -- Create a view for backward compatibility.
 
-CREATE OR REPLACE VIEW game_mines AS
+-- Drop the view if it exists first
+DROP VIEW IF EXISTS game_mines;
+
+-- Create the view
+CREATE VIEW game_mines AS
 SELECT
     id,
     user_id,
