@@ -5149,9 +5149,9 @@ def api_user_profile(user_id):
             portfolio_value = 0
             portfolio_stocks = safe_db_query(cursor, """
                 SELECT 
-                    up.symbol, up.quantity, s.current_price
+                    up.stock_symbol as symbol, up.shares as quantity, s.current_price
                 FROM user_portfolios up
-                JOIN stocks s ON up.symbol = s.symbol
+                JOIN stocks s ON up.stock_symbol = s.symbol
                 WHERE up.user_id = %s
             """, params=(user_id,), fetch_all=True)
             if portfolio_stocks:

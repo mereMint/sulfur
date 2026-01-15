@@ -2728,7 +2728,35 @@ async def _read_console_output():
                 logger.error(f"Error reading console: {e}")
             break
     
-    # Server stopped
+    # Server stopped - get exit code and log it
+    if _server_process is not None:
+        try:
+            # Wait a moment for the process to finish
+            await asyncio.wait_for(_server_process.wait(), timeout=5)
+            exit_code = _server_process.returncode
+            if exit_code != 0:
+                logger.error(f"Minecraft server exited with code {exit_code}")
+                if exit_code == 1:
+                    logger.error("Exit code 1 usually indicates: port in use, missing libraries, or configuration error")
+                elif exit_code == 137:
+                    logger.error("Exit code 137 indicates the server was killed (OOM or manual kill)")
+                elif exit_code == 143:
+                    logger.error("Exit code 143 indicates the server was terminated by SIGTERM")
+            else:
+                logger.info(f"Minecraft server exited normally (code {exit_code})")
+        except asyncio.TimeoutError:
+            logger.warning("Server process did not exit cleanly within timeout")
+        except Exception as e:
+            logger.debug(f"Could not get server exit code: {e}")
+    
+    # Check if console buffer is empty (indicating crash before any output)
+    if len(_console_buffer) == 0:
+        logger.error("Server crashed before producing any console output!")
+        logger.error("Possible causes: port already in use, missing Java, missing libraries (libc.so.6)")
+        logger.error("Check if another Minecraft server is running on port 25565")
+        # Store the error in state for the user
+        update_state('last_error', 'Server crashed immediately with no output. Check port availability and Java installation.')
+    
     logger.info("Minecraft server console output ended")
     update_state('status', 'stopped')
 
@@ -2741,6 +2769,7 @@ async def _parse_console_line(line: str):
     if 'libc.so.6' in line or 'com.sun.jna.Native' in line or 'UnsatisfiedLinkError' in line:
         logger.error(f"CRITICAL: Library error detected in server console: {line}")
         logger.error("Attempting to install missing system libraries...")
+        update_state('last_error', f'Missing system library: {line}')
 
         # Try to install required libraries
         try:
@@ -2755,6 +2784,17 @@ async def _parse_console_line(line: str):
                 logger.warning(f"Unsupported platform for automatic library installation: {platform.system()}")
         except Exception as e:
             logger.error(f"Failed to install system libraries: {e}")
+    
+    # Detect port binding errors
+    if 'EADDRINUSE' in line or 'Address already in use' in line or ('bind' in line.lower() and 'failed' in line.lower()):
+        logger.error(f"PORT IN USE: Another process is using the Minecraft server port!")
+        logger.error("Run 'netstat -tulpn | grep 25565' (Linux) or 'netstat -ano | findstr 25565' (Windows) to find the process")
+        update_state('last_error', 'Port 25565 is already in use by another process')
+    
+    # Detect Java version errors
+    if 'Unsupported class file major version' in line or 'Java 21' in line or 'requires Java' in line:
+        logger.error(f"JAVA VERSION ERROR: {line}")
+        update_state('last_error', 'Wrong Java version. Minecraft 1.21+ requires Java 21.')
 
     # Player joined
     join_match = re.search(r'(\w+) joined the game', line)
@@ -2779,6 +2819,7 @@ async def _parse_console_line(line: str):
     # Server done loading
     if 'Done' in line and 'For help' in line:
         update_state('status', 'running')
+        update_state('last_error', None)  # Clear any previous errors
         logger.info("Minecraft server finished loading")
         return
     
@@ -3367,7 +3408,9 @@ def get_server_status() -> Dict:
         'server_type': _server_state.get('server_jar_type'),
         'version': _server_state.get('server_version'),
         'last_backup': _server_state.get('last_backup'),
-        'status': _server_state.get('status', 'unknown')
+        'status': _server_state.get('status', 'unknown'),
+        'last_error': _server_state.get('last_error'),
+        'console_lines': len(_console_buffer)
     }
     
     # Calculate uptime

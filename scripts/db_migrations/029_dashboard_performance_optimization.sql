@@ -56,12 +56,13 @@ CALL add_index_if_not_exists_029('user_stats', 'idx_user_stats_messages_sent', '
 
 -- Transaction history - large table, needs indexes
 CALL add_index_if_not_exists_029('transaction_history', 'idx_transaction_history_user_id', '(user_id)');
-CALL add_index_if_not_exists_029('transaction_history', 'idx_transaction_history_timestamp', '(timestamp DESC)');
+CALL add_index_if_not_exists_029('transaction_history', 'idx_transaction_history_created_at', '(created_at DESC)');
 CALL add_index_if_not_exists_029('transaction_history', 'idx_transaction_history_type', '(transaction_type)');
 
 -- AI model usage - frequently queried for stats
-CALL add_index_if_not_exists_029('ai_model_usage', 'idx_ai_model_usage_user_id', '(user_id)');
-CALL add_index_if_not_exists_029('ai_model_usage', 'idx_ai_model_usage_timestamp', '(timestamp DESC)');
+-- Note: ai_model_usage table doesn't have user_id column (it's aggregate stats per model/feature/day)
+-- Also uses usage_date, not timestamp
+CALL add_index_if_not_exists_029('ai_model_usage', 'idx_ai_model_usage_date', '(usage_date DESC)');
 CALL add_index_if_not_exists_029('ai_model_usage', 'idx_ai_model_usage_model', '(model_name)');
 
 -- API usage - dashboard stats
@@ -156,10 +157,10 @@ CALL add_index_if_not_exists_029('daily_user_stats', 'idx_daily_user_stats_date'
 CALL add_index_if_not_exists_029('user_stats', 'idx_user_stats_activity', '(messages_sent DESC)');
 
 -- Transaction history - user timeline
-CALL add_index_if_not_exists_029('transaction_history', 'idx_transaction_user_time', '(user_id, timestamp DESC)');
+CALL add_index_if_not_exists_029('transaction_history', 'idx_transaction_user_time', '(user_id, created_at DESC)');
 
--- AI usage - user model stats
-CALL add_index_if_not_exists_029('ai_model_usage', 'idx_ai_usage_user_model', '(user_id, model_name, timestamp DESC)');
+-- AI usage - model usage stats (no user_id column in ai_model_usage)
+CALL add_index_if_not_exists_029('ai_model_usage', 'idx_ai_usage_model_date', '(model_name, usage_date DESC)');
 
 -- Gaming - user performance
 CALL add_index_if_not_exists_029('blackjack_games', 'idx_blackjack_user_result', '(user_id, result, played_at DESC)');
