@@ -4494,11 +4494,11 @@ def music_dashboard_page():
 def api_music_status():
     """API endpoint for current music playback status."""
     try:
-        from modules import lofi_player
         import time
+        from modules.db_helpers import get_now_playing_all
         
-        # Get active sessions from lofi_player
-        active_sessions = lofi_player.active_sessions
+        # Get music state from database (works across processes)
+        music_state = get_now_playing_all()
         
         now_playing = None
         queue = []
@@ -4506,64 +4506,52 @@ def api_music_status():
             'total_songs_played': 0,
             'queue_length': 0,
             'listening_time_today_minutes': 0,
-            'active_sessions': len(active_sessions)
+            'active_sessions': len(music_state)
         }
         
         # Get info from first active session if any
-        if active_sessions:
-            guild_id = list(active_sessions.keys())[0]
-            session = active_sessions[guild_id]
+        if music_state:
+            # Get first active guild's music state
+            first_guild_id = list(music_state.keys())[0]
+            session = music_state[first_guild_id]
             
-            # Get current song
-            current_song = lofi_player.get_current_song(guild_id)
-            if current_song:
-                voice_client = session.get('voice_client')
-                
+            current_song = session.get('current_song')
+            if current_song and current_song.get('title'):
                 # Calculate elapsed time since song started
                 elapsed_seconds = 0
-                if 'song_start_time' in session:
+                started_at = session.get('started_at')
+                if started_at:
                     try:
-                        event_loop = session.get('event_loop')
-                        if event_loop:
-                            elapsed_seconds = int(event_loop.time() - session['song_start_time'])
-                        else:
-                            # Fallback to wall clock time if we stored it as such
-                            elapsed_seconds = int(time.time() - session['song_start_time'])
+                        from datetime import datetime
+                        if isinstance(started_at, str):
+                            started_at = datetime.fromisoformat(started_at.replace('Z', '+00:00'))
+                        elapsed_seconds = int((datetime.now(started_at.tzinfo) - started_at).total_seconds())
                     except Exception as e:
-                        logger.warning(f"Error calculating elapsed time: {e}")
+                        logger.debug(f"Error calculating elapsed time: {e}")
                         elapsed_seconds = 0
                 
-                # Get duration from song info or session
-                duration_seconds = current_song.get('duration', 0) or current_song.get('end_time', 0)
-                
-                # Count listeners (exclude bots)
-                listeners = 0
-                if voice_client and voice_client.channel:
-                    listeners = sum(1 for m in voice_client.channel.members if not m.bot)
-                
                 now_playing = {
-                    'guild_id': guild_id,
+                    'guild_id': session.get('guild_id'),
                     'title': current_song.get('title', 'Unknown'),
                     'artist': current_song.get('artist', 'Unknown Artist'),
                     'album': current_song.get('album', ''),
-                    'guild_name': voice_client.guild.name if voice_client and voice_client.guild else 'Unknown',
-                    'channel_name': voice_client.channel.name if voice_client and voice_client.channel else 'Unknown',
-                    'listeners': listeners,
+                    'guild_name': 'Server',  # We don't store guild name in DB
+                    'channel_name': session.get('channel_name', 'Unknown'),
+                    'listeners': 0,  # Can't get this without voice client
                     'elapsed_seconds': max(0, elapsed_seconds),
-                    'duration_seconds': duration_seconds
+                    'duration_seconds': current_song.get('duration', 0) or 0
                 }
             
-            # Get queue and format for JSON response
-            raw_queue = lofi_player.get_queue_preview(guild_id, count=20)  # Get more songs for better display
-            queue = []
-            for song in raw_queue:
+            # Get queue from database state
+            queue_preview = session.get('queue_preview', [])
+            stats['queue_length'] = session.get('queue_length', 0)
+            
+            for song in queue_preview:
                 queue.append({
                     'title': song.get('title', 'Unknown'),
-                    'artist': song.get('artist', 'Unknown Artist'),
-                    'source': song.get('source', 'bot'),
-                    'url': song.get('url', '')
+                    'artist': song.get('artist', 'Unknown'),
+                    'source': song.get('source', '')
                 })
-            stats['queue_length'] = lofi_player.get_queue_length(guild_id)
         
         # Get total songs played from database
         if db_helpers.db_pool:
@@ -5966,40 +5954,8 @@ def database_export():
 # Minecraft / Modpack Status Endpoints
 # ============================================================
 
-@app.route('/api/minecraft/status', methods=['GET'])
-def api_minecraft_status():
-    """API endpoint to get Minecraft server and modpack status."""
-    try:
-        from modules import minecraft_server as mc
-        
-        status = {
-            'server_running': mc.is_server_running(),
-            'current_modpack': mc.get_current_modpack(),
-            'available_modpacks': {},
-            'state': mc._server_state.copy() if hasattr(mc, '_server_state') else {}
-        }
-        
-        # Get available modpacks
-        for name, config in mc.MODPACKS.items():
-            status['available_modpacks'][name] = {
-                'name': config.get('name'),
-                'description': config.get('description'),
-                'source': config.get('source'),
-                'server_type': config.get('server_type')
-            }
-        
-        # Get saved worlds
-        status['saved_worlds'] = mc.list_saved_worlds()
-        
-        logger.info(f"Minecraft status requested: server_running={status['server_running']}, modpack={status['current_modpack']}")
-        
-        return jsonify({
-            'status': 'success',
-            'data': status
-        })
-    except Exception as e:
-        logger.error(f"Error getting Minecraft status: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+# NOTE: /api/minecraft/status is already defined above (line ~5262)
+# This duplicate has been removed to avoid Flask routing issues
 
 
 @app.route('/api/minecraft/modpacks', methods=['GET'])
