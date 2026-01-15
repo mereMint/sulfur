@@ -13,6 +13,22 @@
         </div>
     </div>
 
+    {% if module_unavailable %}
+    <!-- Module Unavailable Alert -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="alert alert-warning">
+                <h4 class="alert-heading"><i class="bi bi-exclamation-triangle"></i> Twitch Module Not Available</h4>
+                <p>The Twitch bot module could not be loaded. This may be due to missing dependencies.</p>
+                <hr>
+                <p class="mb-0">To enable the Twitch bot, ensure you have the required dependencies installed:</p>
+                <pre class="mt-2 bg-dark text-light p-2 rounded"><code>pip install aiohttp</code></pre>
+                <p class="mb-0 mt-2">After installing dependencies, restart the bot to enable Twitch functionality.</p>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Status Cards -->
     <div class="row mb-4">
         <div class="col-md-3 mb-3">

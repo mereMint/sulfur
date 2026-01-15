@@ -14661,7 +14661,14 @@ class SongleGameView(discord.ui.View):
     @discord.ui.button(label="🎧 Listen", style=discord.ButtonStyle.success)
     async def listen_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Play a clip of the song in voice channel."""
+        # Immediately acknowledge with a loading message
         await interaction.response.defer(ephemeral=True)
+        
+        # Send loading indicator first - this provides instant feedback
+        loading_msg = await interaction.followup.send(
+            "⏳ **Loading audio clip...** Please wait, this may take a few seconds.",
+            ephemeral=True
+        )
         
         try:
             # Get clip duration based on current attempt
@@ -14675,21 +14682,19 @@ class SongleGameView(discord.ui.View):
             )
             
             if success:
-                await interaction.followup.send(
-                    f"🔊 {message} Listen carefully and guess the song!",
-                    ephemeral=True
+                # Edit the loading message with success
+                await loading_msg.edit(
+                    content=f"🔊 {message} Listen carefully and guess the song!"
                 )
             else:
-                await interaction.followup.send(
-                    f"❌ {message}",
-                    ephemeral=True
+                await loading_msg.edit(
+                    content=f"❌ {message}"
                 )
                 
         except Exception as e:
             logger.error(f"Error in songle listen button: {e}", exc_info=True)
-            await interaction.followup.send(
-                "An error occurred while playing the clip. Make sure you're in a voice channel!",
-                ephemeral=True
+            await loading_msg.edit(
+                content="An error occurred while playing the clip. Make sure you're in a voice channel!"
             )
     
     @discord.ui.button(label="Guess", style=discord.ButtonStyle.primary)
