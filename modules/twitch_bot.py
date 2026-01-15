@@ -17,7 +17,7 @@ import os
 import re
 import time
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Callable, Any, Tuple
+from typing import Dict, List, Optional, Callable, Any, Tuple, TYPE_CHECKING
 from collections import defaultdict
 
 # Try to import aiohttp - it's required for Twitch API calls
@@ -26,7 +26,10 @@ try:
     AIOHTTP_AVAILABLE = True
 except ImportError:
     AIOHTTP_AVAILABLE = False
-    aiohttp = None
+
+# For type checking only (when aiohttp is not installed)
+if TYPE_CHECKING:
+    import aiohttp
 
 # For Twitch IRC connection
 import socket
@@ -286,7 +289,7 @@ class TwitchBot:
         self.writer = None
 
         # API session (requires aiohttp)
-        self.api_session: Optional[Any] = None  # aiohttp.ClientSession when available
+        self.api_session: Optional['aiohttp.ClientSession'] = None
         self.access_token = None
 
         # Event callbacks

@@ -47,9 +47,10 @@ DELIMITER ;
 -- ============================================================================
 
 -- Add payout column if it doesn't exist
-CALL add_column_if_not_exists_033('russian_roulette_games', 'payout', 'BIGINT DEFAULT 0');
+CALL add_column_if_not_exists_033('russian_roulette_games', 'payout', 'BIGINT NOT NULL DEFAULT 0');
 
 -- Sync payout from won_amount if won_amount exists
+-- Only update rows where payout is NULL (to avoid overwriting legitimate zero values)
 SET @has_won_amount = (
     SELECT COUNT(*)
     FROM information_schema.columns
@@ -60,7 +61,7 @@ SET @has_won_amount = (
 
 SET @sync_payout = IF(
     @has_won_amount > 0,
-    'UPDATE russian_roulette_games SET payout = COALESCE(won_amount, 0) WHERE payout IS NULL OR payout = 0',
+    'UPDATE russian_roulette_games SET payout = COALESCE(won_amount, 0) WHERE payout IS NULL',
     'SELECT "won_amount column does not exist, payout column already used" AS message'
 );
 
