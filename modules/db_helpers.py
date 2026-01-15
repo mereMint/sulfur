@@ -2289,15 +2289,30 @@ async def add_balance(user_id, display_name, amount_to_add, config, stat_period=
     if not cnx:
         return 0
 
-    cursor = cnx.cursor()
+    cursor = cnx.cursor(dictionary=True)
     try:
         starting_balance = config['modules']['economy']['starting_balance']
+        
+        # Get current balance first (if exists)
+        cursor.execute("SELECT balance FROM players WHERE discord_id = %s", (user_id,))
+        row = cursor.fetchone()
+        current_balance = int(row['balance']) if row and row.get('balance') is not None else None
+        
+        # Calculate new balance
+        if current_balance is None:
+            # New player - will be created with starting_balance + amount_to_add
+            new_balance = starting_balance + amount_to_add
+        else:
+            # Existing player - add to current balance
+            new_balance = current_balance + amount_to_add
+        
+        # Update or insert player
         query = """
-            INSERT INTO players (discord_id, display_name, balance) VALUES (%s, %s, %s + %s)
+            INSERT INTO players (discord_id, display_name, balance) VALUES (%s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 balance = balance + %s, display_name = VALUES(display_name);
         """
-        cursor.execute(query, (user_id, display_name, starting_balance, amount_to_add, amount_to_add))
+        cursor.execute(query, (user_id, display_name, new_balance if current_balance is None else starting_balance, amount_to_add))
         cnx.commit()
 
         # --- NEW: Log money earned for Wrapped ---
@@ -2312,11 +2327,6 @@ async def add_balance(user_id, display_name, amount_to_add, config, stat_period=
         
         # Invalidate balance cache since it changed
         _invalidate_cache(f"balance:{user_id}")
-        
-        # Get and return the new balance
-        cursor.execute("SELECT balance FROM players WHERE discord_id = %s", (user_id,))
-        row = cursor.fetchone()
-        new_balance = int(row[0]) if row and row[0] is not None else 0
             
         logger.debug(f"Added {amount_to_add} balance to user {user_id}, new balance: {new_balance}")
         return new_balance

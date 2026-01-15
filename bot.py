@@ -5666,17 +5666,21 @@ class AIDashboardView(discord.ui.View):
         current_provider = await get_current_provider(config)
         
         # Get Gemini usage from the database
-        cnx = db_helpers.db_pool.get_connection()
         gemini_usage = 0
-        if cnx:
-            cursor = cnx.cursor(dictionary=True)
-            try:
-                cursor.execute("SELECT SUM(call_count) as total_calls FROM api_usage WHERE usage_date = CURDATE() AND model_name LIKE 'gemini%%'")
-                result = cursor.fetchone()
-                gemini_usage = result['total_calls'] if result and result['total_calls'] else 0
-            finally:
-                cursor.close()
-                cnx.close()
+        try:
+            cnx = db_helpers.db_pool.get_connection()
+            if cnx:
+                cursor = cnx.cursor(dictionary=True)
+                try:
+                    cursor.execute("SELECT SUM(call_count) as total_calls FROM api_usage WHERE usage_date = CURDATE() AND model_name LIKE 'gemini%%'")
+                    result = cursor.fetchone()
+                    gemini_usage = result['total_calls'] if result and result['total_calls'] else 0
+                finally:
+                    cursor.close()
+                    cnx.close()
+        except Exception as e:
+            logger.error(f"Error fetching Gemini usage: {e}", exc_info=True)
+            gemini_usage = 0
 
         # Create the progress bar
         progress = int((gemini_usage / GEMINI_DAILY_LIMIT) * 20) # 20 characters for the bar
