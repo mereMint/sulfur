@@ -132,6 +132,7 @@ from modules import autonomous_behavior  # Autonomous behavior features
 from modules import minecraft_server  # Minecraft server management
 from modules import minecraft_discord_commands  # Minecraft Discord commands
 from modules import wireguard_manager  # WireGuard VPN management
+from modules import urban_dictionary  # Urban Dictionary slang lookup
 from modules.bot_enhancements import (
     handle_image_attachment,
     handle_unknown_emojis_in_message,
@@ -15043,6 +15044,61 @@ try:
     print("  -> Minecraft and VPN commands registered")
 except Exception as e:
     print(f"  -> Warning: Could not register Minecraft/VPN commands: {e}")
+
+
+# --- Urban Dictionary Command ---
+@tree.command(name="urban", description="Suche nach einem Slang-Begriff im Urban Dictionary.")
+@app_commands.describe(term="Der Begriff, den du nachschlagen möchtest")
+async def urban_command(interaction: discord.Interaction, term: str):
+    """Look up a slang term on Urban Dictionary."""
+    await interaction.response.defer()
+    
+    try:
+        result = await urban_dictionary.search_urban_dictionary(term)
+        
+        if not result['found']:
+            embed = discord.Embed(
+                title=f"🔍 Urban Dictionary: {term}",
+                description=f"Kein Eintrag für **{term}** gefunden.\n\nEntweder ist das Wort zu normal oder zu weird selbst für Urban Dictionary. :WHYY:",
+                color=discord.Color.red()
+            )
+            await interaction.followup.send(embed=embed)
+            return
+        
+        # Truncate definition if too long
+        definition = result['definition']
+        if len(definition) > 1000:
+            definition = definition[:997] + "..."
+        
+        embed = discord.Embed(
+            title=f"📖 {result['word']}",
+            description=definition,
+            color=get_embed_color(config),
+            url=result['permalink']
+        )
+        
+        # Add example if available
+        if result['example']:
+            example = result['example']
+            if len(example) > 500:
+                example = example[:497] + "..."
+            embed.add_field(name="📝 Beispiel", value=f"*{example}*", inline=False)
+        
+        # Add rating
+        embed.add_field(
+            name="Bewertung", 
+            value=f"👍 {result['thumbs_up']} | 👎 {result['thumbs_down']}", 
+            inline=True
+        )
+        embed.add_field(name="Autor", value=result['author'], inline=True)
+        
+        embed.set_footer(text="Quelle: Urban Dictionary | Definitionen sind nutzer-generiert")
+        
+        await interaction.followup.send(embed=embed)
+        
+    except Exception as e:
+        logger.error(f"Error in urban command: {e}", exc_info=True)
+        await interaction.followup.send(f"❌ Fehler beim Suchen: `{e}`")
 
 
 class RussianRouletteView(discord.ui.View):
