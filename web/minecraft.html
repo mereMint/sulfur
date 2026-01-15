@@ -1343,6 +1343,7 @@
                 if (data.success) {
                     alert('Player added to whitelist!');
                     bootstrap.Modal.getInstance(document.getElementById('whitelistModal')).hide();
+                    loadWhitelist(); // Refresh the whitelist
                     refreshStatus();
                 } else {
                     alert('Failed to add to whitelist: ' + data.error);
@@ -1717,11 +1718,68 @@
             return days + 'd ago';
         }
 
+        // ===== Whitelist Functions =====
+        async function loadWhitelist() {
+            try {
+                const response = await fetch('/api/minecraft/whitelist');
+                const data = await response.json();
+                
+                const container = document.getElementById('whitelist-players');
+                
+                if (data.error) {
+                    container.innerHTML = '<p class="text-danger">Error loading whitelist: ' + data.error + '</p>';
+                    return;
+                }
+                
+                if (!data.whitelist || data.whitelist.length === 0) {
+                    container.innerHTML = '<p class="text-muted">No players on whitelist</p>';
+                    return;
+                }
+                
+                container.innerHTML = data.whitelist.map(player => `
+                    <div class="player-stats-card d-flex justify-content-between align-items-center mb-2">
+                        <div>
+                            <strong><i class="bi bi-person-check-fill text-success"></i> ${player.name}</strong>
+                            ${player.uuid ? `<br><small class="text-muted">UUID: ${player.uuid}</small>` : ''}
+                        </div>
+                        <button class="btn btn-sm btn-outline-danger" onclick="removeFromWhitelist('${player.name}')">
+                            <i class="bi bi-x"></i> Remove
+                        </button>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Error loading whitelist:', error);
+                document.getElementById('whitelist-players').innerHTML = '<p class="text-danger">Failed to load whitelist</p>';
+            }
+        }
+
+        async function removeFromWhitelist(username) {
+            if (!confirm(`Remove ${username} from whitelist?`)) return;
+            
+            try {
+                const response = await fetch(`/api/minecraft/whitelist/${username}`, {
+                    method: 'DELETE'
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert(`${username} removed from whitelist!`);
+                    loadWhitelist(); // Reload list
+                } else {
+                    alert('Failed to remove: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Error removing from whitelist:', error);
+                alert('Error removing from whitelist');
+            }
+        }
+
         // Initialize new features on page load
         document.addEventListener('DOMContentLoaded', function() {
             initWeeklySchedule();
             loadBanList();
             loadPlayerStats();
+            loadWhitelist();
         });
     </script>
 </body>

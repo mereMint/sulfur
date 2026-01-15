@@ -236,6 +236,10 @@ def stream_minecraft_console():
         return
     
     last_line_count = 0
+    consecutive_errors = 0
+    max_consecutive_errors = 5
+    
+    logger.info("[Minecraft Console Stream] Starting console streaming thread")
     
     while True:
         try:
@@ -246,18 +250,26 @@ def stream_minecraft_console():
                 # Only send new lines
                 if len(lines) > last_line_count:
                     new_lines = lines[last_line_count:]
+                    logger.debug(f"[Minecraft Console Stream] Emitting {len(new_lines)} new console lines")
                     for line in new_lines:
                         socketio.emit('minecraft_console', {'line': line}, namespace='/')
+                    consecutive_errors = 0  # Reset error counter on success
                 
                 # Update line count
                 last_line_count = len(lines)
             else:
                 # Reset counter when server is not running
+                if last_line_count > 0:
+                    logger.info("[Minecraft Console Stream] Server stopped, resetting console buffer")
                 last_line_count = 0
                     
             time.sleep(0.5)  # Check twice per second for responsive console
         except Exception as e:
-            logger.error(f"Error streaming Minecraft console: {e}")
+            consecutive_errors += 1
+            logger.error(f"[Minecraft Console Stream] Error streaming console (attempt {consecutive_errors}/{max_consecutive_errors}): {e}")
+            if consecutive_errors >= max_consecutive_errors:
+                logger.critical(f"[Minecraft Console Stream] Too many consecutive errors, stopping console stream")
+                break
             time.sleep(2)
 
 
@@ -271,15 +283,27 @@ def handle_connect():
 def handle_minecraft_console_connect():
     """Handle Minecraft console stream connection."""
     if not MINECRAFT_AVAILABLE:
+        logger.warning("[Minecraft Console] Module not available")
         emit('minecraft_console', {'error': 'Minecraft server module not available'})
         return
     
     try:
+        # Check if server is running
+        is_running = minecraft_server.is_server_running()
+        logger.info(f"[Minecraft Console] Client connected, server running: {is_running}")
+        
         # Send initial console output
         lines = minecraft_server.get_console_output(50)
-        for line in lines:
-            emit('minecraft_console', {'line': line})
+        logger.info(f"[Minecraft Console] Sending {len(lines)} initial console lines to client")
+        
+        if not lines:
+            # Send a message indicating no console output yet
+            emit('minecraft_console', {'line': '[Web Dashboard] Console is empty. Waiting for server output...'})
+        else:
+            for line in lines:
+                emit('minecraft_console', {'line': line})
     except Exception as e:
+        logger.error(f"[Minecraft Console] Error during connect: {e}")
         emit('minecraft_console', {'error': str(e)})
 
 @socketio.on('disconnect')
@@ -5492,6 +5516,24 @@ def minecraft_whitelist_add():
         return jsonify({'success': success, 'message': message})
     except Exception as e:
         logger.error(f"Error adding to Minecraft whitelist: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/api/minecraft/whitelist/<username>', methods=['DELETE'])
+def minecraft_whitelist_remove(username):
+    """Remove a player from the whitelist."""
+    if not MINECRAFT_AVAILABLE:
+        return jsonify({'error': 'Minecraft server module not available'}), 503
+    
+    try:
+        username = username.strip()
+        
+        if not username:
+            return jsonify({'success': False, 'error': 'No username provided'}), 400
+        
+        success, message = run_async(minecraft_server.remove_from_whitelist(username))
+        return jsonify({'success': success, 'message': message})
+    except Exception as e:
+        logger.error(f"Error removing from Minecraft whitelist: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/minecraft/config', methods=['GET', 'POST'])
