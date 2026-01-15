@@ -2296,12 +2296,18 @@ async def play_next_in_queue(voice_client: discord.VoiceClient, guild_id: int) -
     try:
         if guild_id not in active_sessions or 'queue' not in active_sessions[guild_id]:
             logger.info("No queue found, stopping playback")
+            # Queue is empty, trigger auto-disconnect check
+            if voice_client and voice_client.is_connected():
+                start_auto_disconnect_check(guild_id, voice_client)
             return False
         
         # Check failure count to prevent infinite recursion
         failure_count = active_sessions[guild_id].get('failure_count', 0)
         if failure_count >= MAX_QUEUE_FAILURES:
             logger.warning(f"Reached maximum failures ({MAX_QUEUE_FAILURES}), stopping queue")
+            # Queue has failed too many times, trigger auto-disconnect check
+            if voice_client and voice_client.is_connected():
+                start_auto_disconnect_check(guild_id, voice_client)
             return False
         
         queue = active_sessions[guild_id]['queue']
@@ -2310,6 +2316,11 @@ async def play_next_in_queue(voice_client: discord.VoiceClient, guild_id: int) -
         
         if not queue:
             logger.info("Queue empty, stopping playback")
+            # Queue is empty, trigger auto-disconnect check if alone
+            if voice_client and voice_client.is_connected():
+                if await check_voice_channel_empty(voice_client):
+                    logger.info("Queue empty and channel empty, starting auto-disconnect timer")
+                    start_auto_disconnect_check(guild_id, voice_client)
             return False
         
         # Only shuffle remaining queue if NOT playing an album (songs with track_number)
