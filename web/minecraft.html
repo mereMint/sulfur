@@ -1343,6 +1343,7 @@
                 if (data.success) {
                     alert('Player added to whitelist!');
                     bootstrap.Modal.getInstance(document.getElementById('whitelistModal')).hide();
+                    loadWhitelist(); // Refresh the whitelist
                     refreshStatus();
                 } else {
                     alert('Failed to add to whitelist: ' + data.error);
