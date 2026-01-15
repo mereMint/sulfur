@@ -3110,7 +3110,7 @@ async def _scheduled_shutdown(config: Dict):
     
     # Final shutdown
     if is_server_running():
-        await stop_server(True, "Geplante Wartung. Bis bald!")
+        await stop_server(True, "Geplanter Neustart - Server wird heruntergefahren")
 
 
 # ==============================================================================
