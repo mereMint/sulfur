@@ -77,9 +77,42 @@ CALL add_column_if_not_exists_027('stock_trades', 'symbol', 'VARCHAR(10) NULL');
 CALL add_column_if_not_exists_027('stock_trades', 'traded_at', 'TIMESTAMP NULL DEFAULT NULL');
 
 -- Add indexes on new columns for better query performance (before UPDATE)
-CREATE INDEX IF NOT EXISTS idx_stock_trades_action ON stock_trades(action);
-CREATE INDEX IF NOT EXISTS idx_stock_trades_symbol ON stock_trades(symbol);
-CREATE INDEX IF NOT EXISTS idx_stock_trades_traded_at ON stock_trades(traded_at);
+-- Use dynamic SQL to avoid errors if indexes already exist
+SET @create_idx_action = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS 
+     WHERE TABLE_SCHEMA = DATABASE() 
+       AND TABLE_NAME = 'stock_trades' 
+       AND INDEX_NAME = 'idx_stock_trades_action') = 0,
+    'CREATE INDEX idx_stock_trades_action ON stock_trades(action)',
+    'SELECT "Index idx_stock_trades_action already exists" AS message'
+);
+PREPARE stmt FROM @create_idx_action;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @create_idx_symbol = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS 
+     WHERE TABLE_SCHEMA = DATABASE() 
+       AND TABLE_NAME = 'stock_trades' 
+       AND INDEX_NAME = 'idx_stock_trades_symbol') = 0,
+    'CREATE INDEX idx_stock_trades_symbol ON stock_trades(symbol)',
+    'SELECT "Index idx_stock_trades_symbol already exists" AS message'
+);
+PREPARE stmt FROM @create_idx_symbol;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @create_idx_traded_at = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS 
+     WHERE TABLE_SCHEMA = DATABASE() 
+       AND TABLE_NAME = 'stock_trades' 
+       AND INDEX_NAME = 'idx_stock_trades_traded_at') = 0,
+    'CREATE INDEX idx_stock_trades_traded_at ON stock_trades(traded_at)',
+    'SELECT "Index idx_stock_trades_traded_at already exists" AS message'
+);
+PREPARE stmt FROM @create_idx_traded_at;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
 
 -- Update existing data to populate the new columns
 -- This is safe because we have indexes and use NULL checks

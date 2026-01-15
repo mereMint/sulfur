@@ -5662,14 +5662,54 @@ class AIDashboardView(discord.ui.View):
         # Reload the config in memory to be safe
         config = load_config()
 
-        # Create a new embed with the updated info and edit the original message
-        # We can reuse the logic from the ai_dashboard command itself.
-        # To do this, we create a temporary instance of the AdminGroup and call the method.
-        # This is a bit of a workaround but keeps the embed logic in one place.
-        temp_admin_group = AdminGroup()
-        # We need to "re-call" the command logic to generate the new embed.
-        # The original interaction object is used to edit the existing message.
-        await temp_admin_group.ai_dashboard(interaction)
+        # Generate the updated embed with new model info
+        current_provider = await get_current_provider(config)
+        
+        # Get Gemini usage from the database
+        cnx = db_helpers.db_pool.get_connection()
+        gemini_usage = 0
+        if cnx:
+            cursor = cnx.cursor(dictionary=True)
+            try:
+                cursor.execute("SELECT SUM(call_count) as total_calls FROM api_usage WHERE usage_date = CURDATE() AND model_name LIKE 'gemini%%'")
+                result = cursor.fetchone()
+                gemini_usage = result['total_calls'] if result and result['total_calls'] else 0
+            finally:
+                cursor.close()
+                cnx.close()
+
+        # Create the progress bar
+        progress = int((gemini_usage / GEMINI_DAILY_LIMIT) * 20) # 20 characters for the bar
+        progress_bar = '█' * progress + '░' * (20 - progress)
+
+        # Determine status and color
+        if current_provider == 'gemini':
+            model_in_use = config['api']['gemini']['model']
+            status_text = "Aktiv"
+            embed_color = discord.Color.green()
+        else:
+            model_in_use = config['api']['openai']['chat_model']
+            # Check if this is a fallback or the primary choice
+            if config['api']['provider'] == 'gemini':
+                status_text = "Fallback (Limit erreicht)"
+            else:
+                status_text = "Aktiv"
+            embed_color = discord.Color.red()
+
+        embed = discord.Embed(
+            title="🤖 AI API Dashboard",
+            description="Status des aktuell genutzten Sprachmodells.",
+            color=get_embed_color(config)
+        )
+        embed.add_field(name="Aktiver Provider", value=f"**`{current_provider.capitalize()}`**", inline=False)
+        embed.add_field(name="Aktives Modell", value=f"`{model_in_use}`", inline=True)
+        embed.add_field(name="Provider-Status", value=status_text, inline=True)
+        embed.add_field(name=f"Gemini-Nutzung (Heute)", value=f"`{gemini_usage} / {GEMINI_DAILY_LIMIT}` Aufrufe\n`{progress_bar}`", inline=False)
+        embed.set_footer(text="Der Zähler wird täglich um 00:00 UTC zurückgesetzt.")
+        
+        # Edit the original message with the updated embed and keep the view
+        view = AIDashboardView()
+        await interaction.edit_original_response(embed=embed, view=view)
 
 @tree.command(name="summary", description="Zeigt Sulfurs Meinung über einen Benutzer an.")
 @app_commands.describe(user="Der Benutzer, dessen Zusammenfassung du sehen möchtest (optional).")

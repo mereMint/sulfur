@@ -5,141 +5,171 @@
 -- Focuses on frequently queried tables and common JOIN/WHERE conditions
 -- ============================================================================
 
+DELIMITER $$
+
+-- Create helper procedure to add indexes if they don't exist
+DROP PROCEDURE IF EXISTS add_index_if_not_exists_029$$
+CREATE PROCEDURE add_index_if_not_exists_029(
+    IN p_table_name VARCHAR(64),
+    IN p_index_name VARCHAR(64),
+    IN p_index_definition VARCHAR(500)
+)
+BEGIN
+    DECLARE table_exists INT DEFAULT 0;
+    DECLARE index_exists INT DEFAULT 0;
+    
+    -- Check if table exists
+    SELECT COUNT(*) INTO table_exists 
+    FROM information_schema.tables 
+    WHERE table_schema = DATABASE() AND table_name = p_table_name;
+    
+    IF table_exists > 0 THEN
+        -- Check if index exists
+        SELECT COUNT(*) INTO index_exists 
+        FROM information_schema.statistics 
+        WHERE table_schema = DATABASE() 
+          AND table_name = p_table_name 
+          AND index_name = p_index_name;
+        
+        IF index_exists = 0 THEN
+            SET @sql = CONCAT('CREATE INDEX `', p_index_name, '` ON `', p_table_name, '` ', p_index_definition);
+            PREPARE stmt FROM @sql;
+            EXECUTE stmt;
+            DEALLOCATE PREPARE stmt;
+        END IF;
+    END IF;
+END$$
+
+DELIMITER ;
+
 -- ============================================================================
 -- PART 1: Add Indexes to Core Tables
 -- ============================================================================
 
 -- Players table - most frequently joined table
-CREATE INDEX IF NOT EXISTS idx_players_discord_id ON players(discord_id);
-CREATE INDEX IF NOT EXISTS idx_players_display_name ON players(display_name);
+CALL add_index_if_not_exists_029('players', 'idx_players_discord_id', '(discord_id)');
+CALL add_index_if_not_exists_029('players', 'idx_players_display_name', '(display_name)');
 
 -- User stats - frequently filtered by user_id
-CREATE INDEX IF NOT EXISTS idx_user_stats_user_id ON user_stats(user_id);
-CREATE INDEX IF NOT EXISTS idx_user_stats_messages_sent ON user_stats(messages_sent DESC);
+CALL add_index_if_not_exists_029('user_stats', 'idx_user_stats_user_id', '(user_id)');
+CALL add_index_if_not_exists_029('user_stats', 'idx_user_stats_messages_sent', '(messages_sent DESC)');
 
 -- Transaction history - large table, needs indexes
-CREATE INDEX IF NOT EXISTS idx_transaction_history_user_id ON transaction_history(user_id);
-CREATE INDEX IF NOT EXISTS idx_transaction_history_timestamp ON transaction_history(timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_transaction_history_type ON transaction_history(transaction_type);
+CALL add_index_if_not_exists_029('transaction_history', 'idx_transaction_history_user_id', '(user_id)');
+CALL add_index_if_not_exists_029('transaction_history', 'idx_transaction_history_timestamp', '(timestamp DESC)');
+CALL add_index_if_not_exists_029('transaction_history', 'idx_transaction_history_type', '(transaction_type)');
 
 -- AI model usage - frequently queried for stats
-CREATE INDEX IF NOT EXISTS idx_ai_model_usage_user_id ON ai_model_usage(user_id);
-CREATE INDEX IF NOT EXISTS idx_ai_model_usage_timestamp ON ai_model_usage(timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_ai_model_usage_model ON ai_model_usage(model_name);
+CALL add_index_if_not_exists_029('ai_model_usage', 'idx_ai_model_usage_user_id', '(user_id)');
+CALL add_index_if_not_exists_029('ai_model_usage', 'idx_ai_model_usage_timestamp', '(timestamp DESC)');
+CALL add_index_if_not_exists_029('ai_model_usage', 'idx_ai_model_usage_model', '(model_name)');
 
 -- API usage - dashboard stats
-CREATE INDEX IF NOT EXISTS idx_api_usage_date ON api_usage(usage_date DESC);
-CREATE INDEX IF NOT EXISTS idx_api_usage_model ON api_usage(model_name);
+CALL add_index_if_not_exists_029('api_usage', 'idx_api_usage_date', '(usage_date DESC)');
+CALL add_index_if_not_exists_029('api_usage', 'idx_api_usage_model', '(model_name)');
 
 -- ============================================================================
 -- PART 2: Gaming Tables Indexes
 -- ============================================================================
 
 -- Blackjack games
-CREATE INDEX IF NOT EXISTS idx_blackjack_user_id ON blackjack_games(user_id);
-CREATE INDEX IF NOT EXISTS idx_blackjack_result ON blackjack_games(result);
-CREATE INDEX IF NOT EXISTS idx_blackjack_played_at ON blackjack_games(played_at DESC);
-CREATE INDEX IF NOT EXISTS idx_blackjack_payout ON blackjack_games(payout DESC);
+CALL add_index_if_not_exists_029('blackjack_games', 'idx_blackjack_user_id', '(user_id)');
+CALL add_index_if_not_exists_029('blackjack_games', 'idx_blackjack_result', '(result)');
+CALL add_index_if_not_exists_029('blackjack_games', 'idx_blackjack_played_at', '(played_at DESC)');
+CALL add_index_if_not_exists_029('blackjack_games', 'idx_blackjack_payout', '(payout DESC)');
 
 -- Roulette games
-CREATE INDEX IF NOT EXISTS idx_roulette_user_id ON roulette_games(user_id);
-CREATE INDEX IF NOT EXISTS idx_roulette_won ON roulette_games(won);
-CREATE INDEX IF NOT EXISTS idx_roulette_played_at ON roulette_games(played_at DESC);
-CREATE INDEX IF NOT EXISTS idx_roulette_payout ON roulette_games(payout DESC);
+CALL add_index_if_not_exists_029('roulette_games', 'idx_roulette_user_id', '(user_id)');
+CALL add_index_if_not_exists_029('roulette_games', 'idx_roulette_won', '(won)');
+CALL add_index_if_not_exists_029('roulette_games', 'idx_roulette_played_at', '(played_at DESC)');
+CALL add_index_if_not_exists_029('roulette_games', 'idx_roulette_payout', '(payout DESC)');
 
 -- Mines games
-CREATE INDEX IF NOT EXISTS idx_mines_user_id ON mines_games(user_id);
-CREATE INDEX IF NOT EXISTS idx_mines_result ON mines_games(result);
-CREATE INDEX IF NOT EXISTS idx_mines_played_at ON mines_games(played_at DESC);
-CREATE INDEX IF NOT EXISTS idx_mines_payout ON mines_games(payout DESC);
+CALL add_index_if_not_exists_029('mines_games', 'idx_mines_user_id', '(user_id)');
+CALL add_index_if_not_exists_029('mines_games', 'idx_mines_result', '(result)');
+CALL add_index_if_not_exists_029('mines_games', 'idx_mines_played_at', '(played_at DESC)');
+CALL add_index_if_not_exists_029('mines_games', 'idx_mines_payout', '(payout DESC)');
 
 -- Word games
-CREATE INDEX IF NOT EXISTS idx_word_games_user_id ON word_games(user_id);
-CREATE INDEX IF NOT EXISTS idx_word_games_played_at ON word_games(played_at DESC);
+CALL add_index_if_not_exists_029('word_games', 'idx_word_games_user_id', '(user_id)');
+CALL add_index_if_not_exists_029('word_games', 'idx_word_games_played_at', '(played_at DESC)');
 
 -- ============================================================================
 -- PART 3: Stock Market Indexes
 -- ============================================================================
 
 -- Stocks table
-CREATE INDEX IF NOT EXISTS idx_stocks_symbol ON stocks(symbol);
-CREATE INDEX IF NOT EXISTS idx_stocks_category ON stocks(category);
-CREATE INDEX IF NOT EXISTS idx_stocks_sector ON stocks(sector);
-CREATE INDEX IF NOT EXISTS idx_stocks_price ON stocks(current_price);
+CALL add_index_if_not_exists_029('stocks', 'idx_stocks_symbol', '(symbol)');
+CALL add_index_if_not_exists_029('stocks', 'idx_stocks_category', '(category)');
+CALL add_index_if_not_exists_029('stocks', 'idx_stocks_sector', '(sector)');
+CALL add_index_if_not_exists_029('stocks', 'idx_stocks_price', '(current_price)');
 
 -- User portfolios
-CREATE INDEX IF NOT EXISTS idx_user_portfolio_user_id ON user_portfolio(user_id);
-CREATE INDEX IF NOT EXISTS idx_user_portfolio_stock_id ON user_portfolio(stock_id);
-CREATE INDEX IF NOT EXISTS idx_user_portfolio_quantity ON user_portfolio(quantity DESC);
+CALL add_index_if_not_exists_029('user_portfolio', 'idx_user_portfolio_user_id', '(user_id)');
+CALL add_index_if_not_exists_029('user_portfolio', 'idx_user_portfolio_stock_id', '(stock_id)');
+CALL add_index_if_not_exists_029('user_portfolio', 'idx_user_portfolio_quantity', '(quantity DESC)');
 
 -- Stock transactions
-CREATE INDEX IF NOT EXISTS idx_stock_transactions_user_id ON stock_transactions(user_id);
-CREATE INDEX IF NOT EXISTS idx_stock_transactions_stock_id ON stock_transactions(stock_id);
-CREATE INDEX IF NOT EXISTS idx_stock_transactions_timestamp ON stock_transactions(transaction_time DESC);
+CALL add_index_if_not_exists_029('stock_transactions', 'idx_stock_transactions_user_id', '(user_id)');
+CALL add_index_if_not_exists_029('stock_transactions', 'idx_stock_transactions_stock_id', '(stock_id)');
+CALL add_index_if_not_exists_029('stock_transactions', 'idx_stock_transactions_timestamp', '(transaction_time DESC)');
 
 -- ============================================================================
 -- PART 4: RPG System Indexes
 -- ============================================================================
 
 -- RPG players
-CREATE INDEX IF NOT EXISTS idx_rpg_players_user_id ON rpg_players(user_id);
-CREATE INDEX IF NOT EXISTS idx_rpg_players_level ON rpg_players(level DESC);
-CREATE INDEX IF NOT EXISTS idx_rpg_players_exp ON rpg_players(experience DESC);
+CALL add_index_if_not_exists_029('rpg_players', 'idx_rpg_players_user_id', '(user_id)');
+CALL add_index_if_not_exists_029('rpg_players', 'idx_rpg_players_level', '(level DESC)');
+CALL add_index_if_not_exists_029('rpg_players', 'idx_rpg_players_exp', '(experience DESC)');
 
 -- RPG items
-CREATE INDEX IF NOT EXISTS idx_rpg_items_created_by ON rpg_items(created_by);
-CREATE INDEX IF NOT EXISTS idx_rpg_items_item_type ON rpg_items(item_type);
-CREATE INDEX IF NOT EXISTS idx_rpg_items_rarity ON rpg_items(rarity);
+CALL add_index_if_not_exists_029('rpg_items', 'idx_rpg_items_created_by', '(created_by)');
+CALL add_index_if_not_exists_029('rpg_items', 'idx_rpg_items_item_type', '(item_type)');
+CALL add_index_if_not_exists_029('rpg_items', 'idx_rpg_items_rarity', '(rarity)');
 
 -- RPG monsters
-CREATE INDEX IF NOT EXISTS idx_rpg_monsters_level ON rpg_monsters(level);
-CREATE INDEX IF NOT EXISTS idx_rpg_monsters_monster_type ON rpg_monsters(monster_type);
+CALL add_index_if_not_exists_029('rpg_monsters', 'idx_rpg_monsters_level', '(level)');
+CALL add_index_if_not_exists_029('rpg_monsters', 'idx_rpg_monsters_monster_type', '(monster_type)');
 
 -- RPG daily shop
-CREATE INDEX IF NOT EXISTS idx_rpg_daily_shop_date ON rpg_daily_shop(shop_date DESC);
+CALL add_index_if_not_exists_029('rpg_daily_shop', 'idx_rpg_daily_shop_date', '(shop_date DESC)');
 
 -- ============================================================================
 -- PART 5: Voice and Activity Indexes
 -- ============================================================================
 
 -- Voice activity
-CREATE INDEX IF NOT EXISTS idx_voice_activity_user_id ON voice_activity(user_id);
-CREATE INDEX IF NOT EXISTS idx_voice_activity_joined_at ON voice_activity(joined_at DESC);
-CREATE INDEX IF NOT EXISTS idx_voice_activity_left_at ON voice_activity(left_at DESC);
+CALL add_index_if_not_exists_029('voice_activity', 'idx_voice_activity_user_id', '(user_id)');
+CALL add_index_if_not_exists_029('voice_activity', 'idx_voice_activity_joined_at', '(joined_at DESC)');
+CALL add_index_if_not_exists_029('voice_activity', 'idx_voice_activity_left_at', '(left_at DESC)');
 
 -- Daily user stats
-CREATE INDEX IF NOT EXISTS idx_daily_user_stats_user_id ON daily_user_stats(user_id);
-CREATE INDEX IF NOT EXISTS idx_daily_user_stats_date ON daily_user_stats(date DESC);
+CALL add_index_if_not_exists_029('daily_user_stats', 'idx_daily_user_stats_user_id', '(user_id)');
+CALL add_index_if_not_exists_029('daily_user_stats', 'idx_daily_user_stats_date', '(date DESC)');
 
 -- ============================================================================
 -- PART 6: Composite Indexes for Common Queries
 -- ============================================================================
 
 -- User stats - messages leaderboard (commands_used column does not exist in user_stats table)
-CREATE INDEX IF NOT EXISTS idx_user_stats_activity
-ON user_stats(messages_sent DESC);
+CALL add_index_if_not_exists_029('user_stats', 'idx_user_stats_activity', '(messages_sent DESC)');
 
 -- Transaction history - user timeline
-CREATE INDEX IF NOT EXISTS idx_transaction_user_time
-ON transaction_history(user_id, timestamp DESC);
+CALL add_index_if_not_exists_029('transaction_history', 'idx_transaction_user_time', '(user_id, timestamp DESC)');
 
 -- AI usage - user model stats
-CREATE INDEX IF NOT EXISTS idx_ai_usage_user_model
-ON ai_model_usage(user_id, model_name, timestamp DESC);
+CALL add_index_if_not_exists_029('ai_model_usage', 'idx_ai_usage_user_model', '(user_id, model_name, timestamp DESC)');
 
 -- Gaming - user performance
-CREATE INDEX IF NOT EXISTS idx_blackjack_user_result
-ON blackjack_games(user_id, result, played_at DESC);
+CALL add_index_if_not_exists_029('blackjack_games', 'idx_blackjack_user_result', '(user_id, result, played_at DESC)');
 
-CREATE INDEX IF NOT EXISTS idx_roulette_user_result
-ON roulette_games(user_id, won, played_at DESC);
+CALL add_index_if_not_exists_029('roulette_games', 'idx_roulette_user_result', '(user_id, won, played_at DESC)');
 
-CREATE INDEX IF NOT EXISTS idx_mines_user_result
-ON mines_games(user_id, result, played_at DESC);
+CALL add_index_if_not_exists_029('mines_games', 'idx_mines_user_result', '(user_id, result, played_at DESC)');
 
 -- Stock portfolio - user holdings
-CREATE INDEX IF NOT EXISTS idx_portfolio_user_value
-ON user_portfolio(user_id, quantity DESC);
+CALL add_index_if_not_exists_029('user_portfolio', 'idx_portfolio_user_value', '(user_id, quantity DESC)');
 
 -- ============================================================================
 -- PART 7: Optimize Table Structure
@@ -160,15 +190,61 @@ ANALYZE TABLE user_portfolio;
 -- PART 8: Add Missing Columns for Future Features
 -- ============================================================================
 
+DELIMITER $$
+
+-- Create helper procedure for adding columns with indexes
+DROP PROCEDURE IF EXISTS add_column_with_index_029$$
+CREATE PROCEDURE add_column_with_index_029(
+    IN p_table_name VARCHAR(64),
+    IN p_column_name VARCHAR(64),
+    IN p_column_definition VARCHAR(500),
+    IN p_index_name VARCHAR(64)
+)
+BEGIN
+    DECLARE table_exists INT DEFAULT 0;
+    DECLARE column_exists INT DEFAULT 0;
+    
+    -- Check if table exists
+    SELECT COUNT(*) INTO table_exists 
+    FROM information_schema.tables 
+    WHERE table_schema = DATABASE() AND table_name = p_table_name;
+    
+    IF table_exists > 0 THEN
+        -- Check if column exists
+        SELECT COUNT(*) INTO column_exists 
+        FROM information_schema.columns 
+        WHERE table_schema = DATABASE() 
+          AND table_name = p_table_name 
+          AND column_name = p_column_name;
+        
+        IF column_exists = 0 THEN
+            SET @sql = CONCAT('ALTER TABLE `', p_table_name, '` ADD COLUMN `', p_column_name, '` ', p_column_definition);
+            PREPARE stmt FROM @sql;
+            EXECUTE stmt;
+            DEALLOCATE PREPARE stmt;
+            
+            -- Add index if specified
+            IF p_index_name IS NOT NULL AND p_index_name != '' THEN
+                SET @sql = CONCAT('CREATE INDEX `', p_index_name, '` ON `', p_table_name, '` (`', p_column_name, '` DESC)');
+                PREPARE stmt FROM @sql;
+                EXECUTE stmt;
+                DEALLOCATE PREPARE stmt;
+            END IF;
+        END IF;
+    END IF;
+END$$
+
+DELIMITER ;
+
 -- Add last_activity column to players for faster active user queries
-ALTER TABLE players
-ADD COLUMN IF NOT EXISTS last_activity TIMESTAMP NULL,
-ADD INDEX idx_players_last_activity (last_activity DESC);
+CALL add_column_with_index_029('players', 'last_activity', 'TIMESTAMP NULL', 'idx_players_last_activity');
 
 -- Add is_active flag for faster filtering
-ALTER TABLE players
-ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE,
-ADD INDEX idx_players_is_active (is_active);
+CALL add_column_with_index_029('players', 'is_active', 'BOOLEAN DEFAULT TRUE', 'idx_players_is_active');
+
+-- Clean up stored procedures
+DROP PROCEDURE IF EXISTS add_index_if_not_exists_029;
+DROP PROCEDURE IF EXISTS add_column_with_index_029;
 
 -- ============================================================================
 -- Performance Notes
