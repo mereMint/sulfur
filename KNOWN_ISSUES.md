@@ -154,11 +154,19 @@ Expected improvements:
 
 ## Migration Issues
 
-### Migration 029 Fails with "Unknown column 'commands_used'"
+### Migration 029 Fails with Column Name Errors
 
-**Issue**: Migration 029 tries to create an index on a column that doesn't exist in the user_stats table.
+**Issue**: Migration 029 fails with multiple "Unknown column" errors due to incorrect column and table names:
+- `api_usage` table: references non-existent `usage_date` and `model_name` columns
+- `user_stats` table: references non-existent `messages_sent` column
+- `stock_transactions` table: table doesn't exist (should be `stock_trades`)
+- Column name mismatches in stock tables
 
-**Solution**: This has been fixed. The references to the `commands_used` column have been removed from migration 029.
+**Solution**: This has been fixed. All column and table names have been corrected:
+- `api_usage`: `usage_date` → `recorded_at`, `model_name` → `model`
+- `user_stats`: `messages_sent` → `message_count` (2 occurrences)
+- `stock_transactions` → `stock_trades`
+- Stock table columns: `stock_id` → `stock_symbol`, `transaction_time` → `timestamp`
 
 ### Stock Market Update Fails with "Unknown column 'stock_symbol'"
 

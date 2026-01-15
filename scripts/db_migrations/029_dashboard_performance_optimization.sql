@@ -52,7 +52,7 @@ CALL add_index_if_not_exists_029('players', 'idx_players_display_name', '(displa
 
 -- User stats - frequently filtered by user_id
 CALL add_index_if_not_exists_029('user_stats', 'idx_user_stats_user_id', '(user_id)');
-CALL add_index_if_not_exists_029('user_stats', 'idx_user_stats_messages_sent', '(messages_sent DESC)');
+CALL add_index_if_not_exists_029('user_stats', 'idx_user_stats_messages_sent', '(message_count DESC)');
 
 -- Transaction history - large table, needs indexes
 CALL add_index_if_not_exists_029('transaction_history', 'idx_transaction_history_user_id', '(user_id)');
@@ -66,8 +66,8 @@ CALL add_index_if_not_exists_029('ai_model_usage', 'idx_ai_model_usage_date', '(
 CALL add_index_if_not_exists_029('ai_model_usage', 'idx_ai_model_usage_model', '(model_name)');
 
 -- API usage - dashboard stats
-CALL add_index_if_not_exists_029('api_usage', 'idx_api_usage_date', '(usage_date DESC)');
-CALL add_index_if_not_exists_029('api_usage', 'idx_api_usage_model', '(model_name)');
+CALL add_index_if_not_exists_029('api_usage', 'idx_api_usage_date', '(recorded_at DESC)');
+CALL add_index_if_not_exists_029('api_usage', 'idx_api_usage_model', '(model)');
 
 -- ============================================================================
 -- PART 2: Gaming Tables Indexes
@@ -110,10 +110,10 @@ CALL add_index_if_not_exists_029('user_portfolio', 'idx_user_portfolio_user_id',
 CALL add_index_if_not_exists_029('user_portfolio', 'idx_user_portfolio_stock_id', '(stock_id)');
 CALL add_index_if_not_exists_029('user_portfolio', 'idx_user_portfolio_quantity', '(quantity DESC)');
 
--- Stock transactions
-CALL add_index_if_not_exists_029('stock_transactions', 'idx_stock_transactions_user_id', '(user_id)');
-CALL add_index_if_not_exists_029('stock_transactions', 'idx_stock_transactions_stock_id', '(stock_id)');
-CALL add_index_if_not_exists_029('stock_transactions', 'idx_stock_transactions_timestamp', '(transaction_time DESC)');
+-- Stock trades (was stock_transactions)
+CALL add_index_if_not_exists_029('stock_trades', 'idx_stock_trades_user_id', '(user_id)');
+CALL add_index_if_not_exists_029('stock_trades', 'idx_stock_trades_stock_symbol', '(stock_symbol)');
+CALL add_index_if_not_exists_029('stock_trades', 'idx_stock_trades_timestamp', '(timestamp DESC)');
 
 -- ============================================================================
 -- PART 4: RPG System Indexes
@@ -154,8 +154,8 @@ CALL add_index_if_not_exists_029('daily_user_stats', 'idx_daily_user_stats_date'
 -- PART 6: Composite Indexes for Common Queries
 -- ============================================================================
 
--- User stats - messages leaderboard (commands_used column does not exist in user_stats table)
-CALL add_index_if_not_exists_029('user_stats', 'idx_user_stats_activity', '(messages_sent DESC)');
+-- User stats - messages leaderboard
+CALL add_index_if_not_exists_029('user_stats', 'idx_user_stats_activity', '(message_count DESC)');
 
 -- Transaction history - user timeline
 CALL add_index_if_not_exists_029('transaction_history', 'idx_transaction_user_time', '(user_id, created_at DESC)');
