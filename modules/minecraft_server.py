@@ -2729,7 +2729,6 @@ async def _read_console_output():
             break
     
     # Server stopped - get exit code and log it
-    global _server_process
     if _server_process is not None:
         try:
             # Wait a moment for the process to finish
@@ -2787,7 +2786,7 @@ async def _parse_console_line(line: str):
             logger.error(f"Failed to install system libraries: {e}")
     
     # Detect port binding errors
-    if 'EADDRINUSE' in line or 'Address already in use' in line or 'bind' in line.lower() and 'failed' in line.lower():
+    if 'EADDRINUSE' in line or 'Address already in use' in line or ('bind' in line.lower() and 'failed' in line.lower()):
         logger.error(f"PORT IN USE: Another process is using the Minecraft server port!")
         logger.error("Run 'netstat -tulpn | grep 25565' (Linux) or 'netstat -ano | findstr 25565' (Windows) to find the process")
         update_state('last_error', 'Port 25565 is already in use by another process')

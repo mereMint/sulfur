@@ -170,6 +170,48 @@ EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
 -- ============================================================================
+-- PART 4: Fix user_portfolios Schema Mismatch
+-- ============================================================================
+-- Migration 019 creates user_portfolios with stock_id (integer FK)
+-- But stock_market.py creates it with stock_symbol (varchar FK)
+-- Add stock_symbol column for compatibility with code that expects it
+
+CALL add_column_if_not_exists_032('user_portfolios', 'stock_symbol', 'VARCHAR(10) NULL');
+
+-- Sync stock_symbol from stock_id if stock_id exists
+SET @has_stock_id = (
+    SELECT COUNT(*)
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE()
+      AND table_name = 'user_portfolios'
+      AND column_name = 'stock_id'
+);
+
+-- If we have stock_id, populate stock_symbol by joining to stocks table
+SET @sync_stock_symbol = IF(
+    @has_stock_id > 0,
+    'UPDATE user_portfolios up JOIN stocks s ON up.stock_id = s.id SET up.stock_symbol = s.symbol WHERE up.stock_symbol IS NULL',
+    'SELECT "stock_id column does not exist, skipping stock_symbol sync" AS message'
+);
+
+PREPARE stmt FROM @sync_stock_symbol;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- Add index on stock_symbol for the dashboard queries
+SET @add_idx_stock_symbol = IF(
+    (SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS 
+     WHERE TABLE_SCHEMA = DATABASE() 
+       AND TABLE_NAME = 'user_portfolios' 
+       AND INDEX_NAME = 'idx_user_portfolios_stock_symbol') = 0,
+    'CREATE INDEX idx_user_portfolios_stock_symbol ON user_portfolios(stock_symbol)',
+    'SELECT "Index idx_user_portfolios_stock_symbol already exists" AS message'
+);
+PREPARE stmt FROM @add_idx_stock_symbol;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- ============================================================================
 -- Cleanup
 -- ============================================================================
 DROP PROCEDURE IF EXISTS add_column_if_not_exists_032;
