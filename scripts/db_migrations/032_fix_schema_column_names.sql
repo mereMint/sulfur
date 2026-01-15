@@ -176,7 +176,7 @@ DEALLOCATE PREPARE stmt;
 -- But stock_market.py creates it with stock_symbol (varchar FK)
 -- Add stock_symbol column for compatibility with code that expects it
 
-CALL add_column_if_not_exists_032('user_portfolios', 'stock_symbol', 'VARCHAR(10) NULL');
+CALL add_column_if_not_exists_032('user_portfolios', 'stock_symbol', 'VARCHAR(20) NULL');
 
 -- Sync stock_symbol from stock_id if stock_id exists
 SET @has_stock_id = (
