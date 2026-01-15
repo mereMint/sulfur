@@ -2935,6 +2935,9 @@ async def _parse_console_line(line: str):
             _player_list.append(player)
         update_state('player_count', len(_player_list))
         logger.info(f"Player {player} joined. Total: {len(_player_list)}")
+        
+        # Track player session in database
+        await _track_player_join(player)
         return
 
     # Player left
@@ -2945,6 +2948,9 @@ async def _parse_console_line(line: str):
             _player_list.remove(player)
         update_state('player_count', len(_player_list))
         logger.info(f"Player {player} left. Total: {len(_player_list)}")
+        
+        # Track player session end in database
+        await _track_player_leave(player)
         return
     
     # Server done loading
@@ -3001,6 +3007,7 @@ def unregister_console_callback(callback: Callable):
 def should_server_be_running(config: Dict) -> bool:
     """
     Check if the server should be running based on the schedule.
+    Handles time ranges that cross midnight (e.g., 22:00 - 2:00).
     
     Args:
         config: The Minecraft configuration
@@ -3022,10 +3029,19 @@ def should_server_be_running(config: Dict) -> bool:
     weekday = now.weekday()  # 0 = Monday, 6 = Sunday
     is_weekend = weekday >= 5
     
+    def is_time_in_range(start_hour: int, end_hour: int, current: int) -> bool:
+        """Check if current hour is in range, handling midnight crossover."""
+        if start_hour <= end_hour:
+            # Normal range (e.g., 6:00 - 22:00)
+            return start_hour <= current < end_hour
+        else:
+            # Range crosses midnight (e.g., 22:00 - 2:00 or 12:00 - 2:00)
+            return current >= start_hour or current < end_hour
+    
     if mode == 'timed':
         start_hour = schedule.get('start_hour', 6)
         end_hour = schedule.get('end_hour', 22)
-        return start_hour <= current_hour < end_hour
+        return is_time_in_range(start_hour, end_hour, current_hour)
     
     elif mode == 'weekdays_only':
         if is_weekend:
@@ -3033,7 +3049,7 @@ def should_server_be_running(config: Dict) -> bool:
         weekday_hours = schedule.get('weekday_hours', {})
         start_hour = weekday_hours.get('start', 6)
         end_hour = weekday_hours.get('end', 22)
-        return start_hour <= current_hour < end_hour
+        return is_time_in_range(start_hour, end_hour, current_hour)
     
     elif mode == 'weekends_only':
         if not is_weekend:
@@ -3041,7 +3057,7 @@ def should_server_be_running(config: Dict) -> bool:
         weekend_hours = schedule.get('weekend_hours', {})
         start_hour = weekend_hours.get('start', 0)
         end_hour = weekend_hours.get('end', 24)
-        return start_hour <= current_hour < end_hour
+        return is_time_in_range(start_hour, end_hour, current_hour)
     
     elif mode == 'custom':
         custom = schedule.get('custom_schedule', {})
@@ -3053,7 +3069,7 @@ def should_server_be_running(config: Dict) -> bool:
         
         start_hour = day_schedule.get('start', 0)
         end_hour = day_schedule.get('end', 24)
-        return start_hour <= current_hour < end_hour
+        return is_time_in_range(start_hour, end_hour, current_hour)
     
     return True
 
@@ -3576,6 +3592,113 @@ def get_installation_status() -> Dict:
 
 
 # ==============================================================================
+# Player Session Tracking
+# ==============================================================================
+
+async def _track_player_join(username: str):
+    """Track when a player joins the server."""
+    try:
+        # Import db_helpers here to avoid circular imports
+        from modules import db_helpers
+        
+        if not db_helpers.db_pool:
+            return
+        
+        conn = db_helpers.get_db_connection()
+        if not conn:
+            return
+        
+        cursor = conn.cursor()
+        
+        try:
+            # Create new session entry
+            cursor.execute("""
+                INSERT INTO minecraft_sessions (minecraft_username, join_time)
+                VALUES (%s, NOW())
+            """, (username,))
+            
+            # Update or create player record
+            cursor.execute("""
+                INSERT INTO minecraft_players (minecraft_username, first_joined, last_seen, sessions)
+                VALUES (%s, NOW(), NOW(), 1)
+                ON DUPLICATE KEY UPDATE
+                    last_seen = NOW(),
+                    sessions = sessions + 1
+            """, (username,))
+            
+            conn.commit()
+            logger.debug(f"Tracked join for player: {username}")
+            
+        finally:
+            cursor.close()
+            conn.close()
+            
+    except Exception as e:
+        logger.error(f"Error tracking player join: {e}")
+
+
+async def _track_player_leave(username: str):
+    """Track when a player leaves the server and calculate session duration."""
+    try:
+        from modules import db_helpers
+        
+        if not db_helpers.db_pool:
+            return
+        
+        conn = db_helpers.get_db_connection()
+        if not conn:
+            return
+        
+        cursor = conn.cursor(dictionary=True)
+        
+        try:
+            # Find the most recent session without a leave_time
+            cursor.execute("""
+                SELECT id, join_time
+                FROM minecraft_sessions
+                WHERE minecraft_username = %s AND leave_time IS NULL
+                ORDER BY join_time DESC
+                LIMIT 1
+            """, (username,))
+            
+            session = cursor.fetchone()
+            
+            if session:
+                # Calculate duration
+                cursor.execute("""
+                    UPDATE minecraft_sessions
+                    SET leave_time = NOW(),
+                        duration_minutes = TIMESTAMPDIFF(MINUTE, join_time, NOW())
+                    WHERE id = %s
+                """, (session['id'],))
+                
+                # Get the duration we just calculated
+                cursor.execute("""
+                    SELECT duration_minutes FROM minecraft_sessions WHERE id = %s
+                """, (session['id'],))
+                duration_result = cursor.fetchone()
+                duration = duration_result['duration_minutes'] if duration_result else 0
+                
+                # Update player's total playtime
+                cursor.execute("""
+                    UPDATE minecraft_players
+                    SET playtime_minutes = playtime_minutes + %s,
+                        last_seen = NOW()
+                    WHERE minecraft_username = %s
+                """, (duration, username))
+                
+                conn.commit()
+                logger.debug(f"Tracked leave for player: {username} (session duration: {duration} minutes)")
+            
+        finally:
+            cursor.close()
+            conn.close()
+            
+    except Exception as e:
+        logger.error(f"Error tracking player leave: {e}")
+
+
+# ==============================================================================
 # Database Tables Initialization
 # ==============================================================================
 
@@ -3627,9 +3750,24 @@ async def initialize_minecraft_tables(db_helpers):
                 whitelisted BOOLEAN DEFAULT FALSE,
                 first_joined TIMESTAMP NULL,
                 last_seen TIMESTAMP NULL,
-                play_time_minutes INT DEFAULT 0,
+                playtime_minutes INT DEFAULT 0,
+                sessions INT DEFAULT 0,
+                peak_concurrent INT DEFAULT 0,
                 INDEX idx_discord (discord_user_id),
                 INDEX idx_mc_username (minecraft_username)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        """)
+        
+        # Create minecraft_sessions table for tracking play sessions
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS minecraft_sessions (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                minecraft_username VARCHAR(32) NOT NULL,
+                join_time TIMESTAMP NOT NULL,
+                leave_time TIMESTAMP NULL,
+                duration_minutes INT DEFAULT 0,
+                INDEX idx_username (minecraft_username),
+                INDEX idx_join_time (join_time)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """)
         

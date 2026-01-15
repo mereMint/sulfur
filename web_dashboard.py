@@ -5518,6 +5518,24 @@ def minecraft_whitelist_add():
         logger.error(f"Error adding to Minecraft whitelist: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/minecraft/whitelist/<username>', methods=['DELETE'])
+def minecraft_whitelist_remove(username):
+    """Remove a player from the whitelist."""
+    if not MINECRAFT_AVAILABLE:
+        return jsonify({'error': 'Minecraft server module not available'}), 503
+    
+    try:
+        username = username.strip()
+        
+        if not username:
+            return jsonify({'success': False, 'error': 'No username provided'}), 400
+        
+        success, message = run_async(minecraft_server.remove_from_whitelist(username))
+        return jsonify({'success': success, 'message': message})
+    except Exception as e:
+        logger.error(f"Error removing from Minecraft whitelist: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 @app.route('/api/minecraft/config', methods=['GET', 'POST'])
 def minecraft_config():
     """Get or update Minecraft configuration."""
