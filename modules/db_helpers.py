@@ -2280,14 +2280,14 @@ async def sync_guild_members(members_data: list):
 
 @db_operation("add_balance")
 async def add_balance(user_id, display_name, amount_to_add, config, stat_period=None):
-    """Adds an amount to a user's balance, creating the user if they don't exist."""
+    """Adds an amount to a user's balance, creating the user if they don't exist. Returns the new balance."""
     if not db_pool:
         logger.warning("Database pool not available, skipping balance addition")
-        return
+        return 0
         
     cnx = db_pool.get_connection()
     if not cnx:
-        return
+        return 0
 
     cursor = cnx.cursor()
     try:
@@ -2312,8 +2312,14 @@ async def add_balance(user_id, display_name, amount_to_add, config, stat_period=
         
         # Invalidate balance cache since it changed
         _invalidate_cache(f"balance:{user_id}")
+        
+        # Get and return the new balance
+        cursor.execute("SELECT balance FROM players WHERE discord_id = %s", (user_id,))
+        row = cursor.fetchone()
+        new_balance = int(row[0]) if row and row[0] is not None else 0
             
-        logger.debug(f"Added {amount_to_add} balance to user {user_id}")
+        logger.debug(f"Added {amount_to_add} balance to user {user_id}, new balance: {new_balance}")
+        return new_balance
     finally:
         cursor.close()
         cnx.close()
@@ -4229,6 +4235,11 @@ async def log_transaction(user_id, transaction_type, amount, balance_after, desc
     cnx = db_pool.get_connection()
     if not cnx:
         return False
+    
+    # Ensure balance_after is not None - default to 0 if missing
+    if balance_after is None:
+        logger.warning(f"log_transaction called with None balance_after for user {user_id}, using 0 instead")
+        balance_after = 0
     
     cursor = cnx.cursor()
     try:
