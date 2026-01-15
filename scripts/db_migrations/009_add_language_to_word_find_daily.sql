@@ -2,6 +2,24 @@
 -- Description: Adds language column to support multi-language daily words
 -- This migration is BACKWARDS COMPATIBLE - existing data is preserved
 
+-- ============================================================================
+-- STEP 0: Ensure word_find_daily table exists
+-- ============================================================================
+-- The word_find_daily table is normally created by modules/word_find.py
+-- but we need to ensure it exists before we can modify it
+
+CREATE TABLE IF NOT EXISTS word_find_daily (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    word VARCHAR(100) NOT NULL,
+    difficulty VARCHAR(20) NOT NULL,
+    date DATE NOT NULL,
+    UNIQUE KEY unique_date (date),
+    INDEX idx_date (date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================================
+-- STEP 1: Add language column to word_find_daily if it doesn't exist
+-- ============================================================================
 -- Add language column to word_find_daily if it doesn't exist
 -- Note: Column is added AFTER 'difficulty' for logical grouping.
 -- This requires the 'difficulty' column to exist (which it should from table creation).
@@ -58,6 +76,20 @@ PREPARE stmt FROM @query;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
+-- ============================================================================
+-- STEP 2: Ensure word_find_premium_games table exists
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS word_find_premium_games (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    word VARCHAR(100) NOT NULL,
+    difficulty VARCHAR(20) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed BOOLEAN DEFAULT FALSE,
+    won BOOLEAN DEFAULT FALSE,
+    INDEX idx_user_created (user_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Add language column to word_find_premium_games if it doesn't exist
 SET @table_name = 'word_find_premium_games';
 
@@ -78,6 +110,20 @@ DEALLOCATE PREPARE stmt;
 UPDATE word_find_premium_games 
 SET language = 'de' 
 WHERE language IS NULL OR language = '';
+
+-- ============================================================================
+-- STEP 3: Ensure word_find_attempts table exists
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS word_find_attempts (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    word_id INT NOT NULL,
+    guess VARCHAR(100) NOT NULL,
+    similarity_score FLOAT NOT NULL,
+    attempt_number INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_user_word (user_id, word_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Ensure game_type column exists in word_find_attempts (from migration 007)
 -- This is included here for completeness in case migration 007 was not run
