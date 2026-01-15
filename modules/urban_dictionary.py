@@ -11,6 +11,9 @@ from modules.logger_utils import bot_logger as logger
 # Urban Dictionary API endpoint
 URBAN_DICTIONARY_API = "https://api.urbandictionary.com/v0/define"
 
+# API timeout in seconds
+API_TIMEOUT = 10
+
 
 async def search_urban_dictionary(term: str) -> dict:
     """
@@ -49,7 +52,7 @@ async def search_urban_dictionary(term: str) -> dict:
             async with session.get(
                 URBAN_DICTIONARY_API, 
                 params=params, 
-                timeout=aiohttp.ClientTimeout(total=10)
+                timeout=aiohttp.ClientTimeout(total=API_TIMEOUT)
             ) as response:
                 if response.status == 200:
                     data = await response.json()
@@ -119,7 +122,7 @@ async def get_random_word() -> dict:
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 "https://api.urbandictionary.com/v0/random",
-                timeout=aiohttp.ClientTimeout(total=10)
+                timeout=aiohttp.ClientTimeout(total=API_TIMEOUT)
             ) as response:
                 if response.status == 200:
                     data = await response.json()
