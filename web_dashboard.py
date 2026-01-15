@@ -4494,11 +4494,11 @@ def music_dashboard_page():
 def api_music_status():
     """API endpoint for current music playback status."""
     try:
-        from modules import lofi_player
         import time
+        from modules.db_helpers import get_now_playing_all
         
-        # Get active sessions from lofi_player
-        active_sessions = lofi_player.active_sessions
+        # Get music state from database (works across processes)
+        music_state = get_now_playing_all()
         
         now_playing = None
         queue = []
@@ -4506,64 +4506,52 @@ def api_music_status():
             'total_songs_played': 0,
             'queue_length': 0,
             'listening_time_today_minutes': 0,
-            'active_sessions': len(active_sessions)
+            'active_sessions': len(music_state)
         }
         
         # Get info from first active session if any
-        if active_sessions:
-            guild_id = list(active_sessions.keys())[0]
-            session = active_sessions[guild_id]
+        if music_state:
+            # Get first active guild's music state
+            first_guild_id = list(music_state.keys())[0]
+            session = music_state[first_guild_id]
             
-            # Get current song
-            current_song = lofi_player.get_current_song(guild_id)
-            if current_song:
-                voice_client = session.get('voice_client')
-                
+            current_song = session.get('current_song')
+            if current_song and current_song.get('title'):
                 # Calculate elapsed time since song started
                 elapsed_seconds = 0
-                if 'song_start_time' in session:
+                started_at = session.get('started_at')
+                if started_at:
                     try:
-                        event_loop = session.get('event_loop')
-                        if event_loop:
-                            elapsed_seconds = int(event_loop.time() - session['song_start_time'])
-                        else:
-                            # Fallback to wall clock time if we stored it as such
-                            elapsed_seconds = int(time.time() - session['song_start_time'])
+                        from datetime import datetime
+                        if isinstance(started_at, str):
+                            started_at = datetime.fromisoformat(started_at.replace('Z', '+00:00'))
+                        elapsed_seconds = int((datetime.now(started_at.tzinfo) - started_at).total_seconds())
                     except Exception as e:
-                        logger.warning(f"Error calculating elapsed time: {e}")
+                        logger.debug(f"Error calculating elapsed time: {e}")
                         elapsed_seconds = 0
                 
-                # Get duration from song info or session
-                duration_seconds = current_song.get('duration', 0) or current_song.get('end_time', 0)
-                
-                # Count listeners (exclude bots)
-                listeners = 0
-                if voice_client and voice_client.channel:
-                    listeners = sum(1 for m in voice_client.channel.members if not m.bot)
-                
                 now_playing = {
-                    'guild_id': guild_id,
+                    'guild_id': session.get('guild_id'),
                     'title': current_song.get('title', 'Unknown'),
                     'artist': current_song.get('artist', 'Unknown Artist'),
                     'album': current_song.get('album', ''),
-                    'guild_name': voice_client.guild.name if voice_client and voice_client.guild else 'Unknown',
-                    'channel_name': voice_client.channel.name if voice_client and voice_client.channel else 'Unknown',
-                    'listeners': listeners,
+                    'guild_name': 'Server',  # We don't store guild name in DB
+                    'channel_name': session.get('channel_name', 'Unknown'),
+                    'listeners': 0,  # Can't get this without voice client
                     'elapsed_seconds': max(0, elapsed_seconds),
-                    'duration_seconds': duration_seconds
+                    'duration_seconds': current_song.get('duration', 0) or 0
                 }
             
-            # Get queue and format for JSON response
-            raw_queue = lofi_player.get_queue_preview(guild_id, count=20)  # Get more songs for better display
-            queue = []
-            for song in raw_queue:
+            # Get queue from database state
+            queue_preview = session.get('queue_preview', [])
+            stats['queue_length'] = session.get('queue_length', 0)
+            
+            for song in queue_preview:
                 queue.append({
                     'title': song.get('title', 'Unknown'),
-                    'artist': song.get('artist', 'Unknown Artist'),
-                    'source': song.get('source', 'bot'),
-                    'url': song.get('url', '')
+                    'artist': song.get('artist', 'Unknown'),
+                    'source': song.get('source', '')
                 })
-            stats['queue_length'] = lofi_player.get_queue_length(guild_id)
         
         # Get total songs played from database
         if db_helpers.db_pool:
@@ -5966,40 +5954,8 @@ def database_export():
 # Minecraft / Modpack Status Endpoints
 # ============================================================
 
-@app.route('/api/minecraft/status', methods=['GET'])
-def api_minecraft_status():
-    """API endpoint to get Minecraft server and modpack status."""
-    try:
-        from modules import minecraft_server as mc
-        
-        status = {
-            'server_running': mc.is_server_running(),
-            'current_modpack': mc.get_current_modpack(),
-            'available_modpacks': {},
-            'state': mc._server_state.copy() if hasattr(mc, '_server_state') else {}
-        }
-        
-        # Get available modpacks
-        for name, config in mc.MODPACKS.items():
-            status['available_modpacks'][name] = {
-                'name': config.get('name'),
-                'description': config.get('description'),
-                'source': config.get('source'),
-                'server_type': config.get('server_type')
-            }
-        
-        # Get saved worlds
-        status['saved_worlds'] = mc.list_saved_worlds()
-        
-        logger.info(f"Minecraft status requested: server_running={status['server_running']}, modpack={status['current_modpack']}")
-        
-        return jsonify({
-            'status': 'success',
-            'data': status
-        })
-    except Exception as e:
-        logger.error(f"Error getting Minecraft status: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+# NOTE: /api/minecraft/status is already defined above (line ~5262)
+# This duplicate has been removed to avoid Flask routing issues
 
 
 @app.route('/api/minecraft/modpacks', methods=['GET'])
@@ -6185,19 +6141,55 @@ except ImportError:
 def twitch_dashboard():
     """Renders the Twitch bot dashboard."""
     if not TWITCH_AVAILABLE:
-        flash('Twitch bot module not available', 'warning')
-        return redirect(url_for('index'))
+        # Show the page with empty/default data and a module unavailable indicator
+        empty_status = {
+            'running': False,
+            'connected': False,
+            'channel': None,
+            'stream_live': False,
+            'viewer_count': 0,
+            'uptime': None,
+            'chatters': 0,
+            'message_count': 0,
+            'command_count': 0,
+            'followers_tracked': 0,
+            'module_available': False
+        }
+        empty_config = {
+            'enabled': False,
+            'channel': '',
+            'bot_username': '',
+            'oauth_token': '',
+            'client_id': '',
+            'client_secret': '',
+            'features': {
+                'chat_monitoring': False,
+                'commands': False,
+                'user_tracking': False,
+                'follows_tracking': False,
+                'auto_category': False,
+                'spam_protection': False,
+                'auto_shoutout': False
+            }
+        }
+        return render_template('twitch.html',
+                             twitch_status=empty_status,
+                             twitch_config=empty_config,
+                             twitch_commands={},
+                             module_unavailable=True)
 
     try:
         bot = twitch_bot.get_twitch_bot()
         status = bot.get_status()
+        status['module_available'] = True
         config = bot.config.config
         commands = bot.config.commands
 
         return render_template('twitch.html',
                              twitch_status=status,
                              twitch_config=config,
-                             twitch_commands=commands)
+                             twitch_commands=commands,
+                             module_unavailable=False)
     except Exception as e:
         logger.error(f"Error loading Twitch dashboard: {e}")
         flash(f'Error loading Twitch dashboard: {e}', 'danger')
@@ -6345,8 +6337,35 @@ def api_vpn_status():
             'wireguard_installed': wg.is_wireguard_installed(),
             'platform': wg._get_platform(),
             'interface_exists': False,
+            'interface_active': False,
+            'server_address': None,
+            'port': wg.WG_PORT,
+            'clients': [],
             'peers': []
         }
+        
+        # Load VPN configuration
+        vpn_config_path = os.path.join(wg.WG_CONFIG_DIR, 'vpn_config.json')
+        if os.path.exists(vpn_config_path):
+            try:
+                with open(vpn_config_path, 'r') as f:
+                    vpn_config = json.load(f)
+                status['server_address'] = vpn_config.get('address', '10.0.0.1/24')
+                status['port'] = vpn_config.get('port', wg.WG_PORT)
+                status['endpoint'] = vpn_config.get('endpoint', '')
+                
+                # Convert peers to clients format for the dashboard
+                peers = vpn_config.get('peers', [])
+                for i, peer in enumerate(peers):
+                    status['clients'].append({
+                        'id': str(i),
+                        'name': peer.get('name', f'Peer {i+1}'),
+                        'assigned_ip': peer.get('allowed_ips', 'N/A'),
+                        'public_key': peer.get('public_key', ''),
+                        'is_active': False  # Will be updated from interface status
+                    })
+            except (json.JSONDecodeError, IOError) as e:
+                logger.debug(f"Could not load VPN config: {e}")
         
         # Try to get interface status
         try:
@@ -6354,15 +6373,20 @@ def api_vpn_status():
             status['interface_exists'] = interface_status.get('exists', False)
             status['interface_active'] = interface_status.get('active', False)
             status['peers'] = interface_status.get('peers', [])
+            
+            # Update client active status based on interface peers
+            active_peers = {p.get('public_key'): p for p in status['peers']}
+            for client in status['clients']:
+                if client['public_key'] in active_peers:
+                    peer_info = active_peers[client['public_key']]
+                    # Consider active if we've seen a handshake recently
+                    client['is_active'] = peer_info.get('latest_handshake') is not None
         except Exception as e:
             logger.debug(f"Could not get WireGuard interface status: {e}")
         
         logger.info(f"VPN status requested: installed={status['wireguard_installed']}")
         
-        return jsonify({
-            'status': 'success',
-            'data': status
-        })
+        return jsonify(status)
     except Exception as e:
         logger.error(f"Error getting VPN status: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
@@ -6376,7 +6400,7 @@ def api_vpn_add_device():
         device_name = data.get('device_name')
         
         if not device_name:
-            return jsonify({'status': 'error', 'message': 'Device name is required'}), 400
+            return jsonify({'success': False, 'error': 'Device name is required'}), 400
         
         from modules import wireguard_manager as wg
         
@@ -6387,21 +6411,261 @@ def api_vpn_add_device():
         if result.get('success'):
             logger.info(f"VPN device '{device_name}' added successfully")
             return jsonify({
-                'status': 'success',
+                'success': True,
                 'message': f"Device '{device_name}' added successfully",
-                'data': result
+                'config': result.get('config_content', ''),
+                'client_ip': result.get('client_ip', ''),
+                'steps': result.get('steps', []),
+                'qr_code': result.get('export', {}).get('qr_code', None)
             })
         else:
             logger.error(f"Failed to add VPN device: {result.get('error')}")
             return jsonify({
-                'status': 'error',
-                'message': result.get('error', 'Unknown error'),
-                'data': result
+                'success': False,
+                'error': result.get('error', 'Unknown error'),
+                'steps': result.get('steps', [])
             }), 500
             
     except Exception as e:
         logger.error(f"Error adding VPN device: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/vpn/setup_server', methods=['POST'])
+def api_vpn_setup_server():
+    """API endpoint to set up VPN server."""
+    try:
+        data = request.get_json() or {}
+        endpoint = data.get('endpoint', '')
+        server_address = data.get('server_address', '10.0.0.1/24')
+        port = data.get('port', 51820)
+        
+        from modules import wireguard_manager as wg
+        
+        if not wg.is_wireguard_installed():
+            return jsonify({
+                'success': False,
+                'error': 'WireGuard is not installed',
+                'instructions': wg.get_installation_instructions()
+            }), 400
+        
+        # If no endpoint provided, try to auto-detect public IP
+        if not endpoint:
+            try:
+                import urllib.request
+                endpoint = urllib.request.urlopen('https://api.ipify.org', timeout=5).read().decode('utf8')
+            except Exception:
+                endpoint = 'your-server-ip'
+        
+        logger.info(f"Setting up VPN server: endpoint={endpoint}, address={server_address}, port={port}")
+        
+        result = run_async(wg.setup_wireguard_server(
+            server_endpoint=f"{endpoint}:{port}",
+            server_address=server_address,
+            listen_port=port
+        ))
+        
+        if result.get('success'):
+            # Save configuration to JSON for persistence
+            vpn_config_path = os.path.join(wg.WG_CONFIG_DIR, 'vpn_config.json')
+            os.makedirs(wg.WG_CONFIG_DIR, exist_ok=True)
+            
+            vpn_config = {
+                'role': 'server',
+                'endpoint': f"{endpoint}:{port}",
+                'address': server_address,
+                'port': port,
+                'public_key': result.get('public_key'),
+                'config_path': result.get('config_path'),
+                'peers': []
+            }
+            
+            with open(vpn_config_path, 'w') as f:
+                json.dump(vpn_config, f, indent=2)
+            
+            logger.info("VPN server configuration saved")
+            
+            return jsonify({
+                'success': True,
+                'message': 'VPN server configured successfully',
+                'public_key': result.get('public_key'),
+                'endpoint': f"{endpoint}:{port}",
+                'address': server_address
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': result.get('error', 'Unknown error')
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"Error setting up VPN server: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/vpn/start', methods=['POST'])
+def api_vpn_start():
+    """Start the VPN interface."""
+    try:
+        from modules import wireguard_manager as wg
+        
+        success, message = run_async(wg.start_interface())
+        
+        return jsonify({
+            'success': success,
+            'message': message
+        })
+    except Exception as e:
+        logger.error(f"Error starting VPN: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/vpn/stop', methods=['POST'])
+def api_vpn_stop():
+    """Stop the VPN interface."""
+    try:
+        from modules import wireguard_manager as wg
+        
+        success, message = run_async(wg.stop_interface())
+        
+        return jsonify({
+            'success': success,
+            'message': message
+        })
+    except Exception as e:
+        logger.error(f"Error stopping VPN: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/vpn/restart', methods=['POST'])
+def api_vpn_restart():
+    """Restart the VPN interface."""
+    try:
+        from modules import wireguard_manager as wg
+        
+        # Stop first
+        run_async(wg.stop_interface())
+        
+        # Brief pause
+        import time
+        time.sleep(1)
+        
+        # Start again
+        success, message = run_async(wg.start_interface())
+        
+        return jsonify({
+            'success': success,
+            'message': 'VPN restarted successfully' if success else message
+        })
+    except Exception as e:
+        logger.error(f"Error restarting VPN: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/vpn/remove_device', methods=['POST'])
+def api_vpn_remove_device():
+    """Remove a VPN device/peer."""
+    try:
+        data = request.get_json()
+        device_id = data.get('device_id')
+        
+        if device_id is None:
+            return jsonify({'success': False, 'error': 'Device ID is required'}), 400
+        
+        from modules import wireguard_manager as wg
+        
+        # Load VPN config
+        vpn_config_path = os.path.join(wg.WG_CONFIG_DIR, 'vpn_config.json')
+        if not os.path.exists(vpn_config_path):
+            return jsonify({'success': False, 'error': 'VPN configuration not found'}), 404
+        
+        with open(vpn_config_path, 'r') as f:
+            vpn_config = json.load(f)
+        
+        peers = vpn_config.get('peers', [])
+        device_idx = int(device_id)
+        
+        if device_idx < 0 or device_idx >= len(peers):
+            return jsonify({'success': False, 'error': 'Device not found'}), 404
+        
+        removed_peer = peers.pop(device_idx)
+        vpn_config['peers'] = peers
+        
+        # Save updated config
+        with open(vpn_config_path, 'w') as f:
+            json.dump(vpn_config, f, indent=2)
+        
+        logger.info(f"Removed VPN device: {removed_peer.get('name')}")
+        
+        # TODO: Also update the server .conf file to remove the peer
+        
+        return jsonify({
+            'success': True,
+            'message': f"Device '{removed_peer.get('name')}' removed"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error removing VPN device: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/vpn/client_config/<device_id>', methods=['GET'])
+def api_vpn_client_config(device_id):
+    """Get client configuration for a device."""
+    try:
+        from modules import wireguard_manager as wg
+        
+        # Load VPN config
+        vpn_config_path = os.path.join(wg.WG_CONFIG_DIR, 'vpn_config.json')
+        if not os.path.exists(vpn_config_path):
+            return jsonify({'success': False, 'error': 'VPN configuration not found'}), 404
+        
+        with open(vpn_config_path, 'r') as f:
+            vpn_config = json.load(f)
+        
+        peers = vpn_config.get('peers', [])
+        device_idx = int(device_id)
+        
+        if device_idx < 0 or device_idx >= len(peers):
+            return jsonify({'success': False, 'error': 'Device not found'}), 404
+        
+        peer = peers[device_idx]
+        safe_name = "".join(c for c in peer.get('name', 'client') if c.isalnum() or c in '-_').lower()
+        config_filename = f"client_{safe_name}.conf"
+        config_path = os.path.join(wg.WG_CONFIG_DIR, config_filename)
+        
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                config_content = f.read()
+            return jsonify({
+                'success': True,
+                'config': config_content,
+                'device_name': peer.get('name')
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Configuration file not found'}), 404
+            
+    except Exception as e:
+        logger.error(f"Error getting client config: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/vpn/quick_setup', methods=['GET'])
+def api_vpn_quick_setup():
+    """Get quick setup guide for VPN."""
+    try:
+        from modules import wireguard_manager as wg
+        
+        return jsonify({
+            'success': True,
+            'platform': wg._get_platform(),
+            'quick_guide': wg.get_quick_setup_guide(),
+            'termux_guide': wg.get_termux_wireguard_instructions() if wg._get_platform() == 'termux' else None,
+            'installation_instructions': wg.get_installation_instructions()
+        })
+    except Exception as e:
+        logger.error(f"Error getting quick setup: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 if __name__ == '__main__':

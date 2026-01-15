@@ -9968,8 +9968,11 @@ class ShopBuyView(discord.ui.View):
         """Show color role options."""
         await interaction.response.defer()
         
+        # Get user's currently equipped color
+        equipped_color = await db_helpers.get_user_equipped_color(self.member.id)
+        
         # Create a new view for color tier selection
-        view = ColorTierSelectView(self.member, self.config)
+        view = ColorTierSelectView(self.member, self.config, equipped_color)
         embed = discord.Embed(
             title="🎨 Farbrollen",
             description="Wähle eine Kategorie:",
@@ -9983,6 +9986,9 @@ class ShopBuyView(discord.ui.View):
         embed.add_field(name="Premium", value=f"{prices['premium']} {currency}", inline=True)
         embed.add_field(name="Legendary", value=f"{prices['legendary']} {currency}", inline=True)
         
+        if equipped_color:
+            embed.set_footer(text=f"Aktuelle Farbe: {equipped_color}")
+        
         await interaction.edit_original_response(embed=embed, view=view)
     
     @discord.ui.button(label="✨ Features", style=discord.ButtonStyle.success)
@@ -9990,15 +9996,22 @@ class ShopBuyView(discord.ui.View):
         """Show feature unlock options."""
         await interaction.response.defer()
         
-        view = FeatureSelectView(self.member, self.config)
+        # Get user's owned features
+        owned_features = []
+        features = self.config['modules']['economy']['shop']['features']
+        for feature in features.keys():
+            has_feature = await db_helpers.has_feature_unlock(self.member.id, feature)
+            if has_feature:
+                owned_features.append(feature)
+        
+        view = FeatureSelectView(self.member, self.config, owned_features)
         embed = discord.Embed(
             title="✨ Feature Unlocks",
-            description="Schalte spezielle Features frei!",
+            description="Schalte spezielle Features frei!\n\n✅ = Bereits erworben",
             color=discord.Color.green()
         )
         
         currency = self.config['modules']['economy']['currency_symbol']
-        features = self.config['modules']['economy']['shop']['features']
         
         # Define detailed feature descriptions
         feature_details = {
@@ -10023,24 +10036,38 @@ class ShopBuyView(discord.ui.View):
                 'desc': 'Spiele Word Find ohne tägliches Limit!'
             },
             'unlimited_wordle': {
-                'name': '🎮 Unlimited Wordle',
+                'name': '🎯 Unlimited Wordle',
                 'desc': 'Spiele Wordle ohne tägliches Limit!'
             },
             'rpg_access': {
                 'name': '⚔️ RPG System Access',
                 'desc': 'Zugriff auf das vollständige RPG-System mit Abenteuern!'
+            },
+            'songle_premium': {
+                'name': '🎵 Songle Premium',
+                'desc': 'Unbegrenzte Songle-Spiele pro Tag!'
+            },
+            'anidle_premium': {
+                'name': '🎬 Anidle Premium',
+                'desc': 'Unbegrenzte Anidle-Spiele pro Tag!'
             }
         }
         
         for feature, price in features.items():
             details = feature_details.get(feature, {'name': feature, 'desc': 'Feature unlock'})
+            is_owned = feature in owned_features
+            status = "✅" if is_owned else f"{price} {currency}"
             embed.add_field(
-                name=f"{details['name']} - {price} {currency}",
-                value=details['desc'],
+                name=f"{details['name']} - {status}",
+                value=details['desc'] + (" (Bereits erworben)" if is_owned else ""),
                 inline=False
             )
         
-        await interaction.edit_original_response(embed=embed, view=view)
+        if view.all_owned if hasattr(view, 'all_owned') else False:
+            embed.description = "🎉 Du besitzt bereits alle Features!"
+            await interaction.edit_original_response(embed=embed, view=None)
+        else:
+            await interaction.edit_original_response(embed=embed, view=view)
     
     @discord.ui.button(label="⚡ Boosts", style=discord.ButtonStyle.blurple)
     async def boosts_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -10217,10 +10244,11 @@ class ShopBuyView(discord.ui.View):
 class ColorTierSelectView(discord.ui.View):
     """View for selecting color tier."""
     
-    def __init__(self, member: discord.Member, config: dict):
+    def __init__(self, member: discord.Member, config: dict, equipped_color: str = None):
         super().__init__(timeout=120)
         self.member = member
         self.config = config
+        self.equipped_color = equipped_color
     
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.member.id:
@@ -10242,67 +10270,110 @@ class ColorTierSelectView(discord.ui.View):
     
     async def _show_colors(self, interaction: discord.Interaction, tier: str):
         await interaction.response.defer()
-        view = ColorSelectView(tier, self.config, self.member)
+        view = ColorSelectView(tier, self.config, self.member, self.equipped_color)
         embed = shop_module.create_color_selection_embed(tier, self.config)
+        
+        # Add info about currently equipped color if present
+        if self.equipped_color:
+            embed.set_footer(text=f"Aktuelle Farbe: {self.equipped_color} | Farben mit ✅ sind bereits ausgerüstet")
+        
         await interaction.edit_original_response(embed=embed, view=view)
 
 
 class FeatureSelectView(discord.ui.View):
     """View for selecting features to purchase."""
     
-    def __init__(self, member: discord.Member, config: dict):
+    def __init__(self, member: discord.Member, config: dict, owned_features: list = None):
         super().__init__(timeout=120)
         self.member = member
         self.config = config
+        self.owned_features = owned_features or []
         
         # Create select menu for features
         options = []
         features = config['modules']['economy']['shop']['features']
         feature_info = {
             'dm_access': {
-                'name': 'DM Access',
-                'description': 'Erlaube dem Bot, dir DMs zu senden'
+                'name': '💬 DM Access',
+                'description': 'Erlaube dem Bot, dir DMs zu senden',
+                'emoji': '💬'
             },
             'casino': {
-                'name': 'Casino',
-                'description': 'Spiele Blackjack, Roulette & mehr'
+                'name': '🎰 Casino',
+                'description': 'Spiele Blackjack, Roulette & mehr',
+                'emoji': '🎰'
             },
             'detective': {
-                'name': 'Detective Game',
-                'description': 'Löse spannende Kriminalfälle'
+                'name': '🔍 Detective Game',
+                'description': 'Löse spannende Kriminalfälle',
+                'emoji': '🔍'
             },
             'trolly': {
-                'name': 'Trolly Problem',
-                'description': 'Moralische Dilemmata'
+                'name': '🚃 Trolly Problem',
+                'description': 'Moralische Dilemmata',
+                'emoji': '🚃'
             },
             'unlimited_word_find': {
                 'name': '📝 Unlimited Word Find',
-                'description': 'Unbegrenztes Word Find Spiel'
+                'description': 'Unbegrenztes Word Find Spiel',
+                'emoji': '📝'
             },
             'unlimited_wordle': {
                 'name': '🎯 Unlimited Wordle',
-                'description': 'Unbegrenztes Wordle Spiel'
+                'description': 'Unbegrenztes Wordle Spiel',
+                'emoji': '🎯'
             },
             'rpg_access': {
                 'name': '⚔️ RPG System Access',
-                'description': 'Zugriff auf das vollständige RPG-System mit Abenteuern, Kämpfen und Items'
+                'description': 'Vollständiges RPG-System mit Abenteuern',
+                'emoji': '⚔️'
+            },
+            'songle_premium': {
+                'name': '🎵 Songle Premium',
+                'description': 'Unbegrenzte Songle-Spiele pro Tag!',
+                'emoji': '🎵'
+            },
+            'anidle_premium': {
+                'name': '🎬 Anidle Premium',
+                'description': 'Unbegrenzte Anidle-Spiele pro Tag!',
+                'emoji': '🎬'
             }
         }
         
+        # Filter out already owned features
+        available_features = []
         for feature, price in features.items():
-            info = feature_info.get(feature, {'name': feature, 'description': ''})
-            currency = config['modules']['economy']['currency_symbol']
-            options.append(
-                discord.SelectOption(
-                    label=info['name'],
-                    value=feature,
-                    description=f"{price} {currency} - {info['description']}"[:100]  # Discord has a 100 char limit
-                )
-            )
+            if feature not in self.owned_features:
+                available_features.append((feature, price))
         
-        select = discord.ui.Select(placeholder="Wähle ein Feature...", options=options)
-        select.callback = self.on_feature_select
-        self.add_item(select)
+        if not available_features:
+            # All features owned - show a message instead
+            self.all_owned = True
+        else:
+            self.all_owned = False
+            for feature, price in available_features:
+                info = feature_info.get(feature, {'name': feature, 'description': '', 'emoji': '✨'})
+                currency = config['modules']['economy']['currency_symbol']
+                
+                # Special styling for premium game features
+                if feature in ['songle_premium', 'anidle_premium']:
+                    label = f"⭐ {info['name']}"
+                else:
+                    label = info['name']
+                
+                options.append(
+                    discord.SelectOption(
+                        label=label,
+                        value=feature,
+                        description=f"{price} {currency} - {info['description']}"[:100],
+                        emoji=info.get('emoji', '✨')
+                    )
+                )
+            
+            if options:
+                select = discord.ui.Select(placeholder="Wähle ein Feature...", options=options)
+                select.callback = self.on_feature_select
+                self.add_item(select)
     
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.member.id:
@@ -10832,11 +10903,12 @@ class BundleSelectView(discord.ui.View):
 
 
 class ColorSelectView(discord.ui.View):
-    def __init__(self, tier: str, config: dict, member: discord.Member):
+    def __init__(self, tier: str, config: dict, member: discord.Member, equipped_color: str = None):
         super().__init__(timeout=60)
         self.tier = tier
         self.config = config
         self.member = member
+        self.equipped_color = equipped_color
         colors = config['modules']['economy']['shop']['color_roles']
         color_map = {
             'basic': colors['basic_colors'],
@@ -10856,10 +10928,22 @@ class ColorSelectView(discord.ui.View):
         for idx, hex_color in enumerate(available_colors[:25], start=1):
             # Get color name if available, otherwise use hex
             color_name = color_names[idx-1] if idx-1 < len(color_names) else hex_color
+            
+            # Check if this is the currently equipped color
+            is_equipped = equipped_color and equipped_color.lower() == hex_color.lower()
+            
+            if is_equipped:
+                label = f"✅ {color_name} (Ausgerüstet)"
+                description = f"{hex_color} - Bereits ausgerüstet"
+            else:
+                label = color_name
+                description = hex_color
+            
             options.append(discord.SelectOption(
-                label=f"{color_name}",
-                description=hex_color,
-                value=hex_color
+                label=label[:100],  # Discord limit
+                description=description[:100],
+                value=hex_color,
+                default=is_equipped
             ))
 
         # Create the select menu with the callback
@@ -10879,6 +10963,13 @@ class ColorSelectView(discord.ui.View):
         select = [item for item in self.children if isinstance(item, discord.ui.Select)][0]
         await interaction.response.defer(ephemeral=True)
         hex_color = select.values[0]
+        
+        # Check if trying to buy already equipped color
+        if self.equipped_color and self.equipped_color.lower() == hex_color.lower():
+            await interaction.followup.send("❌ Du hast diese Farbe bereits ausgerüstet!", ephemeral=True)
+            self.stop()
+            return
+        
         prices = self.config['modules']['economy']['shop']['color_roles']['prices']
         price = prices.get(self.tier, 0)
         success, message, role = await shop_module.purchase_color_role(db_helpers, interaction.user, hex_color, self.tier, price, self.config)
@@ -14635,6 +14726,17 @@ class SongleGuessModal(discord.ui.Modal, title="Guess the Song"):
             if not self.game.is_active:
                 del songle.active_songle_games[self.game.player_id]
                 view = None
+                
+                # Check if we should leave voice channel after game ends
+                try:
+                    if interaction.guild.voice_client:
+                        voice_client = interaction.guild.voice_client
+                        # If bot is in voice and channel is empty (except bot), start auto-disconnect
+                        if await lofi_player.check_voice_channel_empty(voice_client):
+                            logger.info(f"Songle game ended, starting voice disconnect timer for guild {interaction.guild.id}")
+                            lofi_player.start_auto_disconnect_check(interaction.guild.id, voice_client)
+                except Exception as vc_e:
+                    logger.debug(f"Could not check voice after Songle game: {vc_e}")
             else:
                 view = SongleGameView(self.game)
             
@@ -14661,7 +14763,14 @@ class SongleGameView(discord.ui.View):
     @discord.ui.button(label="🎧 Listen", style=discord.ButtonStyle.success)
     async def listen_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         """Play a clip of the song in voice channel."""
+        # Immediately acknowledge with a loading message
         await interaction.response.defer(ephemeral=True)
+        
+        # Send loading indicator first - this provides instant feedback
+        loading_msg = await interaction.followup.send(
+            "⏳ **Loading audio clip...** Please wait, this may take a few seconds.",
+            ephemeral=True
+        )
         
         try:
             # Get clip duration based on current attempt
@@ -14675,21 +14784,19 @@ class SongleGameView(discord.ui.View):
             )
             
             if success:
-                await interaction.followup.send(
-                    f"🔊 {message} Listen carefully and guess the song!",
-                    ephemeral=True
+                # Edit the loading message with success
+                await loading_msg.edit(
+                    content=f"🔊 {message} Listen carefully and guess the song!"
                 )
             else:
-                await interaction.followup.send(
-                    f"❌ {message}",
-                    ephemeral=True
+                await loading_msg.edit(
+                    content=f"❌ {message}"
                 )
                 
         except Exception as e:
             logger.error(f"Error in songle listen button: {e}", exc_info=True)
-            await interaction.followup.send(
-                "An error occurred while playing the clip. Make sure you're in a voice channel!",
-                ephemeral=True
+            await loading_msg.edit(
+                content="An error occurred while playing the clip. Make sure you're in a voice channel!"
             )
     
     @discord.ui.button(label="Guess", style=discord.ButtonStyle.primary)
@@ -14706,6 +14813,17 @@ class SongleGameView(discord.ui.View):
         
         if self.game.player_id in songle.active_songle_games:
             del songle.active_songle_games[self.game.player_id]
+        
+        # Check if we should leave voice channel after game ends
+        try:
+            if interaction.guild.voice_client:
+                voice_client = interaction.guild.voice_client
+                # If bot is in voice and channel is empty (except bot), start auto-disconnect
+                if await lofi_player.check_voice_channel_empty(voice_client):
+                    logger.info(f"Songle game skipped, starting voice disconnect timer for guild {interaction.guild.id}")
+                    lofi_player.start_auto_disconnect_check(interaction.guild.id, voice_client)
+        except Exception as vc_e:
+            logger.debug(f"Could not check voice after Songle skip: {vc_e}")
         
         await interaction.response.edit_message(content="Game skipped!", embed=embed, view=None)
     

@@ -163,7 +163,10 @@
                 <div class="card-body p-3">
                     <div class="d-grid gap-2">
                         <button class="btn btn-outline-secondary" onclick="generateServerConfig()">
-                            <i class="bi bi-file-code"></i> Generate Server Config
+                            <i class="bi bi-file-code"></i> Setup VPN Server
+                        </button>
+                        <button class="btn btn-outline-secondary" onclick="showQuickSetup()">
+                            <i class="bi bi-book"></i> Quick Setup Guide
                         </button>
                         <button class="btn btn-outline-secondary" onclick="showServerQR()">
                             <i class="bi bi-qr-code"></i> Show Server QR Code
@@ -220,11 +223,60 @@
                                placeholder="Discord user ID for linking">
                     </div>
                 </form>
+                <div id="add-device-status" class="alert alert-info" style="display: none;">
+                    <i class="bi bi-hourglass-split"></i> Creating device configuration...
+                </div>
             </div>
             <div class="modal-footer border-0">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-vpn" onclick="addDevice()">
+                <button type="button" class="btn btn-vpn" id="add-device-btn" onclick="addDevice()">
                     <i class="bi bi-plus-lg"></i> Create Device
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Server Setup Modal -->
+<div class="modal fade" id="serverSetupModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content" style="background: var(--bg-secondary);">
+            <div class="modal-header border-0">
+                <h5 class="modal-title"><i class="bi bi-hdd-network"></i> VPN Server Setup</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info">
+                    <i class="bi bi-info-circle"></i> This will configure your machine as a WireGuard VPN server.
+                    Make sure to forward UDP port 51820 on your router.
+                </div>
+                <form id="server-setup-form">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Public Endpoint (IP or Domain)</label>
+                            <input type="text" class="form-control" id="server-endpoint" 
+                                   placeholder="Leave empty to auto-detect">
+                            <small class="text-muted">Your public IP address or domain name</small>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">UDP Port</label>
+                            <input type="number" class="form-control" id="server-port" 
+                                   value="51820" min="1024" max="65535">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">VPN Network Address</label>
+                        <input type="text" class="form-control" id="server-address" 
+                               value="10.0.0.1/24">
+                        <small class="text-muted">Private network range for VPN clients</small>
+                    </div>
+                </form>
+                <div id="server-setup-status" class="alert" style="display: none;"></div>
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-vpn" id="setup-server-btn" onclick="setupServer()">
+                    <i class="bi bi-gear"></i> Setup Server
                 </button>
             </div>
         </div>
@@ -240,17 +292,44 @@
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <div class="mb-3">
-                    <label class="form-label">Configuration File</label>
-                    <pre id="config-content" class="config-box"></pre>
+                <div class="row">
+                    <div class="col-md-8">
+                        <label class="form-label">Configuration File</label>
+                        <pre id="config-content" class="config-box"></pre>
+                    </div>
+                    <div class="col-md-4 text-center" id="qr-container" style="display: none;">
+                        <label class="form-label">Scan with WireGuard App</label>
+                        <img id="qr-code-image" src="" alt="QR Code" class="img-fluid rounded" style="max-width: 200px;">
+                    </div>
                 </div>
-                <div class="d-flex gap-2">
+                <div class="d-flex gap-2 mt-3">
                     <button class="btn btn-vpn" onclick="copyConfig()">
                         <i class="bi bi-clipboard"></i> Copy to Clipboard
                     </button>
                     <button class="btn btn-outline-secondary" onclick="downloadConfig()">
                         <i class="bi bi-download"></i> Download .conf File
                     </button>
+                </div>
+                <div id="setup-steps" class="mt-3" style="display: none;">
+                    <h6>Setup Instructions:</h6>
+                    <div id="setup-steps-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Quick Setup Modal -->
+<div class="modal fade" id="quickSetupModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content" style="background: var(--bg-secondary);">
+            <div class="modal-header border-0">
+                <h5 class="modal-title"><i class="bi bi-lightning"></i> Quick Setup Guide</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="quick-setup-content">
+                    <p class="text-muted">Loading setup guide...</p>
                 </div>
             </div>
         </div>
@@ -260,6 +339,7 @@
 <script>
     let currentConfig = '';
     let currentDeviceName = '';
+    let currentSteps = [];
 
     document.addEventListener('DOMContentLoaded', function() {
         refreshStatus();
@@ -276,18 +356,20 @@
             const installedBadge = document.getElementById('wg-installed-badge');
             
             if (data.wireguard_installed) {
-                wgStatus.textContent = 'Installed';
-                installedBadge.className = 'badge bg-success';
-                installedBadge.textContent = 'Available';
+                wgStatus.textContent = data.interface_active ? 'Running' : 'Installed (Stopped)';
+                installedBadge.className = data.interface_active ? 'badge bg-success' : 'badge bg-warning';
+                installedBadge.textContent = data.interface_active ? 'Active' : 'Inactive';
             } else {
                 wgStatus.textContent = 'Not Installed';
-                installedBadge.className = 'badge bg-warning';
+                installedBadge.className = 'badge bg-danger';
                 installedBadge.textContent = 'Not Available';
             }
             
             // Update server info
             if (data.server_address) {
                 document.getElementById('server-address').textContent = data.server_address;
+            } else {
+                document.getElementById('server-address').textContent = 'Not configured';
             }
             if (data.port) {
                 document.getElementById('server-port').textContent = `Port: ${data.port}`;
@@ -332,10 +414,10 @@
                     <small class="text-muted">IP: ${client.assigned_ip || 'N/A'}</small>
                 </div>
                 <div class="d-flex gap-2">
-                    <button class="btn btn-sm btn-outline-primary" onclick="showClientConfig('${client.id}')">
+                    <button class="btn btn-sm btn-outline-primary" onclick="showClientConfig('${client.id}')" title="View Config">
                         <i class="bi bi-file-code"></i>
                     </button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="removeClient('${client.id}')">
+                    <button class="btn btn-sm btn-outline-danger" onclick="removeClient('${client.id}')" title="Remove">
                         <i class="bi bi-trash"></i>
                     </button>
                 </div>
@@ -344,6 +426,9 @@
     }
 
     function openAddDevice() {
+        document.getElementById('device-name').value = '';
+        document.getElementById('discord-user-id').value = '';
+        document.getElementById('add-device-status').style.display = 'none';
         const modal = new bootstrap.Modal(document.getElementById('addDeviceModal'));
         modal.show();
     }
@@ -356,6 +441,10 @@
             alert('Please enter a device name');
             return;
         }
+        
+        // Show loading state
+        document.getElementById('add-device-status').style.display = 'block';
+        document.getElementById('add-device-btn').disabled = true;
         
         try {
             const response = await fetch('/api/vpn/add_device', {
@@ -373,18 +462,40 @@
                 if (data.config) {
                     currentConfig = data.config;
                     currentDeviceName = name;
+                    currentSteps = data.steps || [];
                     document.getElementById('config-content').textContent = data.config;
+                    
+                    // Show QR code if available
+                    if (data.qr_code) {
+                        document.getElementById('qr-container').style.display = 'block';
+                        document.getElementById('qr-code-image').src = 'data:image/png;base64,' + data.qr_code;
+                    } else {
+                        document.getElementById('qr-container').style.display = 'none';
+                    }
+                    
+                    // Show setup steps
+                    if (currentSteps.length > 0) {
+                        document.getElementById('setup-steps').style.display = 'block';
+                        document.getElementById('setup-steps-list').innerHTML = currentSteps.map(step => `<p class="mb-1">${step}</p>`).join('');
+                    } else {
+                        document.getElementById('setup-steps').style.display = 'none';
+                    }
+                    
                     const configModal = new bootstrap.Modal(document.getElementById('configModal'));
                     configModal.show();
                 }
                 
                 refreshStatus();
             } else {
-                alert('Failed to add device: ' + (data.error || 'Unknown error'));
+                document.getElementById('add-device-status').className = 'alert alert-danger';
+                document.getElementById('add-device-status').innerHTML = '<i class="bi bi-x-circle"></i> ' + (data.error || 'Unknown error');
             }
         } catch (error) {
             console.error('Error adding device:', error);
-            alert('Error adding device');
+            document.getElementById('add-device-status').className = 'alert alert-danger';
+            document.getElementById('add-device-status').innerHTML = '<i class="bi bi-x-circle"></i> Error adding device';
+        } finally {
+            document.getElementById('add-device-btn').disabled = false;
         }
     }
 
@@ -407,31 +518,157 @@
     }
 
     async function showClientConfig(clientId) {
-        // This would fetch the client config from the API
-        alert('Feature coming soon!');
+        try {
+            const response = await fetch(`/api/vpn/client_config/${clientId}`);
+            const data = await response.json();
+            
+            if (data.success) {
+                currentConfig = data.config;
+                currentDeviceName = data.device_name || 'client';
+                document.getElementById('config-content').textContent = data.config;
+                document.getElementById('qr-container').style.display = 'none';
+                document.getElementById('setup-steps').style.display = 'none';
+                
+                const configModal = new bootstrap.Modal(document.getElementById('configModal'));
+                configModal.show();
+            } else {
+                alert('Could not load configuration: ' + (data.error || 'Unknown error'));
+            }
+        } catch (error) {
+            console.error('Error loading config:', error);
+            alert('Error loading configuration');
+        }
     }
 
     async function removeClient(clientId) {
-        if (!confirm('Are you sure you want to remove this VPN client?')) {
+        if (!confirm('Are you sure you want to remove this VPN client? This cannot be undone.')) {
             return;
         }
-        // This would call the API to remove the client
-        alert('Feature coming soon!');
+        
+        try {
+            const response = await fetch('/api/vpn/remove_device', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ device_id: clientId })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                alert('Device removed successfully');
+                refreshStatus();
+            } else {
+                alert('Failed to remove device: ' + (data.error || 'Unknown error'));
+            }
+        } catch (error) {
+            console.error('Error removing device:', error);
+            alert('Error removing device');
+        }
     }
 
     function generateServerConfig() {
-        alert('Feature coming soon!');
+        const modal = new bootstrap.Modal(document.getElementById('serverSetupModal'));
+        document.getElementById('server-setup-status').style.display = 'none';
+        modal.show();
     }
 
-    function showServerQR() {
-        alert('Feature coming soon!');
+    async function setupServer() {
+        const endpoint = document.getElementById('server-endpoint').value.trim();
+        const port = parseInt(document.getElementById('server-port').value) || 51820;
+        const address = document.getElementById('server-address').value.trim() || '10.0.0.1/24';
+        
+        const statusDiv = document.getElementById('server-setup-status');
+        statusDiv.className = 'alert alert-info';
+        statusDiv.innerHTML = '<i class="bi bi-hourglass-split"></i> Setting up VPN server...';
+        statusDiv.style.display = 'block';
+        document.getElementById('setup-server-btn').disabled = true;
+        
+        try {
+            const response = await fetch('/api/vpn/setup_server', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    endpoint: endpoint,
+                    port: port,
+                    server_address: address
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                statusDiv.className = 'alert alert-success';
+                statusDiv.innerHTML = `<i class="bi bi-check-circle"></i> Server configured successfully!<br>
+                    <strong>Public Key:</strong> ${data.public_key}<br>
+                    <strong>Endpoint:</strong> ${data.endpoint}<br>
+                    <strong>Address:</strong> ${data.address}<br><br>
+                    Don't forget to forward UDP port ${port} on your router!`;
+                refreshStatus();
+            } else {
+                statusDiv.className = 'alert alert-danger';
+                statusDiv.innerHTML = '<i class="bi bi-x-circle"></i> ' + (data.error || 'Failed to setup server');
+            }
+        } catch (error) {
+            console.error('Error setting up server:', error);
+            statusDiv.className = 'alert alert-danger';
+            statusDiv.innerHTML = '<i class="bi bi-x-circle"></i> Error setting up server';
+        } finally {
+            document.getElementById('setup-server-btn').disabled = false;
+        }
     }
 
-    function restartVPN() {
+    async function showServerQR() {
+        alert('Server QR code feature coming soon!');
+    }
+
+    async function restartVPN() {
         if (!confirm('Are you sure you want to restart the VPN service?')) {
             return;
         }
-        alert('Feature coming soon!');
+        
+        try {
+            const response = await fetch('/api/vpn/restart', {
+                method: 'POST'
+            });
+            const data = await response.json();
+            
+            if (data.success) {
+                alert('VPN service restarted successfully!');
+                refreshStatus();
+            } else {
+                alert('Failed to restart VPN: ' + (data.message || 'Unknown error'));
+            }
+        } catch (error) {
+            console.error('Error restarting VPN:', error);
+            alert('Error restarting VPN service');
+        }
+    }
+
+    async function showQuickSetup() {
+        try {
+            const response = await fetch('/api/vpn/quick_setup');
+            const data = await response.json();
+            
+            if (data.success) {
+                const content = document.getElementById('quick-setup-content');
+                let html = `<div class="mb-3"><strong>Platform:</strong> <span class="badge bg-info">${data.platform}</span></div>`;
+                
+                if (data.quick_guide) {
+                    html += `<div class="card mb-3"><div class="card-body"><pre style="white-space: pre-wrap;">${data.quick_guide}</pre></div></div>`;
+                }
+                
+                if (data.termux_guide) {
+                    html += `<div class="card"><div class="card-header">Termux-Specific Instructions</div><div class="card-body"><pre style="white-space: pre-wrap;">${data.termux_guide}</pre></div></div>`;
+                }
+                
+                content.innerHTML = html;
+                
+                const modal = new bootstrap.Modal(document.getElementById('quickSetupModal'));
+                modal.show();
+            }
+        } catch (error) {
+            console.error('Error loading quick setup:', error);
+        }
     }
 </script>
 {% endblock %}
