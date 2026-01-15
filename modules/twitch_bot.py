@@ -7,6 +7,8 @@ Modular Twitch integration with:
 - User tracking and follows
 - Auto category changing
 - Stream metadata management
+
+Requires aiohttp package: pip install aiohttp
 """
 
 import asyncio
@@ -15,9 +17,19 @@ import os
 import re
 import time
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Callable, Any, Tuple
+from typing import Dict, List, Optional, Callable, Any, Tuple, TYPE_CHECKING
 from collections import defaultdict
-import aiohttp
+
+# Try to import aiohttp - it's required for Twitch API calls
+try:
+    import aiohttp
+    AIOHTTP_AVAILABLE = True
+except ImportError:
+    AIOHTTP_AVAILABLE = False
+
+# For type checking only (when aiohttp is not installed)
+if TYPE_CHECKING:
+    import aiohttp
 
 # For Twitch IRC connection
 import socket
@@ -26,6 +38,11 @@ import ssl as ssl_module
 from modules.logger_utils import get_logger
 
 logger = get_logger('twitch')
+
+# Log if aiohttp is not available
+if not AIOHTTP_AVAILABLE:
+    logger.warning("aiohttp is not installed. Twitch bot functionality will be limited.")
+    logger.warning("To enable full Twitch bot features, install aiohttp: pip install aiohttp")
 
 # ==============================================================================
 # Configuration and Constants
@@ -271,8 +288,8 @@ class TwitchBot:
         self.reader = None
         self.writer = None
 
-        # API session
-        self.api_session: Optional[aiohttp.ClientSession] = None
+        # API session (requires aiohttp)
+        self.api_session: Optional['aiohttp.ClientSession'] = None
         self.access_token = None
 
         # Event callbacks
@@ -356,6 +373,11 @@ class TwitchBot:
 
     async def _init_api_session(self):
         """Initialize Twitch API session"""
+        if not AIOHTTP_AVAILABLE:
+            logger.warning("aiohttp not available - Twitch API features disabled")
+            logger.warning("Install aiohttp with: pip install aiohttp")
+            return
+
         self.api_session = aiohttp.ClientSession()
 
         # Get access token if client credentials are provided
@@ -364,6 +386,10 @@ class TwitchBot:
 
     async def _get_access_token(self):
         """Get Twitch API access token"""
+        if not self.api_session:
+            logger.debug("API session not available, skipping access token retrieval")
+            return
+
         try:
             params = {
                 'client_id': self.config.get('client_id'),
@@ -630,7 +656,7 @@ class TwitchBot:
             try:
                 await asyncio.sleep(60)  # Check every minute
 
-                if not self.access_token:
+                if not self.access_token or not self.api_session:
                     continue
 
                 # Get stream info from API

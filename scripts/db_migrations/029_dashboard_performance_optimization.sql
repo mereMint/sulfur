@@ -120,9 +120,10 @@ CALL add_index_if_not_exists_029('stock_transactions', 'idx_stock_transactions_t
 -- ============================================================================
 
 -- RPG players
+-- Note: rpg_players table uses 'xp' column, not 'experience'
 CALL add_index_if_not_exists_029('rpg_players', 'idx_rpg_players_user_id', '(user_id)');
 CALL add_index_if_not_exists_029('rpg_players', 'idx_rpg_players_level', '(level DESC)');
-CALL add_index_if_not_exists_029('rpg_players', 'idx_rpg_players_exp', '(experience DESC)');
+CALL add_index_if_not_exists_029('rpg_players', 'idx_rpg_players_xp', '(xp DESC)');
 
 -- RPG items
 CALL add_index_if_not_exists_029('rpg_items', 'idx_rpg_items_created_by', '(created_by)');

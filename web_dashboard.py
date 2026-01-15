@@ -1898,8 +1898,8 @@ def api_recent_activity():
                         CONCAT(
                             'Mines - Bet: ', bet_amount, ' | ', 
                             CASE 
-                                WHEN COALESCE(won, 0) = 1 THEN CONCAT('Won ', COALESCE(payout, won_amount))
-                                WHEN result IN ('win', 'won', 'cashed_out') THEN CONCAT('Won ', COALESCE(payout, won_amount))
+                                WHEN COALESCE(won, 0) = 1 THEN CONCAT('Won ', COALESCE(payout, 0))
+                                WHEN result IN ('win', 'won', 'cashed_out') THEN CONCAT('Won ', COALESCE(payout, 0))
                                 ELSE 'Lost'
                             END
                         ) as preview,
@@ -1923,7 +1923,7 @@ def api_recent_activity():
                             WHEN survived = 1 THEN 
                                 CONCAT('Russian Roulette - Survived ', 
                                        COALESCE(shots_survived, 1), 
-                                       ' shots, won ', won_amount)
+                                       ' shots, won ', COALESCE(payout, 0))
                             ELSE 'Russian Roulette - Lost'
                         END as preview,
                         played_at as activity_time,
